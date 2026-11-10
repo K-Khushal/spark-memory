@@ -1,11 +1,9 @@
 // `pnpm --filter @spark/db db:seed`: fills the local database with a demo Library.
 // Later tickets add the demo Memories here; for now it only proves the connection.
-import { existsSync } from "node:fs";
+import { loadRootEnv } from "@spark/config/load-env";
 import { checkDatabase } from "../index";
 
-const rootEnv = new URL("../../../.env", import.meta.url);
-if (!process.env.DATABASE_URL && existsSync(rootEnv))
-  process.loadEnvFile(rootEnv);
+loadRootEnv();
 
 const url = process.env.DATABASE_URL;
 if (!url)

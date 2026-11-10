@@ -1,7 +1,11 @@
 {
   "extends": "@spark/config/tsconfig.react.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@spark/ui/lib": ["./lib"],
+      "@spark/ui/lib/*": ["./lib/*"]
+    }
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]

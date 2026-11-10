@@ -2,8 +2,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   contrastRatio,
+  EASING,
   NEUTRAL_TOKENS,
   oklch,
+  RADIUS,
+  TYPE_SCALE,
   THEMES,
   type ThemeName,
 } from "../tokens";
@@ -51,6 +54,62 @@ describe("browser chrome", () => {
       expect(meta?.[1]?.toLowerCase()).toBe(THEMES[name].canvas.toLowerCase());
     }
   );
+});
+
+/** `inOut` → `in-out`, the way CSS names the easing curves. */
+const kebab = (name: string) =>
+  name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+
+/** The value of one custom property inside the first `@theme {` block. */
+function themeValue(property: string): string {
+  const match = new RegExp(`${property}: ([^;]+);`).exec(block("@theme"));
+  if (!match) throw new Error(`No ${property} in the @theme block`);
+  return match[1]!.trim();
+}
+
+describe("shape and motion tokens", () => {
+  it.each(Object.entries(RADIUS))(
+    "radius %s matches --radius-%s",
+    (name, px) => {
+      expect(themeValue(`--radius-${name}`)).toBe(`${px}px`);
+    }
+  );
+
+  it.each(Object.entries(EASING))(
+    "easing %s matches its CSS curve",
+    (name, curve) => {
+      expect(themeValue(`--ease-${kebab(name)}`)).toBe(
+        `cubic-bezier(${curve.join(", ")})`
+      );
+    }
+  );
+
+  it.each(Object.entries(TYPE_SCALE))(
+    "type step %s matches --text-%s",
+    (name, step) => {
+      expect(themeValue(`--text-${name}`)).toBe(`${step.size / 16}rem`);
+      expect(themeValue(`--text-${name}--line-height`)).toBe(
+        `${step.leading / 16}rem`
+      );
+    }
+  );
+
+  it("declares no radius, easing or type step the tokens lack", () => {
+    const theme = block("@theme");
+    const names = (prefix: string) =>
+      [
+        ...theme.matchAll(
+          new RegExp(`--${prefix}-([a-z0-9-]+?)(?:--line-height)?:`, "g")
+        ),
+      ]
+        .map((m) => m[1]!)
+        .filter((n) => n !== "*" && n !== "full");
+    expect(new Set(names("radius"))).toEqual(new Set(Object.keys(RADIUS)));
+    expect(new Set(names("text"))).toEqual(new Set(Object.keys(TYPE_SCALE)));
+    expect(new Set(names("ease"))).toEqual(
+      new Set(Object.keys(EASING).map(kebab))
+    );
+  });
 });
 
 describe("oklch", () => {
