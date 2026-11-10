@@ -1,35 +1,41 @@
 {
   "version": 1,
   "skills": {
+    "alignment": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/alignment/SKILL.md",
+      "computedHash": "9f726a0e055c1bdb1f47e04a60b8e77078fb1fe93384a7bec52f47ac0c08fb7a"
+    },
     "animate": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/animate/SKILL.md",
-      "computedHash": "f76ddd3d4446c3c56a143ea98650c370b3e8f88e6203d1e22082d2082bf1eed7"
+      "computedHash": "67ef7fff1195882a60122c8bd78695fd464b024ea8e46660e6290c41908ac234"
     },
     "animate-expo": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/animate-expo/SKILL.md",
-      "computedHash": "5de09593d564091f9db60aabede7bed760251e118548272050a247c653c417d2"
+      "computedHash": "b36166e5d7f6211524e141d28c352613e91345f18897d72f462b05fe3e06af77"
     },
     "animation-performance": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/animation-performance/SKILL.md",
-      "computedHash": "333f6a387124d0eda927614671f8be3a00d1ddeb9f43cf8b7fa7032630414311"
+      "computedHash": "645adb551477807a970ad5a0a16084f2831fac020daeb76ec8db6e296a28f114"
     },
     "animation-vocabulary": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/animation-vocabulary/SKILL.md",
-      "computedHash": "0058036865ecbb864fd0c4132efcc62425355d6e99c7e6ef6a936742d62a5dea"
+      "computedHash": "db8d75be4476de0519707144233bc9d1b3b080283fc60dfb2ac310d010746888"
     },
     "apple-design": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/apple-design/SKILL.md",
-      "computedHash": "0190417d092a0df447b000154e39733ea6d97efad6d3bec8a6ce3845aeb88914"
+      "computedHash": "b1e95692fccbc58dfed00562d0e2c9a327f0e1474dd8e81aeb2d5fefb86c2fa7"
     },
     "ask-matt": {
       "source": "mattpocock/skills",
@@ -38,10 +44,22 @@
       "computedHash": "d1c5b4151720e96135154bd593ac4986a1030a2bc81e2aaf129f8b11224af9a9"
     },
     "ask-sonner": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/ask-sonner/SKILL.md",
-      "computedHash": "8bd257b845985f4b35b603b510a126604176521094af79c4b7347ffeb8a8f7ab"
+      "computedHash": "b7f7705b63a9534b76094cc957217ad39d3a520c856e27d56dbe4a5e1ced9b41"
+    },
+    "audit": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/audit/SKILL.md",
+      "computedHash": "44adff34e2627c1d8c245bc277a96e5f1d98f53090ad25c748923efe0865b4eb"
+    },
+    "avatar": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/avatar/SKILL.md",
+      "computedHash": "829dd299d35664626e105aeea03c30d4f76f000d929098bb388495c61ff087e2"
     },
     "better-interface": {
       "source": "jakubkrehel/skills",
@@ -49,11 +67,23 @@
       "skillPath": "skills/better-interface/SKILL.md",
       "computedHash": "c4f8a7862c00e63ae0df73fa29137f01a7fdd16354919e718dcf7e9f1a3f9445"
     },
+    "blank-page": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/blank-page/SKILL.md",
+      "computedHash": "16cb62ff4407bff2bb1dbe703209e6d936858494397954d1429fd321ece68971"
+    },
+    "bots": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/bots/SKILL.md",
+      "computedHash": "89f9799ec2cde9a54146a8158d64e0b07534fedf32fdfbe1da1cb2f24913a854"
+    },
     "break-ui": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/break-ui/SKILL.md",
-      "computedHash": "60ada67662925f4df5e3c6ff41cac3ab241b66f8898100a5ffcd7ba7196cb868"
+      "computedHash": "d46e03a934aa78bda6d8e7ed3fdcd253d69334ce3d29087a1612740dfb023d67"
     },
     "chief-of-staff": {
       "source": "mattpocock/skills",
@@ -85,6 +115,30 @@
       "skillPath": "skills/engineering/codebase-design/SKILL.md",
       "computedHash": "aa11a96c08451f4ff86052d5da94004a8c97bb4ea41b2ac8a4300c189f66c89c"
     },
+    "color": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/color/SKILL.md",
+      "computedHash": "23ace4084b422aa764d894f8c839558e2262ad46f7f4c0906308315c478416ea"
+    },
+    "copy": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/copy/SKILL.md",
+      "computedHash": "55b2c214e21c00deb702bcb191c14b8eb668649535f115691120a13f836f3de5"
+    },
+    "deconstruct": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/deconstruct/SKILL.md",
+      "computedHash": "8a5d2c6ca4b297c1a861b38c77bfab81ad31c131267374f76406ec2eb113bcca"
+    },
+    "defaults": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/defaults/SKILL.md",
+      "computedHash": "3c265fceba5b5e15b3cb9690849a06220ad0b8de62d92e78c7946c246d8cf41b"
+    },
     "diagnosing-bugs": {
       "source": "mattpocock/skills",
       "sourceType": "github",
@@ -98,10 +152,10 @@
       "computedHash": "b3eb40152b81f0c98fd2095a023c019452dbdce56f7540cc67fece2972db8369"
     },
     "emil-design-eng": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/emil-design-eng/SKILL.md",
-      "computedHash": "2483020b5bbaab030d6b3463bfba49c8d9c2cd8dea4d9fba836dbd471f1fb706"
+      "computedHash": "35f273b087dba8af228e4424d2fe5ec1dd0f42b370e1d81e63e3f11d07cb03f2"
     },
     "factory-orchestrate": {
       "source": "K-Khushal/factory-orchestrate",
@@ -110,16 +164,28 @@
       "computedHash": "5daa46aa782d393577c41d6e13a21755b745630f9a58dae796579fe664238d63"
     },
     "find-animation-opportunities": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/find-animation-opportunities/SKILL.md",
-      "computedHash": "465d087c41768e4f14ed640dd049036009f613feb55baaa5831b68b33178f9d2"
+      "computedHash": "73392b7d5a5a45212ddb9d89f9bfac8ce2ea3375e4c3bc216e264e316188bb06"
+    },
+    "frames": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/frames/SKILL.md",
+      "computedHash": "73958d38a525916ceb61605cb45a18573e535de48a3b59162305fd4ee928600e"
     },
     "frontend-design": {
       "source": "anthropics/skills",
       "sourceType": "github",
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "89496d5dd00f4810205f351759594fc2742bf8eea85a2f2b2d1de59f4bd91576"
+    },
+    "gather": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/gather/SKILL.md",
+      "computedHash": "6491533e28b4e198ccc2f951c46f576b838a0e79d25d4ee73db035bd8f8635b4"
     },
     "gestures": {
       "source": "emilkowalski/skills",
@@ -157,6 +223,12 @@
       "skillPath": "skills/productivity/handoff/SKILL.md",
       "computedHash": "8ebcf017c0a59681f3c2f1ebf90e32f481954a068181a75151c44aa2c55de4b4"
     },
+    "icons": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/icons/SKILL.md",
+      "computedHash": "f115ece555ed644bbd0121a498f80c630706c1bd9440ff6915be8b890688caf9"
+    },
     "impeccable": {
       "source": "pbakaus/impeccable",
       "sourceType": "github",
@@ -176,10 +248,10 @@
       "computedHash": "0ccc13c6766b0e5f55229c8f1252d004090da70e6610b4c324cd245970fcb3f1"
     },
     "improve-animations": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/improve-animations/SKILL.md",
-      "computedHash": "f6652a3bb94950baa33c684cc0966c838eb65cf22ebb5769a4f51ea205c254fe"
+      "computedHash": "5159661bd510b916a99648668853270079ce6375b3b5bb614280be2e85b40778"
     },
     "improve-codebase-architecture": {
       "source": "mattpocock/skills",
@@ -187,11 +259,29 @@
       "skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
       "computedHash": "f768cb44209e0d30e3449b8f95ea3dc8293093f73cfe02127d530db43412cf76"
     },
+    "keyboard": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/keyboard/SKILL.md",
+      "computedHash": "66a0243ceccd0b5fafcd3f58d0630041631673d422aa7d94821185ea32e1559f"
+    },
+    "lab": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/lab/SKILL.md",
+      "computedHash": "c621d7afe8bb69646a1b36b8288dba7b80cf195abfa49eccb9184c284623e7a6"
+    },
     "loop-me": {
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/in-progress/loop-me/SKILL.md",
       "computedHash": "72e01a16929dbf6583afc469a49d64b28b1be4a6034c900decd94cd5a69ba6e6"
+    },
+    "match": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/match/SKILL.md",
+      "computedHash": "79b0ef354fe17457eab04b1cefb11f284cf0abc65d483ea18e2060f30a1768f4"
     },
     "migrate-to-shoehorn": {
       "source": "mattpocock/skills",
@@ -200,16 +290,28 @@
       "computedHash": "6397731ced114f3657aa88b55ed13d1344a56d77ca449c568e3200c21740fa99"
     },
     "mobile-native": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/mobile-native/SKILL.md",
-      "computedHash": "f221cea36642168df6d3d6d7f236237cbf1ae669138ff7df07775674223d49ad"
+      "computedHash": "2a348417e87659833d1d9f2e557d7535b5631f025c8bf6a2f2b5ffc7b4593b73"
+    },
+    "motion": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/motion/SKILL.md",
+      "computedHash": "0bd8cd307f3cd75911cac5340d4b5eacf33e79a229ae9a7097a72f5ef7e324f0"
     },
     "pick-ui-library": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/pick-ui-library/SKILL.md",
-      "computedHash": "5d2a77bf0ecafbda85aa95fb49999b6d77945d9066ec83d970b62e5b388cd686"
+      "computedHash": "b6c0e86d825b68d1aaeeb876ebe18d73d8afd1deb06ae059905835425031359f"
+    },
+    "playful-design-router": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/playful-design-router/SKILL.md",
+      "computedHash": "4b135bc07f156e67bba2c9fe5c94832b08fe593f426e3228f09beb32080cf5d9"
     },
     "pr": {
       "source": "mattpocock/skills",
@@ -217,17 +319,23 @@
       "skillPath": "skills/engineering/pr/SKILL.md",
       "computedHash": "22a15d4d469344b38e03eb0e95772478393975836289393b1bad3c0febcdc679"
     },
+    "prose": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/prose/SKILL.md",
+      "computedHash": "c8a434ca94083f3662a3725e0461b7c7daa1cdc41468ad57715f95b645048564"
+    },
     "prototype": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/prototype/SKILL.md",
-      "computedHash": "77be567d8c946608fdd15e61b62ab383cdf289a194dce2479828b7eda860d3ba"
+      "computedHash": "74d2a823b46251af643261db07bfba8688182b79dcc1d7f36c0386c3a4e8d92c"
     },
     "remove-animations": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/remove-animations/SKILL.md",
-      "computedHash": "5d738305c722c25e054a9e3b67e68d4429617d9fbae4bc8861b73cc25c8ba84c"
+      "computedHash": "09394d07328a5a69b055e970312d98ffacec5a742bafd0137757c234d5672b37"
     },
     "research": {
       "source": "mattpocock/skills",
@@ -235,23 +343,47 @@
       "skillPath": "skills/engineering/research/SKILL.md",
       "computedHash": "5d85b64ecceed6b3f6d5996dc8af07180be8d1ff11ef3d26eda2acff078fbd39"
     },
+    "restraint": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/restraint/SKILL.md",
+      "computedHash": "342db9e05ab1e3a2deb3142ce65a14a4e024d731589b209b882ef5b2df121f53"
+    },
     "retro": {
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/engineering/retro/SKILL.md",
       "computedHash": "b8d55851a2909e26c2dbb2e8563719c87b3b700559f604e4df344f8c27e21047"
     },
+    "reuse": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/reuse/SKILL.md",
+      "computedHash": "86f11cac1e428023004502d937772e165fde71c3abf45fc69211b323d49b9220"
+    },
     "review-animations": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/review-animations/SKILL.md",
-      "computedHash": "b1aca2c16876b8f00e2a1eb161714e63ec41099269d5f95c2f307230749b9dcd"
+      "computedHash": "54b1cb752df10386e28162cc5fc6f0762dfd1936724c9b3bf2c1ba7a3c1f9a95"
+    },
+    "rule": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/rule/SKILL.md",
+      "computedHash": "b086d961fea8fa9e757006ca9199dbf99ef16b276c2ade6b3cf47d65eea9a93a"
     },
     "scaffold-exercises": {
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/misc/scaffold-exercises/SKILL.md",
       "computedHash": "354c91f6dbc9b058632f30594aacb4edc6d25012596585abb00402af8d7ec5e9"
+    },
+    "scope": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/scope/SKILL.md",
+      "computedHash": "091a1e12c475513c62ff1b0b526bd32bc272173b4ac0834b1271e18f0559b1d5"
     },
     "setup-matt-pocock-skills": {
       "source": "mattpocock/skills",
@@ -270,6 +402,24 @@
       "sourceType": "github",
       "skillPath": "skills/in-progress/setup-ts-deep-modules/SKILL.md",
       "computedHash": "61508216ede38d8cfa712879197a76f75f4896615dbf7abc3f62571f8f5923cc"
+    },
+    "ship": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/ship/SKILL.md",
+      "computedHash": "7a76f0e677ee258a0cd4547236701bbdc5f82811187c892f40f74e553d6ba97b"
+    },
+    "sketchbook": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/sketchbook/SKILL.md",
+      "computedHash": "ec529a354d50437bbf1e0738b4c244f066f084fa1dfdfb969e5b022207720260"
+    },
+    "stageshow": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/stageshow/SKILL.md",
+      "computedHash": "bf9f07985a62882deae7935b5b1162fb5bf66b248930bb14a75dcaf9d67291b7"
     },
     "tdd": {
       "source": "mattpocock/skills",
@@ -307,6 +457,18 @@
       "skillPath": "skills/engineering/triage/SKILL.md",
       "computedHash": "a683e69163e23630f39c05a50fb9d83a3795a6a6fbd317357669e082cd43a158"
     },
+    "verify": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/verify/SKILL.md",
+      "computedHash": "f734ebdd5cb9e0200e34d2d6ba86ca5b439e73e1097327d983f3bb190307a2a3"
+    },
+    "viewports": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/viewports/SKILL.md",
+      "computedHash": "2d19a90fc2471d6b7b302fb207767e3ce8a035f61eeed3877194a1d55b2894a6"
+    },
     "wait-what": {
       "source": "mattpocock/skills",
       "sourceType": "github",
@@ -320,10 +482,10 @@
       "computedHash": "22338d9356ef84430c5ca916f2632f226583d9d7366433f62bfde5b1b6781e9e"
     },
     "web-design-guidelines": {
-      "source": "vercel-labs/agent-skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/web-design-guidelines/SKILL.md",
-      "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a"
+      "computedHash": "9dbf154444d61523b137fcacb015953353f0c1162554865d97f4c4ac97f0066a"
     },
     "wizard": {
       "source": "mattpocock/skills",
@@ -332,10 +494,10 @@
       "computedHash": "49298bed80e7f722b071ad5d64798c75eb705bbbe0635b9bbffd08cd6fb81647"
     },
     "write-swift": {
-      "source": "emilkowalski/skills",
+      "source": "playful-design/router",
       "sourceType": "github",
       "skillPath": "skills/write-swift/SKILL.md",
-      "computedHash": "f20bb9cf51dbee1900b264820a12f1d3d378dc4d23ac758e7ba9e644c49a2459"
+      "computedHash": "70f4107f3cdddf0d64c0ed69359cce4c5dd9384304a7a0961a4af0cd9d2f8944"
     },
     "writing-beats": {
       "source": "mattpocock/skills",
