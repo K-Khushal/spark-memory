@@ -15,7 +15,11 @@ export type Results = { direct: Memory[]; related: Memory[] };
  * as Direct and a typo-only match as Related.
  */
 export function useInstantSearch(query: string, memories: Memory[]) {
-  const [hits, setHits] = useState<{ query: string; hits: Hit[] }>();
+  const [hits, setHits] = useState<{
+    query: string;
+    hits: Hit[];
+    failed?: boolean;
+  }>();
   const q = query.trim();
 
   useEffect(() => {
@@ -26,13 +30,16 @@ export function useInstantSearch(query: string, memories: Memory[]) {
       .then((res) => (res.ok ? res.json() : Promise.reject(res)))
       .then(({ results }) => setHits({ query: q, hits: results }))
       .catch(() => {
-        // Aborted by the next keystroke, or offline: keep the last results.
+        if (controller.signal.aborted) return; // the next keystroke took over
+        setHits({ query: q, hits: [], failed: true });
       });
     return () => controller.abort();
   }, [q]);
 
-  return useMemo((): Results | undefined => {
-    if (!q || !hits) return undefined;
+  return useMemo((): Results | "failed" | undefined => {
+    // Undefined until this query's answer arrives: never another query's.
+    if (!q || hits?.query !== q) return undefined;
+    if (hits.failed) return "failed";
     const wall = new Map(memories.map((m) => [m.id, m]));
     const results: Results = { direct: [], related: [] };
     for (const hit of hits.hits) {

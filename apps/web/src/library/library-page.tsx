@@ -5,7 +5,6 @@ import { LogOutIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import {
   Button,
   CommandDialog,
-  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -69,7 +68,9 @@ export function LibraryPage({ session }: { session: Session }) {
     setSearchOpen(false);
     const { error } = await authClient.signOut().catch(() => ({ error: true }));
     if (error) {
-      toast("Sign Out did not finish. Try again.");
+      toast("Sign Out Did Not Finish", {
+        action: { label: "Try Again", onClick: () => void signOut() },
+      });
       return;
     }
     await navigate({ to: "/sign-in" });
@@ -80,7 +81,7 @@ export function LibraryPage({ session }: { session: Session }) {
       <button
         type="button"
         onClick={openSearch}
-        className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-transform duration-[120ms] ease-out active:scale-[0.97]"
+        className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-[transform,color] duration-[120ms] ease-out hover:text-ink active:scale-[0.97]"
       >
         <SearchIcon className="size-4 shrink-0" aria-hidden />
         <span
@@ -225,32 +226,40 @@ export function LibraryPage({ session }: { session: Session }) {
             className="text-[1rem] md:text-md"
           />
           <CommandList>
-            <CommandEmpty>No Direct Matches</CommandEmpty>
             {draft.trim() ? (
-              instant &&
-              instant.direct.length + instant.related.length > 0 && (
-                <>
-                  <CommandItem
-                    value="__wall"
-                    onSelect={() => showOnWall(draft)}
-                  >
-                    <SearchIcon className="size-4 text-ink-muted" aria-hidden />
-                    <span className="min-w-0 flex-1 truncate" dir="auto">
-                      {draft}
-                    </span>
-                    <Kbd>↵</Kbd>
-                  </CommandItem>
-                  <ResultGroup
-                    heading="Direct Matches"
-                    memories={instant.direct.slice(0, 6)}
-                    onOpen={openMemory}
-                  />
-                  <ResultGroup
-                    heading="Related Matches"
-                    memories={instant.related.slice(0, 4)}
-                    onOpen={openMemory}
-                  />
-                </>
+              instant === "failed" ? (
+                <ListNote>Search Is Unreachable</ListNote>
+              ) : instant &&
+                instant.direct.length + instant.related.length === 0 ? (
+                <ListNote>No Direct Matches</ListNote>
+              ) : (
+                instant && (
+                  <>
+                    <CommandItem
+                      value="__wall"
+                      onSelect={() => showOnWall(draft)}
+                    >
+                      <SearchIcon
+                        className="size-4 text-ink-muted"
+                        aria-hidden
+                      />
+                      <span className="min-w-0 flex-1 truncate" dir="auto">
+                        {draft}
+                      </span>
+                      <Kbd>↵</Kbd>
+                    </CommandItem>
+                    <ResultGroup
+                      heading="Direct Matches"
+                      memories={instant.direct.slice(0, 6)}
+                      onOpen={openMemory}
+                    />
+                    <ResultGroup
+                      heading="Related Matches"
+                      memories={instant.related.slice(0, 4)}
+                      onOpen={openMemory}
+                    />
+                  </>
+                )
               )
             ) : (
               <CommandGroup>
@@ -283,6 +292,15 @@ export function LibraryPage({ session }: { session: Session }) {
         <Toaster />
       </div>
     </MotionConfig>
+  );
+}
+
+/** A line in the ⌘K list where results would be. */
+function ListNote({ children }: { children: string }) {
+  return (
+    <p role="status" className="py-6 text-center text-sm text-ink-muted">
+      {children}
+    </p>
   );
 }
 
@@ -336,11 +354,18 @@ function SearchResults({
   query,
   onOpen,
 }: {
-  results: Results | undefined;
+  results: Results | "failed" | undefined;
   query: string;
   onOpen: (memory: Memory) => void;
 }) {
   if (!results) return null;
+  if (results === "failed") {
+    return (
+      <h2 className="text-sm font-medium text-ink-muted">
+        Search Is Unreachable
+      </h2>
+    );
+  }
   return (
     <>
       <section>

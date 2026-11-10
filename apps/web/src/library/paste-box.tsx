@@ -44,7 +44,6 @@ export function PasteBox({
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
             }}
-            maxLength={FREE_ALLOWANCE.textMaxChars}
             placeholder="Paste or Type"
             aria-label="Text"
             dir="auto"

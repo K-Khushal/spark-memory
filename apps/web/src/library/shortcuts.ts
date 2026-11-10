@@ -7,10 +7,12 @@ export const MOD =
     ? "⌘"
     : "Ctrl ";
 
+/** In a text field, or inside an open dialog, where ⌘V and `/` belong to it. */
 const isTyping = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.isContentEditable ||
-    /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+    /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) ||
+    target.closest('[role="dialog"]') !== null);
 
 /**
  * The Library's global shortcuts (DESIGN.md → Interaction baseline):

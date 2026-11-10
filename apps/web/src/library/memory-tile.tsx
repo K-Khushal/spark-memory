@@ -8,39 +8,53 @@ import type { WallMemory } from "./use-library";
 // from its text at the column's width: padding, up to 3 title lines, then
 // whole lines of text up to MAX_LINES. Character widths lean wide (wide
 // scripts count double), so text gets a line too many rather than one cut.
+// Sizes in px at a 16px root; scaled by the root font size, so a larger
+// browser text size keeps whole lines.
 const PADDING = 32;
 const GAP = 8;
 const TITLE = { charWidth: 9.6, lineHeight: 26, maxLines: 3 };
 const BODY = { charWidth: 7, lineHeight: 20 };
 const MAX_LINES = 12;
+
+let remScale: number | undefined;
+const rem = () =>
+  (remScale ??=
+    parseFloat(getComputedStyle(document.documentElement).fontSize) / 16 || 1);
+
+/** A tile's text: runs of blank lines fold into one, so no tile is mostly empty. */
+export const tileText = (body: string | null) =>
+  (body ?? "").replace(/\n\s*\n(\s*\n)+/g, "\n\n");
 const WIDE =
   /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\uff00-\uffef]/gu;
 
 function lineCount(text: string, charsPerLine: number) {
+  const per = Math.max(1, charsPerLine);
   return text.split("\n").reduce((n, line) => {
     const chars = line.length + (line.match(WIDE)?.length ?? 0);
-    return n + Math.max(1, Math.ceil(chars / charsPerLine));
+    return n + Math.max(1, Math.ceil(chars / per));
   }, 0);
 }
 
 /** How a text tile lays out at `width`: its title and text lines, and its height. */
 export function tileLayout(memory: WallMemory, width: number) {
-  const inner = Math.max(1, width - PADDING);
+  const k = rem();
+  const inner = Math.max(1, width - PADDING * k);
   const title = memory.title
     ? Math.min(
         TITLE.maxLines,
-        lineCount(memory.title, Math.floor(inner / TITLE.charWidth))
+        lineCount(memory.title, Math.floor(inner / (TITLE.charWidth * k)))
       )
     : 0;
   const body = Math.min(
     MAX_LINES - title,
-    lineCount(memory.body ?? "", Math.floor(inner / BODY.charWidth))
+    lineCount(tileText(memory.body), Math.floor(inner / (BODY.charWidth * k)))
   );
   const height =
-    PADDING +
-    title * TITLE.lineHeight +
-    (title ? GAP : 0) +
-    body * BODY.lineHeight;
+    k *
+    (PADDING +
+      title * TITLE.lineHeight +
+      (title ? GAP : 0) +
+      body * BODY.lineHeight);
   return { title, body, height };
 }
 
@@ -69,7 +83,7 @@ export function MemoryTile({
       transition={{ duration: 0.26, ease: EASING.out }}
     >
       <figure className="group h-full cursor-pointer">
-        <div className="relative flex h-full flex-col gap-2 overflow-hidden rounded-tile bg-sunken p-4 transition-transform duration-[120ms] ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]">
+        <div className="relative flex h-full flex-col gap-2 overflow-hidden rounded-tile bg-sunken p-4 transition-[transform,background-color] duration-[120ms] ease-out hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)] group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]">
           {memory.title && (
             <p
               className="shrink-0 overflow-hidden font-display text-md leading-[26px] font-medium break-words text-ink [display:-webkit-box] [-webkit-box-orient:vertical]"
@@ -88,7 +102,7 @@ export function MemoryTile({
             dir="auto"
           >
             <Highlighted
-              text={memory.body?.slice(0, 800) ?? ""}
+              text={tileText(memory.body).slice(0, 800)}
               query={query}
             />
           </p>

@@ -169,7 +169,12 @@ function libraryActions(setMemories: Dispatch<SetStateAction<WallMemory[]>>) {
     try {
       await saving.get(before.id);
       const res = await ok(
-        byId.$patch({ param: { id: before.id }, json: changes })
+        byId.$patch(
+          { param: { id: before.id }, json: changes },
+          // Survives the page closing (detail saves on pagehide), within
+          // keepalive's 64 KB body limit.
+          { init: { keepalive: JSON.stringify(changes).length < 60_000 } }
+        )
       );
       replaceLocal(await res.json());
     } catch {

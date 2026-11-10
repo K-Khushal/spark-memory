@@ -8,6 +8,7 @@ import {
   DialogContent,
   DialogTitle,
   Textarea,
+  toast,
 } from "@spark/ui";
 import type { Memory } from "./use-library";
 
@@ -62,19 +63,27 @@ function Fields({
   useEffect(() => {
     latest.current = { ...latest.current, title, body, note };
   });
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    let saved = false;
+    const save = () => {
       const { title, body, note, deleted } = latest.current;
-      if (deleted) return;
+      if (deleted || saved) return;
+      saved = true;
       const changes: MemoryEdit = {};
       if (title.trim() !== (memory.title ?? "")) changes.title = title;
-      if (body.trim() && body.trim() !== memory.body) changes.body = body;
+      if (!body.trim()) toast("Text Can't Be Empty");
+      else if (body.trim() !== memory.body) changes.body = body;
       if (note.trim() !== (memory.captureNote ?? ""))
         changes.captureNote = note;
       if (Object.keys(changes).length) onSave(memory, changes);
-    },
-    [memory, onSave]
-  );
+    };
+    // A page closing with the dialog open saves too.
+    window.addEventListener("pagehide", save);
+    return () => {
+      window.removeEventListener("pagehide", save);
+      save();
+    };
+  }, [memory, onSave]);
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
@@ -101,14 +110,12 @@ function Fields({
         placeholder="Title"
         aria-label="Title"
         dir="auto"
-        className="mr-8 min-w-0 bg-transparent font-display text-lg font-semibold text-ink outline-none placeholder:text-ink-muted"
+        className="mr-8 min-w-0 rounded-chip bg-transparent font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
       />
       <Textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        maxLength={FREE_ALLOWANCE.textMaxChars}
         aria-label="Text"
-        aria-invalid={!body.trim() || undefined}
         dir="auto"
         className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0 text-base"
       />
