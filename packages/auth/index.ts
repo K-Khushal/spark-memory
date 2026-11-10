@@ -9,3 +9,4 @@ export {
   type SocialProvider,
 } from "./lib/auth";
 export { resendSender, type SignInCodeSender } from "./lib/email";
+export { redact } from "./lib/logger";

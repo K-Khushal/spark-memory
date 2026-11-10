@@ -54,6 +54,9 @@ jobs:
           if grep -q "PLACEHOLDER_${tag}_TURNSTILE_SITE_KEY" apps/server/wrangler.jsonc; then
             missing+=("Turnstile site key in apps/server/wrangler.jsonc")
           fi
+          if grep -q "PLACEHOLDER_${tag}_BETTER_AUTH_URL" apps/server/wrangler.jsonc; then
+            missing+=("BETTER_AUTH_URL in apps/server/wrangler.jsonc")
+          fi
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error title=Deploy to $TARGET is not configured::Missing: ${missing[*]}. See docs/deploy.md."
             exit 1

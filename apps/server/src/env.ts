@@ -12,7 +12,7 @@ export type Bindings = {
 
   /** Secret, at least 32 random characters. Signs session cookies. */
   BETTER_AUTH_SECRET: string;
-  /** Var. The public origin; inferred from the request when unset. */
+  /** Var. The public https origin; required outside local development. */
   BETTER_AUTH_URL?: string;
   /** Var (public) and secret. Cloudflare's test keys locally and in CI. */
   TURNSTILE_SITE_KEY: string;

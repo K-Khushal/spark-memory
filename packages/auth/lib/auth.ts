@@ -3,12 +3,19 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { captcha, emailOTP } from "better-auth/plugins";
 import { DEFAULT_PLAN } from "@spark/core";
 import { schema, type Database } from "@spark/db";
+import { allowlist } from "./allowlist";
+import { redactingLogger } from "./logger";
 
 /** Configuration and secrets, from the Worker's env (docs/deploy.md). */
 export type AuthConfig = {
   secret: string;
-  /** Public origin, e.g. https://sparkmemory.xyz. Inferred from the request when unset. */
+  /**
+   * Public origin, e.g. https://sparkmemory.xyz. Required (https) when
+   * `secureCookies` is on; inferred from the request only in local development.
+   */
   baseURL?: string;
+  /** Secure cookies regardless of the request. On everywhere but local. */
+  secureCookies: boolean;
   turnstileSecretKey: string;
   google?: { clientId?: string; clientSecret?: string };
   github?: { clientId?: string; clientSecret?: string };
@@ -24,7 +31,9 @@ export function enabledSocialProviders(config: AuthConfig): SocialProvider[] {
   );
 }
 
-/** Paths Turnstile guards: every way an account can be created. */
+const BASE_PATH = "/api/auth";
+
+/** Paths Turnstile guards: every way a code is sent or a user created. */
 const TURNSTILE_PATHS = ["/email-otp/send-verification-otp", "/sign-in/social"];
 
 /**
@@ -40,6 +49,9 @@ export function createAuth({
   config: AuthConfig;
   sendSignInCode: (email: string, code: string) => void;
 }) {
+  if (config.secureCookies && !config.baseURL?.startsWith("https://")) {
+    throw new Error("BETTER_AUTH_URL must be an https origin");
+  }
   const socialProviders = Object.fromEntries(
     enabledSocialProviders(config).map((p) => [p, config[p]])
   ) as Record<SocialProvider, { clientId: string; clientSecret: string }>;
@@ -48,7 +60,8 @@ export function createAuth({
     appName: "Spark",
     secret: config.secret,
     baseURL: config.baseURL,
-    basePath: "/api/auth",
+    basePath: BASE_PATH,
+    logger: redactingLogger,
     database: drizzleAdapter(db, { provider: "pg", schema }),
     emailAndPassword: { enabled: false },
     socialProviders,
@@ -76,10 +89,12 @@ export function createAuth({
       },
     },
     advanced: {
+      useSecureCookies: config.secureCookies,
       // Set by Cloudflare's edge; clients cannot spoof it there.
       ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
     },
     plugins: [
+      allowlist(BASE_PATH),
       captcha({
         provider: "cloudflare-turnstile",
         secretKey: config.turnstileSecretKey,
@@ -90,8 +105,8 @@ export function createAuth({
         otpLength: 6,
         expiresIn: 300,
         allowedAttempts: 3,
-        sendVerificationOTP: async ({ email, otp }) => {
-          sendSignInCode(email, otp);
+        sendVerificationOTP: async ({ email, otp, type }) => {
+          if (type === "sign-in") sendSignInCode(email, otp);
         },
       }),
     ],

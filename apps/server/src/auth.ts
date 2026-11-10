@@ -22,6 +22,7 @@ export function authConfig(env: Bindings): AuthConfig {
   return {
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL || undefined,
+    secureCookies: env.SPARK_ENV !== "local",
     turnstileSecretKey: env.TURNSTILE_SECRET_KEY,
     google: {
       clientId: env.GOOGLE_CLIENT_ID,

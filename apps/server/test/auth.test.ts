@@ -28,22 +28,22 @@ function env(overrides: Partial<Bindings> = {}): Bindings {
 const octet = () => Math.floor(Math.random() * 254) + 1;
 
 /** A client with its own cookie jar and a random IP, so rate limits never leak between tests. */
-function newClient() {
+function newClient(origin = ORIGIN) {
   const address = `10.${octet()}.${octet()}.${octet()}`;
   let cookie = "";
-  return async function call(
+  async function call(
     path: string,
     init: { method?: string; headers?: HeadersInit; json?: unknown } = {},
     bindings = env()
   ) {
     const headers = new Headers(init.headers);
     headers.set("cf-connecting-ip", address);
-    headers.set("origin", ORIGIN);
+    headers.set("origin", origin);
     if (cookie) headers.set("cookie", cookie);
     if (init.json !== undefined)
       headers.set("content-type", "application/json");
     const res = await worker.fetch(
-      new Request<unknown, IncomingRequestCfProperties>(`${ORIGIN}${path}`, {
+      new Request<unknown, IncomingRequestCfProperties>(`${origin}${path}`, {
         method: init.method,
         headers,
         body: init.json === undefined ? undefined : JSON.stringify(init.json),
@@ -54,17 +54,26 @@ function newClient() {
     const set = res.headers.getSetCookie?.() ?? [];
     if (set.length) cookie = set.map((c) => c.split(";")[0]).join("; ");
     return res;
-  };
+  }
+  return Object.assign(call, { cookie: () => cookie });
 }
 
 const email = () => `person-${crypto.randomUUID()}@example.com`;
 
-function sendCode(call: ReturnType<typeof newClient>, address: string) {
-  return call("/api/auth/email-otp/send-verification-otp", {
-    method: "POST",
-    headers: { "x-captcha-response": "XXXX.DUMMY.TOKEN.XXXX" },
-    json: { email: address, type: "sign-in" },
-  });
+function sendCode(
+  call: ReturnType<typeof newClient>,
+  address: string,
+  bindings = env()
+) {
+  return call(
+    "/api/auth/email-otp/send-verification-otp",
+    {
+      method: "POST",
+      headers: { "x-captcha-response": "XXXX.DUMMY.TOKEN.XXXX" },
+      json: { email: address, type: "sign-in" },
+    },
+    bindings
+  );
 }
 
 async function lastCode(call: ReturnType<typeof newClient>, address: string) {
@@ -74,19 +83,31 @@ async function lastCode(call: ReturnType<typeof newClient>, address: string) {
   return ((await res.json()) as { code: string }).code;
 }
 
-describe.skipIf(!databaseUrl)("sign-in with an email code", () => {
-  beforeEach(() => {
-    const realFetch = globalThis.fetch;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      const url = input instanceof Request ? input.url : String(input);
-      if (url.includes("challenges.cloudflare.com")) {
-        return Response.json({ success: true, hostname: "localhost" });
-      }
-      return realFetch(input, init);
-    });
+/** Signs a new person in; returns their client and address. */
+async function signedIn() {
+  const call = newClient();
+  const address = email();
+  await sendCode(call, address);
+  await call("/api/auth/sign-in/email-otp", {
+    method: "POST",
+    json: { email: address, otp: await lastCode(call, address) },
   });
-  afterEach(() => vi.restoreAllMocks());
+  return { call, address };
+}
 
+beforeEach(() => {
+  const realFetch = globalThis.fetch;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url.includes("challenges.cloudflare.com")) {
+      return Response.json({ success: true, hostname: "localhost" });
+    }
+    return realFetch(input, init);
+  });
+});
+afterEach(() => vi.restoreAllMocks());
+
+describe.skipIf(!databaseUrl)("sign-in with an email code", () => {
   it("signs a new user in, on the Free plan, and keeps the session", async () => {
     const call = newClient();
     const address = email();
@@ -206,5 +227,154 @@ describe.skipIf(!databaseUrl)("the dev sign-in code outbox", () => {
       ctx
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe.skipIf(!databaseUrl)("passwordless only", () => {
+  const closed = [
+    "/api/auth/sign-up/email",
+    "/api/auth/sign-in/email",
+    "/api/auth/forget-password",
+    "/api/auth/request-password-reset",
+    "/api/auth/reset-password",
+    "/api/auth/change-password",
+    "/api/auth/set-password",
+    "/api/auth/forget-password/email-otp",
+    "/api/auth/email-otp/request-password-reset",
+    "/api/auth/email-otp/reset-password",
+    "/api/auth/email-otp/check-verification-otp",
+    "/api/auth/email-otp/verify-email",
+    "/api/auth/email-otp/request-email-change",
+    "/api/auth/email-otp/change-email",
+    "/api/auth/send-verification-email",
+    "/api/auth/change-email",
+    "/api/auth/update-user",
+    "/api/auth/delete-user",
+  ];
+
+  it("closes every password, reset and account-editing route", async () => {
+    const call = newClient();
+    const json = {
+      email: email(),
+      password: "a-password-1234",
+      newPassword: "a-password-1234",
+      otp: "123456",
+      name: "Person",
+    };
+    for (const path of closed) {
+      const res = await call(path, {
+        method: "POST",
+        headers: { "x-captcha-response": "XXXX.DUMMY.TOKEN.XXXX" },
+        json,
+      });
+      expect(res.status, path).toBe(404);
+    }
+  });
+
+  it("sends codes only for signing in", async () => {
+    for (const type of [
+      "forget-password",
+      "email-verification",
+      "change-email",
+    ]) {
+      const res = await newClient()(
+        "/api/auth/email-otp/send-verification-otp",
+        {
+          method: "POST",
+          headers: { "x-captcha-response": "XXXX.DUMMY.TOKEN.XXXX" },
+          json: { email: email(), type },
+        }
+      );
+      expect(res.status, type).toBe(400);
+    }
+  });
+});
+
+describe.skipIf(!databaseUrl)("session cookies", () => {
+  const deployed = (overrides: Partial<Bindings> = {}) =>
+    env({
+      SPARK_ENV: "dev",
+      BETTER_AUTH_URL: "https://spark.example",
+      RESEND_API_KEY: "re_test",
+      EMAIL_FROM: "Spark <a@spark.example>",
+      GITHUB_CLIENT_ID: "id",
+      GITHUB_CLIENT_SECRET: "secret",
+      ...overrides,
+    });
+
+  it("are Secure outside local development", async () => {
+    const call = newClient("https://spark.example");
+    const res = await call(
+      "/api/auth/sign-in/social",
+      {
+        method: "POST",
+        headers: { "x-captcha-response": "XXXX.DUMMY.TOKEN.XXXX" },
+        json: { provider: "github", callbackURL: "/" },
+      },
+      deployed()
+    );
+    expect(res.status).toBe(200);
+    const cookies = res.headers.getSetCookie();
+    expect(cookies.length).toBeGreaterThan(0);
+    for (const cookie of cookies) expect(cookie).toMatch(/;\s*Secure/i);
+  });
+
+  it("refuse to start outside local development without an https BETTER_AUTH_URL", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const BETTER_AUTH_URL of [undefined, "http://spark.example"]) {
+      const res = await newClient("https://spark.example")(
+        "/api/auth/get-session",
+        {},
+        deployed({ BETTER_AUTH_URL })
+      );
+      expect(res.status, String(BETTER_AUTH_URL)).toBe(500);
+    }
+    log.mockRestore();
+  });
+});
+
+describe.skipIf(!databaseUrl)("logs when the database fails", () => {
+  it("never contain a session token, email or code", async () => {
+    const { call, address } = await signedIn();
+    const cookie = call.cookie();
+    const token = decodeURIComponent(cookie.split("=")[1] ?? "").split(".")[0]!;
+    expect(token.length).toBeGreaterThan(10);
+
+    const logged: unknown[] = [];
+    for (const level of ["log", "info", "warn", "error", "debug"] as const) {
+      vi.spyOn(console, level).mockImplementation((...args) => {
+        logged.push(...args);
+      });
+    }
+    const down = env({
+      HYPERDRIVE: {
+        connectionString: "postgres://spark:spark@127.0.0.1:1/spark",
+      },
+    });
+    await call("/api/me", {}, down);
+    await call("/api/auth/get-session", {}, down);
+    await sendCode(call, address, down);
+    await call(
+      "/api/auth/sign-in/email-otp",
+      {
+        method: "POST",
+        json: { email: address, otp: "123456" },
+      },
+      down
+    );
+
+    const text = logged
+      .map((x) =>
+        x instanceof Error
+          ? `${x.message} ${x.stack} ${JSON.stringify(x)}`
+          : typeof x === "string"
+            ? x
+            : JSON.stringify(x)
+      )
+      .join("\n");
+    expect(text).toContain("refused");
+    expect(text).not.toContain(token);
+    expect(text).not.toContain(address);
+    expect(text).not.toContain("123456");
   });
 });
