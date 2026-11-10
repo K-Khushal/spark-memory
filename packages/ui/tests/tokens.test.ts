@@ -56,6 +56,10 @@ describe("browser chrome", () => {
   );
 });
 
+/** `inOut` → `in-out`, the way CSS names the easing curves. */
+const kebab = (name: string) =>
+  name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+
 /** The value of one custom property inside the first `@theme {` block. */
 function themeValue(property: string): string {
   const match = new RegExp(`${property}: ([^;]+);`).exec(block("@theme"));
@@ -74,8 +78,7 @@ describe("shape and motion tokens", () => {
   it.each(Object.entries(EASING))(
     "easing %s matches its CSS curve",
     (name, curve) => {
-      const kebab = name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
-      expect(themeValue(`--ease-${kebab}`)).toBe(
+      expect(themeValue(`--ease-${kebab(name)}`)).toBe(
         `cubic-bezier(${curve.join(", ")})`
       );
     }
@@ -104,11 +107,7 @@ describe("shape and motion tokens", () => {
     expect(new Set(names("radius"))).toEqual(new Set(Object.keys(RADIUS)));
     expect(new Set(names("text"))).toEqual(new Set(Object.keys(TYPE_SCALE)));
     expect(new Set(names("ease"))).toEqual(
-      new Set(
-        Object.keys(EASING).map((k) =>
-          k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
-        )
-      )
+      new Set(Object.keys(EASING).map(kebab))
     );
   });
 });
