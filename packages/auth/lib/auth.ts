@@ -62,6 +62,9 @@ export function createAuth({
     baseURL: config.baseURL,
     basePath: BASE_PATH,
     logger: redactingLogger,
+    // Unexpected errors propagate to the caller (Hono's redacted onError)
+    // instead of Better Call printing them raw; APIErrors keep their status.
+    onAPIError: { throw: true },
     database: drizzleAdapter(db, { provider: "pg", schema }),
     emailAndPassword: { enabled: false },
     socialProviders,

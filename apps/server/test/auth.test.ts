@@ -1,4 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { Client } from "pg";
 import worker from "../src/index";
 import type { Bindings } from "../src/env";
 
@@ -134,6 +144,7 @@ describe.skipIf(!databaseUrl)("sign-in with an email code", () => {
       json: { email: address, otp: code === "000000" ? "111111" : "000000" },
     });
     expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "INVALID_OTP" });
     expect((await call("/api/me")).status).toBe(401);
   });
 
@@ -378,3 +389,167 @@ describe.skipIf(!databaseUrl)("logs when the database fails", () => {
     expect(text).not.toContain("123456");
   });
 });
+
+/** Collects everything printed through any console method. */
+function captureConsole() {
+  const logged: unknown[] = [];
+  for (const level of [
+    "log",
+    "info",
+    "warn",
+    "error",
+    "debug",
+    "trace",
+  ] as const) {
+    vi.spyOn(console, level).mockImplementation((...args) => {
+      logged.push(...args);
+    });
+  }
+  return () =>
+    logged
+      .map((x) =>
+        x instanceof Error
+          ? `${x.message} ${x.stack} ${JSON.stringify(x)} ${String(x.cause)}`
+          : typeof x === "string"
+            ? x
+            : JSON.stringify(x)
+      )
+      .join("\n");
+}
+
+// Real Postgres failures whose messages carry the secret, raised by triggers
+// that fire only for these tests' addresses.
+const LEAK = "LEAKED-VALUE";
+describe.skipIf(!databaseUrl)(
+  "logs when writing a session or user fails",
+  () => {
+    const db = new Client({ connectionString: databaseUrl });
+    beforeAll(async () => {
+      await db.connect();
+      await db.query(`
+      create or replace function spark_test_fail_user() returns trigger as $$
+      begin
+        if new.email like 'leak-user-%' then
+          raise exception '${LEAK} user %', new.email;
+        end if;
+        return new;
+      end $$ language plpgsql;
+      create or replace function spark_test_fail_session() returns trigger as $$
+      begin
+        if exists (select 1 from "user" where id = new.user_id and email like 'leak-session-%') then
+          raise exception '${LEAK} session %', new.token;
+        end if;
+        return new;
+      end $$ language plpgsql;
+      drop trigger if exists spark_test_fail_user on "user";
+      create trigger spark_test_fail_user before insert on "user"
+        for each row execute function spark_test_fail_user();
+      drop trigger if exists spark_test_fail_session on "session";
+      create trigger spark_test_fail_session before insert on "session"
+        for each row execute function spark_test_fail_session();
+    `);
+    });
+    afterAll(async () => {
+      await db.query(`
+      drop trigger if exists spark_test_fail_user on "user";
+      drop trigger if exists spark_test_fail_session on "session";
+      drop function if exists spark_test_fail_user();
+      drop function if exists spark_test_fail_session();
+    `);
+      await db.end();
+    });
+
+    it("creating the user while signing in by code", async () => {
+      const call = newClient();
+      const address = `leak-user-${crypto.randomUUID()}@example.com`;
+      await sendCode(call, address);
+      const otp = await lastCode(call, address);
+      const printed = captureConsole();
+      const res = await call("/api/auth/sign-in/email-otp", {
+        method: "POST",
+        json: { email: address, otp },
+      });
+      expect(res.status).toBe(500);
+      expect(printed()).not.toContain(LEAK);
+      expect(printed()).not.toContain(address);
+    });
+
+    it("creating the session while signing in by code", async () => {
+      const address = `leak-session-${crypto.randomUUID()}@example.com`;
+      await db.query(
+        `insert into "user" (id, name, email, email_verified, updated_at) values ($1, '', $2, true, now())`,
+        [crypto.randomUUID(), address]
+      );
+      const call = newClient();
+      await sendCode(call, address);
+      const otp = await lastCode(call, address);
+      const printed = captureConsole();
+      const res = await call("/api/auth/sign-in/email-otp", {
+        method: "POST",
+        json: { email: address, otp },
+      });
+      expect(res.status).toBe(500);
+      expect(printed()).not.toContain(LEAK);
+      expect(printed()).not.toContain(address);
+    });
+
+    it("creating the user in the GitHub callback", async () => {
+      const address = `leak-user-${crypto.randomUUID()}@example.com`;
+      const github = env({
+        GITHUB_CLIENT_ID: "id",
+        GITHUB_CLIENT_SECRET: "secret",
+      });
+      const realFetch = vi.mocked(globalThis.fetch).getMockImplementation()!;
+      vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.startsWith("https://github.com/login/oauth/access_token")) {
+          return Response.json({
+            access_token: "gho_test",
+            token_type: "bearer",
+            scope: "user:email",
+          });
+        }
+        if (url === "https://api.github.com/user") {
+          return Response.json({
+            id: 4242,
+            login: "leak",
+            name: "Leak",
+            email: address,
+            avatar_url: "",
+          });
+        }
+        if (url === "https://api.github.com/user/emails") {
+          return Response.json([
+            { email: address, primary: true, verified: true },
+          ]);
+        }
+        return realFetch(input, init);
+      });
+
+      const call = newClient();
+      const start = await call(
+        "/api/auth/sign-in/social",
+        {
+          method: "POST",
+          headers: { "x-captcha-response": "XXXX.DUMMY.TOKEN.XXXX" },
+          json: { provider: "github", callbackURL: "/" },
+        },
+        github
+      );
+      const { url } = (await start.json()) as { url: string };
+      const state = new URL(url).searchParams.get("state")!;
+
+      const printed = captureConsole();
+      const res = await call(
+        `/api/auth/callback/github?code=abc&state=${state}`,
+        {},
+        github
+      );
+      expect(res.headers.get("location")).toContain(
+        "error=unable_to_create_user"
+      );
+      expect(printed()).not.toContain(LEAK);
+      expect(printed()).not.toContain(address);
+    });
+  }
+);
