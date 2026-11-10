@@ -8,8 +8,14 @@ export {
 export { openDatabase, type Database } from "./lib/client";
 export {
   openLibrary,
+  sweepAbandonedUploads,
+  UPLOAD_WINDOW_HOURS,
   type CaptureResult,
   type EditResult,
+  type FileUpload,
+  type ImageCaptureResult,
+  type MemoryFileInfo,
+  type MemoryImage,
   type Library,
   type MatchedBy,
   type Memory,

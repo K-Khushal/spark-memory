@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "@spark/ui";
 import { api } from "../api";
 import { drafts } from "./drafts";
+import { Refused, type Upload } from "./image-capture";
 import {
   libraryActions,
   newestFirst,
@@ -30,13 +31,57 @@ const transport: Transport = {
     return (await (await ok(Promise.resolve(res))).json()) as Memory;
   },
   remove: async (id, init) => {
-    await ok(byId.$delete({ param: { id } }, { init }));
+    const res = await byId.$delete({ param: { id } }, { init });
+    const status: number = res.status;
+    if (status >= 300 && status !== 404) throw new Error(`HTTP ${status}`);
   },
   get: async (id) => {
     const res = await byId.$get({ param: { id } });
     return res.ok ? ((await res.json()) as Memory) : undefined;
   },
+  storage: async () => (await ok(api.api.storage.$get())).json(),
+  createImage: async (json) => {
+    const res = await api.api.memories.images.$post({ json });
+    if (res.status === 413) {
+      const { error } = (await res.json()) as { error: string };
+      if (error === "file_too_large" || error === "storage_full") {
+        throw new Refused(error);
+      }
+    }
+    return (await (await ok(Promise.resolve(res))).json()) as {
+      memory: Memory;
+      uploads: Upload[];
+    };
+  },
+  put: (upload, body, onProgress, signal) =>
+    putFile(upload, body, onProgress, signal),
+  confirm: async (id) =>
+    (await (await ok(byId.stored.$post({ param: { id } }))).json()) as Memory,
 };
+
+/** PUTs a file to its presigned URL; XHR, because fetch cannot report upload progress. */
+function putFile(
+  { url, headers }: Upload,
+  body: Blob,
+  onProgress: (sent: number) => void,
+  signal: AbortSignal
+) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    for (const [name, value] of Object.entries(headers)) {
+      xhr.setRequestHeader(name, value);
+    }
+    xhr.upload.onprogress = (e) => onProgress(e.loaded);
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`HTTP ${xhr.status}`));
+    xhr.onerror = xhr.onabort = () => reject(new Error("upload stopped"));
+    signal.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(body);
+  });
+}
 
 /**
  * The signed-in person's Library on the wall, with optimistic Capture, edit

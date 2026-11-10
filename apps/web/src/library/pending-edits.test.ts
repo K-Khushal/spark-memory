@@ -23,6 +23,7 @@ const start: Memory = {
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
   updatedAt: "2026-11-10T10:00:00.000Z",
+  image: null,
 };
 
 const text = (title: string, body = "Body"): Draft => ({

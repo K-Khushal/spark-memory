@@ -20,6 +20,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
   updatedAt: "2026-11-10T10:00:00.000Z",
+  image: null,
   ...over,
 });
 

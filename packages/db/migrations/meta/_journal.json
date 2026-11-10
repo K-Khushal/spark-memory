@@ -29,6 +29,13 @@
       "when": 1794332303151,
       "tag": "0003_search_memories",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794335468902,
+      "tag": "0004_image_files",
+      "breakpoints": true
     }
   ]
 }

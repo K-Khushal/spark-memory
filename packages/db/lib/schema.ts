@@ -127,6 +127,8 @@ export const memory = pgTable(
     /** The text of a text Memory. */
     body: text("body"),
     captureNote: text("capture_note"),
+    /** SHA-256 (hex) of a file Memory's Preserved copy, for duplicate detection later. */
+    contentHash: text("content_hash"),
     preservation: text("preservation")
       .$type<Preservation>()
       .default("preserved")
@@ -152,6 +154,39 @@ export const memory = pgTable(
       t.id.desc()
     ),
     index("memory_search_tsv_idx").using("gin", t.searchTsv),
+  ]
+);
+
+export type FileRole = "original" | "thumbnail";
+
+/**
+ * A file of a Memory in object storage (PLAN.md §4): the original (its
+ * Preserved copy) and its thumbnail. `key` is chosen by the server and starts
+ * with the owner's id. `storedAt` is set once the upload was checked; a
+ * Memory with a file not yet stored is left off the wall, and swept if it
+ * stays that way (sweepAbandonedUploads).
+ */
+export const memoryFile = pgTable(
+  "memory_file",
+  {
+    memoryId: uuid("memory_id")
+      .notNull()
+      .references(() => memory.id, { onDelete: "cascade" }),
+    role: text("role").$type<FileRole>().notNull(),
+    key: text("r2_key").notNull().unique(),
+    mime: text("mime").notNull(),
+    bytes: integer("bytes").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    thumbhash: text("thumbhash"),
+    createdAt: instant("created_at"),
+    storedAt: timestamp("stored_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.memoryId, t.role] }),
+    index("memory_file_unstored_idx")
+      .on(t.createdAt)
+      .where(sql`${t.storedAt} is null`),
   ]
 );
 

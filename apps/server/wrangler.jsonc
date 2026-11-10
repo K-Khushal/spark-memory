@@ -31,11 +31,17 @@
       "localConnectionString": "postgres://spark:spark@localhost:5432/spark",
     },
   ],
+  // Memory files. Locally Miniflare simulates the bucket (in .wrangler/state)
+  // and, without R2 credentials, uploads go to /api/local-files on this Worker.
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "spark-files-local" }],
+  // Daily sweep of image uploads that never finished (src/sweep.ts).
+  "triggers": { "crons": ["17 3 * * *"] },
 
   // Bindings and vars do not inherit: repeat each one per environment.
   // Secrets per environment (`wrangler secret put <NAME> --env <name>`): SENTRY_DSN,
   // BETTER_AUTH_SECRET, TURNSTILE_SECRET_KEY, RESEND_API_KEY, and optionally
-  // GOOGLE_CLIENT_ID/_SECRET and GITHUB_CLIENT_ID/_SECRET.
+  // GOOGLE_CLIENT_ID/_SECRET and GITHUB_CLIENT_ID/_SECRET, R2_ACCOUNT_ID,
+  // R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY.
   // See docs/deploy.md for creating the Hyperdrive configs and replacing the ids.
   "env": {
     "dev": {
@@ -44,10 +50,13 @@
         "BETTER_AUTH_URL": "PLACEHOLDER_DEV_BETTER_AUTH_URL",
         "TURNSTILE_SITE_KEY": "PLACEHOLDER_DEV_TURNSTILE_SITE_KEY",
         "EMAIL_FROM": "Spark <onboarding@resend.dev>",
+        "R2_BUCKET": "spark-files-dev",
       },
       "hyperdrive": [
         { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_DEV_HYPERDRIVE_ID" },
       ],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "spark-files-dev" }],
+      "triggers": { "crons": ["17 3 * * *"] },
     },
     "production": {
       "vars": {
@@ -55,11 +64,14 @@
         "BETTER_AUTH_URL": "PLACEHOLDER_PROD_BETTER_AUTH_URL",
         "TURNSTILE_SITE_KEY": "PLACEHOLDER_PROD_TURNSTILE_SITE_KEY",
         "EMAIL_FROM": "Spark <onboarding@resend.dev>",
+        "R2_BUCKET": "spark-files-prod",
       },
       "hyperdrive": [
         { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_PROD_HYPERDRIVE_ID" },
       ],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "spark-files-prod" }],
+      "triggers": { "crons": ["17 3 * * *"] },
     },
   },
-  // R2, Queues, Workers AI and Browser Rendering arrive with their tickets.
+  // Queues, Workers AI and Browser Rendering arrive with their tickets.
 }
