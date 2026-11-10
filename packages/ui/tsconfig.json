@@ -1,5 +1,8 @@
 {
   "extends": "@spark/config/tsconfig.react.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]
 }

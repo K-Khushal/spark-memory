@@ -15,6 +15,8 @@
     "@spark/core": "workspace:*",
     "@spark/ui": "workspace:*",
     "@tanstack/react-router": "^1.170.46",
+    "lucide-react": "~1.70.0",
+    "motion": "~14.10.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
