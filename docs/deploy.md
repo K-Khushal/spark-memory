@@ -9,6 +9,8 @@ One Cloudflare Worker serves the dashboard and `/api/*` (ADR-0003). It runs in t
 
 The top level of `apps/server/wrangler.jsonc` is for local `wrangler dev` only and is never deployed.
 
+A tag deploy also waits for the `production` reviewers. The tag rule `v*` on the environment limits who can trigger it; remove the reviewers if you want tags to deploy unattended. Both Sentry SDKs tag events with the environment (`dev` or `production`).
+
 Until `CLOUDFLARE_API_TOKEN` is set, the dev deploy is skipped with a notice in the CI run. Once it is set, a missing secret or placeholder Hyperdrive id fails the deploy with a message naming what is missing.
 
 ## Local development

@@ -7,8 +7,8 @@ export type Bindings = {
   HYPERDRIVE: { connectionString: string };
   /** Secret. Sentry stays off when unset (local dev, CI). */
   SENTRY_DSN?: string;
-  /** Var: "dev" or "production". */
-  SPARK_ENV?: string;
+  /** Var set per Wrangler environment in wrangler.jsonc. */
+  SPARK_ENV?: "local" | "dev" | "production";
 };
 
 export type AppEnv = { Bindings: Bindings };

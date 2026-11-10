@@ -5,18 +5,18 @@ import { sentryOptions } from "./sentry";
 
 export type { AppType } from "./app";
 
-const handler = {
+const withoutSentry = {
   fetch: (request, env, ctx) => app.fetch(request, env, ctx),
 } satisfies ExportedHandler<Bindings>;
 
-// Sentry wraps the handler only when this environment has a DSN.
-const observed = withSentry((env: Bindings) => sentryOptions(env)!, {
-  ...handler,
+const withSentryOn = withSentry((env: Bindings) => sentryOptions(env), {
+  ...withoutSentry,
 });
 
+// Sentry is never initialised for an environment without a DSN.
 export default {
   fetch: (request, env, ctx) =>
     env.SENTRY_DSN
-      ? observed.fetch(request, env, ctx)
-      : handler.fetch(request, env, ctx),
+      ? withSentryOn.fetch(request, env, ctx)
+      : withoutSentry.fetch(request, env, ctx),
 } satisfies ExportedHandler<Bindings>;

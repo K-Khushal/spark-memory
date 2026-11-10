@@ -12,7 +12,8 @@ const sentryDsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 if (sentryDsn) {
   Sentry.init({
     dsn: sentryDsn,
-    environment: import.meta.env.MODE,
+    environment:
+      (import.meta.env.VITE_SPARK_ENV as string | undefined) ?? "local",
     dataCollection: {
       userInfo: false,
       cookies: false,
@@ -25,9 +26,9 @@ if (sentryDsn) {
     beforeSend: (event) => {
       delete event.user;
       delete event.extra;
-      if (event.request?.url) {
-        event.request = { url: event.request.url.split(/[?#]/)[0] };
-      }
+      const url = event.request?.url?.split(/[?#]/)[0];
+      if (url) event.request = { url };
+      else delete event.request;
       return event;
     },
   });

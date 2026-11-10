@@ -4,7 +4,7 @@
   "globalDependencies": [".env"],
   "tasks": {
     "build": {
-      "env": ["VITE_SENTRY_DSN"],
+      "env": ["VITE_SENTRY_DSN", "VITE_SPARK_ENV"],
       "outputs": ["dist/**", ".output/**"]
     },
     "typecheck": {

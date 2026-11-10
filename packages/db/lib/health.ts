@@ -1,3 +1,5 @@
+import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { Client } from "pg";
 
 export type DatabaseHealth = { ok: true } | { ok: false; error: string };
@@ -20,7 +22,7 @@ export async function checkDatabase(
   try {
     await client.connect();
     // now() is STABLE, so Hyperdrive never answers this from its query cache.
-    await client.query("select now()");
+    await drizzle(client).execute(sql`select now()`);
     return { ok: true };
   } catch (error) {
     return {
