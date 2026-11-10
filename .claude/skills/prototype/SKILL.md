@@ -1,98 +1,66 @@
 ---
 name: prototype
-description: Build multiple genuinely different versions of a UI piece you describe, rendered behind a visual picker so you can flip through them live and promote the one that feels right. Only runs when explicitly invoked; it does not trigger on its own.
+description: Builds several real, labelled variants of one idea on a single page so the user can pick, then deletes the rest.
 disable-model-invocation: true
 ---
 
-# Prototyping Variants
+# Prototype
 
-## Initial Response
+This skill explores one idea as several working variants. The user compares them in the running app, picks one and the others are deleted.
 
-When this skill is first invoked without a specific question, respond only with:
+## Real code, then gone
 
-> I'm ready to build several genuinely different versions of a UI piece for you to flip through, my craft bar comes from Emil Kowalski's design engineering philosophy.
+Each variant is real code with real data in the real app, not a mockup. Build the number asked for. With no number, build five that differ in approach, not only in colour. The page is temporary and goes once a variant is picked.
 
-Do not provide any other information until the user asks a question.
+Every state of an existing component on one page belongs to `lab`. Copying an outside reference belongs to `match`.
 
-A divergence skill. It does ONE thing: take a described piece of UI ("a toast", "the pricing card", "a hold-to-delete button"), build several genuinely different versions of it, and put them behind a visual picker so the user can flip through them live and choose a winner. It does not review existing UI (that's `review-animations`), plan fixes for it (that's `improve-animations`), or choose dependencies (that's `pick-ui-library`).
+## 1. Restate the idea
 
-## Operating Posture
+Write the idea in one line and the axis the variants explore, such as layout, motion or density. Ask one question when the idea has two readings.
 
-You are a senior design engineer running a design exploration. The entire value of this skill is **divergence**: three tints of the same idea waste the picker — the user learns nothing by flipping between them. Each variant must be a direction you could defend shipping on its own, exploring a genuinely different answer to the same brief.
+## 2. Build real variants
 
-Divergence is not an excuse to drop the craft bar. Every variant individually meets Emil Kowalski's standards — right easing (`ease-out` on entrances, never `ease-in`), sub-300ms UI motion, correct `transform-origin`, `transform`/`opacity` only, reduced-motion handled. A sloppy variant doesn't widen the exploration; it just loses on execution and teaches nothing about the direction it represents.
+Use the project's components and real or realistic data. A static image or lorem ipsum is `prototype-real-code` or `prototype-real-data`.
 
-## Hard Rules
+## 3. Put them on one page
 
-1. **Never touch production code during exploration.** Everything lives in an isolated prototype surface (see Phase 4). Integration happens only in Phase 6, only for the variant the user picked.
-2. **Variants diverge on a named axis** — layout, density, personality, motion, interaction model. Before building, you must be able to state each variant's axis in a phrase. Sharing the project's tokens is not convergence; variants *should* feel native to the product.
-3. **Every variant fully works.** Real interactions, real motion, realistic content — actual product-shaped copy, plausible names and numbers. No lorem ipsum, no dead buttons, no "imagine this part".
-4. **The picker is chrome, not a contestant.** Its exact markup, styles, and behavior are specified in [PICKER.md](PICKER.md) — copy them verbatim. Its look is not a design decision and never adapts to the project.
-5. **Clean up after the choice.** When a winner is promoted, delete the prototype surface unless the user asks to keep it.
+Show every variant on one route. Separate pages per variant is `prototype-one-page`. Copy [switcher.js](switcher.js) into the app beside that route and load it once, as its header comment shows. Wrap the variants in `<prototype-switcher>`, one child each with `data-variant` and an optional `data-note`.
 
-## Workflow
+The switcher ships with the skill, so write the variants only. A switcher, tab row or grid written from scratch is `prototype-shipped-switcher`.
 
-### Phase 1 — Scope
+Give each a short label that says how it differs. "Variant 3" is `prototype-label-variants`. Use the app's current theme unless the user asked for both. Light and dark side by side by default is `prototype-one-theme`.
 
-One thing per run. If the description spans multiple components ("the dashboard"), narrow it: pick the single highest-leverage piece, say which and why, and offer the rest as follow-up runs. Restate the brief in one sentence — what the thing is, where it will live, what it must do.
+## 4. Open it
 
-### Phase 2 — Recon
+Start the dev server, open the page and look at every variant once. A path in the reply with nothing opened is `prototype-open-it`.
 
-Before designing anything, map the ground the variants must stand on:
+## 5. Prune after the pick
 
-- **Stack**: framework, styling system (Tailwind, CSS modules, vanilla), motion library if any.
-- **Tokens**: colors, radii, spacing, fonts, easing/duration variables. Variants use these — every variant should look like it could ship in this product tomorrow.
-- **Personality**: playful consumer app or crisp dashboard? This bounds how far the boldest variant may go.
-- **Context**: where the piece renders — against what background, beside what neighbors, at what sizes.
+The bar's Pick button copies a line such as "Pick Inline Filters from /prototypes/filters" for the user to paste back. When the user picks, move that variant into the product. Delete the losing variants with the route, `switcher.js` and its type declaration. Leftover variants after a pick is `prototype-prune-after-pick`.
 
-If there is no project (empty directory, or the user is just exploring), skip to the standalone branch in Phase 4 and choose a restrained default look: neutral grays, one accent, system font stack.
+## The pair
 
-### Phase 3 — Choose directions
+Every check is a pair. The broken line sits beside the line that replaces it.
 
-Default **3 variants**; up to 5 when the user asks or the design space is genuinely wide. More than 5 dilutes the comparison.
+| Rule | Broken | Replacement |
+| --- | --- | --- |
+| `prototype-real-code` | A static mockup image | The variant built from project components |
+| `prototype-real-data` | Lorem ipsum rows | Real or realistic rows |
+| `prototype-label-variants` | `Variant 3` | `Inline Filters` |
+| `prototype-one-page` | Five routes, one per variant | One route with a switcher |
+| `prototype-shipped-switcher` | A switcher written from scratch | `switcher.js` loaded, only the variants written |
+| `prototype-one-theme` | Light and dark side by side, unasked | The app's current theme |
+| `prototype-open-it` | "Built at `/prototypes/filters`" | The page opened, every variant checked |
+| `prototype-prune-after-pick` | Four losing variants left in `src/` | The pick shipped, the rest deleted |
 
-Before writing any code, list the set: a name and an axis for each. Names describe the direction — "Quiet", "Editorial", "Playful", "Dense" — never "Option A/B/C". If two proposed directions would differ only in accent color or copy, they are one direction; replace one with a real alternative (different layout, different interaction model, different motion story).
+## Reporting
 
-**Completion criterion:** every variant has a name and a stated axis, and no two variants share an axis position.
+**Severity.** `HIGH` is a variant that does not run, or losing variants left after a pick. `MEDIUM` is placeholder data, unlabelled variants, variants that differ only in colour or a hand-built switcher. `LOW` is a page that was not opened for the user.
 
-### Phase 4 — Build the picker harness
+**Format.** One finding per root cause:
 
-Two branches, by what exists:
+```
+file:line - [rule-id] what is wrong
+```
 
-- **In a project with a dev server** — an isolated route or page (`/prototypes/<slug>`, or the framework's equivalent), one file per variant plus a small harness file. Nothing imports from the prototype surface into production code.
-- **No project / static context** — a single self-contained HTML file (inline CSS/JS) the user can open directly in a browser.
-
-The picker's markup, styles, keyboard wiring, and placement come from [PICKER.md](PICKER.md), verbatim — load it now and build exactly that. Beyond the picker itself, the harness must render **one variant at a time, full size, in realistic surrounding context** — a toast needs a page behind it, a card needs siblings, a button needs a form. Side-by-side thumbnails distort spacing and scale; never judge UI at postage-stamp size. Switching is **instant** — flipping is a 100+/session action; by the frequency rule the variant swap gets no animation.
-
-### Phase 5 — Verify and hand off
-
-Run the harness. Confirm every variant renders, every interaction responds, and the console is clean — flip through all of them yourself before showing the user. If browser tooling is available, screenshot each variant.
-
-Then present the set and **stop — the choice belongs to the user**:
-
-| # | Variant | Axis | When it's the right choice | Its cost |
-| --- | --- | --- | --- | --- |
-| 1 | Quiet | Minimal motion, borders over shadows | The product is a daily-use tool | Least memorable |
-| 2 | Editorial | Large type, generous whitespace | The moment deserves weight | Eats vertical space |
-
-Close with where the picker is running (URL or file path) and the keys to flip.
-
-**Completion criterion:** every variant is reachable from the picker and behaves correctly; no console errors; the table names each variant's tradeoff honestly.
-
-### Phase 6 — Promote on selection
-
-When the user picks: integrate that variant where it belongs, following the project's existing conventions (file layout, naming, token usage), then delete the prototype surface per Hard Rule 5. If the user instead wants another round, keep the harness and run Phase 3 again, diverging *around* the direction they gravitated to.
-
-## Invocation Variants
-
-| Invocation | Behavior |
-| --- | --- |
-| `<description>` | Full workflow: scope → recon → 3 variants → picker → wait for choice |
-| `<description> x5` | Same, with that many variants (capped at 5) |
-| `riff <variant>` | New round: keep the harness, generate a fresh set diverging around the named variant's direction |
-| `keep <variant>` | Promote that variant into the codebase and delete the prototype surface |
-| `keep <variant>, leave the picker` | Promote, but keep the prototype surface around |
-
-## Tone
-
-Sell each variant honestly — one line on when it wins, one on what it costs. Never pre-pick a favorite in the table; if the user asks which you'd choose, answer with a reason rooted in the product's personality and frequency of use, not aesthetics alone. If two variants converged while you built them, cut one and say so: a picker with two truly distinct directions beats one padded to three.
+Then a `Rule | Count | Severity` summary. `Block` when any `HIGH` remains, `Approve` otherwise. Mark every variant you could not open as `Not verified`.
