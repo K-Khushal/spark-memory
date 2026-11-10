@@ -105,9 +105,9 @@ export const withAuth = createMiddleware<AppEnv & { Variables: AuthVariables }>(
   }
 );
 
-/** Rejects anonymous requests with 401; otherwise sets `user`. */
 export type UserVariables = AuthVariables & { user: SignedInUser };
 
+/** Rejects anonymous requests with 401; otherwise sets `user`. */
 export const requireUser = createMiddleware<
   AppEnv & { Variables: UserVariables }
 >(async (c, next) => {

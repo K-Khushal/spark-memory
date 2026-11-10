@@ -41,6 +41,9 @@ const limitBody = bodyLimit({
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
 });
 
+/** Longer queries are cut: nobody types more to find a Memory. */
+const MAX_QUERY_CHARS = 300;
+
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 const notFound = { ok: false, error: "not_found" } as const;
 
@@ -77,6 +80,6 @@ export const memories = new Hono<AppEnv>()
     return removed ? c.body(null, 204) : c.json(notFound, 404);
   })
   .get("/search", async (c) => {
-    const q = (c.req.query("q") ?? "").slice(0, FREE_ALLOWANCE.titleMaxChars);
+    const q = (c.req.query("q") ?? "").slice(0, MAX_QUERY_CHARS);
     return c.json({ results: await c.var.library.search(q) });
   });

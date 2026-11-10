@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { motion } from "motion/react";
 import { cn } from "@spark/ui";
-import { EASING } from "@spark/ui/tokens";
+import { DURATION, EASING } from "@spark/ui/tokens";
 import type { WallMemory } from "./use-library";
 
 // Masonry places tiles before they render, so a tile's height is worked out
@@ -80,7 +80,7 @@ export function MemoryTile({
       // DESIGN.md → Motion: a new Capture fades and grows into place.
       initial={memory.fresh ? { opacity: 0, scale: 0.96 } : false}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.26, ease: EASING.out }}
+      transition={{ duration: DURATION.panel / 1000, ease: EASING.out }}
     >
       <figure className="group h-full cursor-pointer">
         <div className="relative flex h-full flex-col gap-2 overflow-hidden rounded-tile bg-sunken p-4 transition-[transform,background-color] duration-[120ms] ease-out hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)] group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]">

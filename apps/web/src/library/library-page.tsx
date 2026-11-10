@@ -248,11 +248,15 @@ export function LibraryPage({ session }: { session: Session }) {
                       </span>
                       <Kbd>↵</Kbd>
                     </CommandItem>
-                    <ResultGroup
-                      heading="Direct Matches"
-                      memories={instant.direct.slice(0, 6)}
-                      onOpen={openMemory}
-                    />
+                    {instant.direct.length ? (
+                      <ResultGroup
+                        heading="Direct Matches"
+                        memories={instant.direct.slice(0, 6)}
+                        onOpen={openMemory}
+                      />
+                    ) : (
+                      <ListNote>No Direct Matches</ListNote>
+                    )}
                     <ResultGroup
                       heading="Related Matches"
                       memories={instant.related.slice(0, 4)}

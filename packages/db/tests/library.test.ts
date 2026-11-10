@@ -140,6 +140,12 @@ describe.skipIf(!databaseUrl)("a Library", () => {
       });
     });
 
+    it("finds a Memory from a first keystroke that is also a stop word", async () => {
+      const { id } = await save(ana, { body: "Apple crumble" });
+      const ids = (await library(ana).search("a")).map((r) => r.id);
+      expect(ids).toContain(id);
+    });
+
     it("returns nothing for an empty or punctuation-only query", async () => {
       expect(await library(ana).search("  ")).toEqual([]);
       expect(await library(ana).search("&|!:*()'")).toEqual([]);

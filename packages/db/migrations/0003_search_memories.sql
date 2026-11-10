@@ -67,7 +67,12 @@ AS $$
   ),
   q AS (
     SELECT
-      lexeme_tsquery(p_query, 'english', ' & ', ':*') AS keyword,
+      -- A query of only stop words ("a", the first letter of "apple") still
+      -- matches as a prefix, through the simple config.
+      coalesce(
+        lexeme_tsquery(p_query, 'english', ' & ', ':*'),
+        lexeme_tsquery(p_query, 'simple', ' & ', ':*')
+      ) AS keyword,
       lexeme_tsquery(
         (SELECT string_agg(word, ' ') FROM corrections), 'english', ' | ', ''
       ) AS typo
