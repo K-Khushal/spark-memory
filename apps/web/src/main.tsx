@@ -2,35 +2,19 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 import * as Sentry from "@sentry/react";
+import { sentryScrubbing } from "@spark/core/sentry";
 import { router } from "./router";
 import "./styles.css";
 
-// Sentry only when the build has a DSN (docs/deploy.md). Nothing that can carry
-// Memory content leaves the browser: no bodies, headers, cookies, query strings
-// (search queries describe Memories), user info, or breadcrumb text.
+// Sentry only when the build has a DSN (docs/deploy.md). sentryScrubbing keeps
+// Memory content in the browser (allowlist, tested in @spark/core).
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 if (sentryDsn) {
   Sentry.init({
     dsn: sentryDsn,
     environment:
       (import.meta.env.VITE_SPARK_ENV as string | undefined) ?? "local",
-    dataCollection: {
-      userInfo: false,
-      cookies: false,
-      httpHeaders: false,
-      httpBodies: [],
-      urlQueryParams: false,
-      stackFrameVariables: false,
-    },
-    beforeBreadcrumb: ({ message: _message, data: _data, ...crumb }) => crumb,
-    beforeSend: (event) => {
-      delete event.user;
-      delete event.extra;
-      const url = event.request?.url?.split(/[?#]/)[0];
-      if (url) event.request = { url };
-      else delete event.request;
-      return event;
-    },
+    ...sentryScrubbing,
   });
 }
 
