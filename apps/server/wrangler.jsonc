@@ -11,6 +11,35 @@
     "run_worker_first": ["/api/*"],
   },
   "observability": { "enabled": true },
-  // Bindings arrive with their tickets: Hyperdrive (Neon), R2, Queues, Workers AI,
-  // Browser Rendering. Dev and prod environments come with the deploy ticket.
+
+  // Top level = local `wrangler dev` only (never deployed; CI always passes --env).
+  // Hyperdrive is bypassed locally: the Worker connects straight to Docker Postgres.
+  // Override with CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE.
+  "vars": { "SPARK_ENV": "local" },
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "local-only-not-a-real-hyperdrive-id",
+      "localConnectionString": "postgres://spark:spark@localhost:5432/spark",
+    },
+  ],
+
+  // Bindings and vars do not inherit: repeat each one per environment.
+  // Secrets per environment: `wrangler secret put SENTRY_DSN --env <name>`.
+  // See docs/deploy.md for creating the Hyperdrive configs and replacing the ids.
+  "env": {
+    "dev": {
+      "vars": { "SPARK_ENV": "dev" },
+      "hyperdrive": [
+        { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_DEV_HYPERDRIVE_ID" },
+      ],
+    },
+    "production": {
+      "vars": { "SPARK_ENV": "production" },
+      "hyperdrive": [
+        { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_PROD_HYPERDRIVE_ID" },
+      ],
+    },
+  },
+  // R2, Queues, Workers AI and Browser Rendering arrive with their tickets.
 }

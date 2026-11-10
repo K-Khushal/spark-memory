@@ -7,7 +7,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "docker compose up -d db && turbo run dev",
+    "dev": "docker compose up -d --wait db && pnpm db:migrate && pnpm db:seed && turbo run dev",
+    "db:migrate": "pnpm --filter @spark/db db:migrate",
+    "db:seed": "pnpm --filter @spark/db db:seed",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",

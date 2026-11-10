@@ -1,15 +1,24 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "ui": "stream",
+  "globalDependencies": [".env"],
   "tasks": {
     "build": {
+      "env": ["VITE_SENTRY_DSN", "VITE_SPARK_ENV"],
       "outputs": ["dist/**", ".output/**"]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
     "test": {
+      "env": ["DATABASE_URL"],
       "outputs": []
+    },
+    "@spark/db#test": {
+      "cache": false
+    },
+    "@spark/server#test": {
+      "cache": false
     },
     "dev": {
       "cache": false,

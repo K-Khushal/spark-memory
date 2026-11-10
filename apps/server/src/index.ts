@@ -1,9 +1,22 @@
-import { Hono } from "hono";
-import { routes } from "./routes";
+import { withSentry } from "@sentry/cloudflare";
+import { app } from "./app";
+import type { Bindings } from "./env";
+import { sentryOptions } from "./sentry";
 
-const app = new Hono().basePath("/api").route("/", routes);
+export type { AppType } from "./app";
 
-/** The API's type, consumed by @spark/api-client for end-to-end type safety. */
-export type AppType = typeof app;
+const withoutSentry = {
+  fetch: (request, env, ctx) => app.fetch(request, env, ctx),
+} satisfies ExportedHandler<Bindings>;
 
-export default app;
+const withSentryOn = withSentry((env: Bindings) => sentryOptions(env), {
+  ...withoutSentry,
+});
+
+// Sentry is never initialised for an environment without a DSN.
+export default {
+  fetch: (request, env, ctx) =>
+    env.SENTRY_DSN
+      ? withSentryOn.fetch(request, env, ctx)
+      : withoutSentry.fetch(request, env, ctx),
+} satisfies ExportedHandler<Bindings>;
