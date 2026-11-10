@@ -60,6 +60,7 @@ export const routes = new Hono<AppEnv>()
     return c.body(object.body, 200, {
       "content-type": object.httpMetadata?.contentType ?? "",
       "cache-control": FILE_CACHE_CONTROL,
+      "x-content-type-options": "nosniff",
     });
   })
   .route("/", memories);

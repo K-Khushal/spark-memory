@@ -100,10 +100,9 @@ Set each with `cd apps/server && npx wrangler secret put <NAME> --env dev`, then
 | `GOOGLE_CLIENT_SECRET` | no       | the same OAuth client                                                                                                                              |
 | `GITHUB_CLIENT_ID`     | no       | GitHub → Settings → Developer settings → OAuth Apps → New, callback URL `https://<host>/api/auth/callback/github`                                  |
 | `GITHUB_CLIENT_SECRET` | no       | the same OAuth App                                                                                                                                 |
-
-| `R2_ACCOUNT_ID` | yes | Cloudflare dashboard → R2 → Account ID (the same as `CLOUDFLARE_ACCOUNT_ID`) |
-| `R2_ACCESS_KEY_ID` | yes | the R2 API token from step 2, for this environment's bucket |
-| `R2_SECRET_ACCESS_KEY` | yes | the same R2 API token |
+| `R2_ACCOUNT_ID`        | yes      | Cloudflare dashboard → R2 → Account ID (the same as `CLOUDFLARE_ACCOUNT_ID`)                                                                       |
+| `R2_ACCESS_KEY_ID`     | yes      | the R2 API token from step 2, for this environment's bucket                                                                                        |
+| `R2_SECRET_ACCESS_KEY` | yes      | the same R2 API token                                                                                                                              |
 
 A social provider turns on only when both its client id and secret are set; otherwise its button is hidden.
 

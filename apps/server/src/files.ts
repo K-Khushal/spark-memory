@@ -38,12 +38,16 @@ export const usesLocalFiles = (env: Bindings, requestUrl: string) =>
   LOCAL_HOSTS.has(new URL(requestUrl).hostname);
 
 export function fileStore(env: Bindings, requestUrl: string): FileStore {
-  const sign = usesLocalFiles(env, requestUrl)
-    ? localSigner(env.BETTER_AUTH_SECRET)
-    : r2Signer(env);
+  // Made on first use, so missing R2 secrets fail only what needs a URL.
+  let signer: Signer | undefined;
+  const sign = () =>
+    (signer ??= usesLocalFiles(env, requestUrl)
+      ? localSigner(env.BETTER_AUTH_SECRET)
+      : r2Signer(env));
   const bucket = env.FILES;
   return {
-    ...sign,
+    signUpload: async (file) => sign().signUpload(file),
+    signDownload: async (key) => sign().signDownload(key),
     async check(file) {
       const object = await bucket.head(file.key);
       if (!object) return "missing";
@@ -136,7 +140,8 @@ const LOCAL_PREFIX = "/api/local-files/";
 async function hmac(secret: string, message: string) {
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(secret),
+    // Its own key, derived from the local secret, never the session one.
+    new TextEncoder().encode(`spark-local-files\n${secret}`),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]

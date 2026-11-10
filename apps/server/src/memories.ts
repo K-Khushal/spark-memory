@@ -72,12 +72,24 @@ const limitImageBody = bodyLimit({
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
 });
 
+/** A Memory's files; undefined for an id that is not one of the owner's. */
+const filesOf = async (library: Library, id: string) =>
+  UUID.test(id) ? library.files(id) : undefined;
+
+const signedIn = [
+  withAuth,
+  requireUser,
+  withLibrary,
+  withFiles,
+  noStore,
+] as const;
+
 /** The Memory API (Capture, read, edit, delete, instant search), signed in only. */
 export const memories = new Hono<AppEnv>()
-  .use("/memories/*", withAuth, requireUser, withLibrary, withFiles, noStore)
-  .use("/memories", withAuth, requireUser, withLibrary, withFiles, noStore)
-  .use("/search", withAuth, requireUser, withLibrary, withFiles, noStore)
-  .use("/storage", withAuth, requireUser, withLibrary, noStore)
+  .use("/memories/*", ...signedIn)
+  .use("/memories", ...signedIn)
+  .use("/search", ...signedIn)
+  .use("/storage", ...signedIn)
   .get("/memories", async (c) => {
     const after = c.req.query("after");
     const page = await c.var.library.list(after ? { after } : {});
@@ -122,7 +134,7 @@ export const memories = new Hono<AppEnv>()
   /** Step two: the files are checked in storage, and the Memory shows. */
   .post("/memories/:id/stored", async (c) => {
     const id = c.req.param("id");
-    const files = UUID.test(id) ? await c.var.library.files(id) : undefined;
+    const files = await filesOf(c.var.library, id);
     if (!files) return c.json(notFound, 404);
     const checks = await Promise.all(
       files.filter((f) => !f.stored).map((f) => c.var.files.check(f))
@@ -135,6 +147,9 @@ export const memories = new Hono<AppEnv>()
     }
     const memory = await c.var.library.markStored(id);
     if (!memory) return c.json(notFound, 404);
+    if (memory === "expired") {
+      return c.json({ ok: false, error: "not_uploaded" } as const, 409);
+    }
     return c.json(await forClient(c.var.files, memory));
   })
   .get("/storage", async (c) =>
@@ -164,7 +179,7 @@ export const memories = new Hono<AppEnv>()
   /** Permanent: the files go from storage first, then the Memory. */
   .delete("/memories/:id", async (c) => {
     const id = c.req.param("id");
-    const files = UUID.test(id) ? await c.var.library.files(id) : undefined;
+    const files = await filesOf(c.var.library, id);
     if (!files) return c.json(notFound, 404);
     await c.var.files.remove(files.map((f) => f.key));
     const removed = await c.var.library.remove(id);

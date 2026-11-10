@@ -210,6 +210,23 @@ describe("image Capture", () => {
     );
   });
 
+  it("stops the other file when one fails, so no upload outlives its run", async () => {
+    let signal: AbortSignal | undefined;
+    const { actions, wall } = setup({
+      put: (u, _body, _progress, s) =>
+        u.role === "original"
+          ? new Promise((_, reject) => {
+              signal = s;
+              s.addEventListener("abort", () => reject(new Error("aborted")));
+            })
+          : Promise.reject(new Error("offline")),
+    });
+    await actions.captureImages([png()]);
+    await settle();
+    expect(signal?.aborted).toBe(true);
+    expect(wall()[0]!.upload).toEqual({ step: "failed" });
+  });
+
   it("reports progress across both files", async () => {
     const sent = later();
     const progress: number[] = [];

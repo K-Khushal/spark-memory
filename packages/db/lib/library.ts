@@ -73,6 +73,12 @@ export type ImageCaptureResult =
  */
 export const UPLOAD_WINDOW_HOURS = 24;
 
+/** A file whose upload did not finish within the window. */
+const expiredUpload = sql`${memoryFile.storedAt} is null and ${memoryFile.createdAt} <= now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})`;
+
+/** Seeds the per-owner advisory lock around storage checks (its own lock space). */
+const STORAGE_LOCK = 6;
+
 /** Object keys are the server's: the owner's id, the Memory's id, the role. */
 const keyFor = (userId: string, memoryId: string, role: FileRole) =>
   `users/${userId}/${memoryId}/${role}`;
@@ -183,7 +189,7 @@ export function openLibrary(db: Database, userId: string) {
       const { id } = capture;
       return db.transaction(async (tx) => {
         await tx.execute(
-          sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 6))`
+          sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${STORAGE_LOCK}))`
         );
         const [taken] = await tx
           .select({ userId: memory.userId })
@@ -191,12 +197,23 @@ export function openLibrary(db: Database, userId: string) {
           .where(eq(memory.id, id));
         if (taken && taken.userId !== userId) return { conflict: true };
         if (taken) {
+          // A retry starts the upload window again for the files still
+          // missing, so a late Try Again is neither swept nor refused.
+          await tx
+            .update(memoryFile)
+            .set({ createdAt: sql`now()` })
+            .where(
+              and(
+                eq(memoryFile.memoryId, id),
+                sql`${memoryFile.storedAt} is null`
+              )
+            );
           const files = await tx
             .select(fileColumns)
             .from(memoryFile)
             .where(eq(memoryFile.memoryId, id))
             .orderBy(asc(memoryFile.role));
-          const row = await get(id);
+          const [row] = await tx.select(columns).from(memory).where(owned(id));
           if (!row?.image) return { conflict: true };
           const uploads = files
             .filter((f) => !f.stored)
@@ -257,9 +274,18 @@ export function openLibrary(db: Database, userId: string) {
         .orderBy(asc(memoryFile.role));
     },
 
-    /** Marks a Memory's files stored (after checking them), so it shows on the wall. */
-    async markStored(id: string): Promise<Memory | undefined> {
+    /**
+     * Marks a Memory's files stored (after checking them), so it shows on the
+     * wall. "expired" when an upload outlived its window: the sweep may be
+     * taking its objects, so it must be retried (which starts a new window).
+     */
+    async markStored(id: string): Promise<Memory | "expired" | undefined> {
       if (!(await get(id))) return undefined;
+      const late = await db
+        .select({ role: memoryFile.role })
+        .from(memoryFile)
+        .where(and(eq(memoryFile.memoryId, id), expiredUpload));
+      if (late.length) return "expired";
       await db
         .update(memoryFile)
         .set({ storedAt: sql`coalesce(${memoryFile.storedAt}, now())` })
@@ -407,7 +433,14 @@ export async function sweepAbandonedUploads(
   const ids = [...new Set(files.map((f) => f.memoryId))];
   const removed = await db
     .delete(memory)
-    .where(and(inArray(memory.id, ids), sql`not ${allStored}`))
+    // Only rows still abandoned: a Try Again meanwhile restarted the window
+    // (its upload re-sends the files), and a stored one stays.
+    .where(
+      and(
+        inArray(memory.id, ids),
+        sql`exists (select 1 from memory_file f where f.memory_id = ${memory.id} and f.stored_at is null and f.created_at < ${before})`
+      )
+    )
     .returning({ id: memory.id });
   return removed.length;
 }

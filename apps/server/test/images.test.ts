@@ -179,7 +179,10 @@ describe.skipIf(!databaseUrl)("image Capture", () => {
   it("refuses a file over the Free allowance before any upload", async () => {
     const { call } = await signedIn();
     const tooBig = await create(call, describe_({ bytes: 26 * 1024 * 1024 }));
-    expect(tooBig.status).toBe(400);
+    expect(tooBig).toMatchObject({
+      status: 413,
+      body: { error: "file_too_large" },
+    });
   });
 
   it("refuses a signed URL that was changed or has expired", async () => {
@@ -296,9 +299,9 @@ describe("presigned URLs on R2", () => {
     expect(new URL(a).searchParams.get("X-Amz-Expires")).toBe("7200");
   });
 
-  it("are never made without credentials outside local development", () => {
-    const bare = env({ SPARK_ENV: "production" });
-    expect(() => fileStore(bare, "https://spark.example.com/")).toThrow(
+  it("are never made without credentials outside local development", async () => {
+    const bare = fileStore(env({ SPARK_ENV: "production" }), "https://x.com/");
+    await expect(bare.signDownload(file.key)).rejects.toThrow(
       /R2_ACCESS_KEY_ID/
     );
   });

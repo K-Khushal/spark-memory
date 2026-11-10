@@ -81,7 +81,8 @@ const side = z.number().int().positive().max(100_000);
 export const ImageCapture = z.object({
   id: z.uuid(),
   mime: ImageType,
-  bytes: z.number().int().positive().max(FREE_ALLOWANCE.maxUploadBytes),
+  /** Not capped here: the Free allowance check refuses it with its reason. */
+  bytes: z.number().int().positive(),
   width: side,
   height: side,
   contentHash: z.string().regex(/^[\da-f]{64}$/),

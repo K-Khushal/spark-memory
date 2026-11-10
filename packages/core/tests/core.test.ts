@@ -71,9 +71,8 @@ describe("ImageCapture", () => {
     expect(parses({})).toBe(true);
   });
 
-  it("refuses HEIC, which the browser converts, and files over the Free allowance", () => {
+  it("refuses HEIC, which the browser converts", () => {
     expect(parses({ mime: "image/heic" })).toBe(false);
-    expect(parses({ bytes: FREE_ALLOWANCE.maxUploadBytes + 1 })).toBe(false);
   });
 
   it("refuses a content hash that is not SHA-256 hex", () => {

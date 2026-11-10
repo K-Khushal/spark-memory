@@ -49,8 +49,42 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
   async function stored(userId: string, over: Partial<ImageCapture> = {}) {
     const result = await library(userId).captureImage(image(over));
     if (!("memory" in result)) throw new Error("not created");
-    return (await library(userId).markStored(result.memory.id))!;
+    const memory = await library(userId).markStored(result.memory.id);
+    if (!memory || memory === "expired") throw new Error("not stored");
+    return memory;
   }
+
+  const age = (id: string) =>
+    db.execute(
+      sql`update memory_file set created_at = now() - interval '2 days' where memory_id = ${id}`
+    );
+
+  it("never stores an upload that outlived its window, until a retry starts a new one", async () => {
+    const input = image();
+    await library(ana).captureImage(input);
+    await age(input.id);
+    expect(await library(ana).markStored(input.id)).toBe("expired");
+    await library(ana).captureImage(input);
+    expect(await library(ana).markStored(input.id)).toMatchObject({
+      id: input.id,
+    });
+  });
+
+  it("does not sweep a Memory whose upload was retried during the sweep", async () => {
+    const owner = await newUser(db);
+    const input = image();
+    await library(owner).captureImage(input);
+    await age(input.id);
+    const swept = await sweepAbandonedUploads(db, {
+      before: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      // A Try Again lands between taking the objects and the rows.
+      removeObjects: async () =>
+        void (await library(owner).captureImage(input)),
+    });
+    expect(swept).toBe(0);
+    expect(await library(owner).get(input.id)).toBeDefined();
+    await removeUser(db, owner);
+  });
 
   it("creates the Memory first, with uploads for its original and thumbnail under the owner's keys", async () => {
     const input = image();

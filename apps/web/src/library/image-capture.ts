@@ -91,6 +91,7 @@ export function imageCapture({
     const entry = entries.get(id)!;
     const run = ++entry.run;
     entry.failed = false;
+    entry.abort?.abort(); // nothing of an earlier run may still be sending
     entry.abort = new AbortController();
     show(id, { step: "sending", progress: 0 });
     void inOrder(id, () => send(id, run, entry));
@@ -152,6 +153,8 @@ export function imageCapture({
       onSaved();
     } catch (error) {
       if (!current()) return;
+      // One file failed: stop the other, so no PUT outlives its run.
+      entry.abort?.abort();
       if (error instanceof Refused) {
         drop(id);
         refuse(error.reason);
