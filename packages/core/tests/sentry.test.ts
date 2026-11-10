@@ -121,6 +121,34 @@ describe("sentryScrubbing.beforeSend", () => {
     expect(scrubbed).toEqual({ level: "info", message: "[redacted]" });
   });
 
+  const SENTENCE = "My note: the blue tent, by the lake (2019)!";
+
+  it("replaces an exception type built from content with Error", () => {
+    const scrubbed = sentryScrubbing.beforeSend({
+      exception: { values: [{ type: SENTENCE, value: SENTENCE }] },
+    });
+    expect(JSON.stringify(scrubbed)).not.toContain("blue tent");
+    expect(scrubbed).toEqual({
+      exception: { values: [{ type: "Error", value: "Error" }] },
+    });
+  });
+
+  it("replaces a runtime or os name or version built from content with unknown", () => {
+    const scrubbed = sentryScrubbing.beforeSend({
+      contexts: {
+        runtime: { name: SENTENCE, version: "1.2.3" },
+        os: { name: "linux", version: SENTENCE },
+      },
+    });
+    expect(JSON.stringify(scrubbed)).not.toContain("blue tent");
+    expect(scrubbed).toEqual({
+      contexts: {
+        runtime: { name: "unknown", version: "1.2.3" },
+        os: { name: "linux", version: "unknown" },
+      },
+    });
+  });
+
   it("is also the transaction scrubber", () => {
     expect(sentryScrubbing.beforeSendTransaction).toBe(
       sentryScrubbing.beforeSend

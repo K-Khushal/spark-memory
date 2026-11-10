@@ -38,13 +38,22 @@ function urlPath(url: string): string {
   return withoutOrigin.split(/[?#]/)[0] || "/";
 }
 
+// Names can be built from content too: keep them only if they look like identifiers.
+const EXCEPTION_TYPE = /^[A-Za-z_$][\w$.]{0,63}$/;
+const CONTEXT_VALUE = /^[A-Za-z0-9_$.\- ]{1,48}$/;
+
+function identifier(value: unknown, pattern: RegExp, fallback: string) {
+  return typeof value === "string" && pattern.test(value) ? value : fallback;
+}
+
 function scrubException(value: unknown): Fields {
-  const { type, mechanism, stacktrace } = value as Fields;
+  const { type: rawType, mechanism, stacktrace } = value as Fields;
   const frames = list((stacktrace as Fields | undefined)?.frames);
+  const type = identifier(rawType, EXCEPTION_TYPE, "Error");
   return {
-    ...(type !== undefined && { type }),
+    ...(rawType !== undefined && { type }),
     // The message can quote user content; the type is enough to group on.
-    value: typeof type === "string" ? type : "Error",
+    value: type,
     ...(mechanism !== undefined && {
       mechanism: pick(mechanism, ["type", "handled"]),
     }),
@@ -73,8 +82,14 @@ export function scrubEvent<T extends object>(event: T): T {
   if (contexts) {
     const kept: Fields = {};
     for (const name of KEPT_CONTEXTS) {
-      if (contexts[name])
-        kept[name] = pick(contexts[name], ["name", "version"]);
+      const context = contexts[name] as Fields | undefined;
+      if (!context) continue;
+      kept[name] = Object.fromEntries(
+        Object.entries(pick(context, ["name", "version"])).map(([key, v]) => [
+          key,
+          identifier(v, CONTEXT_VALUE, "unknown"),
+        ])
+      );
     }
     if (Object.keys(kept).length > 0) out.contexts = kept;
   }
