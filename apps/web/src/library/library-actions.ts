@@ -3,7 +3,12 @@ import type { InferResponseType } from "@spark/api-client";
 import { FREE_ALLOWANCE, type MemoryEditRequest } from "@spark/core";
 import type { toast } from "@spark/ui";
 import type { api } from "../api";
-import { sameText, type Draft, type DraftStore } from "./drafts";
+import {
+  sameText,
+  type Draft,
+  type DraftStore,
+  type StoredEdit,
+} from "./drafts";
 
 export type Memory = InferResponseType<
   (typeof api.api.memories)[":id"]["$get"],
@@ -37,18 +42,22 @@ const fitsKeepalive = (json: unknown) =>
   new TextEncoder().encode(JSON.stringify(json)).length <= KEEPALIVE_BYTES;
 
 /**
- * The one pending edit of a Memory (at most one each):
+ * The one pending edit of a Memory (at most one each).
+ * `fields` is the person's own edit, written on `baseRevision`:
+ * - idle: none (only `refused` is on offer);
  * - dirty: typed, not sent yet;
  * - sending: one request in flight (typing goes on into `fields`);
- * - failed: the last send failed; Try Again sends `fields` as they are now;
- * - conflict: the Memory changed elsewhere; the wall shows the server copy
- *   and only Restore sends `fields`, rebased on the server's revision.
- * `fromStorage` marks a draft from an earlier page that is only on offer.
+ * - failed: the last send failed; Try Again sends `fields` as they are now.
+ * `refused` is text the server refused because the Memory changed elsewhere,
+ * or text another page left: it is only ever sent by Restore Your Edit, and
+ * typing never overwrites it. `fromStorage` marks a `refused` from storage,
+ * which is dropped if closed without a Restore.
  */
 export type PendingEdit = Readonly<{
-  fields: Draft;
+  fields?: Draft;
   baseRevision: number;
-  status: "dirty" | "sending" | "failed" | "conflict";
+  status: "idle" | "dirty" | "sending" | "failed";
+  refused?: Draft;
   fromStorage: boolean;
 }>;
 
@@ -59,6 +68,17 @@ export const textOf = (memory: Memory): Draft => ({
 });
 
 /** `memory` showing `fields`, as the server will store them. */
+const trimmed = (d: Draft): Draft => ({
+  title: d.title.trim(),
+  body: d.body.trim(),
+  captureNote: d.captureNote.trim(),
+});
+/** Whether the server already stores `fields` for `memory`. */
+const saved = (memory: Memory, fields: Draft) =>
+  sameText(trimmed(fields), textOf(memory)) ||
+  (!fields.body.trim() &&
+    sameText({ ...trimmed(fields), body: memory.body ?? "" }, textOf(memory)));
+
 const withText = (memory: Memory, fields: Draft): Memory => ({
   ...memory,
   title: fields.title.trim() || null,
@@ -98,17 +118,21 @@ export function libraryActions({
   const serverCopy = new Map<string, Memory>();
   const watchers = new Map<string, Set<(edit?: PendingEdit) => void>>();
 
+  /** Tags this page's drafts: only the page that wrote one resumes it. */
+  const page = crypto.randomUUID();
+
   /** The only way a pending edit changes: kept as a draft, and watchers told. */
   function setPending(id: string, edit: PendingEdit | undefined) {
-    if (edit) {
+    if (edit && (edit.fields || edit.refused)) {
       pending.set(id, edit);
-      drafts.keep(
-        id,
-        edit.fields,
-        edit.baseRevision,
-        edit.status === "conflict"
-      );
+      drafts.keep(id, {
+        fields: edit.fields,
+        baseRevision: edit.baseRevision,
+        refused: edit.refused,
+        page,
+      });
     } else {
+      edit = undefined;
       pending.delete(id);
       serverCopy.delete(id);
       drafts.discard(id);
@@ -215,18 +239,22 @@ export function libraryActions({
     );
   }
 
-  /** The person typed: their text becomes the pending edit (latest wins). */
+  /**
+   * The person typed: their text becomes the pending edit (latest wins).
+   * Typing over the server's copy is a new edit on the server's revision;
+   * a refused edit stays on offer beside it.
+   */
   function editText(memory: Memory, fields: Draft) {
     const id = memory.id;
     const now = pending.get(id);
     const base = serverCopy.get(id) ?? memory;
     setPending(id, {
       fields,
-      // Typing over the server's copy after a conflict is a new edit on it.
       baseRevision:
-        !now || now.status === "conflict" ? base.revision : now.baseRevision,
+        !now || now.status === "idle" ? base.revision : now.baseRevision,
       status: now?.status === "sending" ? "sending" : "dirty",
-      fromStorage: false,
+      refused: now?.refused,
+      fromStorage: now?.fromStorage ?? false,
     });
     replaceLocal(withText(base, fields));
   }
@@ -234,7 +262,7 @@ export function libraryActions({
   /** Sends the pending edit as it is now. One request at a time per Memory. */
   function saveEdit(id: string, { keepalive = true } = {}) {
     const edit = pending.get(id);
-    if (!edit || edit.status === "sending" || edit.status === "conflict") {
+    if (!edit?.fields || edit.status === "sending" || edit.status === "idle") {
       return;
     }
     const sent = edit.fields;
@@ -248,107 +276,145 @@ export function libraryActions({
     setPending(id, { ...edit, status: "sending" });
     const init = { keepalive: keepalive && fitsKeepalive(json) };
 
-    inOrder(id, () => transport.patch(id, json, init)).then(
-      async (result) => {
-        const now = pending.get(id);
-        if (!now) return; // deleted meanwhile
-        if (result === "stale") {
-          const latest = await transport.get(id).catch(() => undefined);
-          if (latest) {
-            serverCopy.set(id, latest);
-            replaceLocal(latest);
-          }
-          setPending(id, { ...(pending.get(id) ?? now), status: "conflict" });
-          return;
-        }
-        onSaved();
-        serverCopy.set(id, result);
-        const latest = pending.get(id) ?? now;
-        if (sameText(latest.fields, sent)) {
-          setPending(id, undefined);
-          replaceLocal(result);
-        } else {
-          // Typed during the send: that is next, on the new revision.
-          setPending(id, {
-            ...latest,
-            baseRevision: result.revision,
-            status: "dirty",
-          });
-          saveEdit(id, { keepalive });
-        }
-      },
-      () => {
-        const now = pending.get(id);
-        if (!now) return;
-        setPending(id, { ...now, status: "failed" });
-        notify("Changes Did Not Save", {
-          id: `edit-${id}`,
-          action: { label: "Try Again", onClick: () => saveEdit(id) },
-        });
-      }
-    );
-  }
+    const failed = () => {
+      const now = pending.get(id);
+      if (!now) return;
+      setPending(id, { ...now, status: "failed" });
+      notify("Changes Did Not Save", {
+        id: `edit-${id}`,
+        action: { label: "Try Again", onClick: () => saveEdit(id) },
+      });
+    };
 
-  /** Restore Your Edit: the refused or left-behind text, on the server's revision. */
-  function restoreEdit(id: string) {
-    const edit = pending.get(id);
-    if (edit?.status !== "conflict") return;
-    const base = serverCopy.get(id);
-    setPending(id, {
-      ...edit,
-      baseRevision: base?.revision ?? edit.baseRevision,
-      status: "dirty",
-      fromStorage: false,
-    });
-    if (base) replaceLocal(withText(base, edit.fields));
-    saveEdit(id);
+    inOrder(id, () => transport.patch(id, json, init)).then(async (result) => {
+      if (!pending.has(id)) return; // deleted meanwhile
+      if (result === "stale") {
+        const latest = await transport.get(id).catch(() => undefined);
+        const now = pending.get(id);
+        if (!now) return; // deleted while the server copy loaded
+        // Without the server's copy nothing can be offered: try again later.
+        if (!latest) return failed();
+        serverCopy.set(id, latest);
+        replaceLocal(latest);
+        setPending(id, {
+          baseRevision: latest.revision,
+          status: "idle",
+          refused: now.fields,
+          fromStorage: false,
+        });
+        return;
+      }
+      onSaved();
+      serverCopy.set(id, result);
+      const now = pending.get(id)!;
+      if (now.fields && sameText(now.fields, sent)) {
+        setPending(id, {
+          ...now,
+          fields: undefined,
+          baseRevision: result.revision,
+          status: "idle",
+        });
+        replaceLocal(result);
+      } else {
+        // Typed during the send: that is next, on the new revision.
+        setPending(id, {
+          ...now,
+          baseRevision: result.revision,
+          status: "dirty",
+        });
+        saveEdit(id, { keepalive });
+      }
+    }, failed);
   }
 
   /**
-   * Memory detail opened: its pending edit, picking up a draft an earlier page
-   * left. A draft on the current revision carries on (and is sent); one on an
-   * older revision, or already refused, is only offered.
+   * Restore Your Edit: the refused text becomes the edit, on the server's
+   * current revision, and is sent. Returns the restored text.
    */
+  function restoreEdit(id: string): Draft | undefined {
+    const edit = pending.get(id);
+    const base = serverCopy.get(id);
+    if (!edit?.refused || !base) return undefined;
+    const fields = edit.refused;
+    setPending(id, {
+      fields,
+      baseRevision:
+        edit.status === "sending" ? edit.baseRevision : base.revision,
+      status: edit.status === "sending" ? "sending" : "dirty",
+      refused: undefined,
+      fromStorage: false,
+    });
+    replaceLocal(withText(base, fields));
+    saveEdit(id);
+    return fields;
+  }
+
+  /**
+   * What opening `memory` finds, from a draft in storage: text the server
+   * already has is dropped; this page's own draft on the current revision
+   * carries on; anything else (another tab's, an older revision's, a refused
+   * one) is only offered.
+   */
+  function fromStorage(
+    memory: Memory,
+    kept: StoredEdit | undefined
+  ): PendingEdit | undefined {
+    if (!kept) return undefined;
+    const fields =
+      kept.fields && !saved(memory, kept.fields) ? kept.fields : undefined;
+    const refused =
+      kept.refused && !saved(memory, kept.refused) ? kept.refused : undefined;
+    if (fields && kept.page === page && kept.baseRevision === memory.revision) {
+      return {
+        fields,
+        baseRevision: kept.baseRevision,
+        status: "dirty",
+        refused,
+        fromStorage: false,
+      };
+    }
+    const offer = fields ?? refused;
+    if (!offer) return undefined;
+    return {
+      baseRevision: memory.revision,
+      status: "idle",
+      refused: offer,
+      fromStorage: true,
+    };
+  }
+
+  /** Memory detail opened: its pending edit, picking up a stored draft. */
   function openEdit(memory: Memory): PendingEdit | undefined {
     const id = memory.id;
     const now = pending.get(id);
     if (now) return now;
     const kept = drafts.read(id);
-    if (!kept) return undefined;
-    const { revision, conflict, ...fields } = kept;
+    const edit = fromStorage(memory, kept);
+    if (!edit) {
+      if (kept) drafts.discard(id);
+      return undefined;
+    }
     serverCopy.set(id, memory);
-    if (!conflict && revision === memory.revision) {
-      setPending(id, {
-        fields,
-        baseRevision: revision,
-        status: "dirty",
-        fromStorage: false,
-      });
-      replaceLocal(withText(memory, fields));
+    setPending(id, edit);
+    if (edit.fields) {
+      replaceLocal(withText(memory, edit.fields));
       saveEdit(id);
-    } else {
-      setPending(id, {
-        fields,
-        baseRevision: revision,
-        status: "conflict",
-        fromStorage: true,
-      });
     }
     return pending.get(id);
   }
 
   /**
    * Memory detail closed. Unsaved text is sent and stays a draft until saved;
-   * a refused edit stays a draft to offer next time. Only a left-behind draft
-   * that was offered and neither restored nor typed over is dropped.
+   * refused text stays a draft to offer next time. Only text offered from
+   * storage and neither restored nor typed beside is dropped.
    */
   function closeEdit(id: string) {
     const edit = pending.get(id);
     if (!edit) return;
-    if (edit.status === "conflict") {
-      if (edit.fromStorage) setPending(id, undefined);
-      return;
+    if (edit.fromStorage && edit.refused) {
+      setPending(id, { ...edit, refused: undefined, fromStorage: false });
     }
+    if (!edit.fields) return;
     if (!edit.fields.body.trim()) notify("Text Can't Be Empty");
     saveEdit(id);
   }
@@ -356,20 +422,8 @@ export function libraryActions({
   const pendingEdit = (id: string) => pending.get(id);
 
   /** What openEdit(memory) will give, without changing anything (for a first render). */
-  function previewEdit(memory: Memory): PendingEdit | undefined {
-    const now = pending.get(memory.id);
-    if (now) return now;
-    const kept = drafts.read(memory.id);
-    if (!kept) return undefined;
-    const { revision, conflict, ...fields } = kept;
-    const resumes = !conflict && revision === memory.revision;
-    return {
-      fields,
-      baseRevision: revision,
-      status: resumes ? "dirty" : "conflict",
-      fromStorage: !resumes,
-    };
-  }
+  const previewEdit = (memory: Memory) =>
+    pending.get(memory.id) ?? fromStorage(memory, drafts.read(memory.id));
 
   /** Hears every change to a Memory's pending edit; returns a stop function. */
   function watchEdit(id: string, watch: (edit?: PendingEdit) => void) {
@@ -379,15 +433,20 @@ export function libraryActions({
     return () => void set.delete(watch);
   }
 
+  /**
+   * Delete with a 5 second Undo. A pending edit stays until the delete is
+   * sent; Undo brings the Memory back and sends the edit.
+   */
   function remove(memory: Memory) {
-    setPending(memory.id, undefined);
-    removeLocal(memory.id);
+    const id = memory.id;
+    removeLocal(id);
     let done = false;
     const send = (keepalive = false) => {
       if (done) return;
       done = true;
-      pendingDeletes.delete(memory.id);
-      inOrder(memory.id, () => transport.remove(memory.id, { keepalive })).then(
+      pendingDeletes.delete(id);
+      setPending(id, undefined);
+      inOrder(id, () => transport.remove(id, { keepalive })).then(
         onSaved,
         () => {
           restoreLocal(memory);
@@ -397,7 +456,7 @@ export function libraryActions({
         }
       );
     };
-    pendingDeletes.set(memory.id, () => send(true));
+    pendingDeletes.set(id, () => send(true));
     notify("Deleted", {
       duration: UNDO_MS,
       onAutoClose: () => send(),
@@ -406,8 +465,12 @@ export function libraryActions({
         label: "Undo",
         onClick: () => {
           done = true;
-          pendingDeletes.delete(memory.id);
-          restoreLocal(memory);
+          pendingDeletes.delete(id);
+          const edit = pending.get(id);
+          restoreLocal(edit?.fields ? withText(memory, edit.fields) : memory);
+          if (edit?.status === "failed")
+            setPending(id, { ...edit, status: "dirty" });
+          saveEdit(id);
         },
       },
     });

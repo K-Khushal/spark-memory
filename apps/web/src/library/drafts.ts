@@ -1,10 +1,17 @@
 /** What Memory detail edits. */
 export type Draft = { title: string; body: string; captureNote: string };
+
 /**
- * A kept draft: the revision of the Memory it was written on, and whether
- * the server already refused it (then it is only ever offered, never sent).
+ * A Memory's pending edit as kept in this browser: the person's unsaved
+ * text (`fields`, written on `baseRevision`), text the server refused
+ * (`refused`), and which page wrote it, so another tab only ever offers it.
  */
-export type KeptDraft = Draft & { revision: number; conflict?: boolean };
+export type StoredEdit = {
+  fields?: Draft;
+  baseRevision: number;
+  refused?: Draft;
+  page: string;
+};
 
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -12,53 +19,53 @@ const key = (id: string) => `spark-draft:${id}`;
 export const sameText = (a: Draft, b: Draft) =>
   a.title === b.title && a.body === b.body && a.captureNote === b.captureNote;
 
+const isDraft = (x: unknown): x is Draft =>
+  typeof x === "object" &&
+  x !== null &&
+  typeof (x as Draft).title === "string" &&
+  typeof (x as Draft).body === "string" &&
+  typeof (x as Draft).captureNote === "string";
+
+const draftOf = ({ title, body, captureNote }: Draft): Draft => ({
+  title,
+  body,
+  captureNote,
+});
+
 /**
- * Unsaved Memory detail edits, kept in this browser until the server has
- * them: a page that closes mid-edit (a save too big for keepalive, or one
- * still queued) loses nothing. Each draft records the revision it was
- * written on, so it is never applied over a newer one without asking.
- * Storage can be blocked or full; then drafts are simply off.
+ * Pending edits kept in this browser until the server has them, so a page
+ * that closes mid-edit loses nothing. Storage can be blocked or full; then
+ * this is simply off.
  */
 export function draftStore(storage: Storage | undefined) {
-  const read = (id: string): KeptDraft | undefined => {
-    try {
-      const raw = storage?.getItem(key(id));
-      const value = raw ? (JSON.parse(raw) as Partial<KeptDraft>) : undefined;
-      return typeof value?.title === "string" &&
-        typeof value.body === "string" &&
-        typeof value.captureNote === "string" &&
-        Number.isInteger(value.revision)
-        ? (value as KeptDraft)
-        : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-  const discard = (id: string) => {
-    try {
-      storage?.removeItem(key(id));
-    } catch {
-      // Nothing to forget in blocked storage.
-    }
-  };
   return {
-    read,
-    discard,
-    keep(id: string, draft: Draft, revision: number, conflict = false) {
-      const { title, body, captureNote } = draft;
+    read(id: string): StoredEdit | undefined {
       try {
-        storage?.setItem(
-          key(id),
-          JSON.stringify({ title, body, captureNote, revision, conflict })
-        );
+        const raw = storage?.getItem(key(id));
+        const v = raw ? (JSON.parse(raw) as Partial<StoredEdit>) : undefined;
+        if (!v || !Number.isInteger(v.baseRevision)) return undefined;
+        if (typeof v.page !== "string") return undefined;
+        const fields = isDraft(v.fields) ? draftOf(v.fields) : undefined;
+        const refused = isDraft(v.refused) ? draftOf(v.refused) : undefined;
+        if (!fields && !refused) return undefined;
+        return { fields, refused, baseRevision: v.baseRevision!, page: v.page };
       } catch {
-        // Blocked or full: the open dialog still autosaves.
+        return undefined;
       }
     },
-    /** The server has `draft`; forget it unless a newer one was kept since. */
-    saved(id: string, draft: Draft) {
-      const kept = read(id);
-      if (kept && sameText(kept, draft)) discard(id);
+    keep(id: string, edit: StoredEdit) {
+      try {
+        storage?.setItem(key(id), JSON.stringify(edit));
+      } catch {
+        // Blocked or full: the open page still holds the edit.
+      }
+    },
+    discard(id: string) {
+      try {
+        storage?.removeItem(key(id));
+      } catch {
+        // Nothing to forget in blocked storage.
+      }
     },
   };
 }

@@ -22,49 +22,38 @@ const blocked = {
   },
 };
 
-describe("unsaved Memory drafts", () => {
-  it("keeps an edit until it is saved", () => {
-    const drafts = draftStore(memoryStorage());
-    const draft = { title: "T", body: "Long text", captureNote: "" };
-    drafts.keep("m1", draft, 3);
-    expect(drafts.read("m1")).toEqual({
-      ...draft,
-      revision: 3,
-      conflict: false,
-    });
-    drafts.saved("m1", draft);
-    expect(drafts.read("m1")).toBeUndefined();
-  });
+const fields = { title: "T", body: "Long text", captureNote: "" };
 
-  it("keeps a newer draft when an older save lands", () => {
+describe("stored pending edits", () => {
+  it("keeps an edit, with its revision and page, until discarded", () => {
     const drafts = draftStore(memoryStorage());
-    const older = { title: "", body: "One", captureNote: "" };
-    const newer = { title: "", body: "One two", captureNote: "" };
-    drafts.keep("m1", newer, 1);
-    drafts.saved("m1", older);
-    expect(drafts.read("m1")).toEqual({
-      ...newer,
-      revision: 1,
-      conflict: false,
-    });
+    const edit = { fields, baseRevision: 3, page: "p1" };
+    drafts.keep("m1", edit);
+    expect(drafts.read("m1")).toEqual({ ...edit, refused: undefined });
+    drafts.discard("m1");
+    expect(drafts.read("m1")).toBeUndefined();
   });
 
   it("does nothing, without throwing, when storage is blocked or full", () => {
     const drafts = draftStore(blocked);
-    const draft = { title: "", body: "x", captureNote: "" };
-    expect(() => drafts.keep("m1", draft, 1)).not.toThrow();
+    expect(() =>
+      drafts.keep("m1", { fields, baseRevision: 1, page: "p1" })
+    ).not.toThrow();
     expect(drafts.read("m1")).toBeUndefined();
-    expect(() => drafts.saved("m1", draft)).not.toThrow();
+    expect(() => drafts.discard("m1")).not.toThrow();
   });
 
-  it("ignores a stored value that is not a draft, or has no revision", () => {
+  it("ignores a stored value that is not a pending edit", () => {
     const storage = memoryStorage();
     storage.setItem("spark-draft:m1", "{not json");
+    storage.setItem("spark-draft:m2", JSON.stringify({ ...fields }));
     storage.setItem(
-      "spark-draft:m2",
-      JSON.stringify({ title: "", body: "x", captureNote: "" })
+      "spark-draft:m3",
+      JSON.stringify({ baseRevision: 1, page: "p1" })
     );
-    expect(draftStore(storage).read("m1")).toBeUndefined();
-    expect(draftStore(storage).read("m2")).toBeUndefined();
+    const drafts = draftStore(storage);
+    for (const id of ["m1", "m2", "m3"]) {
+      expect(drafts.read(id), id).toBeUndefined();
+    }
   });
 });

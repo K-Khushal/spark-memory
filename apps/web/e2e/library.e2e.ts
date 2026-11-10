@@ -75,10 +75,9 @@ test("paste a Memory, find it by a typo, delete it with Undo", async ({
       localStorage.setItem(
         `spark-draft:${id}`,
         JSON.stringify({
-          title: "",
-          body,
-          captureNote: "Restored note",
-          revision,
+          fields: { title: "", body, captureNote: "Restored note" },
+          baseRevision: revision,
+          page: "an earlier page",
         })
       ),
     [saved!.id, saved!.body, saved!.revision - 1] as const

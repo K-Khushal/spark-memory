@@ -9,11 +9,7 @@ import {
   Textarea,
 } from "@spark/ui";
 import type { Draft } from "./drafts";
-import {
-  textOf,
-  type libraryActions,
-  type PendingEdit,
-} from "./library-actions";
+import { textOf, type libraryActions } from "./library-actions";
 import type { Memory } from "./use-library";
 
 const AUTOSAVE_MS = 800;
@@ -35,7 +31,7 @@ export type Edits = Pick<
  * It saves as you type and on close (like Apple Notes), so there is no Save
  * button. When the Memory changed elsewhere it shows the server's copy, and
  * "Restore Your Edit" (inside the dialog, so the keyboard reaches it) puts
- * the person's text back.
+ * the refused text back; typing over the server copy leaves the offer up.
  */
 export function MemoryDetail({
   memory,
@@ -77,8 +73,8 @@ function Fields({
   const id = memory.id;
   const [opening] = useState(memory);
   const [edit, setEdit] = useState(() => edits.previewEdit(memory));
-  const [fields, setFields] = useState<Draft>(() =>
-    edit && edit.status !== "conflict" ? edit.fields : textOf(memory)
+  const [fields, setFields] = useState<Draft>(
+    () => edit?.fields ?? textOf(memory)
   );
   const bodyField = useRef<HTMLTextAreaElement>(null);
   const autosave = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -87,16 +83,8 @@ function Fields({
   useEffect(() => {
     // React's StrictMode closes and reopens at once: that is not a close.
     clearTimeout(closing.current);
-    let was: PendingEdit | undefined;
-    const stop = edits.watchEdit(id, (next) => {
-      // Restore takes the edit out of conflict: its text comes back.
-      if (was?.status === "conflict" && next && next.status !== "conflict") {
-        setFields(next.fields);
-      }
-      was = next;
-      setEdit(next);
-    });
-    was = edits.openEdit(opening);
+    const stop = edits.watchEdit(id, setEdit);
+    edits.openEdit(opening);
     return () => {
       stop();
       clearTimeout(autosave.current);
@@ -104,9 +92,9 @@ function Fields({
     };
   }, [edits, id, opening]);
 
-  const conflict = edit?.status === "conflict";
-  // In conflict the fields show the server's copy, which the wall has.
-  const shown = conflict ? textOf(memory) : fields;
+  // With no edit of the person's own (after a refusal, or while only a
+  // stored draft is offered) the fields show the server's copy, as the wall.
+  const shown = edit?.status === "idle" ? textOf(memory) : fields;
 
   const change = (next: Draft) => {
     setFields(next);
@@ -172,12 +160,13 @@ function Fields({
           <Trash2Icon aria-hidden /> Delete
         </Button>
         <div className="flex gap-2">
-          {conflict && (
+          {edit?.refused && (
             <Button
               variant="quiet"
               size="sm"
               onClick={() => {
-                edits.restoreEdit(id);
+                const restored = edits.restoreEdit(id);
+                if (restored) setFields(restored);
                 // The button goes; focus moves to the restored text.
                 bodyField.current?.focus();
               }}
