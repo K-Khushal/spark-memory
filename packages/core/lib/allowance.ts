@@ -12,6 +12,10 @@ export const FREE_ALLOWANCE = {
   pdfPagesIndexed: 30,
   videoTranscriptMaxMinutes: 60,
   deepFetchesPerDay: 20,
+  /** Longest text Memory body, in characters (about 25 pages). */
+  textMaxChars: 100_000,
+  titleMaxChars: 300,
+  captureNoteMaxChars: 500,
 } as const;
 
 export function isFileWithinAllowance(input: {

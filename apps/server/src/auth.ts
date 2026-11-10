@@ -6,7 +6,7 @@ import {
   type Auth,
   type AuthConfig,
 } from "@spark/auth";
-import { openDatabase } from "@spark/db";
+import { openDatabase, type Database } from "@spark/db";
 import type { Plan } from "@spark/core";
 import type { AppEnv, Bindings } from "./env";
 
@@ -81,13 +81,14 @@ function signInCodeSender(
     );
 }
 
-type AuthVariables = { auth: Auth };
+export type AuthVariables = { auth: Auth; db: Database };
 
-/** Better Auth for this request; its database closes once the response is sent. */
+/** Better Auth and the database for this request; the database closes once the response is sent. */
 export const withAuth = createMiddleware<AppEnv & { Variables: AuthVariables }>(
   async (c, next) => {
     const { db, close } = openDatabase(c.env.HYPERDRIVE.connectionString);
     const waitUntil = (p: Promise<void>) => c.executionCtx.waitUntil(p);
+    c.set("db", db);
     c.set(
       "auth",
       createAuth({
@@ -104,9 +105,11 @@ export const withAuth = createMiddleware<AppEnv & { Variables: AuthVariables }>(
   }
 );
 
+export type UserVariables = AuthVariables & { user: SignedInUser };
+
 /** Rejects anonymous requests with 401; otherwise sets `user`. */
 export const requireUser = createMiddleware<
-  AppEnv & { Variables: AuthVariables & { user: SignedInUser } }
+  AppEnv & { Variables: UserVariables }
 >(async (c, next) => {
   const session = await c.var.auth.api.getSession({
     headers: c.req.raw.headers,

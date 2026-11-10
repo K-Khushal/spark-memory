@@ -15,4 +15,5 @@ export {
 export { Toaster, toast } from "./lib/toaster";
 export { Masonry } from "./lib/masonry";
 export { Input } from "./lib/input";
+export { Textarea } from "./lib/textarea";
 export { InputOTP, InputOTPGroup, InputOTPSlot } from "./lib/input-otp";

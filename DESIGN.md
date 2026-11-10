@@ -90,6 +90,7 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 - **⌘K / Ctrl K** (or `/`) opens Search from anywhere. Typing shows instant results; Enter puts the full results on the wall.
 - **⌘V / Ctrl V** outside a text field Captures the clipboard. The Capture button does the same for pointer and touch.
 - **Optimistic Capture**: the Memory lands first on the wall as Indexing, and a toast says "Captured" with **Undo**. Failed shows on the tile with a Retry.
+- Text Memories land Searchable, not Indexing, until Indexing exists: their keyword index is written with the Memory.
 - **Arrow keys** move spatially on the wall (`neighbour` in `@spark/ui/layout`). Enter and Space open Quick preview. Escape closes the top layer.
 - One tab stop per wall (roving `tabindex`). Focus is always visible.
 - Results always show Direct Matches first and Related Matches apart. With no Direct match the heading says "No Direct Matches".

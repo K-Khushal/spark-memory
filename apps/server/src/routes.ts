@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { checkDatabase } from "@spark/db";
 import type { AppEnv } from "./env";
+import { memories } from "./memories";
 import {
   readDevOutbox,
   requireUser,
@@ -34,4 +35,5 @@ export const routes = new Hono<AppEnv>()
       usesDevOutbox(c.env, c.req.url) &&
       readDevOutbox(c.req.query("email") ?? "");
     return code ? c.json({ code }) : c.notFound();
-  });
+  })
+  .route("/", memories);

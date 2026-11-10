@@ -15,6 +15,9 @@ export function Toaster(props: ToasterProps) {
           "--normal-border": "transparent",
           "--border-radius": "var(--radius-tile)",
           fontFamily: "var(--font-sans)",
+          // An open dialog turns pointer events off outside itself; toast
+          // actions (Undo, Restore Your Edit) must still take a click.
+          pointerEvents: "auto",
         } as CSSProperties
       }
       toastOptions={{

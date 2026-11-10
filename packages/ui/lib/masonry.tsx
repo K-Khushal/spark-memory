@@ -21,10 +21,12 @@ type MasonryProps<T> = {
   items: readonly T[];
   getKey: (item: T) => string;
   /** width / height of the item's visual. */
-  getAspect: (item: T) => number;
+  getAspect?: (item: T) => number;
   getLabel: (item: T) => string;
   /** Extra height under an item's visual (caption, chips), known up front. */
   getCaption?: (item: T) => number;
+  /** The visual's height at a column width, for items without a fixed aspect (text). Overrides getAspect. */
+  getHeight?: (item: T, width: number) => number;
   minColumnWidth?: number;
   maxColumns?: number;
   gap?: number;
@@ -43,9 +45,10 @@ type MasonryProps<T> = {
 export function Masonry<T>({
   items,
   getKey,
-  getAspect,
+  getAspect = () => 1,
   getLabel,
   getCaption = () => 0,
+  getHeight,
   minColumnWidth = 220,
   maxColumns = 6,
   gap = 12,
@@ -81,7 +84,11 @@ export function Masonry<T>({
   const colWidth = Math.max(0, (box.width - gap * (lanes - 1)) / lanes);
   const sizeOf = (i: number) => {
     const item = items[i];
-    return item ? Math.round(colWidth / getAspect(item)) + getCaption(item) : 0;
+    if (!item) return 0;
+    const visual = getHeight
+      ? getHeight(item, colWidth)
+      : colWidth / getAspect(item);
+    return Math.round(visual) + getCaption(item);
   };
 
   const virtualizer = useWindowVirtualizer({
