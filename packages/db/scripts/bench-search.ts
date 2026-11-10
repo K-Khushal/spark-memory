@@ -3,14 +3,12 @@
 // Library next to 4,000 other people's Memories, runs typed-as-you-go,
 // keyword, typo and no-match queries through openLibrary, prints percentiles,
 // then deletes everything it made. Local databases only.
-import { existsSync } from "node:fs";
 import { inArray } from "drizzle-orm";
+import { loadRootEnv } from "@spark/config/load-env";
 import { openDatabase, openLibrary, schema } from "../index";
 import { DEMO_LIBRARY } from "./demo-library";
 
-const rootEnv = new URL("../../../.env", import.meta.url);
-if (!process.env.DATABASE_URL && existsSync(rootEnv))
-  process.loadEnvFile(rootEnv);
+loadRootEnv();
 const url = process.env.DATABASE_URL;
 if (!url || !["localhost", "127.0.0.1"].includes(new URL(url).hostname)) {
   throw new Error("bench:search needs a local DATABASE_URL");

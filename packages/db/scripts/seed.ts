@@ -1,14 +1,12 @@
 // `pnpm --filter @spark/db db:seed`: fills the local database with a demo
 // Library. Sign in as demo@example.com (the code is in the dev outbox).
 // Re-running replaces the demo Library; nobody else's Memories are touched.
-import { existsSync } from "node:fs";
 import { eq } from "drizzle-orm";
+import { loadRootEnv } from "@spark/config/load-env";
 import { checkDatabase, openDatabase, openLibrary, schema } from "../index";
 import { DEMO_EMAIL, DEMO_LIBRARY } from "./demo-library";
 
-const rootEnv = new URL("../../../.env", import.meta.url);
-if (!process.env.DATABASE_URL && existsSync(rootEnv))
-  process.loadEnvFile(rootEnv);
+loadRootEnv();
 
 const url = process.env.DATABASE_URL;
 if (!url)
