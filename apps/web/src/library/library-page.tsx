@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { LogOutIcon, PlusIcon, SearchIcon } from "lucide-react";
+import { MotionConfig } from "motion/react";
+import { LogOutIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import {
   Button,
   CommandDialog,
@@ -10,27 +11,58 @@ import {
   CommandItem,
   CommandList,
   Kbd,
+  Masonry,
   Toaster,
+  cn,
   toast,
 } from "@spark/ui";
 import { authClient, type Session } from "../auth";
+import { MemoryDetail } from "./memory-detail";
+import { MemoryTile, memoryName, tileLayout } from "./memory-tile";
+import { PasteBox } from "./paste-box";
 import { MOD, useLibraryShortcuts } from "./shortcuts";
+import { useLibrary, type Memory, type WallMemory } from "./use-library";
+import { useInstantSearch, type Results } from "./use-search";
 
 /**
- * The app shell: sidebar (a top bar on phones) beside the Library wall
- * (DESIGN.md → Pick). The wall is empty until Capture lands (#5).
+ * The Library: sidebar (a top bar on phones) beside the masonry wall of
+ * Memories (DESIGN.md → Pick). ⌘V Captures, ⌘K searches, a tile opens its
+ * Memory.
  */
 export function LibraryPage({ session }: { session: Session }) {
   const navigate = useNavigate();
+  const library = useLibrary();
   const [searchOpen, setSearchOpen] = useState(false);
-  const openSearch = () => setSearchOpen(true);
+  const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [openId, setOpenId] = useState<string>();
+  const instant = useInstantSearch(draft, library.memories);
+  const results = useInstantSearch(query, library.memories);
+  const opened = library.memories.find((m) => m.id === openId);
 
-  // Capture arrives with #5; until then the shortcut and buttons say so.
-  const capture = () => toast("Capture is coming soon");
+  const openSearch = () => {
+    setDraft(query);
+    setSearchOpen(true);
+  };
+  const openPasteBox = () => {
+    setSearchOpen(false);
+    setPasteOpen(true);
+  };
+  const openMemory = (memory: Memory) => {
+    setSearchOpen(false);
+    setOpenId(memory.id);
+  };
+  const showOnWall = (q: string) => {
+    setQuery(q.trim());
+    setSearchOpen(false);
+    window.scrollTo({ top: 0 });
+  };
+
   useLibraryShortcuts({
     onSearch: openSearch,
-    onToggleSearch: () => setSearchOpen((open) => !open),
-    onPaste: capture,
+    onToggleSearch: () => (searchOpen ? setSearchOpen(false) : openSearch()),
+    onPaste: (data) => void library.capture(data.getData("text/plain")),
   });
 
   const signOut = async () => {
@@ -43,105 +75,214 @@ export function LibraryPage({ session }: { session: Session }) {
     await navigate({ to: "/sign-in" });
   };
 
-  const searchButton = (
-    <button
-      type="button"
-      onClick={openSearch}
-      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-transform duration-[120ms] ease-out active:scale-[0.97]"
-    >
-      <SearchIcon className="size-4 shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1 truncate">Search</span>
-      <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>
-    </button>
+  const search = (
+    <div className="flex min-w-0 items-center gap-1">
+      <button
+        type="button"
+        onClick={openSearch}
+        className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-transform duration-[120ms] ease-out active:scale-[0.97]"
+      >
+        <SearchIcon className="size-4 shrink-0" aria-hidden />
+        <span
+          className={cn("min-w-0 flex-1 truncate", query && "text-ink")}
+          dir="auto"
+        >
+          {query || "Search"}
+        </span>
+        {!query && <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>}
+      </button>
+      {query && (
+        <Button
+          variant="quiet"
+          size="icon-sm"
+          aria-label="Clear Search"
+          onClick={() => setQuery("")}
+        >
+          <XIcon aria-hidden />
+        </Button>
+      )}
+    </div>
   );
 
   return (
-    <div className="flex min-h-dvh bg-canvas">
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 border-r border-line bg-sunken p-3 md:flex">
-        <div className="flex h-8 items-center justify-between pl-2">
-          <Wordmark />
-          <Button
-            variant="quiet"
-            size="icon-sm"
-            aria-label="Capture"
-            onClick={capture}
-          >
-            <PlusIcon aria-hidden />
-          </Button>
-        </div>
-        {searchButton}
-        <nav aria-label="Library">
-          <ul>
-            <li>
-              <Link
-                to="/"
-                aria-current="page"
-                className="flex h-8 items-center rounded-control bg-surface px-2 text-sm font-medium text-ink shadow-raised"
-              >
-                All Memories
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <div className="mt-auto flex items-center gap-1 pl-2">
-          <span
-            className="min-w-0 flex-1 truncate text-sm text-ink-muted"
-            title={session.user.email}
-          >
-            {session.user.email}
-          </span>
-          <Button
-            variant="quiet"
-            size="icon-sm"
-            aria-label="Sign Out"
-            title="Sign Out"
-            onClick={() => void signOut()}
-          >
-            <LogOutIcon aria-hidden />
-          </Button>
-        </div>
-      </aside>
+    <MotionConfig reducedMotion="user">
+      <div className="flex min-h-dvh bg-canvas">
+        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 border-r border-line bg-sunken p-3 md:flex">
+          <div className="flex h-8 items-center justify-between pl-2">
+            <Wordmark />
+            <Button
+              variant="quiet"
+              size="icon-sm"
+              aria-label="Capture"
+              onClick={openPasteBox}
+            >
+              <PlusIcon aria-hidden />
+            </Button>
+          </div>
+          {search}
+          <nav aria-label="Library">
+            <ul>
+              <li>
+                <Link
+                  to="/"
+                  aria-current="page"
+                  onClick={() => setQuery("")}
+                  className="flex h-8 items-center rounded-control bg-surface px-2 text-sm font-medium text-ink shadow-raised"
+                >
+                  All Memories
+                </Link>
+              </li>
+            </ul>
+          </nav>
+          <div className="mt-auto flex items-center gap-1 pl-2">
+            <span
+              className="min-w-0 flex-1 truncate text-sm text-ink-muted"
+              title={session.user.email}
+            >
+              {session.user.email}
+            </span>
+            <Button
+              variant="quiet"
+              size="icon-sm"
+              aria-label="Sign Out"
+              title="Sign Out"
+              onClick={() => void signOut()}
+            >
+              <LogOutIcon aria-hidden />
+            </Button>
+          </div>
+        </aside>
 
-      <main className="min-w-0 flex-1">
-        <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden">
-          <Wordmark />
-          <div className="min-w-0 flex-1">{searchButton}</div>
-          <Button
-            variant="primary"
-            size="icon"
-            aria-label="Capture"
-            onClick={capture}
-          >
-            <PlusIcon aria-hidden />
-          </Button>
-        </div>
-        <h1 className="sr-only">Library</h1>
-        <EmptyLibrary onCapture={capture} onSearch={openSearch} />
-      </main>
+        <main className="min-w-0 flex-1">
+          <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden">
+            <Wordmark />
+            <div className="min-w-0 flex-1">{search}</div>
+            <Button
+              variant="primary"
+              size="icon"
+              aria-label="Capture"
+              onClick={openPasteBox}
+            >
+              <PlusIcon aria-hidden />
+            </Button>
+          </div>
+          <h1 className="sr-only">Library</h1>
+          {library.state === "failed" ? (
+            <Centred title="Library Is Unreachable">
+              <Button variant="outline" onClick={library.retry}>
+                Try Again
+              </Button>
+            </Centred>
+          ) : library.state === "loading" ? null : !library.memories.length ? (
+            <Centred title="No Memories Yet">
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  variant="primary"
+                  className="h-10"
+                  onClick={openPasteBox}
+                >
+                  <PlusIcon aria-hidden /> Capture
+                  <Kbd className="hidden border-transparent bg-canvas/15 text-canvas sm:inline-flex">
+                    {MOD}V
+                  </Kbd>
+                </Button>
+                <Button variant="outline" className="h-10" onClick={openSearch}>
+                  <SearchIcon aria-hidden /> Search
+                  <Kbd className="hidden sm:inline-flex">{MOD}K</Kbd>
+                </Button>
+              </div>
+            </Centred>
+          ) : (
+            <div className="p-4 md:p-6">
+              {query ? (
+                <SearchResults
+                  results={results}
+                  query={query}
+                  onOpen={openMemory}
+                />
+              ) : (
+                <Wall
+                  label="All Memories"
+                  memories={library.memories}
+                  query=""
+                  onOpen={openMemory}
+                />
+              )}
+            </div>
+          )}
+        </main>
 
-      <CommandDialog
-        title="Search"
-        open={searchOpen}
-        onOpenChange={setSearchOpen}
-      >
-        <CommandInput
-          placeholder="Search…"
-          className="text-[1rem] md:text-md"
+        <CommandDialog
+          title="Search"
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          shouldFilter={false}
+        >
+          <CommandInput
+            value={draft}
+            onValueChange={setDraft}
+            placeholder="Search…"
+            className="text-[1rem] md:text-md"
+          />
+          <CommandList>
+            <CommandEmpty>No Direct Matches</CommandEmpty>
+            {draft.trim() ? (
+              instant &&
+              instant.direct.length + instant.related.length > 0 && (
+                <>
+                  <CommandItem
+                    value="__wall"
+                    onSelect={() => showOnWall(draft)}
+                  >
+                    <SearchIcon className="size-4 text-ink-muted" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate" dir="auto">
+                      {draft}
+                    </span>
+                    <Kbd>↵</Kbd>
+                  </CommandItem>
+                  <ResultGroup
+                    heading="Direct Matches"
+                    memories={instant.direct.slice(0, 6)}
+                    onOpen={openMemory}
+                  />
+                  <ResultGroup
+                    heading="Related Matches"
+                    memories={instant.related.slice(0, 4)}
+                    onOpen={openMemory}
+                  />
+                </>
+              )
+            ) : (
+              <CommandGroup>
+                <Action
+                  icon={<PlusIcon />}
+                  hint={`${MOD}V`}
+                  onSelect={openPasteBox}
+                >
+                  Capture
+                </Action>
+                <Action icon={<LogOutIcon />} onSelect={() => void signOut()}>
+                  Sign Out
+                </Action>
+              </CommandGroup>
+            )}
+          </CommandList>
+        </CommandDialog>
+
+        <PasteBox
+          open={pasteOpen}
+          onOpenChange={setPasteOpen}
+          onCapture={library.capture}
         />
-        <CommandList>
-          <CommandEmpty>No Results</CommandEmpty>
-          <CommandGroup>
-            <Action icon={<PlusIcon />} hint={`${MOD}V`} onSelect={capture}>
-              Capture
-            </Action>
-            <Action icon={<LogOutIcon />} onSelect={() => void signOut()}>
-              Sign Out
-            </Action>
-          </CommandGroup>
-        </CommandList>
-      </CommandDialog>
-      <Toaster />
-    </div>
+        <MemoryDetail
+          memory={opened}
+          onClose={() => setOpenId(undefined)}
+          onSave={library.edit}
+          onDelete={library.remove}
+        />
+        <Toaster />
+      </div>
+    </MotionConfig>
   );
 }
 
@@ -149,32 +290,113 @@ function Wordmark() {
   return <span className="font-display text-md font-semibold">Spark</span>;
 }
 
-/** Teaches the two shortcuts by being them: Capture (⌘V) and Search (⌘K). */
-function EmptyLibrary({
-  onCapture,
-  onSearch,
-}: {
-  onCapture: () => void;
-  onSearch: () => void;
-}) {
+/** A whole-wall message with one way forward. */
+function Centred({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="grid min-h-[calc(100dvh-3.5rem)] place-items-center p-4 md:min-h-dvh">
       <div className="flex flex-col items-center gap-5">
-        <h2 className="font-display text-lg font-semibold">No Memories Yet</h2>
-        <div className="flex flex-wrap justify-center gap-2">
-          <Button variant="primary" className="h-10" onClick={onCapture}>
-            <PlusIcon aria-hidden /> Capture
-            <Kbd className="hidden border-transparent bg-canvas/15 text-canvas sm:inline-flex">
-              {MOD}V
-            </Kbd>
-          </Button>
-          <Button variant="outline" className="h-10" onClick={onSearch}>
-            <SearchIcon aria-hidden /> Search
-            <Kbd className="hidden sm:inline-flex">{MOD}K</Kbd>
-          </Button>
-        </div>
+        <h2 className="font-display text-lg font-semibold">{title}</h2>
+        {children}
       </div>
     </div>
+  );
+}
+
+function Wall({
+  label,
+  memories,
+  query,
+  onOpen,
+}: {
+  label: string;
+  memories: WallMemory[];
+  query: string;
+  onOpen: (memory: Memory) => void;
+}) {
+  const open = (i: number) => memories[i] && onOpen(memories[i]);
+  return (
+    <Masonry
+      label={label}
+      items={memories}
+      getKey={(m) => m.id}
+      getHeight={(m, width) => tileLayout(m, width).height}
+      getLabel={memoryName}
+      onOpen={open}
+      onPreview={open}
+      renderItem={(m, tile) => (
+        <MemoryTile memory={m} query={query} width={tile.width} />
+      )}
+    />
+  );
+}
+
+/** Direct Matches first, Related Matches apart (DESIGN.md → Interaction baseline). */
+function SearchResults({
+  results,
+  query,
+  onOpen,
+}: {
+  results: Results | undefined;
+  query: string;
+  onOpen: (memory: Memory) => void;
+}) {
+  if (!results) return null;
+  return (
+    <>
+      <section>
+        <h2 className="mb-3 text-sm font-medium text-ink-muted">
+          {results.direct.length ? "Direct Matches" : "No Direct Matches"}
+        </h2>
+        {results.direct.length > 0 && (
+          <Wall
+            label="Direct Matches"
+            memories={results.direct}
+            query={query}
+            onOpen={onOpen}
+          />
+        )}
+      </section>
+      {results.related.length > 0 && (
+        <section className="mt-10">
+          <h2 className="mb-3 text-sm font-medium text-ink-muted">
+            Related Matches
+          </h2>
+          <Wall
+            label="Related Matches"
+            memories={results.related}
+            query={query}
+            onOpen={onOpen}
+          />
+        </section>
+      )}
+    </>
+  );
+}
+
+function ResultGroup({
+  heading,
+  memories,
+  onOpen,
+}: {
+  heading: string;
+  memories: Memory[];
+  onOpen: (memory: Memory) => void;
+}) {
+  if (!memories.length) return null;
+  return (
+    <CommandGroup heading={heading}>
+      {memories.map((memory) => (
+        <CommandItem
+          key={memory.id}
+          value={memory.id}
+          onSelect={() => onOpen(memory)}
+        >
+          <span className="min-w-0 flex-1 truncate" dir="auto">
+            {memoryName(memory)}
+          </span>
+        </CommandItem>
+      ))}
+    </CommandGroup>
   );
 }
 

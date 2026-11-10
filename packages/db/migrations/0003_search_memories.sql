@@ -42,8 +42,9 @@ CREATE FUNCTION search_memories(p_user_id text, p_query text, p_limit integer DE
 RETURNS TABLE (id uuid, score double precision, matched text[])
 LANGUAGE sql
 STABLE
--- `%` reads this; 0.35 lets a typo or two through in words of five or more.
-SET pg_trgm.similarity_threshold = 0.35
+-- `%` reads this: one or two typos pass in words of five letters or more,
+-- while near neighbours ("bread", "read") stay apart.
+SET pg_trgm.similarity_threshold = 0.4
 AS $$
   WITH query_words AS (
     SELECT t.lexeme AS word
@@ -51,11 +52,18 @@ AS $$
     -- Under 3 characters every word looks alike; the prefix covers it.
     WHERE char_length(t.lexeme) BETWEEN 3 AND 40
   ),
+  -- The three closest words in this Library for each query word.
   corrections AS (
-    SELECT DISTINCT w.word
+    SELECT DISTINCT c.word
     FROM query_words q
-    JOIN memory_word w ON w.word % q.word AND w.word <> q.word
-    WHERE w.user_id = p_user_id
+    CROSS JOIN LATERAL (
+      SELECT w.word
+      FROM memory_word w
+      WHERE w.user_id = p_user_id AND w.word % q.word AND w.word <> q.word
+      GROUP BY w.word
+      ORDER BY similarity(w.word, q.word) DESC
+      LIMIT 3
+    ) AS c
   ),
   q AS (
     SELECT

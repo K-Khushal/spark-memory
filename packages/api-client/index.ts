@@ -1,4 +1,6 @@
 import { hc } from "hono/client";
+
+export type { InferResponseType } from "hono/client";
 import type { AppType } from "@spark/server";
 
 /** Typed client for the Spark API. `baseUrl` is the origin serving `/api/*`. */
