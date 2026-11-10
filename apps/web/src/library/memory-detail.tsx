@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Trash2Icon } from "lucide-react";
 import type { MemoryEdit } from "@spark/core";
 import { FREE_ALLOWANCE } from "@spark/core";
@@ -73,12 +73,17 @@ function Fields({
   const [body, setBody] = useState(session.initial.body);
   const [note, setNote] = useState(session.initial.captureNote);
   useEffect(() => session.seen(memory), [session, memory]);
+  const [offered, setOffered] = useState(session.offered);
+  const bodyField = useRef<HTMLTextAreaElement>(null);
   useEffect(
     () =>
-      session.listen((fields) => {
-        setTitle(fields.title);
-        setBody(fields.body);
-        setNote(fields.captureNote);
+      session.listen({
+        show: (fields) => {
+          setTitle(fields.title);
+          setBody(fields.body);
+          setNote(fields.captureNote);
+        },
+        offer: setOffered,
       }),
     [session]
   );
@@ -128,6 +133,7 @@ function Fields({
         className="mr-8 min-w-0 rounded-chip bg-transparent font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
       />
       <Textarea
+        ref={bodyField}
         value={body}
         onChange={(e) => setBody(e.target.value)}
         aria-label="Text"
@@ -155,9 +161,24 @@ function Fields({
         >
           <Trash2Icon aria-hidden /> Delete
         </Button>
-        <Button variant="primary" size="sm" onClick={onClose}>
-          Done
-        </Button>
+        <div className="flex gap-2">
+          {offered && (
+            <Button
+              variant="quiet"
+              size="sm"
+              onClick={() => {
+                session.restore();
+                // The button goes; focus moves to the restored text.
+                bodyField.current?.focus();
+              }}
+            >
+              Restore Your Edit
+            </Button>
+          )}
+          <Button variant="primary" size="sm" onClick={onClose}>
+            Done
+          </Button>
+        </div>
       </div>
     </DialogContent>
   );

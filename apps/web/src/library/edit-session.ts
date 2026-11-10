@@ -8,6 +8,13 @@ import {
 } from "./drafts";
 import type { EditOutcome, Memory } from "./library-actions";
 
+type View = {
+  /** Puts text in the fields (after a refusal or a Restore). */
+  show: (fields: Draft) => void;
+  /** Shows or hides the Restore Your Edit button. */
+  offer: (on: boolean) => void;
+};
+
 const textOf = (memory: Memory): Draft => ({
   title: memory.title ?? "",
   body: memory.body ?? "",
@@ -27,7 +34,8 @@ const trimmed = (d: Draft): Draft => ({
  *   server has one it is kept as a draft, with the revision it was written on.
  * - A draft on the Memory's current revision comes back on open. One on an
  *   older revision never applies by itself: the server copy shows, and one
- *   toast offers "Restore Your Edit". Not taken, it is gone once this closes.
+ *   button in the dialog offers "Restore Your Edit" (inside the focus trap,
+ *   so the keyboard reaches it). Not taken, it is gone once this closes.
  * - An edit refused as stale stops saving until the person acts: the server
  *   copy shows, and the refused text is offered the same way. Nothing is
  *   resubmitted on its own.
@@ -47,8 +55,8 @@ export function editSession({
   /** The Memory as the wall has it now (see seen()). */
   let current = start;
   const memory = () => current;
-  /** Puts text in the fields (after a refusal or a Restore); see listen(). */
-  let show: (fields: Draft) => void = () => {};
+  /** Where the dialog hears about text to show and the Restore offer; see listen(). */
+  let view: View = { show: () => {}, offer: () => {} };
   const id = start.id;
   const kept = drafts.read(id);
   const resumes = kept?.revision === start.revision;
@@ -63,14 +71,12 @@ export function editSession({
   let blocked = false;
   let closed = false;
   let deleted = false;
-  let shown = false;
   let closing: ReturnType<typeof setTimeout> | undefined;
 
-  const offer = () =>
-    notify("Restore Your Edit", {
-      duration: 10_000,
-      action: { label: "Restore", onClick: restore },
-    });
+  const setOffer = (next: KeptDraft | undefined) => {
+    offered = next;
+    view.offer(!!next);
+  };
 
   function restore() {
     if (!offered || closed) return;
@@ -79,11 +85,11 @@ export function editSession({
       body: offered.body,
       captureNote: offered.captureNote,
     };
-    offered = undefined;
+    setOffer(undefined);
     blocked = false;
     revision = memory().revision;
     drafts.keep(id, fields, revision);
-    show(fields);
+    view.show(fields);
     flush(false);
   }
 
@@ -125,10 +131,9 @@ export function editSession({
         revision = latest.revision;
         if (closed) return; // offered when this Memory next opens
         blocked = true;
-        offered = refused;
         fields = textOf(latest);
-        show(fields);
-        offer();
+        view.show(fields);
+        setOffer(refused);
       } else if (sameText(sent, trimmed(draft))) {
         sent = base; // failed: the next save sends it again
       }
@@ -137,12 +142,14 @@ export function editSession({
 
   return {
     initial: fields,
-    /** Once the dialog is showing: offers a draft left on an older revision. */
+    /** Whether "Restore Your Edit" is on offer. */
+    get offered() {
+      return !!offered;
+    },
+    restore,
+    /** The dialog is showing (again: React's StrictMode closes and reopens at once). */
     open() {
-      // React's StrictMode closes and reopens at once: that is not a close.
       clearTimeout(closing);
-      if (offered && !shown) offer();
-      shown = true;
     },
     /** The fields changed; true when there is something to save. */
     change(next: Draft): boolean {
@@ -159,10 +166,10 @@ export function editSession({
       current = memory;
     },
     /** Where text shown by the session goes; returns a stop function. */
-    listen(fn: (fields: Draft) => void) {
-      show = fn;
+    listen(next: View) {
+      view = next;
       return () => {
-        show = () => {};
+        view = { show: () => {}, offer: () => {} };
       };
     },
     close() {
@@ -171,7 +178,7 @@ export function editSession({
         closed = true;
         if (offered) {
           drafts.discard(id);
-          offered = undefined;
+          setOffer(undefined);
         }
       });
     },

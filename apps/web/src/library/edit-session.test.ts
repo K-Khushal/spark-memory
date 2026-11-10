@@ -39,6 +39,7 @@ function setup(
   const drafts = draftStore(storage());
   const notify = vi.fn();
   const show = vi.fn();
+  const offer = vi.fn();
   const saveSpy = vi.fn(save);
   const open = () => {
     const session = editSession({
@@ -47,7 +48,7 @@ function setup(
       save: saveSpy,
       notify: notify as never,
     });
-    session.listen(show);
+    session.listen({ show, offer });
     sessions.push(session);
     return session;
   };
@@ -56,6 +57,7 @@ function setup(
     drafts,
     notify,
     show,
+    offer,
     save: saveSpy,
     setWall: (m: Memory) => {
       current = m;
@@ -64,14 +66,6 @@ function setup(
   };
 }
 
-const restoreAction = (notify: ReturnType<typeof vi.fn>) => {
-  const call = notify.mock.calls.find(
-    ([title]) => title === "Restore Your Edit"
-  );
-  if (!call) throw new Error("no Restore Your Edit toast");
-  return call[1].action.onClick as () => void;
-};
-
 describe("Memory detail drafts", () => {
   it("never sends a draft written on an older revision by itself", async () => {
     const t = setup(memory(), vi.fn());
@@ -79,14 +73,14 @@ describe("Memory detail drafts", () => {
     const session = t.open();
     expect(session.initial.body).toBe("Server text");
     session.open();
-    expect(t.notify).toHaveBeenCalledWith(
-      "Restore Your Edit",
-      expect.anything()
-    );
+    // Offered by a button in the dialog, never a toast.
+    expect(session.offered).toBe(true);
+    expect(t.notify).not.toHaveBeenCalled();
     session.close();
     await settle();
     expect(t.save).not.toHaveBeenCalled();
     expect(t.drafts.read("m1")).toBeUndefined();
+    expect(t.offer).toHaveBeenLastCalledWith(false);
   });
 
   it("keeps its offer through a close and an immediate reopen (React StrictMode)", async () => {
@@ -100,9 +94,10 @@ describe("Memory detail drafts", () => {
     session.close();
     session.open();
     await settle();
-    restoreAction(t.notify)();
+    expect(session.offered).toBe(true);
+    session.restore();
     await settle();
-    expect(t.notify).toHaveBeenCalledTimes(1);
+    expect(session.offered).toBe(false);
     expect(t.save).toHaveBeenCalledWith(expect.anything(), {
       body: "Old draft",
     });
@@ -152,6 +147,7 @@ describe("an edit refused as stale", () => {
     session.close();
     await settle();
     expect(t.save).toHaveBeenCalledTimes(1);
+    expect(t.offer).toHaveBeenCalledWith(true);
   });
 
   it("puts the edit back on Restore and saves it on the current revision", async () => {
@@ -160,7 +156,8 @@ describe("an edit refused as stale", () => {
       status: "saved",
       memory: { ...before, title: "Mine", revision: 9 },
     }));
-    restoreAction(t.notify)();
+    expect(session.offered).toBe(true);
+    session.restore();
     await settle();
     expect(t.show).toHaveBeenLastCalledWith({
       title: "Mine",

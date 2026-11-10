@@ -66,6 +66,40 @@ test("paste a Memory, find it by a typo, delete it with Undo", async ({
   await page.reload();
   await expect(tile).toBeVisible();
 
+  // A draft left on an older revision is offered, never applied: Tab to
+  // Restore Your Edit, press Enter, and it comes back.
+  const [saved] = (await (await page.request.get("/api/memories")).json())
+    .memories as { id: string; body: string; revision: number }[];
+  await page.evaluate(
+    ([id, body, revision]) =>
+      localStorage.setItem(
+        `spark-draft:${id}`,
+        JSON.stringify({
+          title: "",
+          body,
+          captureNote: "Restored note",
+          revision,
+        })
+      ),
+    [saved!.id, saved!.body, saved!.revision - 1] as const
+  );
+  await tile.click();
+  const note = page.getByRole("textbox", { name: "Capture Note" });
+  await expect(note).toHaveValue("");
+  const restore = page.getByRole("button", { name: "Restore Your Edit" });
+  for (
+    let i = 0;
+    i < 10 && !(await restore.evaluate((el) => el === document.activeElement));
+    i++
+  ) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(restore).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(note).toHaveValue("Restored note");
+  await expect(restore).toBeHidden();
+  await page.keyboard.press("Escape");
+
   // Instant search finds it despite the typo.
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("cardamon");
