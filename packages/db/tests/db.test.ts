@@ -15,7 +15,7 @@ describe.skipIf(!databaseUrl)("checkDatabase", () => {
     const result = await checkDatabase(
       "postgres://spark:spark@127.0.0.1:1/spark"
     );
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({ ok: false, reason: "refused" });
   });
 });
 

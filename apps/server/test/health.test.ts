@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 
 // Integration test: needs Postgres + pgvector (`docker compose up -d db` locally,
@@ -32,5 +32,18 @@ describe.skipIf(!databaseUrl)("GET /api/health", () => {
       service: "spark",
       db: "unreachable",
     });
+  });
+
+  it("logs only a failure category, never the host or port", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await getHealth(unreachableUrl);
+      const logged = log.mock.calls.flat().map(String).join(" ");
+      expect(logged).toContain("refused");
+      expect(logged).not.toContain("127.0.0.1");
+      expect(logged).not.toMatch(/:\d+/);
+    } finally {
+      log.mockRestore();
+    }
   });
 });
