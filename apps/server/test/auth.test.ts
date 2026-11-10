@@ -5,7 +5,7 @@ import type { Bindings } from "../src/env";
 // Integration test through the Worker's HTTP interface, against real Postgres
 // with migrations applied. Turnstile's siteverify is the one faked boundary.
 const databaseUrl = process.env.DATABASE_URL;
-const ORIGIN = "http://spark.test";
+const ORIGIN = "http://localhost:8787";
 
 const ctx = {
   waitUntil: () => {},
@@ -80,7 +80,7 @@ describe.skipIf(!databaseUrl)("sign-in with an email code", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.includes("challenges.cloudflare.com")) {
-        return Response.json({ success: true, hostname: "spark.test" });
+        return Response.json({ success: true, hostname: "localhost" });
       }
       return realFetch(input, init);
     });
@@ -160,7 +160,7 @@ describe.skipIf(!databaseUrl)("sign-in with an email code", () => {
 });
 
 describe.skipIf(!databaseUrl)("protected API routes", () => {
-  it("reject anonymous requests", async () => {
+  it("rejects anonymous requests", async () => {
     const res = await newClient()("/api/me");
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ ok: false, error: "unauthorized" });
@@ -195,5 +195,16 @@ describe.skipIf(!databaseUrl)("the dev sign-in code outbox", () => {
       );
       expect(res.status).toBe(404);
     }
+  });
+
+  it("does not exist on a public host, even with the local vars", async () => {
+    const res = await worker.fetch(
+      new Request<unknown, IncomingRequestCfProperties>(
+        "https://spark.example/api/dev/sign-in-code?email=a@example.com"
+      ),
+      env(),
+      ctx
+    );
+    expect(res.status).toBe(404);
   });
 });

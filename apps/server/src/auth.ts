@@ -7,6 +7,7 @@ import {
   type AuthConfig,
 } from "@spark/auth";
 import { openDatabase } from "@spark/db";
+import type { Plan } from "@spark/core";
 import type { AppEnv, Bindings } from "./env";
 
 export type SignedInUser = {
@@ -14,7 +15,7 @@ export type SignedInUser = {
   email: string;
   name: string;
   image?: string | null;
-  plan: string;
+  plan: Plan;
 };
 
 export function authConfig(env: Bindings): AuthConfig {
@@ -42,16 +43,25 @@ export const socialProvidersFor = (env: Bindings) =>
  */
 const devOutbox = new Map<string, string>();
 
-export const usesDevOutbox = (env: Bindings) =>
-  env.SPARK_ENV === "local" && !env.RESEND_API_KEY;
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Only for a local Worker on a local host, so a Worker deployed with the
+ * local vars by mistake still never hands out codes.
+ */
+export const usesDevOutbox = (env: Bindings, requestUrl: string) =>
+  env.SPARK_ENV === "local" &&
+  !env.RESEND_API_KEY &&
+  LOCAL_HOSTS.has(new URL(requestUrl).hostname);
 
 export const readDevOutbox = (email: string) => devOutbox.get(email);
 
 function signInCodeSender(
   env: Bindings,
+  requestUrl: string,
   waitUntil: (p: Promise<void>) => void
 ) {
-  if (usesDevOutbox(env)) {
+  if (usesDevOutbox(env, requestUrl)) {
     return (email: string, code: string) => void devOutbox.set(email, code);
   }
   if (!env.RESEND_API_KEY || !env.EMAIL_FROM) {
@@ -82,7 +92,7 @@ export const withAuth = createMiddleware<AppEnv & { Variables: AuthVariables }>(
       createAuth({
         db,
         config: authConfig(c.env),
-        sendSignInCode: signInCodeSender(c.env, waitUntil),
+        sendSignInCode: signInCodeSender(c.env, c.req.url, waitUntil),
       })
     );
     try {
@@ -104,6 +114,6 @@ export const requireUser = createMiddleware<
     return c.json({ ok: false, error: "unauthorized" } as const, 401);
   }
   const { id, email, name, image, plan } = session.user;
-  c.set("user", { id, email, name, image, plan });
+  c.set("user", { id, email, name, image, plan: plan as Plan });
   await next();
 });

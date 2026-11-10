@@ -113,7 +113,11 @@ export function SignInPage({
     setPending("verify");
     setError(undefined);
     const { error } = await authClient.signIn
-      .emailOtp({ email, otp })
+      .emailOtp({
+        email,
+        otp,
+        fetchOptions: { signal: AbortSignal.timeout(20_000) },
+      })
       .catch(() => ({ error: { status: 0 } }));
     if (error) {
       setPending(undefined);
@@ -170,7 +174,7 @@ export function SignInPage({
                 maxLength={254}
                 type="email"
                 inputMode="email"
-                autoComplete="email webauthn"
+                autoComplete="email"
                 spellCheck={false}
                 required
                 placeholder="Email"

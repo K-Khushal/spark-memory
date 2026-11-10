@@ -9,8 +9,9 @@ export function errorMessage(error: unknown): string {
     case "INVALID_OTP":
       return "That code is wrong. Check it and try again.";
     case "OTP_EXPIRED":
-    case "TOO_MANY_ATTEMPTS":
       return "That code has expired. Send a new one.";
+    case "TOO_MANY_ATTEMPTS":
+      return "Too many wrong tries. Send a new code.";
     case "INVALID_EMAIL":
       return "Enter a valid email.";
     case "TURNSTILE":

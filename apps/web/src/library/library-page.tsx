@@ -35,7 +35,11 @@ export function LibraryPage({ session }: { session: Session }) {
 
   const signOut = async () => {
     setSearchOpen(false);
-    await authClient.signOut();
+    const { error } = await authClient.signOut().catch(() => ({ error: true }));
+    if (error) {
+      toast("Sign Out did not finish. Try again.");
+      return;
+    }
     await navigate({ to: "/sign-in" });
   };
 

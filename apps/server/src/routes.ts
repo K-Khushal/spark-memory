@@ -31,6 +31,7 @@ export const routes = new Hono<AppEnv>()
   // Local development only (never with Resend configured, never deployed).
   .get("/dev/sign-in-code", (c) => {
     const code =
-      usesDevOutbox(c.env) && readDevOutbox(c.req.query("email") ?? "");
+      usesDevOutbox(c.env, c.req.url) &&
+      readDevOutbox(c.req.query("email") ?? "");
     return code ? c.json({ code }) : c.notFound();
   });
