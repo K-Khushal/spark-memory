@@ -1,7 +1,8 @@
 {
   "extends": "@spark/config/tsconfig.react.json",
   "compilerOptions": {
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "paths": { "@spark/ui/lib/*": ["../../packages/ui/lib/*"] }
   },
   "include": ["src", "e2e", "vite.config.ts", "playwright.config.ts"]
 }
