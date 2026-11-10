@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { columnCount, justifyRows } from "../layout";
+import { columnCount, neighbour, type LaneItem } from "../layout";
 
 describe("columnCount", () => {
   it("fits as many columns of at least the minimum width as it can", () => {
@@ -17,42 +17,38 @@ describe("columnCount", () => {
   });
 });
 
-describe("justifyRows", () => {
-  const opts = { width: 1000, targetHeight: 200, gap: 10 };
+describe("neighbour", () => {
+  // Two lanes:   lane 0      lane 1
+  //              0 [0,100)   1 [0,300)
+  //              2 [110,210)
+  //              3 [220,520) 4 [310,410)
+  const items: LaneItem[] = [
+    { index: 0, lane: 0, start: 0, size: 100 },
+    { index: 1, lane: 1, start: 0, size: 300 },
+    { index: 2, lane: 0, start: 110, size: 100 },
+    { index: 3, lane: 0, start: 220, size: 300 },
+    { index: 4, lane: 1, start: 310, size: 100 },
+  ];
 
-  it("returns no rows for no items", () => {
-    expect(justifyRows([], opts)).toEqual([]);
+  it("moves up and down within a lane", () => {
+    expect(neighbour(items, 0, "ArrowDown")).toBe(2);
+    expect(neighbour(items, 3, "ArrowUp")).toBe(2);
+    expect(neighbour(items, 1, "ArrowDown")).toBe(4);
   });
 
-  it("fills each full row edge to edge", () => {
-    const rows = justifyRows([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5], opts);
-    const first = rows[0]!;
-    const used =
-      first.items.reduce((sum, item) => sum + item.width, 0) +
-      opts.gap * (first.items.length - 1);
-    expect(used).toBeCloseTo(opts.width, 6);
-    expect(first.height).toBeGreaterThan(150);
-    expect(first.height).toBeLessThan(260);
+  it("moves sideways to the item whose centre is nearest", () => {
+    expect(neighbour(items, 2, "ArrowRight")).toBe(1);
+    expect(neighbour(items, 4, "ArrowLeft")).toBe(3);
   });
 
-  it("keeps every item's aspect ratio inside a row", () => {
-    const aspects = [0.75, 1.78, 1, 1.33, 0.56];
-    const rows = justifyRows(aspects, opts);
-    const flat = rows.flatMap((row) =>
-      row.items.map((item) => item.width / row.height)
-    );
-    flat.forEach((ratio, i) => expect(ratio).toBeCloseTo(aspects[i]!, 6));
+  it("stops at the edges", () => {
+    expect(neighbour(items, 0, "ArrowUp")).toBeUndefined();
+    expect(neighbour(items, 0, "ArrowLeft")).toBeUndefined();
+    expect(neighbour(items, 1, "ArrowRight")).toBeUndefined();
+    expect(neighbour(items, 3, "ArrowDown")).toBeUndefined();
   });
 
-  it("leaves a short last row at the target height instead of stretching it", () => {
-    const rows = justifyRows([1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1], opts);
-    const last = rows.at(-1)!;
-    expect(last.height).toBe(opts.targetHeight);
-    expect(last.items.map((item) => item.index)).toEqual([6]);
-  });
-
-  it("caps an extremely wide item to the row width", () => {
-    const [row] = justifyRows([20], opts);
-    expect(row!.items[0]!.width).toBeLessThanOrEqual(opts.width);
+  it("ignores keys that do not move", () => {
+    expect(neighbour(items, 0, "Enter")).toBeUndefined();
   });
 });

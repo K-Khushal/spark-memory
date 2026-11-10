@@ -73,17 +73,6 @@ export function CommandList({
   );
 }
 
-export function CommandEmpty(
-  props: ComponentProps<typeof CommandPrimitive.Empty>
-) {
-  return (
-    <CommandPrimitive.Empty
-      className="px-3 py-8 text-center text-sm text-ink-muted"
-      {...props}
-    />
-  );
-}
-
 export function CommandGroup({
   className,
   ...props

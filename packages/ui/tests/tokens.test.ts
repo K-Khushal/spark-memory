@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { contrastRatio, THEMES, type ThemeName } from "../tokens";
+import {
+  contrastRatio,
+  NEUTRAL_TOKENS,
+  oklch,
+  THEMES,
+  type ThemeName,
+} from "../tokens";
 
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
@@ -30,8 +36,28 @@ describe("contrastRatio", () => {
   });
 });
 
+describe("oklch", () => {
+  it("has no chroma for greys and finds the hue of a colour", () => {
+    expect(oklch("#808080").c).toBeLessThan(0.0005);
+    const blue = oklch("#2f6fe0");
+    expect(blue.h).toBeGreaterThan(250);
+    expect(blue.h).toBeLessThan(270);
+  });
+});
+
 describe.each(Object.keys(THEMES) as ThemeName[])("%s theme", (name) => {
   const t = THEMES[name];
+
+  // DESIGN.md → Principles: no cream, beige or paper. Neutrals are true
+  // greys or carry a faint cool (blue) cast, never a warm one.
+  it.each(NEUTRAL_TOKENS)("%s is a true or cool neutral", (token) => {
+    const { c, h } = oklch(t[token]);
+    expect(c, `${token} ${t[token]} chroma`).toBeLessThanOrEqual(0.012);
+    if (c > 0.003) {
+      expect(h, `${token} ${t[token]} hue`).toBeGreaterThanOrEqual(200);
+      expect(h, `${token} ${t[token]} hue`).toBeLessThanOrEqual(290);
+    }
+  });
 
   it("matches the CSS custom properties in styles.css", () => {
     const declared = block(SELECTORS[name]);
@@ -48,6 +74,7 @@ describe.each(Object.keys(THEMES) as ThemeName[])("%s theme", (name) => {
     ["ink", "surface"],
     ["ink-muted", "canvas"],
     ["ink-muted", "surface"],
+    ["ink-muted", "sunken"],
     ["on-spark", "spark"],
     ["danger", "surface"],
     ["indexing", "surface"],

@@ -1,3 +1,3 @@
 // Entry point @spark/ui/layout: pure layout maths for Memory grids.
-export { columnCount, justifyRows } from "./lib/layout";
-export type { JustifiedRow } from "./lib/layout";
+export { columnCount, neighbour } from "./lib/layout";
+export type { LaneItem } from "./lib/layout";

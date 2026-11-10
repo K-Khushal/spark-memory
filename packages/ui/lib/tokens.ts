@@ -5,31 +5,31 @@
 
 export const THEMES = {
   light: {
-    canvas: "#F2F3EF",
+    canvas: "#FFFFFF",
     surface: "#FFFFFF",
-    sunken: "#E8EAE4",
-    ink: "#151714",
-    "ink-muted": "#585D56",
-    line: "#DDE0D8",
-    "line-strong": "#8A8F87",
-    ring: "#151714",
-    spark: "#E4F04A",
-    "on-spark": "#151714",
-    danger: "#B42D1A",
-    indexing: "#8A5A00",
-    searchable: "#2D7048",
+    sunken: "#F4F5F7",
+    ink: "#111214",
+    "ink-muted": "#5E6066",
+    line: "#E5E6EA",
+    "line-strong": "#898B91",
+    ring: "#111214",
+    spark: "#FFE15A",
+    "on-spark": "#111214",
+    danger: "#C4321C",
+    indexing: "#8F5B00",
+    searchable: "#24774A",
   },
   dark: {
-    canvas: "#13161B",
-    surface: "#1B1F26",
-    sunken: "#0E1014",
-    ink: "#ECEEE8",
-    "ink-muted": "#A3A8A0",
-    line: "#2A2F37",
-    "line-strong": "#6B727D",
-    ring: "#ECEEE8",
-    spark: "#E4F04A",
-    "on-spark": "#151714",
+    canvas: "#0F1012",
+    surface: "#1A1B1E",
+    sunken: "#151619",
+    ink: "#EDEEF0",
+    "ink-muted": "#9D9FA5",
+    line: "#26282C",
+    "line-strong": "#696B71",
+    ring: "#EDEEF0",
+    spark: "#FFE15A",
+    "on-spark": "#111214",
     danger: "#FF8A73",
     indexing: "#F0B85C",
     searchable: "#74CF95",
@@ -74,12 +74,41 @@ export const SPRING = {
 /** Radius in px, by hierarchy: smaller things get smaller corners. */
 export const RADIUS = { chip: 6, control: 8, tile: 12, panel: 16 } as const;
 
-function luminance(hex: string): number {
-  const channels = [1, 3, 5].map((i) => {
+/** Surfaces, text and lines: the tokens that must stay neutral. */
+export const NEUTRAL_TOKENS = [
+  "canvas",
+  "surface",
+  "sunken",
+  "ink",
+  "ink-muted",
+  "line",
+  "line-strong",
+  "ring",
+] as const satisfies readonly ColorToken[];
+
+function linear(hex: string): [number, number, number] {
+  const [r = 0, g = 0, b = 0] = [1, 3, 5].map((i) => {
     const c = parseInt(hex.slice(i, i + 2), 16) / 255;
     return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   });
-  const [r = 0, g = 0, b = 0] = channels;
+  return [r, g, b];
+}
+
+/** OKLCH lightness (0–1), chroma and hue (degrees) of a #RRGGBB colour. */
+export function oklch(hex: string): { l: number; c: number; h: number } {
+  const [r, g, b] = linear(hex);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  const h = (Math.atan2(B, A) * 180) / Math.PI;
+  return { l: L, c: Math.hypot(A, B), h: h < 0 ? h + 360 : h };
+}
+
+function luminance(hex: string): number {
+  const [r, g, b] = linear(hex);
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 

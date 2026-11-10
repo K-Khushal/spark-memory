@@ -6,40 +6,42 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 :root {
-  --canvas: #f2f3ef;
+  --canvas: #ffffff;
   --surface: #ffffff;
-  --sunken: #e8eae4;
-  --ink: #151714;
-  --ink-muted: #585d56;
-  --line: #dde0d8;
-  --line-strong: #8a8f87;
-  --ring: #151714;
-  --spark: #e4f04a;
-  --on-spark: #151714;
-  --danger: #b42d1a;
-  --indexing: #8a5a00;
-  --searchable: #2d7048;
-  --shadow-rgb: 21 23 20;
-  --scrim: rgb(21 23 20 / 0.42);
+  --sunken: #f4f5f7;
+  --ink: #111214;
+  --ink-muted: #5e6066;
+  --line: #e5e6ea;
+  --line-strong: #898b91;
+  --ring: #111214;
+  --spark: #ffe15a;
+  --on-spark: #111214;
+  --danger: #c4321c;
+  --indexing: #8f5b00;
+  --searchable: #24774a;
+  --shadow-rgb: 17 18 20;
+  --scrim: rgb(17 18 20 / 0.32);
+  --edge: rgb(0 0 0 / 0.1);
   color-scheme: light;
 }
 
 [data-theme="dark"] {
-  --canvas: #13161b;
-  --surface: #1b1f26;
-  --sunken: #0e1014;
-  --ink: #eceee8;
-  --ink-muted: #a3a8a0;
-  --line: #2a2f37;
-  --line-strong: #6b727d;
-  --ring: #eceee8;
-  --spark: #e4f04a;
-  --on-spark: #151714;
+  --canvas: #0f1012;
+  --surface: #1a1b1e;
+  --sunken: #151619;
+  --ink: #edeef0;
+  --ink-muted: #9d9fa5;
+  --line: #26282c;
+  --line-strong: #696b71;
+  --ring: #edeef0;
+  --spark: #ffe15a;
+  --on-spark: #111214;
   --danger: #ff8a73;
   --indexing: #f0b85c;
   --searchable: #74cf95;
   --shadow-rgb: 0 0 0;
   --scrim: rgb(0 0 0 / 0.6);
+  --edge: rgb(255 255 255 / 0.1);
   color-scheme: dark;
 }
 
@@ -82,11 +84,12 @@
 
   --shadow-*: initial;
   --shadow-raised:
-    0 1px 2px rgb(var(--shadow-rgb) / 0.06),
-    0 4px 12px -4px rgb(var(--shadow-rgb) / 0.12);
+    0 0 0 1px var(--edge), 0 1px 2px rgb(var(--shadow-rgb) / 0.06),
+    0 4px 12px -4px rgb(var(--shadow-rgb) / 0.1);
   --shadow-overlay:
-    0 2px 4px rgb(var(--shadow-rgb) / 0.08),
-    0 24px 48px -12px rgb(var(--shadow-rgb) / 0.28);
+    0 0 0 1px var(--edge), 0 2px 4px rgb(var(--shadow-rgb) / 0.06),
+    0 12px 24px -6px rgb(var(--shadow-rgb) / 0.12),
+    0 32px 64px -16px rgb(var(--shadow-rgb) / 0.18);
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
@@ -108,6 +111,7 @@
   --color-indexing: var(--indexing);
   --color-searchable: var(--searchable);
   --color-scrim: var(--scrim);
+  --color-edge: var(--edge);
   --color-transparent: transparent;
 }
 

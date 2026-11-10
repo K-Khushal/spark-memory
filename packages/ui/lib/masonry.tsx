@@ -7,10 +7,10 @@ import {
   type ReactNode,
 } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
-import { columnCount } from "./layout";
+import { columnCount, neighbour } from "./layout";
 import { cn } from "./cn";
 
-export type MasonryTile = {
+type MasonryTile = {
   index: number;
   width: number;
   height: number;
@@ -23,8 +23,8 @@ type MasonryProps<T> = {
   /** width / height of the item's visual. */
   getAspect: (item: T) => number;
   getLabel: (item: T) => string;
-  /** Fixed extra height under each visual (caption, chips). */
-  caption?: number;
+  /** Extra height under an item's visual (caption, chips), known up front. */
+  getCaption?: (item: T) => number;
   minColumnWidth?: number;
   maxColumns?: number;
   gap?: number;
@@ -45,7 +45,7 @@ export function Masonry<T>({
   getKey,
   getAspect,
   getLabel,
-  caption = 0,
+  getCaption = () => 0,
   minColumnWidth = 220,
   maxColumns = 6,
   gap = 12,
@@ -81,7 +81,7 @@ export function Masonry<T>({
   const colWidth = Math.max(0, (box.width - gap * (lanes - 1)) / lanes);
   const sizeOf = (i: number) => {
     const item = items[i];
-    return item ? Math.round(colWidth / getAspect(item)) + caption : 0;
+    return item ? Math.round(colWidth / getAspect(item)) + getCaption(item) : 0;
   };
 
   const virtualizer = useWindowVirtualizer({
@@ -107,33 +107,10 @@ export function Masonry<T>({
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
-    const all = virtualizer.measurementsCache;
-    const here = all[active];
-    if (!here) return;
-    const centre = here.start + here.size / 2;
-    // Nearest item in the same lane above/below, or in the next lane over.
-    const inLane = (lane: number) => all.filter((m) => m.lane === lane);
-    const closest = (lane: number) =>
-      inLane(lane).reduce<(typeof all)[number] | undefined>(
-        (best, m) =>
-          !best ||
-          Math.abs(m.start + m.size / 2 - centre) <
-            Math.abs(best.start + best.size / 2 - centre)
-            ? m
-            : best,
-        undefined
-      );
-    const sameLane = inLane(here.lane);
-    const pos = sameLane.indexOf(here);
-    const target = {
-      ArrowDown: sameLane[pos + 1],
-      ArrowUp: sameLane[pos - 1],
-      ArrowRight: here.lane < lanes - 1 ? closest(here.lane + 1) : undefined,
-      ArrowLeft: here.lane > 0 ? closest(here.lane - 1) : undefined,
-    }[event.key];
-    if (target) {
+    const target = neighbour(virtualizer.measurementsCache, active, event.key);
+    if (target !== undefined) {
       event.preventDefault();
-      focusIndex(target.index);
+      focusIndex(target);
     } else if (event.key === "Enter") {
       onOpen?.(active);
     } else if (event.key === " ") {
@@ -174,7 +151,7 @@ export function Masonry<T>({
               {renderItem(item, {
                 index: v.index,
                 width: colWidth,
-                height: v.size - caption,
+                height: v.size - getCaption(item),
                 active: v.index === active,
               })}
             </div>

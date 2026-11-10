@@ -6,7 +6,6 @@ import { cn } from "./cn";
 // shadcn/ui Dialog, restyled. Opacity only, no zoom: Quick preview opens from
 // the keyboard (Space) dozens of times a day, so it must feel instant.
 export const Dialog = DialogPrimitive.Root;
-export const DialogClose = DialogPrimitive.Close;
 
 export function DialogTitle({
   className,
@@ -15,18 +14,6 @@ export function DialogTitle({
   return (
     <DialogPrimitive.Title
       className={cn("font-display text-lg font-semibold", className)}
-      {...props}
-    />
-  );
-}
-
-export function DialogDescription({
-  className,
-  ...props
-}: ComponentProps<typeof DialogPrimitive.Description>) {
-  return (
-    <DialogPrimitive.Description
-      className={cn("text-sm text-ink-muted", className)}
       {...props}
     />
   );

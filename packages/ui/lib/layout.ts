@@ -7,55 +7,46 @@ export function columnCount(
   return Math.max(1, Math.min(fit, opts.max ?? Infinity));
 }
 
-export type JustifiedRow = {
-  height: number;
-  items: { index: number; width: number }[];
+/** Where an item sits in a lane-based (masonry) layout. */
+export type LaneItem = {
+  index: number;
+  lane: number;
+  start: number;
+  size: number;
 };
 
-/**
- * Google-Images-style rows: every full row is stretched edge to edge at one
- * height, each item keeps its aspect ratio, and a short last row stays at the
- * target height. A row breaks where its height lands closest to the target.
- */
-export function justifyRows(
-  aspects: readonly number[],
-  opts: { width: number; targetHeight: number; gap: number }
-): JustifiedRow[] {
-  const { width, targetHeight, gap } = opts;
-  const heightFor = (sum: number, n: number) => (width - gap * (n - 1)) / sum;
-  const rows: JustifiedRow[] = [];
-  let start = 0;
+const centre = (item: LaneItem) => item.start + item.size / 2;
 
-  while (start < aspects.length) {
-    let end = start;
-    let sum = 0;
-    // Grow the row while it stays at least as tall as the target, then take
-    // one more item only if that lands closer to the target height.
-    while (end < aspects.length) {
-      const next = sum + (aspects[end] ?? 1);
-      const withIt = heightFor(next, end - start + 1);
-      if (withIt < targetHeight) {
-        const without = end > start ? heightFor(sum, end - start) : Infinity;
-        if (targetHeight - withIt < without - targetHeight) {
-          sum = next;
-          end += 1;
-        }
-        break;
-      }
-      sum = next;
-      end += 1;
-    }
-    const natural = heightFor(sum, end - start);
-    const isLast = end >= aspects.length;
-    const height = isLast ? Math.min(natural, targetHeight) : natural;
-    rows.push({
-      height,
-      items: aspects.slice(start, end).map((aspect, i) => ({
-        index: start + i,
-        width: Math.min(aspect * height, width),
-      })),
-    });
-    start = end;
+/**
+ * The item an arrow key moves to: the next one up or down in the same lane,
+ * or the one in the lane beside whose centre is nearest. Undefined at an edge
+ * or for any other key.
+ */
+export function neighbour(
+  items: readonly LaneItem[],
+  from: number,
+  key: string
+): number | undefined {
+  const here = items.find((item) => item.index === from);
+  if (!here) return undefined;
+  const lane = (n: number) =>
+    items.filter((item) => item.lane === n).sort((a, b) => a.start - b.start);
+
+  if (key === "ArrowUp" || key === "ArrowDown") {
+    const column = lane(here.lane);
+    const at = column.indexOf(here) + (key === "ArrowDown" ? 1 : -1);
+    return column[at]?.index;
   }
-  return rows;
+  if (key === "ArrowLeft" || key === "ArrowRight") {
+    const beside = lane(here.lane + (key === "ArrowRight" ? 1 : -1));
+    let best: LaneItem | undefined;
+    for (const item of beside) {
+      const distance = Math.abs(centre(item) - centre(here));
+      if (!best || distance < Math.abs(centre(best) - centre(here))) {
+        best = item;
+      }
+    }
+    return best?.index;
+  }
+  return undefined;
 }

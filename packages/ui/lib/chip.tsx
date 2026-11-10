@@ -43,7 +43,7 @@ export function FilterChip({ className, ...props }: ComponentProps<"button">) {
     <button
       type="button"
       className={cn(
-        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface px-3 text-sm text-ink transition-[background-color,border-color,color,transform] duration-[120ms] ease-out select-none active:scale-[0.97] aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:text-canvas hover:border-line-strong",
+        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-control border border-line bg-surface px-3 text-sm text-ink transition-[background-color,border-color,color,transform] duration-[120ms] ease-out select-none active:scale-[0.97] aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:text-canvas hover:border-line-strong",
         className
       )}
       {...props}
