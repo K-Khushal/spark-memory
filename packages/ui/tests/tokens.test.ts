@@ -9,6 +9,10 @@ import {
 } from "../tokens";
 
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+const html = readFileSync(
+  new URL("../../../apps/web/index.html", import.meta.url),
+  "utf8"
+);
 
 /** The declarations inside the first block that opens with `selector {`. */
 function block(selector: string): string {
@@ -34,6 +38,19 @@ describe("contrastRatio", () => {
       6
     );
   });
+});
+
+describe("browser chrome", () => {
+  it.each(Object.keys(THEMES) as ThemeName[])(
+    "the %s theme-color in apps/web/index.html is the canvas token",
+    (name) => {
+      const meta = new RegExp(
+        `media="\\(prefers-color-scheme: ${name}\\)"\\s+content="(#[0-9a-f]{6})"`,
+        "i"
+      ).exec(html);
+      expect(meta?.[1]?.toLowerCase()).toBe(THEMES[name].canvas.toLowerCase());
+    }
+  );
 });
 
 describe("oklch", () => {

@@ -36,6 +36,15 @@ const isTyping = (target: EventTarget | null) =>
 
 let counter = 0;
 
+/** A path segment for display; malformed escapes (`100%`) stay as written. */
+function decode(segment: string) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 function fromClipboard(data: DataTransfer | null): LiveMemory | undefined {
   const id = `new-${++counter}`;
   const base = {
@@ -70,7 +79,7 @@ function fromClipboard(data: DataTransfer | null): LiveMemory | undefined {
 
       title:
         url.pathname.length > 1
-          ? decodeURIComponent(
+          ? decode(
               url.pathname.split("/").filter(Boolean).at(-1) ?? ""
             ).replace(/[-_]/g, " ")
           : url.hostname,

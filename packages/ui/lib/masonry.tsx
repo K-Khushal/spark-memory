@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
-import { columnCount, neighbour } from "./layout";
+import { columnCount, neighbour, tabStop } from "./layout";
 import { cn } from "./cn";
 
 type MasonryTile = {
@@ -106,16 +106,23 @@ export function Masonry<T>({
     );
   };
 
+  const rendered = colWidth > 0 ? virtualizer.getVirtualItems() : [];
+  const current = tabStop(
+    active,
+    rendered.map((v) => v.index)
+  );
+
   const onKeyDown = (event: KeyboardEvent) => {
-    const target = neighbour(virtualizer.measurementsCache, active, event.key);
+    if (current === undefined) return;
+    const target = neighbour(virtualizer.measurementsCache, current, event.key);
     if (target !== undefined) {
       event.preventDefault();
       focusIndex(target);
     } else if (event.key === "Enter") {
-      onOpen?.(active);
+      onOpen?.(current);
     } else if (event.key === " ") {
       event.preventDefault();
-      onPreview?.(active);
+      onPreview?.(current);
     }
   };
 
@@ -128,35 +135,34 @@ export function Masonry<T>({
       className={cn("relative w-full", className)}
       style={{ height: virtualizer.getTotalSize() }}
     >
-      {colWidth > 0 &&
-        virtualizer.getVirtualItems().map((v) => {
-          const item = items[v.index];
-          if (!item) return null;
-          return (
-            <div
-              key={v.key}
-              role="listitem"
-              data-index={v.index}
-              tabIndex={v.index === active ? 0 : -1}
-              aria-label={getLabel(item)}
-              onFocus={() => setActive(v.index)}
-              onClick={() => onOpen?.(v.index)}
-              className="absolute top-0 left-0 rounded-tile outline-offset-2"
-              style={{
-                width: colWidth,
-                height: v.size,
-                transform: `translate(${v.lane * (colWidth + gap)}px, ${v.start - box.top}px)`,
-              }}
-            >
-              {renderItem(item, {
-                index: v.index,
-                width: colWidth,
-                height: v.size - getCaption(item),
-                active: v.index === active,
-              })}
-            </div>
-          );
-        })}
+      {rendered.map((v) => {
+        const item = items[v.index];
+        if (!item) return null;
+        return (
+          <div
+            key={v.key}
+            role="listitem"
+            data-index={v.index}
+            tabIndex={v.index === current ? 0 : -1}
+            aria-label={getLabel(item)}
+            onFocus={() => setActive(v.index)}
+            onClick={() => onOpen?.(v.index)}
+            className="absolute top-0 left-0 rounded-tile outline-offset-2"
+            style={{
+              width: colWidth,
+              height: v.size,
+              transform: `translate(${v.lane * (colWidth + gap)}px, ${v.start - box.top}px)`,
+            }}
+          >
+            {renderItem(item, {
+              index: v.index,
+              width: colWidth,
+              height: v.size - getCaption(item),
+              active: v.index === current,
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }

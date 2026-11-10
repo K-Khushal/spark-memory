@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { columnCount, neighbour, type LaneItem } from "../layout";
+import { columnCount, neighbour, tabStop, type LaneItem } from "../layout";
 
 describe("columnCount", () => {
   it("fits as many columns of at least the minimum width as it can", () => {
@@ -50,5 +50,22 @@ describe("neighbour", () => {
 
   it("ignores keys that do not move", () => {
     expect(neighbour(items, 0, "Enter")).toBeUndefined();
+  });
+});
+
+describe("tabStop", () => {
+  it("keeps the active item when it is rendered", () => {
+    expect(tabStop(4, [2, 3, 4, 5])).toBe(4);
+  });
+
+  it("falls back to the first rendered item when the active one is gone", () => {
+    // Filtered down to 3 items after moving to index 5.
+    expect(tabStop(5, [0, 1, 2])).toBe(0);
+    // Virtualisation unmounted the active tile.
+    expect(tabStop(0, [12, 13, 14])).toBe(12);
+  });
+
+  it("has no tab stop when nothing is rendered", () => {
+    expect(tabStop(0, [])).toBeUndefined();
   });
 });

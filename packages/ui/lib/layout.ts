@@ -50,3 +50,14 @@ export function neighbour(
   }
   return undefined;
 }
+
+/**
+ * The one item that takes Tab: the active item while it is rendered,
+ * otherwise the first rendered one (after a filter or virtualisation).
+ */
+export function tabStop(
+  active: number,
+  rendered: readonly number[]
+): number | undefined {
+  return rendered.includes(active) ? active : rendered[0];
+}
