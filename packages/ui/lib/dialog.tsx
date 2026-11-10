@@ -36,9 +36,14 @@ export function DialogContent({
   className,
   children,
   closeLabel = "Close",
+  closeClassName,
   onInteractOutside,
   ...props
-}: ComponentProps<typeof DialogPrimitive.Content> & { closeLabel?: string }) {
+}: ComponentProps<typeof DialogPrimitive.Content> & {
+  closeLabel?: string;
+  /** For a dialog on a dark surface in both themes (the image viewer). */
+  closeClassName?: string;
+}) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim duration-150 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
@@ -55,7 +60,10 @@ export function DialogContent({
       >
         {children}
         <DialogPrimitive.Close
-          className="absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-[120ms] ease-out hover:bg-sunken hover:text-ink active:scale-[0.97]"
+          className={cn(
+            "absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-[120ms] ease-out hover:bg-sunken hover:text-ink active:scale-[0.97]",
+            closeClassName
+          )}
           aria-label={closeLabel}
         >
           <XIcon className="size-4" aria-hidden />

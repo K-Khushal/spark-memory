@@ -80,6 +80,8 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 | Quick preview                     | Opacity 150ms, no scale or slide (keyboard-driven and frequent)   |
 | Results and filters updating      | None. Results swap in place                                       |
 | A new Capture landing on the wall | Fades and scales from 0.96, 260ms `ease-out`; neighbours stay put |
+| Image viewer, next or previous    | Slides 30% on `SPRING.settle` with a 180ms fade; swipes track 1:1 |
+| Upload progress ring              | `stroke-dashoffset`, 180ms `ease-out`                             |
 | Toasts                            | Sonner's defaults                                                 |
 
 - Never `ease-in`, never `transition: all`, nothing over 300ms. Animate `transform` and `opacity` only. No staggered or scroll-triggered entrances.
@@ -107,7 +109,7 @@ Chosen by hand against `pick-ui-library`'s criteria (that skill is user-invoked;
 | Toasts              | Sonner via shadcn `Toaster`                                   | Undo action, swipe, pauses when the tab is hidden                       |
 | Motion              | Motion (`motion/react`) in `apps/web`                         | Springs and reduced-motion support                                      |
 | Virtualised masonry | `Masonry` on TanStack Virtual (`useWindowVirtualizer`, lanes) | Window scroll, 10k Memories, heights known up front, spatial arrow keys |
-| Lightbox            | Quick preview on shadcn `Dialog`                              | Memories are not only images; one viewer covers every kind              |
+| Lightbox            | `ImageViewer` on shadcn `Dialog`, dark in both themes         | ← → and swipe between images; folds into Quick preview when it lands    |
 | Icons               | lucide-react                                                  | One stroke, tree-shaken                                                 |
 
 ## Copy

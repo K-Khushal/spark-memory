@@ -41,6 +41,33 @@ pnpm dev        # Docker Postgres + pgvector, db:migrate, db:seed, Worker on :87
 
    `local-only-not-a-real-hyperdrive-id` stays: only local dev uses it.
 
+   **R2 (Memory files).** Create the buckets `wrangler.jsonc` names, an S3 API token for presigned URLs, and the CORS rule browsers need to upload straight to R2:
+
+   ```sh
+   npx wrangler r2 bucket create spark-files-dev
+   npx wrangler r2 bucket create spark-files-prod
+   npx wrangler r2 bucket cors set spark-files-dev  --file r2-cors.json   # then the same for spark-files-prod
+   ```
+
+   with `r2-cors.json` allowing only that environment's origin:
+
+   ```json
+   {
+     "rules": [
+       {
+         "allowed": {
+           "origins": ["https://<host>"],
+           "methods": ["PUT", "GET"],
+           "headers": ["content-type", "cache-control"]
+         },
+         "maxAgeSeconds": 3600
+       }
+     ]
+   }
+   ```
+
+   Then Dashboard → R2 → Manage API tokens → Create API token, _Object Read & Write_, limited to that environment's bucket: its Access Key ID and Secret Access Key become the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` Worker secrets below. Presigned URLs only work on the S3 endpoint (`<account id>.r2.cloudflarestorage.com`), never on a custom domain. Keep the buckets private (no public access, no r2.dev URL).
+
 3. **Cloudflare API token.** Dashboard → My Profile → API Tokens → Create Token → _Edit Cloudflare Workers_ template, limited to your account. Add Hyperdrive _Read_ if a deploy reports it cannot read the Hyperdrive config.
 4. **Sentry.** Create two projects, one for the Worker (platform _Cloudflare Workers_) and one for the dashboard (_React_). Each project's DSN is under Settings → Client Keys (DSN).
 5. **GitHub environments.** Repo → Settings → Environments. Create `dev` and `production`. On `production`, turn on **Required reviewers** (yourself) and, under **Deployment branches and tags**, allow branch `main` and tags `v*`.
@@ -74,7 +101,23 @@ Set each with `cd apps/server && npx wrangler secret put <NAME> --env dev`, then
 | `GITHUB_CLIENT_ID`     | no       | GitHub → Settings → Developer settings → OAuth Apps → New, callback URL `https://<host>/api/auth/callback/github`                                  |
 | `GITHUB_CLIENT_SECRET` | no       | the same OAuth App                                                                                                                                 |
 
+| `R2_ACCOUNT_ID` | yes | Cloudflare dashboard → R2 → Account ID (the same as `CLOUDFLARE_ACCOUNT_ID`) |
+| `R2_ACCESS_KEY_ID` | yes | the R2 API token from step 2, for this environment's bucket |
+| `R2_SECRET_ACCESS_KEY` | yes | the same R2 API token |
+
 A social provider turns on only when both its client id and secret are set; otherwise its button is hidden.
+
+## Memory files
+
+Image files live in R2 (ADR-0003), one bucket per environment, under `users/<user id>/<memory id>/original` and `/thumbnail`. Keys are chosen by the Worker; nothing a person sends becomes part of a key. Browsers upload and download directly with presigned URLs (`apps/server/src/files.ts`), so file bytes never pass through the Worker:
+
+- **Upload**: `POST /api/memories/images` creates the Memory within the Free allowance (25 MB a file, 1 GB in all, checked again here under a per-person lock) and answers with a PUT URL per file, valid 15 minutes, signed for that key, its exact `content-type`, `content-length` and `cache-control`. `POST /api/memories/:id/stored` then checks each object's size and type with the bucket binding before the Memory shows; an object that does not match is deleted.
+- **Download**: every Memory answer carries GET URLs signed at the start of the hour for two hours, so the same URL repeats within the hour and the browser caches the file (`private`, never in a shared cache). API answers themselves are `Cache-Control: private, no-store`.
+- **Delete**: deleting a Memory (after its Undo window) deletes its objects, then its row. Account deletion (#28) must do the same for every Memory.
+- **Unfinished uploads**: a Memory whose files never arrived stays off the wall, counts against storage for 24 hours, and is then removed with any objects by the daily cron (`triggers` in `wrangler.jsonc`, `src/sweep.ts`).
+- **What is kept**: the original file byte for byte, metadata included, since only its owner can read it. HEIC is converted to JPEG in the browser, which keeps no EXIF. The browser also stores the SHA-256 of the kept file (for duplicate detection later; the server does not recompute it) and a ThumbHash placeholder.
+
+Locally, without R2 credentials, Miniflare simulates the bucket in `.wrangler/state` and the presigned URLs point at `/api/local-files/*` on the local Worker, HMAC-signed the same way (method, key, expiry, type and size). That route exists only when `SPARK_ENV` is `local`, on a local host, without R2 credentials. Log lines carry counts only: never keys, file names or content.
 
 Plain vars in `wrangler.jsonc`, per environment:
 

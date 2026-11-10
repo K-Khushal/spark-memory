@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from "react";
-import { FREE_ALLOWANCE } from "@spark/core";
+import { useRef, useState, type FormEvent } from "react";
+import { ImageIcon } from "lucide-react";
+import { FREE_ALLOWANCE, IMAGE_TYPES } from "@spark/core";
 import {
   Button,
   Dialog,
@@ -10,17 +11,28 @@ import {
 } from "@spark/ui";
 import { MOD } from "./shortcuts";
 
+const ACCEPT = [
+  ...IMAGE_TYPES,
+  "image/heic",
+  "image/heif",
+  ".heic",
+  ".heif",
+].join(",");
+
 /** The paste box: Capture for touch and pointer, with an optional Capture note. */
 export function PasteBox({
   open,
   onOpenChange,
   onCapture,
+  onImages,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** False when nothing was Captured, so the box keeps its text. */
   onCapture: (text: string, captureNote: string) => boolean;
+  onImages: (files: File[]) => void;
 }) {
+  const picker = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
 
@@ -44,6 +56,12 @@ export function PasteBox({
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
             }}
+            onPaste={(e) => {
+              const files = [...e.clipboardData.files];
+              if (!files.length) return;
+              e.preventDefault();
+              onImages(files);
+            }}
             placeholder="Paste or Type"
             aria-label="Text"
             dir="auto"
@@ -58,17 +76,40 @@ export function PasteBox({
             dir="auto"
             className="h-11 min-w-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring"
           />
-          <Button
-            type="submit"
-            variant="primary"
-            className="h-10 self-end"
-            disabled={!text.trim()}
-          >
-            Capture
-            <Kbd className="hidden border-transparent bg-canvas/15 text-canvas sm:inline-flex">
-              {MOD}↵
-            </Kbd>
-          </Button>
+          <div className="flex items-center justify-between gap-2">
+            <Button
+              type="button"
+              variant="quiet"
+              className="h-10"
+              onClick={() => picker.current?.click()}
+            >
+              <ImageIcon aria-hidden /> Choose Images
+            </Button>
+            <input
+              ref={picker}
+              type="file"
+              accept={ACCEPT}
+              multiple
+              hidden
+              aria-label="Choose Images"
+              onChange={(e) => {
+                const files = [...(e.target.files ?? [])];
+                e.target.value = "";
+                if (files.length) onImages(files);
+              }}
+            />
+            <Button
+              type="submit"
+              variant="primary"
+              className="h-10"
+              disabled={!text.trim()}
+            >
+              Capture
+              <Kbd className="hidden border-transparent bg-canvas/15 text-canvas sm:inline-flex">
+                {MOD}↵
+              </Kbd>
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
