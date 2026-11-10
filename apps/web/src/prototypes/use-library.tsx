@@ -1,7 +1,5 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useRef,
   useState,
@@ -12,10 +10,9 @@ import { toast } from "@spark/ui";
 import { EASING } from "@spark/ui/tokens";
 import { LIBRARY, type FakeMemory } from "./fake-library";
 
-/** Which fake Library the picker renders (break-ui states). */
+/** The fake Library states break-ui needs: worst case, empty, 1,000 Memories. */
 export const DATA_SETS = ["library", "empty", "huge"] as const;
 export type DataSet = (typeof DATA_SETS)[number];
-export const LibraryData = createContext<DataSet>("library");
 
 function seed(data: DataSet): LiveMemory[] {
   if (data === "empty") return [];
@@ -57,7 +54,7 @@ function fromClipboard(data: DataTransfer | null): LiveMemory | undefined {
     return {
       ...base,
       kind: "image",
-      look: "photo",
+
       title: file.name || "Pasted image",
       aspect: 1.33,
       image: URL.createObjectURL(file),
@@ -70,7 +67,7 @@ function fromClipboard(data: DataTransfer | null): LiveMemory | undefined {
     return {
       ...base,
       kind: "link",
-      look: "article",
+
       title:
         url.pathname.length > 1
           ? decodeURIComponent(
@@ -84,7 +81,7 @@ function fromClipboard(data: DataTransfer | null): LiveMemory | undefined {
   return {
     ...base,
     kind: "text",
-    look: "text",
+
     title: text.split("\n")[0]!.slice(0, 80),
     excerpt: text.slice(0, 280),
     aspect: 1.2,
@@ -95,8 +92,7 @@ function fromClipboard(data: DataTransfer | null): LiveMemory | undefined {
  * The prototype Library: optimistic Capture with Undo (⌘V anywhere outside a
  * text field, or the Capture button), and Index state changing live.
  */
-export function useLibrary() {
-  const data = useContext(LibraryData);
+export function useLibrary(data: DataSet) {
   const [memories, setMemories] = useState<LiveMemory[]>(() => seed(data));
   const timers = useRef<number[]>([]);
 
@@ -104,7 +100,7 @@ export function useLibrary() {
 
   const capture = useCallback((memory: LiveMemory) => {
     setMemories((all) => [memory, ...all]);
-    toast("Captured to your Library", {
+    toast("Captured", {
       description: memory.title,
       action: {
         label: "Undo",

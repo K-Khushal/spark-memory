@@ -1,14 +1,8 @@
-import {
-  AtSignIcon,
-  FileTextIcon,
-  PlayIcon,
-  PlusIcon,
-  RotateCwIcon,
-} from "lucide-react";
+import { PlayIcon, PlusIcon, RotateCwIcon } from "lucide-react";
 import { Button, Kbd, cn } from "@spark/ui";
-import { highlight, sourceLabel, type FakeMemory } from "./fake-library";
+import { highlight, showsTitle, type FakeMemory } from "./fake-library";
 
-/** Renders a Memory's own visual, filling its parent. Shared by all prototypes. */
+/** A Memory's own visual, filling its parent. */
 export function MemoryVisual({
   memory,
   query = "",
@@ -23,7 +17,7 @@ export function MemoryVisual({
     className
   );
 
-  if (memory.look === "screenshot" && memory.shot) {
+  if (memory.shot) {
     return (
       <div className={cn(base, "bg-surface")}>
         <ScreenshotMock shot={memory.shot} />
@@ -31,10 +25,10 @@ export function MemoryVisual({
     );
   }
 
-  if (memory.look === "pdf") {
+  if (memory.kind === "pdf") {
     return (
       <div className={cn(base, "grid place-items-center bg-sunken p-[8%]")}>
-        <div className="flex h-full w-full flex-col gap-2 overflow-hidden rounded-[3px] bg-[#FDFDFB] p-[10%] text-[#151714] shadow-raised">
+        <div className="flex h-full w-full flex-col gap-2 overflow-hidden rounded-[3px] bg-[#fff] p-[10%] text-[#111214] shadow-raised">
           <p
             className="line-clamp-4 font-display text-sm leading-tight font-semibold break-words"
             dir="auto"
@@ -42,22 +36,18 @@ export function MemoryVisual({
             {memory.title}
           </p>
           <p
-            className="line-clamp-6 text-[0.625rem] leading-snug text-[#585D56]"
+            className="line-clamp-6 text-[0.625rem] leading-snug text-[#5e6066]"
             dir="auto"
           >
             <Highlighted text={memory.excerpt ?? ""} query={query} />
           </p>
-          <span className="mt-auto inline-flex items-center gap-1 text-[0.625rem] text-[#585D56] tabular">
-            <FileTextIcon className="size-3" aria-hidden /> PDF, {memory.pages}{" "}
-            {memory.pages === 1 ? "page" : "pages"}
-          </span>
         </div>
       </div>
     );
   }
 
-  if (memory.look === "article" || memory.look === "text" || !memory.image) {
-    const note = memory.look === "text";
+  if (showsTitle(memory)) {
+    const note = memory.kind === "text";
     return (
       <div
         className={cn(
@@ -106,16 +96,10 @@ export function MemoryVisual({
         decoding="async"
         className="h-full w-full object-cover"
       />
-      {memory.look === "video" && (
-        <span className="absolute bottom-2 left-2 inline-flex h-6 items-center gap-1 rounded-chip bg-[#151714]/75 px-1.5 text-xs font-medium text-[#fff] tabular backdrop-blur-sm">
+      {memory.kind === "video" && (
+        <span className="absolute bottom-2 left-2 inline-flex h-6 items-center gap-1 rounded-chip bg-[#111214]/75 px-1.5 text-xs font-medium text-[#fff] tabular">
           <PlayIcon className="size-3 fill-current" aria-hidden />
           {memory.duration}
-        </span>
-      )}
-      {memory.look === "post" && (
-        <span className="absolute bottom-2 left-2 inline-flex h-6 max-w-[calc(100%-1rem)] items-center gap-1 rounded-chip bg-[#151714]/75 px-1.5 text-xs font-medium text-[#fff] backdrop-blur-sm">
-          <AtSignIcon className="size-3 shrink-0" aria-hidden />
-          <span className="truncate">{sourceLabel(memory)}</span>
         </span>
       )}
     </div>
@@ -159,7 +143,7 @@ export function IndexStateBadge({
           failed ? "bg-danger" : "bg-indexing"
         )}
       />
-      {failed ? "Indexing failed" : "Indexing"}
+      {failed ? "Failed" : "Indexing"}
       {failed && onRetry && (
         <button
           type="button"
@@ -182,7 +166,7 @@ export function IndexStateBadge({
 function ScreenshotMock({ shot }: { shot: NonNullable<FakeMemory["shot"]> }) {
   const bar = (w: string, o = 0.12) => (
     <span
-      className="block h-1.5 rounded-full bg-[#151714]"
+      className="block h-1.5 rounded-full bg-[#111214]"
       style={{ width: w, opacity: o }}
     />
   );
@@ -203,7 +187,7 @@ function ScreenshotMock({ shot }: { shot: NonNullable<FakeMemory["shot"]> }) {
         <div className="flex-1 space-y-3 p-[6%]">
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="flex gap-2">
-              <span className="size-4 shrink-0 rounded bg-[#151714]/15" />
+              <span className="size-4 shrink-0 rounded bg-[#111214]/15" />
               <div className="flex-1 space-y-1">
                 {bar(`${30 + ((i * 17) % 40)}%`, 0.35)}
                 {bar(`${60 + ((i * 11) % 35)}%`)}
@@ -227,7 +211,7 @@ function ScreenshotMock({ shot }: { shot: NonNullable<FakeMemory["shot"]> }) {
             <span
               className="h-3 w-6 rounded-full"
               style={{
-                background: i % 2 ? "#15171422" : shot.accent,
+                background: i % 2 ? "#11121422" : shot.accent,
               }}
             />
           </div>
@@ -236,7 +220,7 @@ function ScreenshotMock({ shot }: { shot: NonNullable<FakeMemory["shot"]> }) {
     );
   }
   return (
-    <div className="flex h-full bg-[#FAFAF8]">
+    <div className="flex h-full bg-[#fafafa]">
       <div
         className="w-[22%] space-y-2 p-[4%]"
         style={{ background: shot.accent }}
@@ -283,23 +267,19 @@ function ScreenshotMock({ shot }: { shot: NonNullable<FakeMemory["shot"]> }) {
   );
 }
 
-/** The empty Library is an invitation to Capture, not a mood. */
+/** The empty Library: one action, no explanation. */
 export function EmptyLibrary({ onCapture }: { onCapture: () => void }) {
   return (
-    <div className="mx-auto max-w-md px-4 py-24 text-center">
-      <h2 className="font-display text-xl font-semibold tracking-[-0.02em]">
-        Your Library is empty
-      </h2>
-      <p className="mt-2 text-ink-muted">
-        Paste a link, an image or some text anywhere on this page to Capture it.
-        Later, describe whatever you remember about it and Spark finds it.
-      </p>
-      <Button variant="primary" className="mt-6" onClick={onCapture}>
-        <PlusIcon aria-hidden /> Capture from clipboard
-      </Button>
-      <p className="mt-3 hidden text-xs text-ink-muted sm:block">
-        or press <Kbd>⌘V</Kbd> anywhere
-      </p>
+    <div className="grid min-h-[60dvh] place-items-center">
+      <div className="flex flex-col items-center gap-4">
+        <h2 className="font-display text-lg font-semibold">No Memories Yet</h2>
+        <Button variant="primary" onClick={onCapture}>
+          <PlusIcon aria-hidden /> Capture
+          <Kbd className="hidden border-transparent bg-canvas/15 text-canvas sm:inline-flex">
+            ⌘V
+          </Kbd>
+        </Button>
+      </div>
     </div>
   );
 }
