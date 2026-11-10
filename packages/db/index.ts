@@ -12,6 +12,7 @@ export {
   UPLOAD_WINDOW_HOURS,
   type CaptureResult,
   type EditResult,
+  type FileCheck,
   type FileUpload,
   type ImageCaptureResult,
   type MemoryFileInfo,

@@ -134,20 +134,14 @@ export const memories = new Hono<AppEnv>()
   /** Step two: the files are checked in storage, and the Memory shows. */
   .post("/memories/:id/stored", async (c) => {
     const id = c.req.param("id");
-    const files = await filesOf(c.var.library, id);
-    if (!files) return c.json(notFound, 404);
-    const checks = await Promise.all(
-      files.filter((f) => !f.stored).map((f) => c.var.files.check(f))
-    );
-    if (checks.includes("mismatch")) {
+    const memory = UUID.test(id)
+      ? await c.var.library.markStored(id, c.var.files.check)
+      : undefined;
+    if (!memory) return c.json(notFound, 404);
+    if (memory === "mismatch") {
       return c.json({ ok: false, error: "mismatch" } as const, 422);
     }
-    if (checks.includes("missing")) {
-      return c.json({ ok: false, error: "not_uploaded" } as const, 409);
-    }
-    const memory = await c.var.library.markStored(id);
-    if (!memory) return c.json(notFound, 404);
-    if (memory === "expired") {
+    if (memory === "missing" || memory === "expired") {
       return c.json({ ok: false, error: "not_uploaded" } as const, 409);
     }
     return c.json(await forClient(c.var.files, memory));

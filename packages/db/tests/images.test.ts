@@ -50,7 +50,7 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     const result = await library(userId).captureImage(image(over));
     if (!("memory" in result)) throw new Error("not created");
     const memory = await library(userId).markStored(result.memory.id);
-    if (!memory || memory === "expired") throw new Error("not stored");
+    if (!memory || typeof memory === "string") throw new Error("not stored");
     return memory;
   }
 
@@ -70,19 +70,72 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     });
   });
 
-  it("does not sweep a Memory whose upload was retried during the sweep", async () => {
+  it("never stores a Memory the sweep is taking: a late confirm waits, then finds it gone", async () => {
     const owner = await newUser(db);
     const input = image();
     await library(owner).captureImage(input);
     await age(input.id);
-    const swept = await sweepAbandonedUploads(db, {
-      before: new Date(Date.now() - 24 * 60 * 60 * 1000),
-      // A Try Again lands between taking the objects and the rows.
-      removeObjects: async () =>
-        void (await library(owner).captureImage(input)),
+    let late: Promise<unknown> | undefined;
+    await sweepAbandonedUploads(db, {
+      // The confirm arrives while the sweep is deleting the objects.
+      removeObjects: async () => {
+        late = library(owner).markStored(input.id);
+        await new Promise((r) => setTimeout(r, 50));
+      },
     });
-    expect(swept).toBe(0);
-    expect(await library(owner).get(input.id)).toBeDefined();
+    expect(await late).toBeUndefined();
+    expect(await library(owner).get(input.id)).toBeUndefined();
+    await removeUser(db, owner);
+  });
+
+  it("stores nothing that storage does not confirm", async () => {
+    const input = image();
+    await library(ana).captureImage(input);
+    const checked: string[] = [];
+    const missing = async (f: { role: string }) => {
+      checked.push(f.role);
+      return "missing" as const;
+    };
+    expect(await library(ana).markStored(input.id, missing)).toBe("missing");
+    expect(checked.sort()).toEqual(["original", "thumbnail"]);
+    expect(
+      (await library(ana).list({ limit: 500 }))!.memories.map((m) => m.id)
+    ).not.toContain(input.id);
+  });
+
+  it("turns a Try Again during the sweep into a fresh Memory, so its files are sent again", async () => {
+    const owner = await newUser(db);
+    const input = image();
+    await library(owner).captureImage(input);
+    await age(input.id);
+    let retry: Promise<unknown> | undefined;
+    await sweepAbandonedUploads(db, {
+      removeObjects: async () => {
+        retry = library(owner).captureImage(input);
+        await new Promise((r) => setTimeout(r, 50));
+      },
+    });
+    expect(await retry).toMatchObject({
+      created: true,
+      uploads: [{ role: "original" }, { role: "thumbnail" }],
+    });
+    await removeUser(db, owner);
+  });
+
+  it("re-checks storage when an expired upload is retried, so retries cannot overfill it", async () => {
+    const owner = await newUser(db);
+    const big = { bytes: FREE_ALLOWANCE.maxUploadBytes };
+    const expired = image(big);
+    await library(owner).captureImage(expired);
+    await age(expired.id);
+    // The expired upload no longer counts, so storage fills up without it.
+    for (let i = 0; i < 40; i++) await stored(owner, big);
+    expect(await library(owner).captureImage(expired)).toEqual({
+      refused: "storage_full",
+    });
+    expect(await library(owner).usedStorage()).toBeLessThanOrEqual(
+      FREE_ALLOWANCE.storageBytes
+    );
     await removeUser(db, owner);
   });
 
@@ -202,7 +255,6 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
 
     const removed: string[] = [];
     const swept = await sweepAbandonedUploads(db, {
-      before: new Date(Date.now() - 24 * 60 * 60 * 1000),
       removeObjects: async (keys) => void removed.push(...keys),
     });
     expect(swept).toBeGreaterThanOrEqual(1);
@@ -223,7 +275,6 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     );
     await expect(
       sweepAbandonedUploads(db, {
-        before: new Date(Date.now() - 24 * 60 * 60 * 1000),
         removeObjects: () => Promise.reject(new Error("storage down")),
       })
     ).rejects.toThrow();
