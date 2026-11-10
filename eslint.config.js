@@ -13,6 +13,7 @@ export default tseslint.config(
       "**/.wxt/**",
       "**/.wrangler/**",
       "**/.turbo/**",
+      ".claude/worktrees/**",
       ".claude/**",
       ".agents/**",
       "**/*.gen.ts",
