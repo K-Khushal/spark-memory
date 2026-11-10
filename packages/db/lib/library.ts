@@ -11,6 +11,7 @@ const columns = {
   captureNote: memory.captureNote,
   preservation: memory.preservation,
   indexState: memory.indexState,
+  revision: memory.revision,
   capturedAt: memory.capturedAt,
   updatedAt: memory.updatedAt,
 };
@@ -22,6 +23,8 @@ export type Memory = Pick<typeof memory.$inferSelect, keyof typeof columns>;
 export type MatchedBy = "keyword" | "typo";
 export type SearchResult = Memory & { matched: MatchedBy[] };
 
+export type EditResult = Memory | { stale: true } | undefined;
+
 export type CaptureResult =
   { created: boolean; memory: Memory } | { conflict: true };
 
@@ -31,11 +34,33 @@ export type Page = { memories: Memory[]; next?: string };
 // precision, which a JS Date would round away) and its id.
 const capturedAtText = sql<string>`${memory.capturedAt}::text`;
 
+const CURSOR_AT =
+  /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?[+-]\d{2}(:\d{2}){0,2}$/;
+const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
+
+/** Both halves checked in full, so nothing malformed reaches a Postgres cast. */
 function parseCursor(cursor: string) {
-  const [at, id] = cursor.split("~");
-  const valid =
-    at && id && /^[\d\- :.+]+$/.test(at) && /^[\da-f-]{36}$/.test(id);
-  return valid ? { at, id } : undefined;
+  const [at, id, extra] = cursor.split("~");
+  if (!at || !id || extra !== undefined || !UUID.test(id)) return undefined;
+  const parts = CURSOR_AT.exec(at)?.slice(1, 7).map(Number);
+  if (!parts) return undefined;
+  const [y, mo, d, h, mi, sec] = parts as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+  const date = new Date(Date.UTC(y, mo - 1, d, h, mi, sec));
+  const real =
+    date.getUTCFullYear() === y &&
+    date.getUTCMonth() === mo - 1 &&
+    date.getUTCDate() === d &&
+    date.getUTCHours() === h &&
+    date.getUTCMinutes() === mi &&
+    date.getUTCSeconds() === sec;
+  return real ? { at, id } : undefined;
 }
 
 /**
@@ -82,13 +107,16 @@ export function openLibrary(db: Database, userId: string) {
         : { conflict: true };
     },
 
-    /** Newest first, `limit` at a time; pass `next` back as `after`. */
+    /**
+     * Newest first, `limit` at a time; pass `next` back as `after`.
+     * Undefined for a cursor this did not make.
+     */
     async list({
       limit = 200,
       after,
-    }: { limit?: number; after?: string } = {}): Promise<Page> {
+    }: { limit?: number; after?: string } = {}): Promise<Page | undefined> {
       const cursor = after ? parseCursor(after) : undefined;
-      if (after && !cursor) return { memories: [] };
+      if (after && !cursor) return undefined;
       const rows = await db
         .select({ ...columns, cursorAt: capturedAtText })
         .from(memory)
@@ -115,16 +143,32 @@ export function openLibrary(db: Database, userId: string) {
         : { memories };
     },
 
-    /** Edits text fields; the generated keyword index re-indexes with the row. */
-    async edit(id: string, input: MemoryEdit): Promise<Memory | undefined> {
+    /**
+     * Edits text fields; the generated keyword index re-indexes with the row.
+     * With `revision`, the edit applies only if the Memory is still at that
+     * revision, so a save that arrives late can never undo a newer one.
+     */
+    async edit(
+      id: string,
+      input: MemoryEdit,
+      revision?: number
+    ): Promise<EditResult> {
       const changes = MemoryEdit.parse(input);
       if (Object.keys(changes).length === 0) return get(id);
       const [row] = await db
         .update(memory)
-        .set(changes)
-        .where(owned(id))
+        .set({ ...changes, revision: sql`${memory.revision} + 1` })
+        .where(
+          and(
+            owned(id),
+            revision === undefined ? undefined : eq(memory.revision, revision)
+          )
+        )
         .returning(columns);
-      return row;
+      if (row) return row;
+      return revision !== undefined && (await get(id))
+        ? { stale: true }
+        : undefined;
     },
 
     /** Deletes permanently. False when there was no such Memory. */

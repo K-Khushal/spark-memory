@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { Trash2Icon } from "lucide-react";
 import type { MemoryEdit } from "@spark/core";
 import { FREE_ALLOWANCE } from "@spark/core";
@@ -10,11 +16,21 @@ import {
   Textarea,
   toast,
 } from "@spark/ui";
+import { drafts, type Draft } from "./drafts";
 import type { Memory } from "./use-library";
+
+const AUTOSAVE_MS = 800;
+
+const savedText = (memory: Memory): Draft => ({
+  title: memory.title ?? "",
+  body: memory.body ?? "",
+  captureNote: memory.captureNote ?? "",
+});
 
 /**
  * Memory detail: the Memory's title, text and Capture note, edited in place.
- * Closing saves (like Apple Notes), so there is no Save button to miss.
+ * It saves as you type and on close (like Apple Notes), so there is no Save
+ * button to miss.
  */
 export function MemoryDetail({
   memory,
@@ -24,7 +40,8 @@ export function MemoryDetail({
 }: {
   memory: Memory | undefined;
   onClose: () => void;
-  onSave: (before: Memory, changes: MemoryEdit) => void;
+  /** Resolves true once the server has the changes. */
+  onSave: (before: Memory, changes: MemoryEdit) => Promise<boolean>;
   onDelete: (memory: Memory) => void;
 }) {
   return (
@@ -50,40 +67,80 @@ function Fields({
 }: {
   memory: Memory;
   onClose: () => void;
-  onSave: (before: Memory, changes: MemoryEdit) => void;
+  /** Resolves true once the server has the changes. */
+  onSave: (before: Memory, changes: MemoryEdit) => Promise<boolean>;
   onDelete: (memory: Memory) => void;
 }) {
-  const [title, setTitle] = useState(memory.title ?? "");
-  const [body, setBody] = useState(memory.body ?? "");
-  const [note, setNote] = useState(memory.captureNote ?? "");
+  // An unsaved draft from a page that closed mid-edit comes back first.
+  const [initial] = useState(() => drafts.read(memory.id) ?? savedText(memory));
+  const [title, setTitle] = useState(initial.title);
+  const [body, setBody] = useState(initial.body);
+  const [note, setNote] = useState(initial.captureNote);
 
-  // Closing saves, however it closes (Done, Escape, ⌘Enter, the close
-  // button, a click outside): the edit is sent when the fields go away.
-  const latest = useRef({ title, body, note, deleted: false });
+  // Saves as the person types (debounced), when the dialog closes however it
+  // closes, and when the page closes. Until the server has an edit it is
+  // also kept as a local draft.
+  const live = useRef({ memory, draft: initial, deleted: false });
+  /** What the server has, or has been sent. */
+  const sent = useRef(savedText(memory));
   useEffect(() => {
-    latest.current = { ...latest.current, title, body, note };
+    live.current.memory = memory;
   });
-  useEffect(() => {
-    let saved = false;
-    const save = () => {
-      const { title, body, note, deleted } = latest.current;
-      if (deleted || saved) return;
-      saved = true;
+
+  const save = useCallback(
+    (closing: boolean) => {
+      const { memory, draft, deleted } = live.current;
+      if (deleted) return;
+      const base = sent.current;
       const changes: MemoryEdit = {};
-      if (title.trim() !== (memory.title ?? "")) changes.title = title;
-      if (!body.trim()) toast("Text Can't Be Empty");
-      else if (body.trim() !== memory.body) changes.body = body;
-      if (note.trim() !== (memory.captureNote ?? ""))
-        changes.captureNote = note;
-      if (Object.keys(changes).length) onSave(memory, changes);
-    };
-    // A page closing with the dialog open saves too.
-    window.addEventListener("pagehide", save);
+      if (draft.title.trim() !== base.title) changes.title = draft.title;
+      if (draft.captureNote.trim() !== base.captureNote)
+        changes.captureNote = draft.captureNote;
+      if (!draft.body.trim()) {
+        if (closing) {
+          toast("Text Can't Be Empty");
+          drafts.keep(memory.id, { ...draft, body: base.body });
+        }
+      } else if (draft.body.trim() !== base.body) changes.body = draft.body;
+      if (!Object.keys(changes).length) return;
+      sent.current = {
+        title: draft.title.trim(),
+        body: changes.body === undefined ? base.body : draft.body.trim(),
+        captureNote: draft.captureNote.trim(),
+      };
+      void onSave(memory, changes).then((ok) => {
+        if (ok) drafts.saved(memory.id, draft);
+        else if (sent.current.body === draft.body.trim()) sent.current = base;
+      });
+    },
+    [onSave]
+  );
+
+  useEffect(() => {
+    const draft = { title, body, captureNote: note };
+    live.current.draft = draft;
+    const base = sent.current;
+    if (
+      title.trim() === base.title &&
+      body.trim() === base.body &&
+      note.trim() === base.captureNote
+    ) {
+      return;
+    }
+    drafts.keep(live.current.memory.id, draft);
+    const timer = setTimeout(() => save(false), AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+  }, [title, body, note, save]);
+
+  useEffect(() => {
+    const onPageHide = () => save(false);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
-      window.removeEventListener("pagehide", save);
-      save();
+      window.removeEventListener("pagehide", onPageHide);
+      save(true);
     };
-  }, [memory, onSave]);
+  }, [save]);
+
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
@@ -133,7 +190,7 @@ function Fields({
           variant="quiet"
           size="sm"
           onClick={() => {
-            latest.current.deleted = true;
+            live.current.deleted = true;
             onDelete(memory);
             onClose();
           }}

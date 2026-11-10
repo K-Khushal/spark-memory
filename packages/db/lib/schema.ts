@@ -135,6 +135,8 @@ export const memory = pgTable(
       .$type<IndexState>()
       .default("indexing")
       .notNull(),
+    /** Goes up by one on every edit; an edit based on an older one is refused. */
+    revision: integer("revision").default(1).notNull(),
     capturedAt: instant("captured_at"),
     updatedAt: instant("updated_at").$onUpdate(() => new Date()),
     /** Keyword index (ADR-0004): title, then Capture note, then body. */

@@ -8,6 +8,7 @@ export {
   IndexState,
   TextCapture,
   MemoryEdit,
+  MemoryEditRequest,
 } from "./lib/memory";
 export {
   FREE_ALLOWANCE,

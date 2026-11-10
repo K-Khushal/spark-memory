@@ -97,6 +97,24 @@ describe.skipIf(!databaseUrl)("the Memory API", () => {
     expect(res.status).toBe(413);
   });
 
+  it("answers 400 for a page cursor it did not make", async () => {
+    const { call } = await signedIn();
+    const after = encodeURIComponent("1~------------------------------------");
+    expect((await call(`/api/memories?after=${after}`)).status).toBe(400);
+  });
+
+  it("answers 409 to an edit based on an older revision", async () => {
+    const { call } = await signedIn();
+    const { body: memory } = await capture(call, { body: "Draft" });
+    const edit = (json: unknown) =>
+      call(`/api/memories/${memory.id}`, { method: "PATCH", json });
+    const first = await edit({ title: "First", revision: 1 });
+    expect(await first.json()).toMatchObject({ title: "First", revision: 2 });
+    expect((await edit({ title: "Late", revision: 1 })).status).toBe(409);
+    const now = await (await call(`/api/memories/${memory.id}`)).json();
+    expect(now).toMatchObject({ title: "First", revision: 2 });
+  });
+
   it("answers 404 for an id that is not a uuid", async () => {
     const { call } = await signedIn();
     expect((await call("/api/memories/not-a-uuid")).status).toBe(404);

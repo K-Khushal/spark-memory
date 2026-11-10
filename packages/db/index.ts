@@ -9,6 +9,7 @@ export { openDatabase, type Database } from "./lib/client";
 export {
   openLibrary,
   type CaptureResult,
+  type EditResult,
   type Library,
   type MatchedBy,
   type Memory,

@@ -45,3 +45,9 @@ export type TextCapture = z.input<typeof TextCapture>;
 /** An edit from Memory detail. Omitted fields stay as they are; empty title or note clears it. */
 export const MemoryEdit = TextCapture.omit({ id: true }).partial();
 export type MemoryEdit = z.input<typeof MemoryEdit>;
+
+/** An edit as clients send it: with the revision it was based on, so a late one is refused. */
+export const MemoryEditRequest = MemoryEdit.extend({
+  revision: z.number().int().positive().optional(),
+});
+export type MemoryEditRequest = z.input<typeof MemoryEditRequest>;

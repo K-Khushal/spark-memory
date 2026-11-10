@@ -1,6 +1,6 @@
 {
-  "id": "f43d7c80-e89b-4fe4-9224-38fd233dc1cd",
-  "prevId": "cf2e25dc-bcaf-4ae7-b486-aa0183e433a7",
+  "id": "7e6bf960-472e-4476-910d-6e512f0430e2",
+  "prevId": "d6094506-e28a-424c-8ac6-9abecd962450",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -177,6 +177,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'indexing'"
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
         },
         "captured_at": {
           "name": "captured_at",

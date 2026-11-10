@@ -20,4 +20,8 @@ export async function signIn(page: Page) {
   const { code } = (await res.json()) as { code: string };
   await page.getByRole("textbox", { name: "Code" }).fill(code);
   await expect(page).toHaveURL(/\/$/);
+  // The Library has loaded (its shortcuts are listening) for a new person.
+  await expect(
+    page.getByRole("heading", { name: "No Memories Yet" })
+  ).toBeVisible();
 }

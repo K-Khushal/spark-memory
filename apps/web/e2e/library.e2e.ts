@@ -12,6 +12,42 @@ async function paste(page: Page, text: string) {
   }, text);
 }
 
+test("search keeps up with Captures, and a failed Undo says so", async ({
+  page,
+}) => {
+  await signIn(page);
+  await paste(page, "Lemon tart with a short crust");
+  await expect(page.getByText("Captured")).toBeVisible();
+
+  // Results on the wall pick up a Capture made while they are showing.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("lemon");
+  await expect(page.getByRole("option", { name: /Lemon tart/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  const direct = page.getByRole("list", { name: "Direct Matches" });
+  await expect(direct.getByRole("listitem")).toHaveCount(1);
+  await paste(page, "Lemon curd, three eggs");
+  await expect(direct.getByRole("listitem")).toHaveCount(2);
+
+  // Undo whose delete never reaches the server: the Memory comes back.
+  await page.route("**/api/memories/*", (route) =>
+    route.request().method() === "DELETE"
+      ? route.fulfill({ status: 503 })
+      : route.fallback()
+  );
+  await page.getByRole("button", { name: "Clear Search" }).click();
+  await paste(page, "Undo me if you can");
+  const tile = page.getByRole("listitem", { name: "Undo me if you can" });
+  await expect(tile).toBeVisible();
+  // Sonner stacks toasts; the newest one is in front.
+  await page
+    .locator('[data-sonner-toast][data-front="true"]')
+    .getByRole("button", { name: "Undo" })
+    .click();
+  await expect(page.getByText("Undo Did Not Finish")).toBeVisible();
+  await expect(tile).toBeVisible();
+});
+
 test("paste a Memory, find it by a typo, delete it with Undo", async ({
   page,
 }) => {

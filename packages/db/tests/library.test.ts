@@ -24,6 +24,11 @@ describe.skipIf(!databaseUrl)("a Library", () => {
   });
 
   const library = (userId: string) => openLibrary(db, userId);
+  /** A page of the Library (from a cursor it made). */
+  const list = async (
+    userId: string,
+    options?: Parameters<ReturnType<typeof openLibrary>["list"]>[0]
+  ) => (await library(userId).list(options))!;
   /** Captures and returns the new Memory. */
   const save = async (userId: string, input: TextCapture) => {
     const result = await library(userId).capture(input);
@@ -46,7 +51,7 @@ describe.skipIf(!databaseUrl)("a Library", () => {
         indexState: "searchable",
         preservation: "preserved",
       });
-      const { memories } = await library(ana).list();
+      const { memories } = await list(ana);
       expect(memories.map((m) => m.id).slice(0, 2)).toEqual([
         second.id,
         first.id,
@@ -68,12 +73,24 @@ describe.skipIf(!databaseUrl)("a Library", () => {
       for (const body of ["one", "two", "three"]) {
         await library(owner).capture({ body });
       }
-      const page1 = await library(owner).list({ limit: 2 });
-      const page2 = await library(owner).list({ limit: 2, after: page1.next });
+      const page1 = await list(owner, { limit: 2 });
+      const page2 = await list(owner, { limit: 2, after: page1.next });
       expect(page1.memories.map((m) => m.body)).toEqual(["three", "two"]);
       expect(page2.memories.map((m) => m.body)).toEqual(["one"]);
       expect(page2.next).toBeUndefined();
       await removeUser(db, owner);
+    });
+
+    it("refuses a cursor it did not make", async () => {
+      const uuid = crypto.randomUUID();
+      for (const after of [
+        "1~------------------------------------",
+        `2026-13-45 99:99:99+00~${uuid}`,
+        "2026-11-10 17:00:00.123456+00~not-a-uuid",
+        "garbage",
+      ]) {
+        expect(await library(ana).list({ after }), after).toBeUndefined();
+      }
     });
   });
 
@@ -96,6 +113,17 @@ describe.skipIf(!databaseUrl)("a Library", () => {
         (await library(ana).search(q)).map((r) => r.id);
       expect(await ids("cumin")).toContain(memory.id);
       expect(await ids("lentil")).not.toContain(memory.id);
+    });
+
+    it("refuses an edit based on an older revision, so a late save never wins", async () => {
+      const memory = await save(ana, { body: "Draft" });
+      expect(memory.revision).toBe(1);
+      const first = await library(ana).edit(memory.id, { title: "First" }, 1);
+      expect(first).toMatchObject({ title: "First", revision: 2 });
+      expect(await library(ana).edit(memory.id, { title: "Late" }, 1)).toEqual({
+        stale: true,
+      });
+      expect((await library(ana).get(memory.id))?.title).toBe("First");
     });
   });
 
@@ -160,7 +188,7 @@ describe.skipIf(!databaseUrl)("a Library", () => {
 
     it("another user cannot read, list or search it", async () => {
       expect(await library(ben).get(secret)).toBeUndefined();
-      const { memories } = await library(ben).list({ limit: 500 });
+      const { memories } = await list(ben, { limit: 500 });
       expect(memories.map((m) => m.id)).not.toContain(secret);
       expect(await library(ben).search("passphrase")).toEqual([]);
     });

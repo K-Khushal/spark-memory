@@ -9,12 +9,18 @@ export type Results = { direct: Memory[]; related: Memory[] };
 
 /**
  * Instant search on every keystroke (keyword and typo matching, no AI).
- * Each keystroke cancels the previous request. Hits are read through the
+ * Each keystroke cancels the previous request, and so does every change
+ * the server accepts, so new and edited Memories show up or drop out. Hits are read through the
  * wall's own Memories, so local edits show and pending deletes stay hidden.
  * Until the Direct match judge lands (PLAN.md §6.4), a keyword match counts
  * as Direct and a typo-only match as Related.
  */
-export function useInstantSearch(query: string, memories: Memory[]) {
+export function useInstantSearch(
+  query: string,
+  memories: Memory[],
+  /** Bumped when a change reaches the server: the search runs again. */
+  version: number
+) {
   const [hits, setHits] = useState<{
     query: string;
     hits: Hit[];
@@ -34,7 +40,7 @@ export function useInstantSearch(query: string, memories: Memory[]) {
         setHits({ query: q, hits: [], failed: true });
       });
     return () => controller.abort();
-  }, [q]);
+  }, [q, version]);
 
   return useMemo((): Results | "failed" | undefined => {
     // Undefined until this query's answer arrives: never another query's.

@@ -36,8 +36,8 @@ export function LibraryPage({ session }: { session: Session }) {
   const [query, setQuery] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
   const [openId, setOpenId] = useState<string>();
-  const instant = useInstantSearch(draft, library.memories);
-  const results = useInstantSearch(query, library.memories);
+  const instant = useInstantSearch(draft, library.memories, library.version);
+  const results = useInstantSearch(query, library.memories, library.version);
   const opened = library.memories.find((m) => m.id === openId);
 
   const openSearch = () => {

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
-import { FREE_ALLOWANCE, MemoryEdit, TextCapture } from "@spark/core";
+import { FREE_ALLOWANCE, MemoryEditRequest, TextCapture } from "@spark/core";
 import { openLibrary, type Library } from "@spark/db";
 import type { AppEnv } from "./env";
 import { requireUser, withAuth, type UserVariables } from "./auth";
@@ -54,7 +54,10 @@ export const memories = new Hono<AppEnv>()
   .use("/search", withAuth, requireUser, withLibrary)
   .get("/memories", async (c) => {
     const after = c.req.query("after");
-    return c.json(await c.var.library.list(after ? { after } : {}));
+    const page = await c.var.library.list(after ? { after } : {});
+    return page
+      ? c.json(page)
+      : c.json({ ok: false, error: "invalid" } as const, 400);
   })
   .post("/memories", limitBody, json(TextCapture), async (c) => {
     const result = await c.var.library.capture(c.req.valid("json"));
@@ -68,11 +71,16 @@ export const memories = new Hono<AppEnv>()
     const memory = UUID.test(id) && (await c.var.library.get(id));
     return memory ? c.json(memory) : c.json(notFound, 404);
   })
-  .patch("/memories/:id", limitBody, json(MemoryEdit), async (c) => {
+  .patch("/memories/:id", limitBody, json(MemoryEditRequest), async (c) => {
     const id = c.req.param("id");
-    const memory =
-      UUID.test(id) && (await c.var.library.edit(id, c.req.valid("json")));
-    return memory ? c.json(memory) : c.json(notFound, 404);
+    const { revision, ...changes } = c.req.valid("json");
+    const result =
+      UUID.test(id) && (await c.var.library.edit(id, changes, revision));
+    if (!result) return c.json(notFound, 404);
+    if ("stale" in result) {
+      return c.json({ ok: false, error: "stale" } as const, 409);
+    }
+    return c.json(result);
   })
   .delete("/memories/:id", async (c) => {
     const id = c.req.param("id");

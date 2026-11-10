@@ -7,6 +7,7 @@ CREATE TABLE "memory" (
 	"capture_note" text,
 	"preservation" text DEFAULT 'preserved' NOT NULL,
 	"index_state" text DEFAULT 'indexing' NOT NULL,
+	"revision" integer DEFAULT 1 NOT NULL,
 	"captured_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"search_tsv" "tsvector" GENERATED ALWAYS AS (setweight(to_tsvector('english'::regconfig, coalesce("memory"."title", '')), 'A') || setweight(to_tsvector('english'::regconfig, coalesce("memory"."capture_note", '')), 'B') || setweight(to_tsvector('english'::regconfig, coalesce("memory"."body", '')), 'C')) STORED
