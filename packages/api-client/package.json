@@ -1,0 +1,20 @@
+{
+  "name": "@spark/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "hono": "^4.13.17",
+    "@spark/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@spark/config": "workspace:*"
+  }
+}

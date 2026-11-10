@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+.claude/
+.agents/
+skills-lock.json
+docs/research/
+docs/PRD.md

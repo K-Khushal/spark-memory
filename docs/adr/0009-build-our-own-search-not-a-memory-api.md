@@ -1,0 +1,3 @@
+# Build our own search instead of using a memory API (Supermemory, mem0)
+
+Search is Spark's differentiator, so we own it. mem0 condenses conversations into extracted facts and drops the originals, which contradicts "originals matter", and it has no image search. Supermemory ingests URLs, PDFs and media, but its documentation describes turning images into text (no visual embeddings, no search by image). It costs roughly 25–50 times more per ingested token than embedding with Gemini, and it would put search inside someone else's black box. Supermemory stays useful as a **benchmark**: the search test set runs against it, and if it beats us we revisit this decision.

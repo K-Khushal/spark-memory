@@ -1,0 +1,4 @@
+/* Spark design tokens. Placeholder until DESIGN.md is chosen (design-direction ticket). */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+}

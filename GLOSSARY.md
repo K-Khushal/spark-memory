@@ -1,0 +1,83 @@
+# Spark
+
+Spark is a personal memory library: people save things they come across anywhere, and find them again later by describing what they vaguely remember.
+
+## Language
+
+### Saving
+
+**Library**:
+Everything one user has saved in Spark, synced across all their clients.
+_Avoid_: memory (for the whole collection), account, vault
+
+**Memory**:
+One thing a user chose to save: a link, a page, a post, a video, an image, a screenshot, a PDF or a piece of text.
+_Avoid_: item, bookmark, save, post, content, note
+
+**Capture**:
+The act of putting a new Memory into the Library from any client (paste, drop, upload, extension, share sheet).
+_Avoid_: import, ingest, clip
+
+**Source**:
+The original place a Memory came from, such as a URL or a reference to an app, kept whenever one exists.
+_Avoid_: origin, link (when meaning the reference itself)
+
+**Preserved copy**:
+The copy of a Memory's content that Spark keeps, such as the file, the readable text, a screenshot or a transcript, so the Memory survives if the Source disappears.
+_Avoid_: archive, backup, snapshot
+
+**Preservation**:
+Whether Spark holds a Preserved copy of a Memory: either **Preserved** or **Reference only** (just the Source and whatever metadata was allowed).
+_Avoid_: status, sync state
+
+**Capture note**:
+An optional line the user writes at Capture time about why they saved a Memory.
+_Avoid_: description, comment, annotation
+
+**Free allowance**:
+The storage and Capture limits a user gets without paying. Links beyond it are still kept, as Reference only or partly indexed; files beyond it are refused with a clear reason, because there is no Source to fall back on.
+_Avoid_: quota, plan limit
+
+### Making Memories findable
+
+**Indexing**:
+The one-time background work after Capture that makes a Memory searchable: describing what it shows, reading the text inside it, and placing it in the search space.
+_Avoid_: enrichment, analysis, processing, summarisation
+
+**Deep fetch**:
+The heavier second attempt to retrieve a Memory's content when normal Capture and Indexing came back with too little.
+_Avoid_: scrape, crawl, ingest pipeline
+
+**AI opt-out**:
+A Memory the user has chosen not to send to any AI provider. It is findable only by its own text, title and Capture note.
+_Avoid_: private memory, sensitive mode
+
+**Index state**:
+How far Indexing has got for a Memory: **Indexing**, **Searchable** or **Failed**. Independent of Preservation.
+_Avoid_: status, processing state
+
+**Category**:
+A broad kind of Memory (Recipe, Design reference, Receipt...). Spark assigns Categories automatically and the user can change them. Users can also create their own. A Memory can have several.
+_Avoid_: folder, collection, type
+
+**Locked categories**:
+A Memory whose Categories the user has set by hand; Spark never changes them automatically again.
+_Avoid_: pinned, manual override
+
+**Tag**:
+A free-form descriptive label on a Memory, suggested by Indexing or added by the user.
+_Avoid_: keyword, label
+
+### Finding
+
+**Direct match**:
+A search result that strongly matches what the user described, shown first.
+_Avoid_: exact match, top result
+
+**Related match**:
+A search result that is similar in meaning or appearance but not a confident match, always shown apart from Direct matches.
+_Avoid_: suggestion, recommendation
+
+**Connected assistant**:
+An external AI tool (such as Claude or Codex) that the user has allowed to search and read their Library.
+_Avoid_: integration, bot, agent

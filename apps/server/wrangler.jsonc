@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "spark",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // The Worker serves the built dashboard and the API from one origin.
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "observability": { "enabled": true },
+  // Bindings arrive with their tickets: Hyperdrive (Neon), R2, Queues, Workers AI,
+  // Browser Rendering. Dev and prod environments come with the deploy ticket.
+}
