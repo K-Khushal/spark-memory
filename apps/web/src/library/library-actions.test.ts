@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { draftStore } from "./drafts";
 import {
   libraryActions,
   type Memory,
@@ -22,16 +23,6 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   ...over,
 });
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
 function setup(transport: Partial<Transport>, initial: WallMemory[] = []) {
@@ -49,6 +40,7 @@ function setup(transport: Partial<Transport>, initial: WallMemory[] = []) {
       get: vi.fn(),
       ...transport,
     } as Transport,
+    drafts: draftStore(undefined),
     notify: notify as never,
     onSaved,
   });
@@ -62,87 +54,6 @@ function toastAction(notify: ReturnType<typeof vi.fn>, label: string) {
   }
   throw new Error(`no toast offered ${label}`);
 }
-
-describe("editing a Memory", () => {
-  it("sends edits one at a time, so a late answer never undoes a newer edit", async () => {
-    const m = memory();
-    const answers = [deferred<Memory>(), deferred<Memory>()];
-    const patch = vi
-      .fn()
-      .mockReturnValueOnce(answers[0]!.promise)
-      .mockReturnValueOnce(answers[1]!.promise);
-    const { actions, wall } = setup({ patch }, [m]);
-
-    void actions.edit(m, { title: "First" });
-    void actions.edit(m, { title: "Second" });
-    await settle();
-    expect(patch).toHaveBeenCalledTimes(1);
-    expect(wall()[0]?.title).toBe("Second");
-
-    answers[0]!.resolve({ ...m, title: "First", revision: 2 });
-    await settle();
-    expect(wall()[0]?.title).toBe("Second");
-    expect(patch).toHaveBeenCalledTimes(2);
-    expect(patch.mock.calls[1]![1]).toMatchObject({
-      title: "Second",
-      revision: 2,
-    });
-
-    answers[1]!.resolve({ ...m, title: "Second", revision: 3 });
-    await settle();
-    expect(wall()[0]).toMatchObject({ title: "Second", revision: 3 });
-  });
-
-  it("shows the saved copy when the server refuses a stale edit, and says stale", async () => {
-    const m = memory();
-    const server = { ...m, title: "From another window", revision: 4 };
-    const { actions, wall, notify } = setup(
-      {
-        patch: vi.fn().mockResolvedValue("stale"),
-        get: vi.fn().mockResolvedValue(server),
-      },
-      [m]
-    );
-    expect(await actions.edit(m, { title: "Mine" })).toEqual({
-      status: "stale",
-      latest: server,
-    });
-    expect(wall()[0]).toEqual(server);
-    // Memory detail decides what to offer; nothing here resubmits.
-    expect(notify).not.toHaveBeenCalled();
-  });
-
-  it("never sends edits queued behind a stale one", async () => {
-    const m = memory();
-    const first = deferred<Memory | "stale">();
-    const patch = vi.fn().mockReturnValueOnce(first.promise);
-    const server = { ...m, title: "Elsewhere", revision: 9 };
-    const { actions } = setup(
-      { patch, get: vi.fn().mockResolvedValue(server) },
-      [m]
-    );
-    const a = actions.edit(m, { title: "One" });
-    const b = actions.edit(m, { title: "Two" });
-    first.resolve("stale");
-    expect(await a).toMatchObject({ status: "stale" });
-    expect(await b).toMatchObject({ status: "stale" });
-    expect(patch).toHaveBeenCalledTimes(1);
-  });
-
-  it("asks the browser to carry a save past page close only when it fits in bytes", async () => {
-    const m = memory();
-    const patch = vi.fn().mockImplementation(async (_id, json) => ({
-      ...m,
-      ...json,
-    }));
-    const { actions } = setup({ patch }, [m]);
-    await actions.edit(m, { body: "short" });
-    // 40,000 characters, but 80,000 bytes of UTF-8: over keepalive's 64 KB.
-    await actions.edit(m, { body: "é".repeat(40_000) });
-    expect(patch.mock.calls[0]![2]).toEqual({ keepalive: true });
-    expect(patch.mock.calls[1]![2]).toEqual({ keepalive: false });
-  });
-});
 
 describe("Try Again on a Capture", () => {
   it("resends the same Memory, so a lost answer cannot make a duplicate", async () => {
@@ -199,7 +110,9 @@ describe("search freshness", () => {
     actions.capture("Fresh text");
     await settle();
     expect(onSaved).toHaveBeenCalledTimes(1);
-    await actions.edit(m, { title: "New" });
+    actions.editText(m, { title: "New", body: "Some text", captureNote: "" });
+    actions.saveEdit(m.id);
+    await settle();
     expect(onSaved).toHaveBeenCalledTimes(2);
     actions.remove(m);
     const deleted = notify.mock.calls.find(([title]) => title === "Deleted");

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Trash2Icon } from "lucide-react";
-import type { MemoryEdit } from "@spark/core";
 import { FREE_ALLOWANCE } from "@spark/core";
 import {
   Button,
@@ -8,29 +7,45 @@ import {
   DialogContent,
   DialogTitle,
   Textarea,
-  toast,
 } from "@spark/ui";
-import { drafts } from "./drafts";
-import { editSession } from "./edit-session";
-import type { EditOutcome } from "./library-actions";
+import type { Draft } from "./drafts";
+import {
+  textOf,
+  type libraryActions,
+  type PendingEdit,
+} from "./library-actions";
 import type { Memory } from "./use-library";
 
 const AUTOSAVE_MS = 800;
 
+/** The pending-edit model (library-actions.ts) this dialog is a view of. */
+export type Edits = Pick<
+  ReturnType<typeof libraryActions>,
+  | "editText"
+  | "saveEdit"
+  | "restoreEdit"
+  | "openEdit"
+  | "closeEdit"
+  | "previewEdit"
+  | "watchEdit"
+>;
+
 /**
  * Memory detail: the Memory's title, text and Capture note, edited in place.
  * It saves as you type and on close (like Apple Notes), so there is no Save
- * button to miss.
+ * button. When the Memory changed elsewhere it shows the server's copy, and
+ * "Restore Your Edit" (inside the dialog, so the keyboard reaches it) puts
+ * the person's text back.
  */
 export function MemoryDetail({
   memory,
+  edits,
   onClose,
-  onSave,
   onDelete,
 }: {
   memory: Memory | undefined;
+  edits: Edits;
   onClose: () => void;
-  onSave: (before: Memory, changes: MemoryEdit) => Promise<EditOutcome>;
   onDelete: (memory: Memory) => void;
 }) {
   return (
@@ -39,8 +54,8 @@ export function MemoryDetail({
         <Fields
           key={memory.id}
           memory={memory}
+          edits={edits}
           onClose={onClose}
-          onSave={onSave}
           onDelete={onDelete}
         />
       )}
@@ -50,59 +65,55 @@ export function MemoryDetail({
 
 function Fields({
   memory,
+  edits,
   onClose,
-  onSave,
   onDelete,
 }: {
   memory: Memory;
+  edits: Edits;
   onClose: () => void;
-  onSave: (before: Memory, changes: MemoryEdit) => Promise<EditOutcome>;
   onDelete: (memory: Memory) => void;
 }) {
-  // Saving, drafts and conflicts live in the session (edit-session.ts);
-  // this component only holds the field text and the timers.
-  const [session] = useState(() =>
-    editSession({
-      start: memory,
-      drafts,
-      save: onSave,
-      notify: toast,
-    })
+  const id = memory.id;
+  const [opening] = useState(memory);
+  const [edit, setEdit] = useState(() => edits.previewEdit(memory));
+  const [fields, setFields] = useState<Draft>(() =>
+    edit && edit.status !== "conflict" ? edit.fields : textOf(memory)
   );
-  const [title, setTitle] = useState(session.initial.title);
-  const [body, setBody] = useState(session.initial.body);
-  const [note, setNote] = useState(session.initial.captureNote);
-  useEffect(() => session.seen(memory), [session, memory]);
-  const [offered, setOffered] = useState(session.offered);
   const bodyField = useRef<HTMLTextAreaElement>(null);
-  useEffect(
-    () =>
-      session.listen({
-        show: (fields) => {
-          setTitle(fields.title);
-          setBody(fields.body);
-          setNote(fields.captureNote);
-        },
-        offer: setOffered,
-      }),
-    [session]
-  );
+  const autosave = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const closing = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
-    if (!session.change({ title, body, captureNote: note })) return;
-    const timer = setTimeout(() => session.flush(false), AUTOSAVE_MS);
-    return () => clearTimeout(timer);
-  }, [session, title, body, note]);
-
-  useEffect(() => {
-    session.open();
-    const onPageHide = () => session.flush(false);
-    window.addEventListener("pagehide", onPageHide);
+    // React's StrictMode closes and reopens at once: that is not a close.
+    clearTimeout(closing.current);
+    let was: PendingEdit | undefined;
+    const stop = edits.watchEdit(id, (next) => {
+      // Restore takes the edit out of conflict: its text comes back.
+      if (was?.status === "conflict" && next && next.status !== "conflict") {
+        setFields(next.fields);
+      }
+      was = next;
+      setEdit(next);
+    });
+    was = edits.openEdit(opening);
     return () => {
-      window.removeEventListener("pagehide", onPageHide);
-      session.close();
+      stop();
+      clearTimeout(autosave.current);
+      closing.current = setTimeout(() => edits.closeEdit(id));
     };
-  }, [session]);
+  }, [edits, id, opening]);
+
+  const conflict = edit?.status === "conflict";
+  // In conflict the fields show the server's copy, which the wall has.
+  const shown = conflict ? textOf(memory) : fields;
+
+  const change = (next: Draft) => {
+    setFields(next);
+    edits.editText(memory, next);
+    clearTimeout(autosave.current);
+    autosave.current = setTimeout(() => edits.saveEdit(id), AUTOSAVE_MS);
+  };
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -124,8 +135,8 @@ function Fields({
     >
       <DialogTitle className="sr-only">Memory</DialogTitle>
       <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        value={shown.title}
+        onChange={(e) => change({ ...shown, title: e.target.value })}
         maxLength={FREE_ALLOWANCE.titleMaxChars}
         placeholder="Title"
         aria-label="Title"
@@ -134,15 +145,15 @@ function Fields({
       />
       <Textarea
         ref={bodyField}
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
+        value={shown.body}
+        onChange={(e) => change({ ...shown, body: e.target.value })}
         aria-label="Text"
         dir="auto"
         className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0 text-base"
       />
       <input
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
+        value={shown.captureNote}
+        onChange={(e) => change({ ...shown, captureNote: e.target.value })}
         maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
         placeholder="Capture Note"
         aria-label="Capture Note"
@@ -154,7 +165,6 @@ function Fields({
           variant="quiet"
           size="sm"
           onClick={() => {
-            session.deleted();
             onDelete(memory);
             onClose();
           }}
@@ -162,12 +172,12 @@ function Fields({
           <Trash2Icon aria-hidden /> Delete
         </Button>
         <div className="flex gap-2">
-          {offered && (
+          {conflict && (
             <Button
               variant="quiet"
               size="sm"
               onClick={() => {
-                session.restore();
+                edits.restoreEdit(id);
                 // The button goes; focus moves to the restored text.
                 bodyField.current?.focus();
               }}

@@ -1,7 +1,10 @@
 /** What Memory detail edits. */
 export type Draft = { title: string; body: string; captureNote: string };
-/** A kept draft and the revision of the Memory it was written on. */
-export type KeptDraft = Draft & { revision: number };
+/**
+ * A kept draft: the revision of the Memory it was written on, and whether
+ * the server already refused it (then it is only ever offered, never sent).
+ */
+export type KeptDraft = Draft & { revision: number; conflict?: boolean };
 
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -41,12 +44,12 @@ export function draftStore(storage: Storage | undefined) {
   return {
     read,
     discard,
-    keep(id: string, draft: Draft, revision: number) {
+    keep(id: string, draft: Draft, revision: number, conflict = false) {
       const { title, body, captureNote } = draft;
       try {
         storage?.setItem(
           key(id),
-          JSON.stringify({ title, body, captureNote, revision })
+          JSON.stringify({ title, body, captureNote, revision, conflict })
         );
       } catch {
         // Blocked or full: the open dialog still autosaves.

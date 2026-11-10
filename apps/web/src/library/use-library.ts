@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "@spark/ui";
 import { api } from "../api";
+import { drafts } from "./drafts";
 import {
   libraryActions,
   newestFirst,
@@ -53,6 +54,7 @@ export function useLibrary() {
     libraryActions({
       setMemories,
       transport,
+      drafts,
       notify: toast,
       onSaved: () => setVersion((n) => n + 1),
     })
@@ -79,7 +81,7 @@ export function useLibrary() {
   }, [attempt]);
 
   useEffect(() => {
-    const flush = actions.sendPendingDeletes;
+    const flush = actions.sendPending;
     window.addEventListener("pagehide", flush);
     return () => {
       window.removeEventListener("pagehide", flush);
@@ -96,6 +98,8 @@ export function useLibrary() {
       setAttempt((n) => n + 1);
     },
     ...actions,
+    /** The same functions as one stable object, for effects that depend on it. */
+    edits: actions,
   };
 }
 

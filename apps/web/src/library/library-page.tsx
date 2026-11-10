@@ -289,8 +289,8 @@ export function LibraryPage({ session }: { session: Session }) {
         />
         <MemoryDetail
           memory={opened}
+          edits={library.edits}
           onClose={() => setOpenId(undefined)}
-          onSave={library.edit}
           onDelete={library.remove}
         />
         <Toaster />

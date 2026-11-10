@@ -27,7 +27,11 @@ describe("unsaved Memory drafts", () => {
     const drafts = draftStore(memoryStorage());
     const draft = { title: "T", body: "Long text", captureNote: "" };
     drafts.keep("m1", draft, 3);
-    expect(drafts.read("m1")).toEqual({ ...draft, revision: 3 });
+    expect(drafts.read("m1")).toEqual({
+      ...draft,
+      revision: 3,
+      conflict: false,
+    });
     drafts.saved("m1", draft);
     expect(drafts.read("m1")).toBeUndefined();
   });
@@ -38,7 +42,11 @@ describe("unsaved Memory drafts", () => {
     const newer = { title: "", body: "One two", captureNote: "" };
     drafts.keep("m1", newer, 1);
     drafts.saved("m1", older);
-    expect(drafts.read("m1")).toEqual({ ...newer, revision: 1 });
+    expect(drafts.read("m1")).toEqual({
+      ...newer,
+      revision: 1,
+      conflict: false,
+    });
   });
 
   it("does nothing, without throwing, when storage is blocked or full", () => {
