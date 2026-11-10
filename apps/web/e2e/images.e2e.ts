@@ -38,7 +38,7 @@ test("drop images: one is Captured and uploaded, one over 25 MB is refused; view
     page.getByText("Images Over 25 MB Can't Be Captured")
   ).toBeVisible();
   const wall = page.getByRole("list", { name: "All Memories" });
-  const tile = wall.getByRole("listitem", { name: "Image" });
+  const tile = wall.getByRole("listitem", { name: /^Image/ });
   await expect(tile).toHaveCount(1);
 
   // Uploaded straight to storage, checked, and saved: there after a reload.
@@ -55,8 +55,11 @@ test("drop images: one is Captured and uploaded, one over 25 MB is refused; view
   // The viewer shows the Preserved copy; Escape closes it.
   await tile.click();
   const viewer = page.getByRole("dialog");
-  await expect(viewer.getByRole("img", { name: "Image" })).toBeVisible();
-  await expect(viewer.getByText("Preserved")).toBeVisible();
+  await expect(viewer.getByRole("img", { name: /^Image/ })).toBeVisible();
+  await expect(viewer.getByRole("img", { name: /^Image/ })).toHaveJSProperty(
+    "naturalWidth",
+    64
+  );
   await page.keyboard.press("Escape");
   await expect(viewer).toBeHidden();
 
@@ -82,7 +85,7 @@ test("a failed upload shows on its tile, and Try Again finishes it", async ({
       : route.fallback()
   );
   await dropImages(page);
-  const tile = page.getByRole("listitem", { name: "Image" });
+  const tile = page.getByRole("listitem", { name: /^Image/ });
   await expect(tile.getByText("Failed")).toBeVisible();
   fail = false;
   await tile.getByRole("button", { name: "Try Again" }).click();

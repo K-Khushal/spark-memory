@@ -71,10 +71,24 @@ export function tileHeight(memory: WallMemory, width: number) {
   return width * Math.min(ASPECT.max, Math.max(ASPECT.min, h / w));
 }
 
-/** The name a Memory goes by: its title, else the start of its text. */
+const day = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+
+/**
+ * The name a Memory goes by: its title, else the start of its text, else
+ * (an image before Indexing names it) "Image" and its Capture day.
+ */
 export function memoryName(memory: WallMemory) {
-  if (memory.kind === "image") return memory.title || "Image";
+  if (memory.kind === "image") {
+    return memory.title || `Image, ${day.format(new Date(memory.capturedAt))}`;
+  }
   return memory.title || memory.body?.split("\n")[0]?.slice(0, 120) || "";
+}
+
+/** A tile's accessible name: its Memory's, and its upload while it lasts. */
+export function tileLabel(memory: WallMemory) {
+  const name = memoryName(memory);
+  if (!memory.upload) return name;
+  return `${name}, ${memory.upload.step === "failed" ? "Failed" : "Uploading"}`;
 }
 
 /** One Memory on the wall, landing with DESIGN.md's Capture motion. */
@@ -126,12 +140,18 @@ function ImageTile({
           decoding="async"
           draggable={false}
           onError={() => onBroken(memory.id)}
-          className="h-full w-full object-cover"
+          className={cn(
+            "h-full w-full object-cover",
+            // Screenshots read top down: crop the bottom.
+            image.height / image.width > ASPECT.max && "object-top"
+          )}
         />
         {memory.upload && (
           <UploadBadge
             upload={memory.upload}
             onRetry={() => onRetry(memory.id)}
+            // One tab stop per wall: the keyboard retries from the viewer.
+            focusable={false}
             className="absolute right-2 bottom-2"
           />
         )}
@@ -148,10 +168,12 @@ function ImageTile({
 export function UploadBadge({
   upload,
   onRetry,
+  focusable = true,
   className,
 }: {
   upload: UploadState;
   onRetry: () => void;
+  focusable?: boolean;
   className?: string;
 }) {
   const plate =
@@ -169,6 +191,7 @@ export function UploadBadge({
           // Keep Enter and Space from also opening the Memory.
           onKeyDown={(e) => e.stopPropagation()}
           aria-label="Try Again"
+          tabIndex={focusable ? undefined : -1}
           className="relative grid size-5 place-items-center rounded-[4px] hover:bg-[#fff]/15 before:absolute before:-inset-2.5"
         >
           <RotateCwIcon className="size-3.5" aria-hidden />

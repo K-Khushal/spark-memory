@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
 import { LogOutIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
@@ -17,7 +17,7 @@ import {
 } from "@spark/ui";
 import { authClient, type Session } from "../auth";
 import { MemoryDetail } from "./memory-detail";
-import { MemoryTile, memoryName, tileHeight } from "./memory-tile";
+import { MemoryTile, memoryName, tileHeight, tileLabel } from "./memory-tile";
 import { PasteBox } from "./paste-box";
 import { ImageViewer } from "./image-viewer";
 import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
@@ -42,14 +42,16 @@ export function LibraryPage({ session }: { session: Session }) {
   const results = useInstantSearch(query, library.memories, library.version);
   const opened = library.memories.find((m) => m.id === openId);
   // The viewer steps through the images of the wall on screen.
-  const shown =
-    query && results && results !== "failed"
-      ? [...results.direct, ...results.related]
-      : library.memories;
-  const images = shown.flatMap((m) => {
-    const live = library.memories.find((l) => l.id === m.id);
-    return live?.image ? [live] : [];
-  });
+  const images = useMemo(() => {
+    if (!query || !results || results === "failed") {
+      return library.memories.filter((m) => m.image);
+    }
+    const live = new Map(library.memories.map((m) => [m.id, m]));
+    return [...results.direct, ...results.related].flatMap((m) => {
+      const now = live.get(m.id);
+      return now?.image ? [now] : [];
+    });
+  }, [query, results, library.memories]);
 
   const openSearch = () => {
     setDraft(query);
@@ -82,10 +84,12 @@ export function LibraryPage({ session }: { session: Session }) {
   useLibraryShortcuts({
     onSearch: openSearch,
     onToggleSearch: () => (searchOpen ? setSearchOpen(false) : openSearch()),
-    onPaste: (data) =>
-      data.files.length
-        ? captureFiles([...data.files])
-        : void library.capture(data.getData("text/plain")),
+    // Office apps put a picture of copied text beside it: text wins.
+    onPaste: (data) => {
+      const text = data.getData("text/plain");
+      if (data.files.length && !text.trim()) captureFiles([...data.files]);
+      else void library.capture(text);
+    },
   });
 
   const signOut = async () => {
@@ -321,6 +325,7 @@ export function LibraryPage({ session }: { session: Session }) {
           onClose={() => setImageId(undefined)}
           onDelete={library.remove}
           onRetry={library.retryUpload}
+          onBroken={library.refresh}
         />
         {dropping && (
           <div
@@ -395,7 +400,7 @@ function Wall({
       items={memories}
       getKey={(m) => m.id}
       getHeight={tileHeight}
-      getLabel={memoryName}
+      getLabel={tileLabel}
       onOpen={open}
       onPreview={open}
       renderItem={(m, tile) => (

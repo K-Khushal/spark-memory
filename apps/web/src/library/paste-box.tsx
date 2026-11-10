@@ -58,7 +58,9 @@ export function PasteBox({
             }}
             onPaste={(e) => {
               const files = [...e.clipboardData.files];
-              if (!files.length) return;
+              // Copied text from Office apps carries a picture too: text wins.
+              if (!files.length || e.clipboardData.getData("text/plain").trim())
+                return;
               e.preventDefault();
               onImages(files);
             }}

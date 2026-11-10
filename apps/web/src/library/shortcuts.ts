@@ -24,8 +24,13 @@ export function useFileDrop(onDrop: (files: File[]) => void) {
     };
     const leave = (e: DragEvent) => {
       if (!hasFiles(e)) return;
-      depth = Math.max(0, depth - 1);
+      // Leaving the window (no relatedTarget) ends it, whatever the count.
+      depth = e.relatedTarget ? Math.max(0, depth - 1) : 0;
       if (!depth) setOver(false);
+    };
+    const end = () => {
+      depth = 0;
+      setOver(false);
     };
     const overPage = (e: DragEvent) => {
       if (!hasFiles(e)) return;
@@ -44,6 +49,7 @@ export function useFileDrop(onDrop: (files: File[]) => void) {
       ["dragleave", leave],
       ["dragover", overPage],
       ["drop", drop],
+      ["dragend", end],
     ] as const;
     for (const [name, handler] of events)
       window.addEventListener(name, handler);

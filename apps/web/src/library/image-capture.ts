@@ -159,10 +159,11 @@ export function imageCapture({
       }
       entry.failed = true;
       show(id, { step: "failed" });
+      // One toast however many fail at once (offline): it retries them all.
       notify("Capture Did Not Finish", {
-        id: `upload-${id}`,
+        id: "upload-failed",
         duration: 8000,
-        action: { label: "Try Again", onClick: () => retry(id) },
+        action: { label: "Try Again", onClick: retryAll },
       });
     }
   }
@@ -186,6 +187,9 @@ export function imageCapture({
   function retry(id: string) {
     if (entries.get(id)?.failed) start(id);
   }
+  const retryAll = () => {
+    for (const id of [...entries.keys()]) retry(id);
+  };
 
   /**
    * Captures `files` as image Memories. Each is checked against the Free
@@ -268,6 +272,6 @@ export function imageCapture({
 const REFUSALS: Record<ImageRefusal, string> = {
   file_too_large: "Images Over 25 MB Can't Be Captured",
   storage_full: "Your 1 GB Free Allowance Is Full",
-  unsupported: "Only Images Can Be Captured",
+  unsupported: "This File Type Can't Be Captured",
   unreadable: "Image Can't Be Read",
 };
