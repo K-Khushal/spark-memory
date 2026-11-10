@@ -23,6 +23,7 @@ Spark is a personal memory library: people save anything they come across and fi
 - **Never send user content to Gemini's free tier** (ADR-0005). **Never log into platforms server-side** (ADR-0010).
 - **Use `tdd`** for backend behaviour. Use `codebase-design` vocabulary when shaping modules.
 - Each ticket lists the skills to use in its **Skills** section. Finish every ticket with `code-review`.
+- **Work on a branch and open a PR.** A project hook (`.claude/hooks/block-dangerous-git.sh`) blocks pushing to `main`, force pushes, `reset --hard`, `clean -f`, `branch -D`, `checkout .` and `restore .`.
 
 ## Agent skills
 
