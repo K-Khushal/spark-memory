@@ -3,18 +3,44 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: Deploy this main commit to production (waits for approval)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run that may be deploying.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: spark
+          POSTGRES_PASSWORD: spark
+          POSTGRES_DB: spark
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U spark -d spark"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgres://spark:spark@localhost:5432/spark
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -29,7 +55,28 @@ jobs:
         run: pnpm lint:boundaries
       - name: Formatting
         run: pnpm format:check
+      - name: Migrate the test database
+        run: pnpm db:migrate
       - name: Tests
         run: pnpm test
       - name: Build
         run: pnpm build
+
+  deploy-dev:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: dev
+      skip-without-token: true
+    secrets: inherit
+
+  deploy-production:
+    needs: check
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_production)
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+    secrets: inherit
