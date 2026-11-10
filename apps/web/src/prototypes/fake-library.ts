@@ -222,7 +222,7 @@ export const LOOK_LABEL: Record<Look, string> = {
   article: "Article",
   pdf: "PDF",
   video: "Video",
-  post: "Post",
+  post: "Social post",
   text: "Text",
 };
 

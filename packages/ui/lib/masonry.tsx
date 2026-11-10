@@ -164,7 +164,7 @@ export function Masonry<T>({
               aria-label={getLabel(item)}
               onFocus={() => setActive(v.index)}
               onClick={() => onOpen?.(v.index)}
-              className="absolute top-0 left-0 rounded-tile outline-offset-4"
+              className="absolute top-0 left-0 rounded-tile outline-offset-2"
               style={{
                 width: colWidth,
                 height: v.size,

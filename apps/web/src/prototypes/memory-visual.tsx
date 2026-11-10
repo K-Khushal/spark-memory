@@ -167,6 +167,8 @@ export function IndexStateBadge({
             e.stopPropagation();
             onRetry();
           }}
+          // Keep Enter and Space from also opening the Memory.
+          onKeyDown={(e) => e.stopPropagation()}
           className="-mr-1 ml-0.5 grid size-5 place-items-center rounded-chip text-ink hover:bg-sunken"
           aria-label={`Retry Indexing ${memory.title}`}
         >

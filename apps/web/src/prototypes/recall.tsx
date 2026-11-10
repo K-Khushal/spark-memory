@@ -278,7 +278,7 @@ function Spectrum({
           aria-pressed={value === c.name}
           onClick={() => onChange(value === c.name ? undefined : c.name)}
           className={cn(
-            "relative flex-1 transition-[flex-grow] duration-[180ms] ease-out focus-visible:z-10 focus-visible:outline-offset-[-3px]",
+            "relative flex-1 focus-visible:z-10 focus-visible:outline-offset-[-3px]",
             value === c.name &&
               "flex-[2.5] after:absolute after:inset-x-0 after:bottom-1 after:mx-auto after:size-1.5 after:rounded-full after:bg-[#fff] after:shadow-raised after:content-['']"
           )}

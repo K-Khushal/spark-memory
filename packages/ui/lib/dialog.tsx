@@ -50,7 +50,7 @@ export function DialogContent({
       >
         {children}
         <DialogPrimitive.Close
-          className="absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-colors duration-[120ms] hover:bg-sunken hover:text-ink"
+          className="absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-[120ms] ease-out hover:bg-sunken hover:text-ink active:scale-[0.97]"
           aria-label={closeLabel}
         >
           <XIcon className="size-4" aria-hidden />

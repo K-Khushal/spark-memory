@@ -10,11 +10,10 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: "bg-ink text-canvas [@media(hover:hover)]:hover:bg-ink/85",
-        quiet:
-          "text-ink aria-pressed:bg-sunken [@media(hover:hover)]:hover:bg-sunken",
+        primary: "bg-ink text-canvas hover:bg-ink/85",
+        quiet: "text-ink aria-pressed:bg-sunken hover:bg-sunken",
         outline:
-          "border border-line bg-surface text-ink [@media(hover:hover)]:hover:border-line-strong",
+          "border border-line bg-surface text-ink hover:border-line-strong",
       },
       size: {
         sm: "h-8 px-3 text-sm",

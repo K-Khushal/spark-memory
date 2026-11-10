@@ -1,6 +1,6 @@
 # Spark design
 
-How Spark looks, moves and responds. Tokens live in `packages/ui`: `tokens.ts` holds the values as plain data (for the extension and, later, Expo) and `styles.css` exposes them to Tailwind v4. `packages/ui/tests/tokens.test.ts` keeps the two in step and checks every text pair below for WCAG AA contrast. Use [GLOSSARY.md](./GLOSSARY.md) words in every string.
+How Spark looks, moves and responds. Tokens live in `packages/ui`: `tokens.ts` holds the values as plain data (for the extension and, later, Expo) and `styles.css` exposes them to Tailwind v4. `packages/ui/tests/tokens.test.ts` keeps the colour tokens in step and checks every text pair below for WCAG AA contrast (radius, easing and type are mirrored by hand for now). Use [GLOSSARY.md](./GLOSSARY.md) words in every string.
 
 ## Direction
 
@@ -39,7 +39,7 @@ Neutral canvas with a faint green-grey cast (paper under daylight), slate in dar
 
 - **Instrument Sans** (variable, self-hosted via Fontsource): all UI and reading text. A plain, slightly narrow neo-grotesque that keeps dense metadata calm.
 - **Bricolage Grotesque** (variable, optical size axis): display only, at 22px and up: screen titles, the empty Library, the search prompt. Its ink-trap quirks are the one piece of typographic personality.
-- Non-Latin text falls back to the system or Noto faces (`Noto Sans JP`, `Noto Sans Devanagari`, `Noto Sans Arabic`), then emoji fonts. Titles are never truncated to one line when they are in a script whose words do not break on spaces; use `line-clamp-2` and `break-words`.
+- Non-Latin text falls back to the system or Noto faces (`Noto Sans JP`, `Noto Sans Devanagari`, `Noto Sans Arabic`), then emoji fonts. Tile captions may truncate to one line, because the full title is the tile's accessible name and is shown in full in Quick preview; titles everywhere else use `line-clamp-2` and `break-words`, and every title carries `dir="auto"` so Arabic reads right to left.
 
 | Token  | Size / leading | Use                                               |
 | ------ | -------------- | ------------------------------------------------- |
@@ -66,7 +66,7 @@ Neutral canvas with a faint green-grey cast (paper under daylight), slate in dar
 
 ## Iconography
 
-Lucide, 1.5px stroke at 16px (inline) and 20px (toolbar), `currentColor`, never filled. Every icon-only button has an `aria-label`. Memory kinds have one icon each: Image `image`, Screenshot `monitor`, Article `newspaper`, Video `play`, PDF `file-text`, Post `at-sign`, Text `text`. Emoji are content, never icons.
+Lucide, 1.5px stroke at 16px (inline) and 20px (toolbar), `currentColor`, never filled. Every icon-only button has an `aria-label`. Memory kinds (`MEMORY_KINDS` in `@spark/core`) have one icon each: image `image` (a screenshot is an image, `monitor` when Indexing recognises one), link `newspaper`, social post `at-sign`, video `play`, PDF `file-text`, file `file`, text `text`. Emoji are content, never icons.
 
 ## Motion
 
@@ -75,7 +75,7 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 | What                               | Motion                                                                                                |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Press on any button, chip or tile  | `scale(0.97)` on `:active`, 120ms `ease-out`                                                          |
-| Hover                              | Colour only, 120ms, behind `@media (hover: hover)`                                                    |
+| Hover                              | Colour only, 120ms (Tailwind v4's `hover:` already applies only under `@media (hover: hover)`)        |
 | ⌘K command menu, Escape            | **None.** Opens and closes on the next frame                                                          |
 | Quick preview (Space)              | Opacity 150ms, no scale or slide (it is keyboard-driven and frequent)                                 |
 | Filter and search results updating | None per keystroke; results swap in place. A 180ms opacity fade only when the whole set changes       |
@@ -94,8 +94,8 @@ Keyboard first, as fast as Raycast or Linear. Every shortcut has a visible equiv
 
 - **⌘K / Ctrl K** opens search from anywhere; `/` also focuses the search field when nothing else is focused. Typing shows instant (keyword) results; Enter runs the full search.
 - **⌘V / Ctrl V** anywhere outside a text field Captures the clipboard: a link, an image or text. Drop anywhere does the same.
-- **Optimistic Capture**: the Memory appears first in the Library at once with Index state Indexing, and a toast says "Saved to your Library" with **Undo**. Undo removes it with no confirmation. Failed shows on the tile with a Retry.
-- **Arrow keys** move between Memories spatially (masonry: same column up and down, nearest tile left and right). **Enter** opens the Memory, **Space** toggles Quick preview, **Escape** closes the top layer and then clears the search.
+- **Optimistic Capture**: the Memory appears first in the Library at once with Index state Indexing, and a toast says "Captured to your Library" with **Undo**. Undo removes it with no confirmation. Failed shows on the tile with a Retry.
+- **Arrow keys** move between Memories spatially (masonry: same column up and down, nearest tile left and right). **Enter** opens the Memory (in the prototypes there is no Memory page yet, so it opens Quick preview too), **Space** toggles Quick preview, **Escape** closes the top layer and then clears the search.
 - One tab stop per grid (roving `tabindex`); focus is always visible with the `ring` outline.
 - Search results always show Direct matches first and Related matches apart under their own heading. When nothing is a Direct match, Spark says so plainly before showing Related matches.
 - Every result carries why-chips ("text in image: purple", "colour: orange", "passage at 12:40", "Category: Recipe").
@@ -103,7 +103,7 @@ Keyboard first, as fast as Raycast or Linear. Every shortcut has a visible equiv
 
 ## Components and libraries
 
-Chosen by hand against `pick-ui-library`'s criteria (that skill is user-invoked only; run `/pick-ui-library` to re-check). All are installed in `packages/ui`, restyled from these tokens, and exported from `@spark/ui`.
+Chosen by hand against `pick-ui-library`'s criteria (that skill is user-invoked only; run `/pick-ui-library` to re-check). All except Motion are installed in `packages/ui`, restyled from these tokens, and exported from `@spark/ui`; Motion is a dependency of `apps/web`, and `@spark/ui/tokens` exports its springs and easings. The components are hand-ported shadcn source; adding a `components.json` for the shadcn CLI is a follow-up. Badges laid over imagery (video length, social post handle) use a fixed ink scrim (`#151714` at 75%, white text) in both themes, because the image under them does not change with the theme.
 
 | Need                | Choice                                                                              | Why                                                                                                                |
 | ------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |

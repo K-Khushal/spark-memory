@@ -43,7 +43,7 @@ const KINDS: { look: Look | "all"; label: string }[] = [
   { look: "article", label: "Articles" },
   { look: "video", label: "Videos" },
   { look: "pdf", label: "PDFs" },
-  { look: "post", label: "Posts" },
+  { look: "post", label: "Social posts" },
   { look: "text", label: "Text" },
 ];
 

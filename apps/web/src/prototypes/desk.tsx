@@ -488,7 +488,7 @@ function Rows({
               >
                 <div
                   className={cn(
-                    "relative overflow-hidden rounded-control ring-offset-2 ring-offset-canvas transition-shadow duration-[120ms]",
+                    "relative overflow-hidden rounded-control ring-offset-2 ring-offset-canvas",
                     isSelected && "ring-2 ring-ink"
                   )}
                   style={{ height: row.height }}

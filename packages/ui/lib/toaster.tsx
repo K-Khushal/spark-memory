@@ -13,7 +13,7 @@ export function Toaster(props: ToasterProps) {
           "--normal-bg": "var(--ink)",
           "--normal-text": "var(--canvas)",
           "--normal-border": "transparent",
-          "--border-radius": "12px",
+          "--border-radius": "var(--radius-tile)",
           fontFamily: "var(--font-sans)",
         } as CSSProperties
       }
