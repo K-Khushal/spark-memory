@@ -18,7 +18,6 @@ const EVENT_FIELDS = [
 ] as const;
 const FRAME_FIELDS = ["filename", "function", "lineno", "colno", "in_app"];
 const BREADCRUMB_FIELDS = ["type", "category", "level", "timestamp"];
-const KEPT_CONTEXTS = ["runtime", "os"];
 
 function pick(source: unknown, keys: readonly string[]): Fields {
   const out: Fields = {};
@@ -38,18 +37,16 @@ function urlPath(url: string): string {
   return withoutOrigin.split(/[?#]/)[0] || "/";
 }
 
-// Names can be built from content too: keep them only if they look like identifiers.
+// A custom error name can be built from content: keep it only if it looks like an identifier.
 const EXCEPTION_TYPE = /^[A-Za-z_$][\w$.]{0,63}$/;
-const CONTEXT_VALUE = /^[A-Za-z0-9_$.\- ]{1,48}$/;
-
-function identifier(value: unknown, pattern: RegExp, fallback: string) {
-  return typeof value === "string" && pattern.test(value) ? value : fallback;
-}
 
 function scrubException(value: unknown): Fields {
   const { type: rawType, mechanism, stacktrace } = value as Fields;
   const frames = list((stacktrace as Fields | undefined)?.frames);
-  const type = identifier(rawType, EXCEPTION_TYPE, "Error");
+  const type =
+    typeof rawType === "string" && EXCEPTION_TYPE.test(rawType)
+      ? rawType
+      : "Error";
   return {
     ...(rawType !== undefined && { type }),
     // The message can quote user content; the type is enough to group on.
@@ -77,22 +74,7 @@ export function scrubEvent<T extends object>(event: T): T {
     out.exception = { values: exceptions.map(scrubException) };
   }
   if (source.tags !== undefined) out.tags = source.tags;
-
-  const contexts = source.contexts as Fields | undefined;
-  if (contexts) {
-    const kept: Fields = {};
-    for (const name of KEPT_CONTEXTS) {
-      const context = contexts[name] as Fields | undefined;
-      if (!context) continue;
-      kept[name] = Object.fromEntries(
-        Object.entries(pick(context, ["name", "version"])).map(([key, v]) => [
-          key,
-          identifier(v, CONTEXT_VALUE, "unknown"),
-        ])
-      );
-    }
-    if (Object.keys(kept).length > 0) out.contexts = kept;
-  }
+  // contexts are dropped entirely: even runtime/os names can carry prose.
 
   const request = source.request as Fields | undefined;
   if (request) {

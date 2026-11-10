@@ -69,7 +69,7 @@ Worker secrets (stored in Cloudflare, per environment):
 
 ## Sentry and Memory content
 
-Both SDKs start only when a DSN is configured. Neither sends request bodies, headers, cookies, query strings (search queries describe Memories), user info or breadcrumb text. Both then pass every event and breadcrumb through one allowlist, `sentryScrubbing` from `@spark/core/sentry` (tested in `packages/core/tests/sentry.test.ts`). What it keeps: ids, time, level, environment, release, the request method and URL path, exception types and stack frame locations, tags, and runtime/os names. Messages and exception values are replaced with the exception type or `[redacted]`.
+Both SDKs start only when a DSN is configured. Neither sends request bodies, headers, cookies, query strings (search queries describe Memories), user info or breadcrumb text. Both then pass every event and breadcrumb through one allowlist, `sentryScrubbing` from `@spark/core/sentry` (tested in `packages/core/tests/sentry.test.ts`). What it keeps: ids, time, level, environment, release, the request method and URL path, exception types (only if they look like identifiers, otherwise `Error`), stack frame locations, and tags. Contexts are dropped. Messages and exception values are replaced with the exception type or `[redacted]`.
 
 ## Uptime monitor
 

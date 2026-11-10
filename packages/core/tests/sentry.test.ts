@@ -102,10 +102,6 @@ describe("sentryScrubbing.beforeSend", () => {
         ],
       },
       tags: { route: "/api/health" },
-      contexts: {
-        runtime: { name: "cloudflare", version: "1" },
-        os: { name: "linux", version: "6" },
-      },
       request: { method: "POST", url: "/api/search" },
       breadcrumbs: [
         { type: "http", category: "fetch", level: "info", timestamp: 2 },
@@ -133,20 +129,20 @@ describe("sentryScrubbing.beforeSend", () => {
     });
   });
 
-  it("replaces a runtime or os name or version built from content with unknown", () => {
+  it("drops contexts entirely, including prose in runtime/os names", () => {
+    const prose = "My private note about the blue tent";
     const scrubbed = sentryScrubbing.beforeSend({
+      level: "error" as const,
       contexts: {
-        runtime: { name: SENTENCE, version: "1.2.3" },
-        os: { name: "linux", version: SENTENCE },
+        runtime: { name: prose, version: SENTENCE },
+        os: { name: SENTINEL, version: prose },
+        memory: { title: prose },
       },
     });
     expect(JSON.stringify(scrubbed)).not.toContain("blue tent");
-    expect(scrubbed).toEqual({
-      contexts: {
-        runtime: { name: "unknown", version: "1.2.3" },
-        os: { name: "linux", version: "unknown" },
-      },
-    });
+    expect(JSON.stringify(scrubbed)).not.toContain(SENTINEL);
+    expect(scrubbed).not.toHaveProperty("contexts");
+    expect(scrubbed).toEqual({ level: "error" });
   });
 
   it("is also the transaction scrubber", () => {
