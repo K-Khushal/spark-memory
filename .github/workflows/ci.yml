@@ -62,8 +62,46 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # Playwright smoke test: sign in with an email code (dev outbox) and see the
+  # empty Library. Separate from `check` so local `pnpm check` needs no browser.
+  smoke:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: spark
+          POSTGRES_PASSWORD: spark
+          POSTGRES_DB: spark
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U spark -d spark"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgres://spark:spark@localhost:5432/spark
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:migrate
+      - run: pnpm --filter @spark/web exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: apps/web/test-results/
+          retention-days: 7
+
   deploy-dev:
-    needs: check
+    needs: [check, smoke]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/deploy.yml
     with:
@@ -72,7 +110,7 @@ jobs:
     secrets: inherit
 
   deploy-production:
-    needs: check
+    needs: [check, smoke]
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_production)

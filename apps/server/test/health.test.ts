@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
+import type { Bindings } from "../src/env";
 
 // Integration test: needs Postgres + pgvector (`docker compose up -d db` locally,
 // a service container in CI). DATABASE_URL comes from the root .env or CI.
@@ -13,7 +14,7 @@ const ctx = {
 } as unknown as ExecutionContext;
 
 function getHealth(connectionString: string) {
-  const env = { HYPERDRIVE: { connectionString } as Hyperdrive };
+  const env = { HYPERDRIVE: { connectionString } } as Bindings;
   return worker.fetch(new Request("http://spark.test/api/health"), env, ctx);
 }
 

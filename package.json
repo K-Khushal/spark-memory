@@ -18,7 +18,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "pnpm typecheck && pnpm lint && pnpm lint:boundaries && pnpm format:check && pnpm test && pnpm build",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:e2e": "pnpm --filter @spark/web test:e2e"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

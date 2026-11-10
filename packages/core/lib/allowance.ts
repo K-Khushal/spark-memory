@@ -26,3 +26,8 @@ export function isFileWithinAllowance(input: {
   }
   return { ok: true };
 }
+
+/** Plans a user can be on. Only Free exists for now; paid plans come later. */
+export const PLANS = ["free"] as const;
+export type Plan = (typeof PLANS)[number];
+export const DEFAULT_PLAN: Plan = "free";

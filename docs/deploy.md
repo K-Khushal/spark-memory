@@ -61,11 +61,35 @@ GitHub (Repo → Settings → Secrets and variables → Actions, or the environm
 
 Worker secrets (stored in Cloudflare, per environment):
 
-| Name         | Set with                                                                                  | Get it from              |
-| ------------ | ----------------------------------------------------------------------------------------- | ------------------------ |
-| `SENTRY_DSN` | `cd apps/server && npx wrangler secret put SENTRY_DSN --env dev` (and `--env production`) | the Worker project's DSN |
+Set each with `cd apps/server && npx wrangler secret put <NAME> --env dev`, then again with `--env production`. Use different values per environment.
 
-`SPARK_ENV` is a plain var already in `wrangler.jsonc`.
+| Name                   | Required | Get it from                                                                                                                                        |
+| ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SENTRY_DSN`           | no       | the Worker project's DSN                                                                                                                           |
+| `BETTER_AUTH_SECRET`   | yes      | `openssl rand -base64 32`; signs session cookies, so changing it signs everyone out                                                                |
+| `TURNSTILE_SECRET_KEY` | yes      | Cloudflare dashboard → Turnstile → Add widget (mode _Managed_, hostname the Worker's host) → Secret key                                            |
+| `RESEND_API_KEY`       | yes      | [resend.com](https://resend.com) → API Keys, _Sending access_ only                                                                                 |
+| `GOOGLE_CLIENT_ID`     | no       | Google Cloud console → APIs & Services → Credentials → OAuth client ID (_Web application_), redirect URI `https://<host>/api/auth/callback/google` |
+| `GOOGLE_CLIENT_SECRET` | no       | the same OAuth client                                                                                                                              |
+| `GITHUB_CLIENT_ID`     | no       | GitHub → Settings → Developer settings → OAuth Apps → New, callback URL `https://<host>/api/auth/callback/github`                                  |
+| `GITHUB_CLIENT_SECRET` | no       | the same OAuth App                                                                                                                                 |
+
+A social provider turns on only when both its client id and secret are set; otherwise its button is hidden.
+
+Plain vars in `wrangler.jsonc`, per environment:
+
+| Var                  | Value                                                                                                                                                                                                                                                                                          |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SPARK_ENV`          | already set                                                                                                                                                                                                                                                                                    |
+| `TURNSTILE_SITE_KEY` | the Turnstile widget's site key (public), in place of `PLACEHOLDER_DEV_TURNSTILE_SITE_KEY` / `PLACEHOLDER_PROD_TURNSTILE_SITE_KEY`; deploys fail until set                                                                                                                                     |
+| `EMAIL_FROM`         | `Spark <onboarding@resend.dev>` until a domain is verified in Resend (it then only delivers to the Resend account's own address); then `Spark <sign-in@<domain>>`                                                                                                                              |
+| `BETTER_AUTH_URL`    | the public https origin, e.g. `https://spark-dev.<subdomain>.workers.dev`, in place of `PLACEHOLDER_DEV_BETTER_AUTH_URL` / `PLACEHOLDER_PROD_BETTER_AUTH_URL`. Required: outside local, auth refuses to start without an https origin, and cookies are always `Secure`. Deploys fail until set |
+
+Locally, `wrangler.jsonc`'s top level carries a throwaway `BETTER_AUTH_SECRET` and Cloudflare's always-pass [Turnstile test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/). Without `RESEND_API_KEY`, sign-in codes are not emailed: the local Worker keeps the latest code per address and returns it from `GET /api/dev/sign-in-code?email=…`. That route exists only when `SPARK_ENV` is `local` and Resend is not configured.
+
+## Sign-in
+
+Better Auth (ADR-0007) runs in the Worker at `/api/auth/*`, with users, sessions and email codes in Postgres. Email codes are 6 digits, stored hashed, valid 5 minutes, 3 tries. Codes are sent through Resend's REST API without delaying the response (`waitUntil`). Turnstile guards sending a code and starting a social sign-in, since both can create a user. Codes are only ever sent for signing in. Only the routes Spark uses are reachable under `/api/auth` (session, sign out, send and check a code, social sign-in and its callback); every password, reset and account-editing route Better Auth ships answers 404. Better Auth logs through a redacting logger: plain-word messages only, never arguments, and database failures by category. Auth endpoints are rate limited per IP (`cf-connecting-ip`) in Postgres (`rate_limit` table): 60 a minute overall, 3 code sends, 10 code checks and 10 social starts. Nothing logs addresses, codes, tokens or session ids.
 
 ## Sentry and Memory content
 

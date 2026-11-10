@@ -7,20 +7,24 @@
     ".": "./src/app.ts"
   },
   "scripts": {
-    "dev": "wrangler dev --port 8787",
+    "dev": "mkdir -p ../web/dist && wrangler dev --port 8787",
     "build": "wrangler deploy --dry-run --env dev --outdir dist/dev && wrangler deploy --dry-run --env production --outdir dist/production",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@sentry/cloudflare": "11.11.0",
+    "@spark/auth": "workspace:*",
     "@spark/core": "workspace:*",
     "@spark/db": "workspace:*",
+    "better-auth": "1.7.19",
     "hono": "^4.13.17"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261101.0",
     "@spark/config": "workspace:*",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.1",
     "wrangler": "^4.159.0"
   }
 }

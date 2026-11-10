@@ -7,4 +7,10 @@ export {
   Preservation,
   IndexState,
 } from "./lib/memory";
-export { FREE_ALLOWANCE, isFileWithinAllowance } from "./lib/allowance";
+export {
+  FREE_ALLOWANCE,
+  isFileWithinAllowance,
+  PLANS,
+  DEFAULT_PLAN,
+  type Plan,
+} from "./lib/allowance";

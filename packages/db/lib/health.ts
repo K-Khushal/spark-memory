@@ -8,6 +8,17 @@ export type DatabaseFailure = "timeout" | "refused" | "auth" | "unknown";
 export type DatabaseHealth =
   { ok: true } | { ok: false; reason: DatabaseFailure };
 
+/**
+ * The failure category of a database error (or of its `cause`, as Drizzle
+ * wraps driver errors). Safe to log, unlike the error: its message can carry
+ * query parameters, host and port.
+ */
+export function databaseFailure(error: unknown): DatabaseFailure {
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  const own = classify(error);
+  return own === "unknown" && cause ? databaseFailure(cause) : own;
+}
+
 function classify(error: unknown): DatabaseFailure {
   const code = (error as { code?: unknown } | null)?.code;
   const message = error instanceof Error ? error.message : "";
@@ -40,7 +51,7 @@ export async function checkDatabase(
     await drizzle(client).execute(sql`select now()`);
     return { ok: true };
   } catch (error) {
-    return { ok: false, reason: classify(error) };
+    return { ok: false, reason: databaseFailure(error) };
   } finally {
     await client.end().catch(() => {});
   }

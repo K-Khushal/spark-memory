@@ -8,11 +8,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@marsidev/react-turnstile": "1.6.3",
     "@sentry/react": "11.11.0",
     "@spark/api-client": "workspace:*",
+    "@spark/auth": "workspace:*",
     "@spark/core": "workspace:*",
     "@spark/ui": "workspace:*",
     "@tanstack/react-router": "^1.170.46",
@@ -22,6 +25,7 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.0",
     "@spark/config": "workspace:*",
     "@tailwindcss/vite": "^4.3.5",
     "@types/react": "^19.3.0",
