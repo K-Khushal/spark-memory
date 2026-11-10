@@ -33,6 +33,14 @@ minimumReleaseAgeExclude:
   - typescript-eslint@8.72.2
   - vite@8.3.7
   - wrangler@4.159.0
+  - "@better-auth/core@1.7.19"
+  - "@better-auth/drizzle-adapter@1.7.19"
+  - "@better-auth/kysely-adapter@1.7.19"
+  - "@better-auth/memory-adapter@1.7.19"
+  - "@better-auth/mongo-adapter@1.7.19"
+  - "@better-auth/prisma-adapter@1.7.19"
+  - "@better-auth/telemetry@1.7.19"
+  - better-auth@1.7.19
 
 allowBuilds:
   esbuild: true

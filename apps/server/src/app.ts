@@ -1,10 +1,15 @@
 import { Hono } from "hono";
 import { captureException } from "@sentry/cloudflare";
 import type { AppEnv } from "./env";
+import { withAuth } from "./auth";
 import { routes } from "./routes";
 
 export const app = new Hono<AppEnv>()
   .basePath("/api")
+  // Better Auth owns /api/auth/* (sessions, email codes, social sign-in).
+  .on(["GET", "POST"], "/auth/*", withAuth, (c) =>
+    c.var.auth.handler(c.req.raw)
+  )
   .route("/", routes)
   .onError((error, c) => {
     // Hono turns thrown errors into responses, so report them here.

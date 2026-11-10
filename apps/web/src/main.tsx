@@ -4,6 +4,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import * as Sentry from "@sentry/react";
 import { sentryScrubbing } from "@spark/core/sentry";
 import { router } from "./router";
+import { followSystemTheme } from "./theme";
 import "./styles.css";
 
 // Sentry only when the build has a DSN (docs/deploy.md). sentryScrubbing keeps
@@ -17,6 +18,8 @@ if (sentryDsn) {
     ...sentryScrubbing,
   });
 }
+
+followSystemTheme();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing #root element");

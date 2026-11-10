@@ -164,6 +164,16 @@
   }
 }
 
+/* The fake caret in InputOTP. */
+@theme {
+  --animate-caret-blink: caret-blink 1.1s steps(1) infinite;
+  @keyframes caret-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+}
+
 @utility tabular {
   font-variant-numeric: tabular-nums;
 }

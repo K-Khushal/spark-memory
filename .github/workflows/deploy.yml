@@ -47,8 +47,12 @@ jobs:
           [ -n "$CLOUDFLARE_API_TOKEN" ] || missing+=("secret CLOUDFLARE_API_TOKEN")
           [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing+=("secret CLOUDFLARE_ACCOUNT_ID")
           [ -n "$DATABASE_URL" ] || missing+=("secret DATABASE_URL")
-          if grep -q "PLACEHOLDER_$([ "$TARGET" = production ] && echo PROD || echo DEV)_HYPERDRIVE_ID" apps/server/wrangler.jsonc; then
+          tag=$([ "$TARGET" = production ] && echo PROD || echo DEV)
+          if grep -q "PLACEHOLDER_${tag}_HYPERDRIVE_ID" apps/server/wrangler.jsonc; then
             missing+=("Hyperdrive id in apps/server/wrangler.jsonc")
+          fi
+          if grep -q "PLACEHOLDER_${tag}_TURNSTILE_SITE_KEY" apps/server/wrangler.jsonc; then
+            missing+=("Turnstile site key in apps/server/wrangler.jsonc")
           fi
           if [ ${#missing[@]} -gt 0 ]; then
             echo "::error title=Deploy to $TARGET is not configured::Missing: ${missing[*]}. See docs/deploy.md."

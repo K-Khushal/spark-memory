@@ -15,7 +15,15 @@
   // Top level = local `wrangler dev` only (never deployed; CI always passes --env).
   // Hyperdrive is bypassed locally: the Worker connects straight to Docker Postgres.
   // Override with CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE.
-  "vars": { "SPARK_ENV": "local" },
+  // Local-only auth values: a throwaway secret and Cloudflare's always-pass
+  // Turnstile test keys. Sign-in codes go to the dev outbox (no Resend).
+  "vars": {
+    "SPARK_ENV": "local",
+    "BETTER_AUTH_URL": "http://localhost:5173",
+    "BETTER_AUTH_SECRET": "local-only-insecure-secret-never-deployed-0000",
+    "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
+    "TURNSTILE_SECRET_KEY": "1x0000000000000000000000000000000AA",
+  },
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
@@ -25,17 +33,27 @@
   ],
 
   // Bindings and vars do not inherit: repeat each one per environment.
-  // Secrets per environment: `wrangler secret put SENTRY_DSN --env <name>`.
+  // Secrets per environment (`wrangler secret put <NAME> --env <name>`): SENTRY_DSN,
+  // BETTER_AUTH_SECRET, TURNSTILE_SECRET_KEY, RESEND_API_KEY, and optionally
+  // GOOGLE_CLIENT_ID/_SECRET and GITHUB_CLIENT_ID/_SECRET.
   // See docs/deploy.md for creating the Hyperdrive configs and replacing the ids.
   "env": {
     "dev": {
-      "vars": { "SPARK_ENV": "dev" },
+      "vars": {
+        "SPARK_ENV": "dev",
+        "TURNSTILE_SITE_KEY": "PLACEHOLDER_DEV_TURNSTILE_SITE_KEY",
+        "EMAIL_FROM": "Spark <onboarding@resend.dev>",
+      },
       "hyperdrive": [
         { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_DEV_HYPERDRIVE_ID" },
       ],
     },
     "production": {
-      "vars": { "SPARK_ENV": "production" },
+      "vars": {
+        "SPARK_ENV": "production",
+        "TURNSTILE_SITE_KEY": "PLACEHOLDER_PROD_TURNSTILE_SITE_KEY",
+        "EMAIL_FROM": "Spark <onboarding@resend.dev>",
+      },
       "hyperdrive": [
         { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_PROD_HYPERDRIVE_ID" },
       ],

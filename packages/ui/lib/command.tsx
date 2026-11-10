@@ -88,6 +88,18 @@ export function CommandGroup({
   );
 }
 
+export function CommandEmpty({
+  className,
+  ...props
+}: ComponentProps<typeof CommandPrimitive.Empty>) {
+  return (
+    <CommandPrimitive.Empty
+      className={cn("py-6 text-center text-sm text-ink-muted", className)}
+      {...props}
+    />
+  );
+}
+
 export function CommandItem({
   className,
   ...props

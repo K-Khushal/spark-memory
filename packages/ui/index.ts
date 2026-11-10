@@ -6,6 +6,7 @@ export { Chip, FilterChip, Kbd, Swatch } from "./lib/chip";
 export { Dialog, DialogContent, DialogTitle } from "./lib/dialog";
 export {
   CommandDialog,
+  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -13,3 +14,5 @@ export {
 } from "./lib/command";
 export { Toaster, toast } from "./lib/toaster";
 export { Masonry } from "./lib/masonry";
+export { Input } from "./lib/input";
+export { InputOTP, InputOTPGroup, InputOTPSlot } from "./lib/input-otp";

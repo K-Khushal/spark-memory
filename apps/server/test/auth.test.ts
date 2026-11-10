@@ -1,0 +1,199 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import worker from "../src/index";
+import type { Bindings } from "../src/env";
+
+// Integration test through the Worker's HTTP interface, against real Postgres
+// with migrations applied. Turnstile's siteverify is the one faked boundary.
+const databaseUrl = process.env.DATABASE_URL;
+const ORIGIN = "http://spark.test";
+
+const ctx = {
+  waitUntil: () => {},
+  passThroughOnException: () => {},
+  props: {},
+} as unknown as ExecutionContext;
+
+function env(overrides: Partial<Bindings> = {}): Bindings {
+  return {
+    HYPERDRIVE: { connectionString: databaseUrl! },
+    SPARK_ENV: "local",
+    BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-0123",
+    BETTER_AUTH_URL: ORIGIN,
+    TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
+    TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
+    ...overrides,
+  };
+}
+
+const octet = () => Math.floor(Math.random() * 254) + 1;
+
+/** A client with its own cookie jar and a random IP, so rate limits never leak between tests. */
+function newClient() {
+  const address = `10.${octet()}.${octet()}.${octet()}`;
+  let cookie = "";
+  return async function call(
+    path: string,
+    init: { method?: string; headers?: HeadersInit; json?: unknown } = {},
+    bindings = env()
+  ) {
+    const headers = new Headers(init.headers);
+    headers.set("cf-connecting-ip", address);
+    headers.set("origin", ORIGIN);
+    if (cookie) headers.set("cookie", cookie);
+    if (init.json !== undefined)
+      headers.set("content-type", "application/json");
+    const res = await worker.fetch(
+      new Request<unknown, IncomingRequestCfProperties>(`${ORIGIN}${path}`, {
+        method: init.method,
+        headers,
+        body: init.json === undefined ? undefined : JSON.stringify(init.json),
+      }),
+      bindings,
+      ctx
+    );
+    const set = res.headers.getSetCookie?.() ?? [];
+    if (set.length) cookie = set.map((c) => c.split(";")[0]).join("; ");
+    return res;
+  };
+}
+
+const email = () => `person-${crypto.randomUUID()}@example.com`;
+
+function sendCode(call: ReturnType<typeof newClient>, address: string) {
+  return call("/api/auth/email-otp/send-verification-otp", {
+    method: "POST",
+    headers: { "x-captcha-response": "XXXX.DUMMY.TOKEN.XXXX" },
+    json: { email: address, type: "sign-in" },
+  });
+}
+
+async function lastCode(call: ReturnType<typeof newClient>, address: string) {
+  const res = await call(
+    `/api/dev/sign-in-code?email=${encodeURIComponent(address)}`
+  );
+  return ((await res.json()) as { code: string }).code;
+}
+
+describe.skipIf(!databaseUrl)("sign-in with an email code", () => {
+  beforeEach(() => {
+    const realFetch = globalThis.fetch;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("challenges.cloudflare.com")) {
+        return Response.json({ success: true, hostname: "spark.test" });
+      }
+      return realFetch(input, init);
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("signs a new user in, on the Free plan, and keeps the session", async () => {
+    const call = newClient();
+    const address = email();
+    expect((await sendCode(call, address)).status).toBe(200);
+
+    const signIn = await call("/api/auth/sign-in/email-otp", {
+      method: "POST",
+      json: { email: address, otp: await lastCode(call, address) },
+    });
+    expect(signIn.status).toBe(200);
+
+    const me = await call("/api/me");
+    expect(me.status).toBe(200);
+    expect(await me.json()).toMatchObject({ email: address, plan: "free" });
+  });
+
+  it("rejects a wrong code", async () => {
+    const call = newClient();
+    const address = email();
+    await sendCode(call, address);
+    const code = await lastCode(call, address);
+    const res = await call("/api/auth/sign-in/email-otp", {
+      method: "POST",
+      json: { email: address, otp: code === "000000" ? "111111" : "000000" },
+    });
+    expect(res.status).toBe(400);
+    expect((await call("/api/me")).status).toBe(401);
+  });
+
+  it("refuses to send a code without a Turnstile token", async () => {
+    const call = newClient();
+    const res = await call("/api/auth/email-otp/send-verification-otp", {
+      method: "POST",
+      json: { email: email(), type: "sign-in" },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses to send a code when Turnstile says no", async () => {
+    vi.mocked(globalThis.fetch).mockImplementation(async () =>
+      Response.json({
+        success: false,
+        "error-codes": ["invalid-input-response"],
+      })
+    );
+    const res = await sendCode(newClient(), email());
+    expect(res.status).toBe(403);
+  });
+
+  it("rate limits code requests per IP", async () => {
+    const call = newClient();
+    const statuses = [];
+    for (let i = 0; i < 4; i++)
+      statuses.push((await sendCode(call, email())).status);
+    expect(statuses).toEqual([200, 200, 200, 429]);
+  });
+
+  it("signs out", async () => {
+    const call = newClient();
+    const address = email();
+    await sendCode(call, address);
+    await call("/api/auth/sign-in/email-otp", {
+      method: "POST",
+      json: { email: address, otp: await lastCode(call, address) },
+    });
+    expect(
+      (await call("/api/auth/sign-out", { method: "POST", json: {} })).status
+    ).toBe(200);
+    expect((await call("/api/me")).status).toBe(401);
+  });
+});
+
+describe.skipIf(!databaseUrl)("protected API routes", () => {
+  it("reject anonymous requests", async () => {
+    const res = await newClient()("/api/me");
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ ok: false, error: "unauthorized" });
+  });
+});
+
+describe.skipIf(!databaseUrl)("GET /api/sign-in-options", () => {
+  it("lists only the social providers with both keys set", async () => {
+    const res = await newClient()(
+      "/api/sign-in-options",
+      {},
+      env({
+        GITHUB_CLIENT_ID: "id",
+        GITHUB_CLIENT_SECRET: "secret",
+        GOOGLE_CLIENT_ID: "id",
+      })
+    );
+    expect(await res.json()).toEqual({
+      socialProviders: ["github"],
+      turnstileSiteKey: "1x00000000000000000000AA",
+    });
+  });
+});
+
+describe.skipIf(!databaseUrl)("the dev sign-in code outbox", () => {
+  it("does not exist outside local development", async () => {
+    for (const SPARK_ENV of ["dev", "production"] as const) {
+      const res = await newClient()(
+        "/api/dev/sign-in-code?email=a@example.com",
+        {},
+        env({ SPARK_ENV, RESEND_API_KEY: "re_test" })
+      );
+      expect(res.status).toBe(404);
+    }
+  });
+});
