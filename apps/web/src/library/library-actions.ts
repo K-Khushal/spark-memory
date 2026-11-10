@@ -39,6 +39,11 @@ const KEEPALIVE_BYTES = 60_000;
 const fitsKeepalive = (json: unknown) =>
   new TextEncoder().encode(JSON.stringify(json)).length <= KEEPALIVE_BYTES;
 
+export type EditOutcome =
+  | { status: "saved"; memory: Memory }
+  | { status: "stale"; latest?: Memory }
+  | { status: "failed" };
+
 export const newestFirst = (a: Memory, b: Memory) =>
   b.capturedAt.localeCompare(a.capturedAt) || b.id.localeCompare(a.id);
 
@@ -66,6 +71,8 @@ export function libraryActions({
   const queues = new Map<string, Promise<unknown>>();
   /** The newest revision the server has confirmed, per Memory. */
   const revisions = new Map<string, number>();
+  /** Bumped when an edit is refused as stale: edits queued before it are dropped. */
+  const epochs = new Map<string, number>();
   /** How many edits are queued, per Memory: only the last one's answer is shown. */
   const queuedEdits = new Map<string, number>();
 
@@ -106,7 +113,7 @@ export function libraryActions({
       return false;
     }
     const now = new Date().toISOString();
-    const memory: WallMemory = {
+    send({
       id: crypto.randomUUID(),
       kind: "text",
       title: null,
@@ -118,12 +125,19 @@ export function libraryActions({
       capturedAt: now,
       updatedAt: now,
       fresh: true,
-    };
-    setMemories((all) => [memory, ...all]);
+    });
+    return true;
+  }
+
+  /** Puts `memory` on the wall and sends it; Try Again resends the same one (same id). */
+  function send(memory: WallMemory) {
+    setMemories((all) =>
+      all.some((m) => m.id === memory.id) ? all : [memory, ...all]
+    );
     const created = inOrder(memory.id, () =>
       transport.create({
         id: memory.id,
-        body,
+        body: memory.body ?? "",
         captureNote: memory.captureNote,
       })
     );
@@ -159,19 +173,23 @@ export function libraryActions({
         notify("Capture Did Not Finish", {
           id: toastId,
           duration: 8000,
-          action: {
-            label: "Try Again",
-            onClick: () => capture(body, captureNote),
-          },
+          action: { label: "Try Again", onClick: () => send(memory) },
         });
       }
     );
-    return true;
   }
 
-  /** Resolves true once the server has these changes. */
-  async function edit(before: Memory, changes: MemoryEdit): Promise<boolean> {
+  /**
+   * "saved" once the server has these changes; "stale" when the Memory changed
+   * elsewhere (the wall shows the server's copy, `latest`, and nothing is
+   * resubmitted: Memory detail lets the person choose); "failed" otherwise.
+   */
+  async function edit(
+    before: Memory,
+    changes: MemoryEdit
+  ): Promise<EditOutcome> {
     const id = before.id;
+    const epoch = epochs.get(id) ?? 0;
     replaceLocal({
       ...before,
       ...changes,
@@ -185,6 +203,9 @@ export function libraryActions({
     const isLast = () => queuedEdits.get(id) === 1;
     try {
       const result = await inOrder(id, () => {
+        // Based on text the server has since refused: never send it.
+        if ((epochs.get(id) ?? 0) !== epoch)
+          return Promise.resolve("stale" as const);
         const json = {
           ...changes,
           revision: revisions.get(id) ?? before.revision,
@@ -192,21 +213,21 @@ export function libraryActions({
         return transport.patch(id, json, { keepalive: fitsKeepalive(json) });
       });
       if (result === "stale") {
-        // Changed elsewhere: show what the server has, offer to apply ours on top.
+        // Changed elsewhere: the wall shows what the server has.
+        if ((epochs.get(id) ?? 0) === epoch) epochs.set(id, epoch + 1);
         const latest = await transport.get(id).catch(() => undefined);
         if (latest) {
           revisions.set(id, latest.revision);
           replaceLocal(latest);
         }
-        throw new Error("stale");
+        return { status: "stale", latest };
       }
       confirmed(result);
       // A newer edit is queued: its optimistic text stays on the wall.
       if (isLast()) replaceLocal(result);
-      return true;
-    } catch (error) {
-      const stale = error instanceof Error && error.message === "stale";
-      if (!stale && isLast()) {
+      return { status: "saved", memory: result };
+    } catch {
+      if (isLast()) {
         const latest = await transport.get(id).catch(() => undefined);
         if (latest) replaceLocal(latest);
       }
@@ -216,7 +237,7 @@ export function libraryActions({
           onClick: () => void edit(before, changes),
         },
       });
-      return false;
+      return { status: "failed" };
     } finally {
       queuedEdits.set(id, (queuedEdits.get(id) ?? 1) - 1);
     }

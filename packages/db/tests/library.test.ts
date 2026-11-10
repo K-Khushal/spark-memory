@@ -78,6 +78,8 @@ describe.skipIf(!databaseUrl)("a Library", () => {
       expect(page1.memories.map((m) => m.body)).toEqual(["three", "two"]);
       expect(page2.memories.map((m) => m.body)).toEqual(["one"]);
       expect(page2.next).toBeUndefined();
+      // The cursor is one shape only: the Capture time in UTC microseconds.
+      expect(page1.next).toMatch(/^\d{16}~[\da-f-]{36}$/);
       await removeUser(db, owner);
     });
 
@@ -86,7 +88,12 @@ describe.skipIf(!databaseUrl)("a Library", () => {
       for (const after of [
         "1~------------------------------------",
         `2026-13-45 99:99:99+00~${uuid}`,
-        "2026-11-10 17:00:00.123456+00~not-a-uuid",
+        `2026-11-10 17:00:00+99~${uuid}`,
+        `2026-11-10 17:00:00.123456+00~${uuid}`,
+        `2026-11-10T17:00:00.123456Z~${uuid}`,
+        `-1~${uuid}`,
+        `99999999999999999999~${uuid}`,
+        `1794330000000000~not-a-uuid`,
         "garbage",
       ]) {
         expect(await library(ana).list({ after }), after).toBeUndefined();

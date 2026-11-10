@@ -99,8 +99,13 @@ describe.skipIf(!databaseUrl)("the Memory API", () => {
 
   it("answers 400 for a page cursor it did not make", async () => {
     const { call } = await signedIn();
-    const after = encodeURIComponent("1~------------------------------------");
-    expect((await call(`/api/memories?after=${after}`)).status).toBe(400);
+    for (const cursor of [
+      "1~------------------------------------",
+      `2026-11-10 17:00:00+99~${crypto.randomUUID()}`,
+    ]) {
+      const after = encodeURIComponent(cursor);
+      expect((await call(`/api/memories?after=${after}`)).status).toBe(400);
+    }
   });
 
   it("answers 409 to an edit based on an older revision", async () => {

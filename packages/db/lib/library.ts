@@ -30,37 +30,22 @@ export type CaptureResult =
 
 export type Page = { memories: Memory[]; next?: string };
 
-// A cursor is the last Memory's Capture time as Postgres writes it (microsecond
-// precision, which a JS Date would round away) and its id.
-const capturedAtText = sql<string>`${memory.capturedAt}::text`;
+// A cursor is one shape only, which this module writes: the last Memory's
+// Capture time as UTC microseconds since 1970 (exact, unlike a JS Date) and
+// its id. Anything else is refused before it reaches Postgres.
+const capturedAtMicros = sql<string>`(extract(epoch from ${memory.capturedAt}) * 1000000)::bigint::text`;
+const fromMicros = (micros: number) =>
+  sql`(to_timestamp(0) + ${micros}::bigint * interval '1 microsecond')`;
 
-const CURSOR_AT =
-  /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?[+-]\d{2}(:\d{2}){0,2}$/;
+const MICROS = /^\d{1,16}$/;
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 
-/** Both halves checked in full, so nothing malformed reaches a Postgres cast. */
 function parseCursor(cursor: string) {
   const [at, id, extra] = cursor.split("~");
-  if (!at || !id || extra !== undefined || !UUID.test(id)) return undefined;
-  const parts = CURSOR_AT.exec(at)?.slice(1, 7).map(Number);
-  if (!parts) return undefined;
-  const [y, mo, d, h, mi, sec] = parts as [
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-  ];
-  const date = new Date(Date.UTC(y, mo - 1, d, h, mi, sec));
-  const real =
-    date.getUTCFullYear() === y &&
-    date.getUTCMonth() === mo - 1 &&
-    date.getUTCDate() === d &&
-    date.getUTCHours() === h &&
-    date.getUTCMinutes() === mi &&
-    date.getUTCSeconds() === sec;
-  return real ? { at, id } : undefined;
+  if (!at || !id || extra !== undefined) return undefined;
+  if (!MICROS.test(at) || !UUID.test(id)) return undefined;
+  const micros = Number(at);
+  return Number.isSafeInteger(micros) ? { micros, id } : undefined;
 }
 
 /**
@@ -118,16 +103,16 @@ export function openLibrary(db: Database, userId: string) {
       const cursor = after ? parseCursor(after) : undefined;
       if (after && !cursor) return undefined;
       const rows = await db
-        .select({ ...columns, cursorAt: capturedAtText })
+        .select({ ...columns, cursorAt: capturedAtMicros })
         .from(memory)
         .where(
           and(
             eq(memory.userId, userId),
             cursor &&
               or(
-                sql`${memory.capturedAt} < ${cursor.at}::timestamptz`,
+                sql`${memory.capturedAt} < ${fromMicros(cursor.micros)}`,
                 and(
-                  sql`${memory.capturedAt} = ${cursor.at}::timestamptz`,
+                  sql`${memory.capturedAt} = ${fromMicros(cursor.micros)}`,
                   lt(memory.id, cursor.id)
                 )
               )

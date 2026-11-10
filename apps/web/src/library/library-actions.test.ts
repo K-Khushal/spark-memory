@@ -93,7 +93,7 @@ describe("editing a Memory", () => {
     expect(wall()[0]).toMatchObject({ title: "Second", revision: 3 });
   });
 
-  it("shows the saved copy when the server refuses a stale edit", async () => {
+  it("shows the saved copy when the server refuses a stale edit, and says stale", async () => {
     const m = memory();
     const server = { ...m, title: "From another window", revision: 4 };
     const { actions, wall, notify } = setup(
@@ -103,12 +103,30 @@ describe("editing a Memory", () => {
       },
       [m]
     );
-    await actions.edit(m, { title: "Mine" });
+    expect(await actions.edit(m, { title: "Mine" })).toEqual({
+      status: "stale",
+      latest: server,
+    });
     expect(wall()[0]).toEqual(server);
-    expect(notify).toHaveBeenCalledWith(
-      "Changes Did Not Save",
-      expect.anything()
+    // Memory detail decides what to offer; nothing here resubmits.
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("never sends edits queued behind a stale one", async () => {
+    const m = memory();
+    const first = deferred<Memory | "stale">();
+    const patch = vi.fn().mockReturnValueOnce(first.promise);
+    const server = { ...m, title: "Elsewhere", revision: 9 };
+    const { actions } = setup(
+      { patch, get: vi.fn().mockResolvedValue(server) },
+      [m]
     );
+    const a = actions.edit(m, { title: "One" });
+    const b = actions.edit(m, { title: "Two" });
+    first.resolve("stale");
+    expect(await a).toMatchObject({ status: "stale" });
+    expect(await b).toMatchObject({ status: "stale" });
+    expect(patch).toHaveBeenCalledTimes(1);
   });
 
   it("asks the browser to carry a save past page close only when it fits in bytes", async () => {
@@ -123,6 +141,25 @@ describe("editing a Memory", () => {
     await actions.edit(m, { body: "é".repeat(40_000) });
     expect(patch.mock.calls[0]![2]).toEqual({ keepalive: true });
     expect(patch.mock.calls[1]![2]).toEqual({ keepalive: false });
+  });
+});
+
+describe("Try Again on a Capture", () => {
+  it("resends the same Memory, so a lost answer cannot make a duplicate", async () => {
+    const saved = memory({ body: "Once only" });
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("lost"))
+      .mockImplementationOnce(async (input) => ({ ...saved, ...input }));
+    const { actions, wall, notify } = setup({ create });
+    actions.capture("Once only", "note");
+    await settle();
+    expect(wall()).toEqual([]);
+    toastAction(notify, "Try Again")();
+    await settle();
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1]![0]).toEqual(create.mock.calls[0]![0]);
+    expect(wall().map((m) => m.id)).toEqual([create.mock.calls[0]![0].id]);
   });
 });
 
