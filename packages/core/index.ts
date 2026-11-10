@@ -6,6 +6,8 @@ export {
   MemoryKind,
   Preservation,
   IndexState,
+  TextCapture,
+  MemoryEdit,
 } from "./lib/memory";
 export {
   FREE_ALLOWANCE,

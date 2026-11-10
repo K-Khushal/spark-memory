@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FREE_ALLOWANCE } from "./allowance";
 
 /** What kind of thing a Memory is. See GLOSSARY.md → Memory. */
 export const MEMORY_KINDS = [
@@ -22,3 +23,25 @@ export type Preservation = z.infer<typeof Preservation>;
 export const INDEX_STATES = ["indexing", "searchable", "failed"] as const;
 export const IndexState = z.enum(INDEX_STATES);
 export type IndexState = z.infer<typeof IndexState>;
+
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((s) => s || null)
+    .nullable()
+    .optional();
+
+/** A text Capture (paste or paste box). `id` lets clients insert optimistically and retry safely. */
+export const TextCapture = z.object({
+  id: z.uuid().optional(),
+  body: z.string().trim().min(1).max(FREE_ALLOWANCE.textMaxChars),
+  title: optionalText(FREE_ALLOWANCE.titleMaxChars),
+  captureNote: optionalText(FREE_ALLOWANCE.captureNoteMaxChars),
+});
+export type TextCapture = z.input<typeof TextCapture>;
+
+/** An edit from Memory detail. Omitted fields stay as they are; empty title or note clears it. */
+export const MemoryEdit = TextCapture.omit({ id: true }).partial();
+export type MemoryEdit = z.input<typeof MemoryEdit>;

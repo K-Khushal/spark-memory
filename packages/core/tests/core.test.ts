@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { FREE_ALLOWANCE, isFileWithinAllowance, MemoryKind } from "../index";
+import {
+  FREE_ALLOWANCE,
+  isFileWithinAllowance,
+  MemoryKind,
+  TextCapture,
+} from "../index";
 
 describe("Free allowance", () => {
   it("accepts a file that fits", () => {
@@ -30,5 +35,19 @@ describe("Free allowance", () => {
 describe("MemoryKind", () => {
   it("rejects kinds outside the glossary", () => {
     expect(MemoryKind.safeParse("bookmark").success).toBe(false);
+  });
+});
+
+describe("TextCapture", () => {
+  it("trims the text and turns an empty Capture note into none", () => {
+    expect(TextCapture.parse({ body: "  pasted  ", captureNote: " " })).toEqual(
+      { body: "pasted", captureNote: null }
+    );
+  });
+
+  it("refuses empty text and text over the Free allowance", () => {
+    expect(TextCapture.safeParse({ body: "   " }).success).toBe(false);
+    const body = "a".repeat(FREE_ALLOWANCE.textMaxChars + 1);
+    expect(TextCapture.safeParse({ body }).success).toBe(false);
   });
 });

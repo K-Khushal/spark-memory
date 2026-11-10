@@ -1,121 +1,20 @@
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import worker from "../src/index";
 import type { Bindings } from "../src/env";
+import {
+  ctx,
+  databaseUrl,
+  email,
+  env,
+  fakeTurnstile,
+  lastCode,
+  newClient,
+  sendCode,
+  signedIn,
+} from "./worker";
 
-// Integration test through the Worker's HTTP interface, against real Postgres
-// with migrations applied. Turnstile's siteverify is the one faked boundary.
-const databaseUrl = process.env.DATABASE_URL;
-const ORIGIN = "http://localhost:8787";
-
-const ctx = {
-  waitUntil: () => {},
-  passThroughOnException: () => {},
-  props: {},
-} as unknown as ExecutionContext;
-
-function env(overrides: Partial<Bindings> = {}): Bindings {
-  return {
-    HYPERDRIVE: { connectionString: databaseUrl! },
-    SPARK_ENV: "local",
-    BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-0123",
-    BETTER_AUTH_URL: ORIGIN,
-    TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
-    TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
-    ...overrides,
-  };
-}
-
-const octet = () => Math.floor(Math.random() * 254) + 1;
-
-/** A client with its own cookie jar and a random IP, so rate limits never leak between tests. */
-function newClient(origin = ORIGIN) {
-  const address = `10.${octet()}.${octet()}.${octet()}`;
-  let cookie = "";
-  async function call(
-    path: string,
-    init: { method?: string; headers?: HeadersInit; json?: unknown } = {},
-    bindings = env()
-  ) {
-    const headers = new Headers(init.headers);
-    headers.set("cf-connecting-ip", address);
-    headers.set("origin", origin);
-    if (cookie) headers.set("cookie", cookie);
-    if (init.json !== undefined)
-      headers.set("content-type", "application/json");
-    const res = await worker.fetch(
-      new Request<unknown, IncomingRequestCfProperties>(`${origin}${path}`, {
-        method: init.method,
-        headers,
-        body: init.json === undefined ? undefined : JSON.stringify(init.json),
-      }),
-      bindings,
-      ctx
-    );
-    const set = res.headers.getSetCookie?.() ?? [];
-    if (set.length) cookie = set.map((c) => c.split(";")[0]).join("; ");
-    return res;
-  }
-  return Object.assign(call, { cookie: () => cookie });
-}
-
-const email = () => `person-${crypto.randomUUID()}@example.com`;
-
-function sendCode(
-  call: ReturnType<typeof newClient>,
-  address: string,
-  bindings = env()
-) {
-  return call(
-    "/api/auth/email-otp/send-verification-otp",
-    {
-      method: "POST",
-      headers: { "x-captcha-response": "XXXX.DUMMY.TOKEN.XXXX" },
-      json: { email: address, type: "sign-in" },
-    },
-    bindings
-  );
-}
-
-async function lastCode(call: ReturnType<typeof newClient>, address: string) {
-  const res = await call(
-    `/api/dev/sign-in-code?email=${encodeURIComponent(address)}`
-  );
-  return ((await res.json()) as { code: string }).code;
-}
-
-/** Signs a new person in; returns their client and address. */
-async function signedIn() {
-  const call = newClient();
-  const address = email();
-  await sendCode(call, address);
-  await call("/api/auth/sign-in/email-otp", {
-    method: "POST",
-    json: { email: address, otp: await lastCode(call, address) },
-  });
-  return { call, address };
-}
-
-beforeEach(() => {
-  const realFetch = globalThis.fetch;
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const url = input instanceof Request ? input.url : String(input);
-    if (url.includes("challenges.cloudflare.com")) {
-      return Response.json({ success: true, hostname: "localhost" });
-    }
-    return realFetch(input, init);
-  });
-});
-afterEach(() => vi.restoreAllMocks());
+fakeTurnstile();
 
 describe.skipIf(!databaseUrl)("sign-in with an email code", () => {
   it("signs a new user in, on the Free plan, and keeps the session", async () => {
