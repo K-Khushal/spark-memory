@@ -1,0 +1,5 @@
+/* Self-hosted variable fonts. Import once per web app (the extension popup
+   may skip the display face). */
+@import "@fontsource-variable/instrument-sans/standard.css";
+@import "@fontsource-variable/bricolage-grotesque/standard.css";
+@import "@fontsource-variable/noto-sans-devanagari/wght.css";
