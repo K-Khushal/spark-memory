@@ -8,6 +8,7 @@ import {
   index,
   integer,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uuid,
@@ -109,9 +110,6 @@ const tsvector = customType<{ data: string }>({ dataType: () => "tsvector" });
 const instant = (name: string) =>
   timestamp(name, { withTimezone: true }).defaultNow().notNull();
 
-/** How many characters of the body typo matching reads (it costs per character). */
-const TYPO_MATCH_BODY_CHARS = 2000;
-
 /**
  * One thing a user saved (GLOSSARY.md → Memory), PLAN.md §4. Columns for
  * links, files and Indexing arrive with their tickets. Read and write it only
@@ -144,11 +142,6 @@ export const memory = pgTable(
       (): SQL =>
         sql`setweight(to_tsvector('english'::regconfig, coalesce(${memory.title}, '')), 'A') || setweight(to_tsvector('english'::regconfig, coalesce(${memory.captureNote}, '')), 'B') || setweight(to_tsvector('english'::regconfig, coalesce(${memory.body}, '')), 'C')`
     ),
-    /** What typo-tolerant (trigram) matching reads. */
-    searchText: text("search_text").generatedAlwaysAs(
-      (): SQL =>
-        sql`lower(coalesce(${memory.title}, '') || ' ' || coalesce(${memory.captureNote}, '') || ' ' || left(coalesce(${memory.body}, ''), ${sql.raw(String(TYPO_MATCH_BODY_CHARS))}))`
-    ),
   },
   (t) => [
     index("memory_user_captured_idx").on(
@@ -157,9 +150,29 @@ export const memory = pgTable(
       t.id.desc()
     ),
     index("memory_search_tsv_idx").using("gin", t.searchTsv),
-    index("memory_search_text_idx").using(
-      "gin",
-      t.searchText.op("gin_trgm_ops")
-    ),
+  ]
+);
+
+/**
+ * Every distinct word of a Memory's title, Capture note and body, for typo
+ * matching (ADR-0004): search corrects each query word against these with
+ * pg_trgm, then looks the corrections up in the keyword index. Short words
+ * keep the trigram scan cheap however long the Memory. Written by a trigger
+ * on memory (migrations/0003), so it can never drift from the text, and
+ * deleted with its Memory.
+ */
+export const memoryWord = pgTable(
+  "memory_word",
+  {
+    memoryId: uuid("memory_id")
+      .notNull()
+      .references(() => memory.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    word: text("word").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.memoryId, t.word] }),
+    index("memory_word_user_idx").on(t.userId),
+    index("memory_word_trgm_idx").using("gin", t.word.op("gin_trgm_ops")),
   ]
 );

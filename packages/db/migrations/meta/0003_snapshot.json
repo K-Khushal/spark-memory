@@ -1,6 +1,6 @@
 {
-  "id": "f1f61d4b-01e9-45a1-8c07-59c1ef133bd8",
-  "prevId": "abb73bee-cd84-4571-afa7-17884e80c3b5",
+  "id": "f43d7c80-e89b-4fe4-9224-38fd233dc1cd",
+  "prevId": "cf2e25dc-bcaf-4ae7-b486-aa0183e433a7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -201,16 +201,6 @@
             "type": "stored",
             "as": "setweight(to_tsvector('english'::regconfig, coalesce(\"memory\".\"title\", '')), 'A') || setweight(to_tsvector('english'::regconfig, coalesce(\"memory\".\"capture_note\", '')), 'B') || setweight(to_tsvector('english'::regconfig, coalesce(\"memory\".\"body\", '')), 'C')"
           }
-        },
-        "search_text": {
-          "name": "search_text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "generated": {
-            "type": "stored",
-            "as": "lower(coalesce(\"memory\".\"title\", '') || ' ' || coalesce(\"memory\".\"capture_note\", '') || ' ' || left(coalesce(\"memory\".\"body\", ''), 2000))"
-          }
         }
       },
       "indexes": {
@@ -255,22 +245,6 @@
           "with": {},
           "method": "gin",
           "concurrently": false
-        },
-        "memory_search_text_idx": {
-          "name": "memory_search_text_idx",
-          "columns": [
-            {
-              "expression": "search_text",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last",
-              "opclass": "gin_trgm_ops"
-            }
-          ],
-          "isUnique": false,
-          "with": {},
-          "method": "gin",
-          "concurrently": false
         }
       },
       "foreignKeys": {
@@ -285,6 +259,84 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.memory_word": {
+      "name": "memory_word",
+      "schema": "",
+      "columns": {
+        "memory_id": {
+          "name": "memory_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "word": {
+          "name": "word",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "memory_word_user_idx": {
+          "name": "memory_word_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        },
+        "memory_word_trgm_idx": {
+          "name": "memory_word_trgm_idx",
+          "columns": [
+            {
+              "expression": "word",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last",
+              "opclass": "gin_trgm_ops"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "gin",
+          "concurrently": false
+        }
+      },
+      "foreignKeys": {
+        "memory_word_memory_id_memory_id_fk": {
+          "name": "memory_word_memory_id_memory_id_fk",
+          "tableFrom": "memory_word",
+          "columnsFrom": ["memory_id"],
+          "tableTo": "memory",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "memory_word_memory_id_word_pk": {
+          "name": "memory_word_memory_id_word_pk",
+          "columns": ["memory_id", "word"]
+        }
+      },
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
