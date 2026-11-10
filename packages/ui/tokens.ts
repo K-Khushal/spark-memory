@@ -7,6 +7,7 @@ export {
   EASING,
   SPRING,
   RADIUS,
+  TYPE_SCALE,
   NEUTRAL_TOKENS,
   contrastRatio,
   oklch,

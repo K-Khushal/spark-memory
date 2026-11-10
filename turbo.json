@@ -14,6 +14,10 @@
       "env": ["DATABASE_URL"],
       "outputs": []
     },
+    "@spark/ui#test": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/index.html"],
+      "outputs": []
+    },
     "@spark/db#test": {
       "cache": false
     },
