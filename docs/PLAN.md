@@ -168,7 +168,7 @@ Each package exposes only its entry point; dependency-cruiser enforces this (`se
   - Open sign-up, no invite list.
 - **Cost**:
   - The per-user Free allowance.
-  - A **global daily AI budget breaker**: past the limit, imports and re-indexing pause, and fresh Captures still index.
+  - A **global daily AI budget breaker** (default $1/day, cap $20/day): past the limit, imports and re-indexing pause, and fresh Captures still index.
   - An admin page shows cost and usage per user.
 - **Prompt injection**: saved content is always data. Extraction output must match the schema, and MCP output is framed as untrusted.
 - **Deletion**: Undo for about 5 seconds, then permanent removal from the database, R2 and the vectors. Account deletion and ZIP export are included.

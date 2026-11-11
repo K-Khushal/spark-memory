@@ -163,7 +163,7 @@ After Capture (text on create, an image once its files are stored) the Worker se
 
 The admin role is `ADMIN_EMAILS`, and the address must be verified. Every `/api/admin/*` route checks both: 401 with no session, 403 for anyone else. The dashboard hides the link for everyone else, and that is not the protection. A change to the budget is refused above $20 a day and below $0; $0 pauses background Indexing at once. The log stores the admin's user id, never their email.
 
-Locally, `wrangler.jsonc`'s top-level vars set `ADMIN_EMAILS` to `admin@example.test` so the smoke test can open the page. That var is not deployed.
+Locally, `wrangler.jsonc`'s top-level vars set `ADMIN_EMAILS` to `admin@example.test` so the smoke test can open the page. That var is not deployed. `pnpm --filter @spark/web screenshot:admin` captures the page at 1440 and 390, light and dark; it is not part of CI.
 
 ## Product events
 

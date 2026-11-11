@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   contrastRatio,
@@ -122,17 +123,23 @@ describe("shape and motion tokens", () => {
   });
 });
 
+/** `.tsx` files under `dir` that use a Tailwind `duration-[…ms]` literal. */
+function durationLiterals(dir: URL): string[] {
+  return readdirSync(fileURLToPath(dir), { recursive: true, encoding: "utf8" })
+    .filter((file) => file.endsWith(".tsx"))
+    .filter((file) =>
+      /duration-\[\d+m?s\]/.test(readFileSync(new URL(file, dir), "utf8"))
+    );
+}
+
 describe("components", () => {
   // Call sites say `duration-(--duration-press)`, so a duration changes in
   // one place. Tailwind's own steps (`duration-150`) and literals do not.
   it("use the --duration-* tokens, never a duration literal", () => {
-    const dir = new URL("../lib/", import.meta.url);
-    const offenders = readdirSync(dir)
-      .filter((file) => file.endsWith(".tsx"))
-      .filter((file) =>
-        /duration-\[\d+m?s\]/.test(readFileSync(new URL(file, dir), "utf8"))
-      );
-    expect(offenders).toEqual([]);
+    expect(durationLiterals(new URL("../lib/", import.meta.url))).toEqual([]);
+    expect(
+      durationLiterals(new URL("../../../apps/web/src/", import.meta.url))
+    ).toEqual([]);
   });
 });
 
@@ -154,15 +161,18 @@ describe("filter greys", () => {
       const hex = FILTER_COLOURS.find((c) => c.name === name)!.hex;
       const { c, h } = oklch(hex);
       expect(c, `${name} ${hex} chroma`).toBeLessThanOrEqual(0.012);
-      if (c > 0.003) {
+      // True greys sit near c = 0 with a noisy hue. Any real tint (the old
+      // warm White was #F7F7F5 at ~0.0026) must be cool.
+      if (c > 0.001) {
         expect(h, `${name} ${hex} hue`).toBeGreaterThanOrEqual(200);
         expect(h, `${name} ${hex} hue`).toBeLessThanOrEqual(290);
       }
     }
   );
 
-  it("White still shows on the white canvas", () => {
+  it("White is the cool swatch, still visible on the canvas", () => {
     const white = FILTER_COLOURS.find((c) => c.name === "White")!.hex;
+    expect(white).toBe("#F5F6F8");
     expect(white).not.toBe(THEMES.light.canvas);
   });
 });
