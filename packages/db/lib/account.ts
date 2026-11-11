@@ -10,7 +10,6 @@ import {
   sql,
 } from "drizzle-orm";
 import type { Database } from "./client";
-import { SWEEP_CURSOR_KEY } from "./library";
 import { ANONYMISED_USER, lockOwner, ownerPrefix } from "./owner";
 import {
   accountDeletion,
@@ -334,14 +333,6 @@ export function accountJobs(db: Database) {
             sql`starts_with(${objectRemoval.key}, ${ownerPrefix(userId)})`
           );
         await tx.delete(user).where(eq(user.id, userId));
-        await tx
-          .delete(appSetting)
-          .where(
-            and(
-              eq(appSetting.key, SWEEP_CURSOR_KEY),
-              eq(appSetting.value, userId)
-            )
-          );
         await anonymise(tx);
         // An admin's setting changes stay (values and history), not their id.
         await tx

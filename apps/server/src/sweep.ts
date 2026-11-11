@@ -2,7 +2,6 @@ import {
   openDatabase,
   SWEEP_BUDGET_MS,
   sweepAbandonedUploads,
-  withUploadLease,
 } from "@spark/db";
 import type { CronCalls } from "./cron-budget";
 import type { Bindings } from "./env";
@@ -24,31 +23,25 @@ export async function sweep(
 ) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
-    const total = await withUploadLease(db, deadline, async (token) => {
-      let removed = 0;
-      for (;;) {
-        const swept = await sweepAbandonedUploads(db, {
-          // The lease above covers every pass of this invocation.
-          hold: false,
-          leaseToken: token,
-          allowCall: calls ? () => calls.take("uploads") : undefined,
-          // Exact keys captured under the lock. Aborting stops the next call;
-          // a call in flight can only delete keys from that set.
-          removeObjects: async (keys, signal) => {
-            for (let i = 0; i < keys.length; i += R2_DELETE_KEYS) {
-              if (signal.aborted)
-                throw new Error("sweep: storage delete aborted");
-              await env.FILES.delete(keys.slice(i, i + R2_DELETE_KEYS));
-            }
-          },
-          deadline,
-        });
-        removed += swept;
-        if (!swept || Date.now() >= deadline) break;
-        if (calls && calls.remaining("uploads") === 0) break;
-      }
-      return removed;
-    });
+    let total = 0;
+    for (;;) {
+      const swept = await sweepAbandonedUploads(db, {
+        allowCall: calls ? () => calls.take("uploads") : undefined,
+        // Exact keys captured under the lock. Aborting stops the next call;
+        // a call in flight can only delete keys from that set.
+        removeObjects: async (keys, signal) => {
+          for (let i = 0; i < keys.length; i += R2_DELETE_KEYS) {
+            if (signal.aborted)
+              throw new Error("sweep: storage delete aborted");
+            await env.FILES.delete(keys.slice(i, i + R2_DELETE_KEYS));
+          }
+        },
+        deadline,
+      });
+      total += swept;
+      if (!swept || Date.now() >= deadline) break;
+      if (calls && calls.remaining("uploads") === 0) break;
+    }
     if (total) console.log(`sweep: removed ${total} unfinished uploads`);
     return total;
   } finally {

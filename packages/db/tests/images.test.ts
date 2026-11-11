@@ -1,13 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
+import type { PoolClient } from "pg";
 import { FREE_ALLOWANCE, type ImageCapture } from "@spark/core";
 import {
   lockOwner,
   openAccount,
   openDatabase,
   openLibrary,
-  SWEEP_CURSOR_KEY,
-  SWEEP_LEASE_KEY,
   sweepAbandonedUploads,
   type Database,
 } from "../index";
@@ -686,63 +685,96 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     await removeUser(db, owner);
   });
 
-  it("resumes after the owner the previous run stopped on", async () => {
+  it("sweeps healthy owners within a few runs while others keep failing", async () => {
     await db.execute(sql`
       delete from memory where id in (
         select memory_id from memory_file
         where stored_at is null
           and created_at <= now() - interval '24 hours')`);
+    const failing = "ffffffff-ffff-4fff-8fff-ffffffffff51";
+    const healthy = "00000000-0000-4000-8000-000000000051";
     await db.execute(
-      sql`delete from app_setting where key = ${SWEEP_CURSOR_KEY}`
+      sql`delete from "user" where id in (${failing}, ${healthy})`
     );
-    const early = "00000000-0000-4000-8000-000000000041";
-    const later = "ffffffff-ffff-4fff-8fff-ffffffffff41";
-    await db.execute(sql`delete from "user" where id in (${early}, ${later})`);
     await db.execute(sql`
       insert into "user" (id, name, email) values
-        (${early}, '', ${`cursor-${early}@example.com`}),
-        (${later}, '', ${`cursor-${later}@example.com`})
+        (${failing}, '', ${`fail-${failing}@example.com`}),
+        (${healthy}, '', ${`ok-${healthy}@example.com`})
     `);
     const stalled = image();
     const pending = image();
-    await library(early).captureImage(stalled);
-    await library(later).captureImage(pending);
+    await library(failing).captureImage(stalled);
+    await library(healthy).captureImage(pending);
     await db.execute(
       sql`update memory_file set created_at = now() - interval '2 days' where memory_id in (${stalled.id}, ${pending.id})`
     );
-    await sweepAbandonedUploads(db, {
-      deadline: Date.now() + 300,
-      removeObjects: (keys, abort) => {
-        if (keys.some((key) => key.includes(`/${early}/`))) {
-          return new Promise((resolve) => {
-            const timer = setTimeout(resolve, 5_000);
-            abort?.addEventListener("abort", () => {
-              clearTimeout(timer);
-              resolve();
-            });
-          });
-        }
+    const firstOwner = async (seed: number) => {
+      const { rows } = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select setseed(cast(${seed} as double precision))`
+        );
+        return tx.execute<{ user_id: string }>(sql`
+          select user_id from (
+            select distinct m.user_id
+            from memory_file f
+            inner join memory m on m.id = f.memory_id
+            where f.stored_at is null
+              and f.created_at <= now() - interval '24 hours'
+          ) due_owner
+          order by random()
+          limit 1
+        `);
+      });
+      return rows[0]?.user_id;
+    };
+    let failingSeed: number | undefined;
+    let healthySeed: number | undefined;
+    for (
+      let i = 1;
+      i <= 40 && (failingSeed === undefined || healthySeed === undefined);
+      i++
+    ) {
+      const seed = i / 40;
+      const first = await firstOwner(seed);
+      if (first === failing && failingSeed === undefined) failingSeed = seed;
+      if (first === healthy && healthySeed === undefined) healthySeed = seed;
+    }
+    if (failingSeed === undefined || healthySeed === undefined) {
+      throw new Error("no seeded order");
+    }
+    const slowFailing = (keys: string[], abort?: AbortSignal) => {
+      if (!keys.some((key) => key.includes(`/${failing}/`))) {
         return Promise.resolve();
-      },
-    });
-    expect(await library(early).get(stalled.id)).toBeDefined();
-    expect(await library(later).get(pending.id)).toBeDefined();
-    const order: string[] = [];
+      }
+      return new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 2_000);
+        abort?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    };
     await sweepAbandonedUploads(db, {
+      owners: 1,
+      orderSeed: failingSeed,
+      deadline: Date.now() + 300,
+      removeObjects: slowFailing,
+    });
+    expect(await library(healthy).get(pending.id)).toBeDefined();
+    expect(await library(failing).get(stalled.id)).toBeDefined();
+    await sweepAbandonedUploads(db, {
+      owners: 1,
+      orderSeed: healthySeed,
       removeObjects: async (keys) => {
-        const owner = keys[0]?.split("/")[1];
-        if (owner) order.push(owner);
+        if (keys.some((key) => key.includes(`/${failing}/`))) {
+          throw new Error("storage down");
+        }
       },
     });
-    expect(order[0]).toBe(later);
-    expect(order).toContain(early);
-    expect(await library(later).get(pending.id)).toBeUndefined();
-    expect(await library(early).get(stalled.id)).toBeUndefined();
-    await db.execute(
-      sql`delete from app_setting where key = ${SWEEP_CURSOR_KEY}`
-    );
-    await removeUser(db, early);
-    await removeUser(db, later);
+    expect(await library(healthy).get(pending.id)).toBeUndefined();
+    expect(await library(failing).get(stalled.id)).toBeDefined();
+    await removeUser(db, failing);
+    await removeUser(db, healthy);
   });
 
   it("returns within a small bound on a 10 ms deadline, even when a statement would wait", async () => {
@@ -816,88 +848,6 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
       await Promise.all(ids.map((id) => library(owner).get(id)))
     ).filter(Boolean);
     expect(staying).toHaveLength(3);
-    await removeUser(db, owner);
-  });
-
-  it("skips the upload sweep when another invocation already holds it", async () => {
-    await db.execute(sql`
-      delete from memory where id in (
-        select memory_id from memory_file
-        where stored_at is null
-          and created_at <= now() - interval '24 hours')`);
-    await db.execute(
-      sql`delete from app_setting where key = ${SWEEP_CURSOR_KEY}`
-    );
-    const early = "00000000-0000-4000-8000-000000000071";
-    const later = "ffffffff-ffff-4fff-8fff-ffffffffff71";
-    await db.execute(sql`delete from "user" where id in (${early}, ${later})`);
-    await db.execute(sql`
-      insert into "user" (id, name, email) values
-        (${early}, '', ${`lease-${early}@example.com`}),
-        (${later}, '', ${`lease-${later}@example.com`})
-    `);
-    const firstImage = image();
-    const secondImage = image();
-    await library(early).captureImage(firstImage);
-    await library(later).captureImage(secondImage);
-    await db.execute(
-      sql`update memory_file set created_at = now() - interval '2 days' where memory_id in (${firstImage.id}, ${secondImage.id})`
-    );
-    let release = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let opened!: () => void;
-    const started = new Promise<void>((resolve) => {
-      opened = resolve;
-    });
-    const first = sweepAbandonedUploads(db, {
-      removeObjects: () => {
-        opened();
-        return gate;
-      },
-    });
-    try {
-      await started;
-      let secondCalls = 0;
-      const second = await sweepAbandonedUploads(db, {
-        deadline: Date.now() + 1_000,
-        removeObjects: async () => {
-          secondCalls += 1;
-        },
-      });
-      expect(secondCalls).toBe(0);
-      expect(second).toBe(0);
-      expect(await library(later).get(secondImage.id)).toBeDefined();
-    } finally {
-      release();
-      await first;
-    }
-    await db.execute(
-      sql`delete from app_setting where key in (${SWEEP_CURSOR_KEY}, ${SWEEP_LEASE_KEY})`
-    );
-    await removeUser(db, early);
-    await removeUser(db, later);
-  });
-
-  it("sweeps again once a previous upload lease has expired", async () => {
-    await db.execute(sql`
-      delete from memory where id in (
-        select memory_id from memory_file
-        where stored_at is null
-          and created_at <= now() - interval '24 hours')`);
-    await db.execute(sql`
-      insert into app_setting (key, value, updated_by, updated_at)
-      values (${SWEEP_LEASE_KEY}, 'stale', 'sweep', now() - interval '1 minute')
-      on conflict (key) do update
-      set value = 'stale', updated_at = now() - interval '1 minute'
-    `);
-    const owner = await newUser(db);
-    const input = image();
-    await library(owner).captureImage(input);
-    await age(input.id);
-    await sweepAbandonedUploads(db, { removeObjects: async () => {} });
-    expect(await library(owner).get(input.id)).toBeUndefined();
     await removeUser(db, owner);
   });
 
@@ -986,85 +936,55 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     }
   });
 
-  it("does not overwrite the cursor once another sweep holds the lease", async () => {
+  it("releases the connection when the deadline passes during checkout", async () => {
     await db.execute(sql`
       delete from memory where id in (
         select memory_id from memory_file
         where stored_at is null
           and created_at <= now() - interval '24 hours')`);
-    await db.execute(sql`
-      insert into app_setting (key, value, updated_by)
-      values (${SWEEP_CURSOR_KEY}, 'keeper', 'sweep')
-      on conflict (key) do update set value = 'keeper', updated_at = now()
-    `);
     const owner = await newUser(db);
     const input = image();
     await library(owner).captureImage(input);
     await age(input.id);
-    let release = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let opened!: () => void;
-    const started = new Promise<void>((resolve) => {
-      opened = resolve;
-    });
-    const sweep = sweepAbandonedUploads(db, {
-      removeObjects: () => {
-        opened();
-        return gate;
-      },
-    });
+    const pool = db.$client;
+    const connect = pool.connect.bind(pool);
+    let checkouts = 0;
+    pool.connect = (async () => {
+      checkouts += 1;
+      const client = await connect();
+      if (checkouts === 2) {
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      return client;
+    }) as typeof pool.connect;
+    let calls = 0;
+    const held: PoolClient[] = [];
     try {
-      await started;
-      await db.execute(sql`
-        update app_setting
-        set value = 'taken-over', updated_at = now()
-        where key = ${SWEEP_LEASE_KEY}
-      `);
-      release();
-      await sweep;
-      const { rows } = await db.execute<{ value: string }>(
-        sql`select value from app_setting where key = ${SWEEP_CURSOR_KEY}`
-      );
-      expect(rows[0]?.value).toBe("keeper");
+      await sweepAbandonedUploads(db, {
+        deadline: Date.now() + 400,
+        removeObjects: async () => {
+          calls += 1;
+        },
+      });
     } finally {
-      release();
-      await sweep.catch(() => {});
-      await db.execute(
-        sql`delete from app_setting where key in (${SWEEP_CURSOR_KEY}, ${SWEEP_LEASE_KEY})`
-      );
-      await removeUser(db, owner);
+      // Drizzle's later queries use the callback form. Put the real one back
+      // before anything else borrows a connection.
+      pool.connect = connect as typeof pool.connect;
     }
-  });
-
-  it("does not put the cursor back on a person being deleted", async () => {
-    await db.execute(sql`
-      delete from memory where id in (
-        select memory_id from memory_file
-        where stored_at is null
-          and created_at <= now() - interval '24 hours')`);
-    await db.execute(sql`
-      insert into app_setting (key, value, updated_by)
-      values (${SWEEP_CURSOR_KEY}, 'keeper', 'sweep')
-      on conflict (key) do update set value = 'keeper', updated_at = now()
-    `);
-    const owner = await newUser(db);
-    const input = image();
-    await library(owner).captureImage(input);
-    await age(input.id);
-    await openAccount(db, owner).requestDeletion();
-    await sweepAbandonedUploads(db, {
-      deadline: Date.now() + 250,
-      removeObjects: () => new Promise((resolve) => setTimeout(resolve, 800)),
-    });
-    const { rows } = await db.execute<{ value: string }>(
-      sql`select value from app_setting where key = ${SWEEP_CURSOR_KEY}`
-    );
-    expect(rows[0]?.value).toBe("keeper");
-    await db.execute(
-      sql`delete from app_setting where key in (${SWEEP_CURSOR_KEY}, ${SWEEP_LEASE_KEY})`
-    );
+    expect(calls).toBe(0);
+    expect(await library(owner).get(input.id)).toBeDefined();
+    const outcome = await Promise.race([
+      (async () => {
+        for (let i = 0; i < 5; i++)
+          held.push((await pool.connect()) as PoolClient);
+        return "free" as const;
+      })(),
+      new Promise<"held">((resolve) =>
+        setTimeout(() => resolve("held"), 1_000)
+      ),
+    ]);
+    for (const client of held) client.release();
+    expect(outcome).toBe("free");
     await removeUser(db, owner);
   });
 });

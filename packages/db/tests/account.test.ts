@@ -11,7 +11,6 @@ import {
   openAccount,
   openDatabase,
   openLibrary,
-  SWEEP_CURSOR_KEY,
   schema,
   type Database,
 } from "../index";
@@ -415,40 +414,6 @@ describe.skipIf(!databaseUrl)("an account", () => {
       await db.execute(
         sql`delete from app_setting where key = 'sweep_deletion_cursor'`
       );
-    });
-
-    it("clears the upload sweep cursor when it names the deleted person", async () => {
-      const ana = await person();
-      const ben = await person();
-      const cara = await person();
-      await db
-        .insert(schema.appSetting)
-        .values({ key: SWEEP_CURSOR_KEY, value: ben, updatedBy: "sweep" })
-        .onConflictDoUpdate({
-          target: schema.appSetting.key,
-          set: { value: ben, updatedBy: "sweep" },
-        });
-      await openAccount(db, ana).requestDeletion();
-      await age(ana);
-      expect(await accountJobs(db).continueDeletion(ana, async () => {})).toBe(
-        "done"
-      );
-      const kept = await db
-        .select({ value: schema.appSetting.value })
-        .from(schema.appSetting)
-        .where(eq(schema.appSetting.key, SWEEP_CURSOR_KEY));
-      expect(kept).toEqual([{ value: ben }]);
-
-      await db
-        .update(schema.appSetting)
-        .set({ value: cara })
-        .where(eq(schema.appSetting.key, SWEEP_CURSOR_KEY));
-      await openAccount(db, cara).requestDeletion();
-      await age(cara);
-      expect(await accountJobs(db).continueDeletion(cara, async () => {})).toBe(
-        "done"
-      );
-      expect(await count("app_setting", "key", SWEEP_CURSOR_KEY)).toBe(0);
     });
   });
 
