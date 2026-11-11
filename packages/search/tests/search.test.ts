@@ -99,7 +99,10 @@ describe("search", () => {
       { model: null, spent: 0 },
     ]) {
       const { search, lib } = setup({ model, spent });
-      await expect(search.search("purple", "full")).resolves.toEqual([]);
+      await expect(search.search("purple", "full")).resolves.toEqual({
+        results: [],
+        mode: "instant",
+      });
       expect(lib.calls).toEqual([{ query: "purple" }]);
     }
   });
@@ -143,7 +146,8 @@ describe("search", () => {
         { id: "d", matched: ["vector"], distance: 0.5 },
       ],
     });
-    const results = await search.search("x", "full");
+    const { results, mode } = await search.search("x", "full");
+    expect(mode).toBe("full");
     expect(results.map((r) => [r.id, r.match])).toEqual([
       ["a", "direct"],
       ["b", "related"],

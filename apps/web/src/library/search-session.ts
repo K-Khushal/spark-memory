@@ -40,11 +40,12 @@ export function searchSession({
   pauseMs,
   cache,
 }: {
+  /** `final: false` when a full search fell back to keywords: shown, never cached. */
   fetch: (
     request: SearchRequest,
     mode: Mode,
     signal: AbortSignal
-  ) => Promise<Hit[]>;
+  ) => Promise<{ hits: Hit[]; final: boolean }>;
   onAnswer: (answer: Answer | undefined) => void;
   pauseMs: number;
   /** Full answers by `${version}|${requestKey}`, shared between sessions. */
@@ -74,13 +75,13 @@ export function searchSession({
       instant: "query" in request ? "waiting" : "none",
       full: "waiting",
     };
-    const done = (mode: Mode, hits?: Hit[]) => {
+    const done = (mode: Mode, hits?: Hit[], final = true) => {
       if (controller.signal.aborted) return;
       step[mode] = hits ? "ok" : "failed";
       const other = step[mode === "full" ? "instant" : "full"];
       if (hits && (mode === "full" || other !== "ok")) {
         onAnswer({ key, mode, hits });
-        if (mode === "full") {
+        if (mode === "full" && final) {
           cache.set(cacheKey, hits);
           if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
         }
@@ -90,7 +91,7 @@ export function searchSession({
     };
     const run = (mode: Mode) =>
       fetch(request, mode, controller.signal).then(
-        (hits) => done(mode, hits),
+        ({ hits, final }) => done(mode, hits, final),
         () => done(mode)
       );
     if ("query" in request) void run("instant");

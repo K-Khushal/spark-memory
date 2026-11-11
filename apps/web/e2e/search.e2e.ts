@@ -46,8 +46,8 @@ test("finds a Memory by meaning, says what matched, and finds More Like This", a
   await page.keyboard.press("Enter");
   const direct = page.getByRole("list", { name: "Direct Matches" });
   const first = direct.getByRole("listitem").first();
-  await expect(first).toHaveAccessibleName("Sunset over the dock");
-  await expect(first.getByText("Description")).toBeVisible();
+  await expect(first).toHaveAccessibleName("Sunset over the dock, Overview");
+  await expect(first.getByText("Overview")).toBeVisible();
   await expect(page.locator("[data-search=full]")).toBeVisible();
 
   // More Like This, from Memory detail.

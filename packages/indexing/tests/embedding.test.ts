@@ -232,6 +232,43 @@ describe("embedding in the Indexing pipeline", () => {
     });
   });
 
+  it("embeds the text when the model will not read the image", async () => {
+    const s = store({
+      embed: {
+        ...stale,
+        image: {
+          key: "o",
+          mime: "image/png",
+          bytes: 10,
+          thumbnailKey: "t",
+          thumbnailMime: "image/webp",
+        },
+      },
+    });
+    const embedder = stubEmbedder();
+    embedder.embed = vi.fn(async (inputs: EmbedInput[]) => {
+      if (inputs.some((i) => "image" in i)) {
+        throw new ProviderError("unsupported");
+      }
+      return {
+        vectors: inputs.map(() => [0, 0, 1]),
+        usage: { textTokens: 1, imageTokens: 0 },
+      };
+    });
+    const { index } = createIndexer({
+      store: s,
+      providers: [],
+      embedder,
+      readFile: async () => new Uint8Array([1]),
+    });
+    expect(await index(embedJob)).toEqual({ result: "searchable" });
+    expect(embedder.embed).toHaveBeenCalledTimes(2);
+    expect(s.written[0]!.vectors.map((v) => v.kind)).toEqual([
+      "overview",
+      "passage",
+    ]);
+  });
+
   it("skips an embed job without an embedder", async () => {
     const { index } = createIndexer({
       store: store(),

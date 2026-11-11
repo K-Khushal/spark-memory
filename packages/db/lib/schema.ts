@@ -294,7 +294,7 @@ export type PassageAnchor = {
 
 /**
  * A Memory's vectors (ADR-0004): one Overview, a Visual for an image, and a
- * Passage per chunk of text, each with the model and dimensions that made
+ * Passage per stretch of text, each with the model and dimensions that made
  * it. Replaced whole by each embedding; gone with AI opt-out (ADR-0011).
  * Search scans one owner's rows exactly, so `user_id` leads the index.
  */

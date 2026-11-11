@@ -140,8 +140,12 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     });
     const res = await call(`/api/search?q=sunset&mode=full`, {}, gemini);
     expect(res.status).toBe(200);
-    const { results } = (await res.json()) as { results: Result[] };
+    const { results, mode } = (await res.json()) as {
+      results: Result[];
+      mode: string;
+    };
     expect(results.map((r) => r.id)).toEqual([id]);
+    expect(mode).toBe("instant");
   });
 
   it("re-embeds, hourly, Memories whose vectors are missing or stale", async () => {

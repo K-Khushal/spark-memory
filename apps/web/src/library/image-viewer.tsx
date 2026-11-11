@@ -137,6 +137,7 @@ export function ImageViewer({
             <MoreLikeThis
               memory={memory}
               onSelect={onMoreLikeThis}
+              compact
               className="h-11"
             />
             <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />

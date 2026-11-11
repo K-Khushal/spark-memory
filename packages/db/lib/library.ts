@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import {
+  EMBEDDING,
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
@@ -507,6 +508,15 @@ export function openLibrary(db: Database, userId: string) {
           )
         )
         .returning(columns);
+      if (row && changes.body !== undefined && row.indexState === "indexing") {
+        // Vectors of the old text would match it and point into the new one:
+        // gone until Indexing embeds the new text.
+        await db.delete(memoryVector).where(eq(memoryVector.memoryId, id));
+        await db
+          .update(memory)
+          .set({ vectorsSpace: null, vectorsRevision: null })
+          .where(eq(memory.id, id));
+      }
       if (row) return row;
       const now = revision === undefined ? undefined : await get(id);
       return now && (changes.body === undefined || now.kind === "text")
@@ -577,7 +587,12 @@ export function openLibrary(db: Database, userId: string) {
      */
     async search(
       query: string,
-      { limit = 40, probe, maxDistance = 0.6, kinds }: SearchOptions = {}
+      {
+        limit = 40,
+        probe,
+        maxDistance = EMBEDDING.maxDistance,
+        kinds,
+      }: SearchOptions = {}
     ): Promise<SearchResult[]> {
       if (!query.trim() && !probe) return [];
       const vector =

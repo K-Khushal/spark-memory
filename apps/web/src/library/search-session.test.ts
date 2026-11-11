@@ -13,7 +13,7 @@ type Pending = {
   request: SearchRequest;
   mode: Mode;
   signal: AbortSignal;
-  answer: (ids: string[]) => void;
+  answer: (ids: string[], final?: boolean) => void;
   fail: () => void;
 };
 
@@ -29,8 +29,11 @@ function setup(pauseMs = 300) {
           request,
           mode,
           signal,
-          answer: (ids) =>
-            resolve(ids.map((id) => ({ id, match: "direct", part: null }))),
+          answer: (ids, final = true) =>
+            resolve({
+              hits: ids.map((id) => ({ id, match: "direct", part: null })),
+              final,
+            }),
           fail: () => reject(new Error("offline")),
         })
       ),
@@ -128,6 +131,18 @@ describe("searchSession", () => {
     expect(s.ids()).toEqual(["full", ["b"]]);
     // Once the Library changed, it searches again.
     s.session.set({ query: "purple" }, 4);
+    expect(s.pending.map((p) => p.mode)).toEqual(["instant", "full"]);
+  });
+
+  it("never keeps a full search that fell back to keywords", async () => {
+    const s = setup(0);
+    s.session.set({ query: "purple" }, 3);
+    await settle();
+    s.find("full", "purple").answer(["a"], false);
+    await settle();
+    expect(s.ids()).toEqual(["full", ["a"]]);
+    s.pending.length = 0;
+    s.session.set({ query: "purple" }, 3);
     expect(s.pending.map((p) => p.mode)).toEqual(["instant", "full"]);
   });
 

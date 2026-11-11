@@ -280,15 +280,15 @@ export function createIndexer({
    */
   async function embed(
     memoryId: string,
-    work: EmbedSource & { userId: string; revision: number },
+    work: EmbedSource & {
+      userId: string;
+      revision: number;
+      image?: ImageKeys;
+    },
     current: () => Promise<boolean>,
-    image: ImageKeys | undefined,
     loaded?: Image
   ): Promise<Embedding | undefined> {
     if (!embedder) return undefined;
-    const visual = image && (await visualOf(image, loaded));
-    const { inputs, parts } = embeddingInputs(work, visual);
-    if (!(await current())) throw new Superseded();
     const record = (
       usage: { textTokens: number; imageTokens: number },
       estimated?: boolean
@@ -305,24 +305,34 @@ export function createIndexer({
         costMicros: embedCostMicros(embedder.model, usage),
         ...(estimated && { estimated }),
       });
-    try {
-      const { vectors, usage } = await embedder.embed(inputs);
-      await record(usage);
-      return {
-        model: embedder.model,
-        dimensions: embedder.dimensions,
-        revision: work.revision,
-        vectors: parts.map((part, i) => ({ ...part, embedding: vectors[i]! })),
-      };
-    } catch (error) {
-      if (!(error instanceof ProviderError)) throw error;
-      if (error.estimate) {
-        await record(
-          { textTokens: error.estimate.inputTokens, imageTokens: 0 },
-          true
-        );
+    let visual = work.image && (await visualOf(work.image, loaded));
+    for (;;) {
+      const { inputs, parts } = embeddingInputs(work, visual);
+      if (!(await current())) throw new Superseded();
+      try {
+        const { vectors, usage } = await embedder.embed(inputs);
+        await record(usage);
+        return {
+          model: embedder.model,
+          dimensions: embedder.dimensions,
+          revision: work.revision,
+          vectors: parts.map((part, i) => ({
+            ...part,
+            embedding: vectors[i]!,
+          })),
+        };
+      } catch (error) {
+        if (!(error instanceof ProviderError)) throw error;
+        if (error.estimate) {
+          await record(
+            { textTokens: error.estimate.inputTokens, imageTokens: 0 },
+            true
+          );
+        }
+        // An image the model will not read still leaves the text to embed.
+        if (error.kind !== "unsupported" || !visual) return undefined;
+        visual = undefined;
       }
-      return undefined;
     }
   }
 
@@ -368,8 +378,13 @@ export function createIndexer({
         "found" in work
           ? await embedLoaded(job, work)
           : await indexLoaded(job, work);
-      // The next delivery of this message must be able to take it again.
-      if (outcome.result === "retry" || outcome.result === "paused") {
+      // The next delivery of this message (or the next embed job, after an
+      // edit superseded this one) must be able to take it again.
+      if (
+        outcome.result === "retry" ||
+        outcome.result === "paused" ||
+        (job.task === "embed" && outcome.result === "skipped")
+      ) {
         await store.release(work.memoryId, work.run);
       }
       return outcome;
@@ -397,11 +412,8 @@ export function createIndexer({
     if (paused) return paused;
     let embedding;
     try {
-      embedding = await embed(
-        work.memoryId,
-        work,
-        () => store.stillEmbeddable(work.memoryId, work.run, work.revision),
-        work.image
+      embedding = await embed(work.memoryId, work, () =>
+        store.stillEmbeddable(work.memoryId, work.run, work.revision)
       );
     } catch (error) {
       if (error instanceof Superseded) return { result: "skipped" };
@@ -451,7 +463,6 @@ export function createIndexer({
           work.memoryId,
           { ...work, found: output },
           () => store.isCurrent(work.memoryId, work.run),
-          work.image,
           image
         );
         const written = await store.complete(

@@ -176,7 +176,7 @@ function Fields({
           <MoreLikeThis memory={memory} onSelect={onMoreLikeThis} />
           <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <div className="flex items-center gap-2">
             <IndexStatus memory={memory} />
             {memory.indexState === "failed" && (

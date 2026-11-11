@@ -21,7 +21,7 @@ The Library is a Pinterest-style masonry wall of Memories beside a quiet left si
 - The **sidebar** holds the wordmark, Capture, Search (⌘K), the Memory kinds, the colour filters and the Categories. It has no counts or headings, because the groups are separated by space alone.
 - The **wall** is full-width and virtualised. Tiles show the Memory itself. A title appears under a tile only when the visual does not already show it.
 - **Search** opens the ⌘K menu with instant results. Enter puts the results on the wall: Direct Matches first, Related Matches below, each tile with its strongest why-chip.
-- **Why-chips** name the part that matched, in a word or the passage itself: Title, Capture Note, Tag, Text, Text in Image, Description, Image, or “the words of the passage”. The spark tone marks a Direct Match. Every result tile keeps room for one, so a chip arriving never moves the wall.
+- **Why-chips** name the part that matched, in a word or the passage itself: Title, Capture Note, Tag, Text, Text in Image, Description, Overview, Image, or “the words of the passage”. The spark tone marks a Direct Match. Every result tile keeps room for one, so a chip arriving never moves the wall.
 - **Quick preview** (Space or Enter) shows the Memory large with what Spark knows. A permanent details pane was left out, because the preview covers it and the wall keeps its width.
 - **On a phone** the sidebar becomes a top bar (wordmark, Search, Capture) over one scrolling row of kind and colour filters.
 
@@ -73,18 +73,18 @@ Lucide at 16px, `currentColor`. Every icon-only button has an `aria-label`. Emoj
 
 Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DURATION`, `EASING`, `SPRING`) and as `--ease-*` in CSS.
 
-| What                              | Motion                                                                                                                                     |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Press on a button, chip or tile   | `scale(0.97)` (tiles `0.98`) on `:active`, 120ms `ease-out`                                                                                |
-| Hover                             | Colour only, 120ms                                                                                                                         |
-| ⌘K menu, Escape                   | None. Opens and closes on the next frame                                                                                                   |
-| Quick preview                     | Opacity 150ms, no scale or slide (keyboard-driven and frequent)                                                                            |
-| Results and filters updating      | None. Results swap in place                                                                                                                |
-| Full results replacing instant    | Tiles and ⌘K rows that change place glide there together, 200ms (rows 180ms) `ease-out`; new ones appear; no stagger. Reduced motion: none |
-| A new Capture landing on the wall | Fades and scales from 0.96, 260ms `ease-out`; neighbours stay put                                                                          |
-| Image viewer, next or previous    | Slides 30% on `SPRING.settle` with a 180ms fade; swipes track 1:1                                                                          |
-| Upload progress ring              | `stroke-dashoffset`, 180ms `ease-out`                                                                                                      |
-| Toasts                            | Sonner's defaults                                                                                                                          |
+| What                              | Motion                                                                                                                        |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Press on a button, chip or tile   | `scale(0.97)` (tiles `0.98`) on `:active`, 120ms `ease-out`                                                                   |
+| Hover                             | Colour only, 120ms                                                                                                            |
+| ⌘K menu, Escape                   | None. Opens and closes on the next frame                                                                                      |
+| Quick preview                     | Opacity 150ms, no scale or slide (keyboard-driven and frequent)                                                               |
+| Filters updating                  | None. Results swap in place                                                                                                   |
+| Full results replacing instant    | Tiles and ⌘K rows that change place glide there together, 180ms `ease-out`; new ones appear; no stagger. Reduced motion: none |
+| A new Capture landing on the wall | Fades and scales from 0.96, 260ms `ease-out`; neighbours stay put                                                             |
+| Image viewer, next or previous    | Slides 30% on `SPRING.settle` with a 180ms fade; swipes track 1:1                                                             |
+| Upload progress ring              | `stroke-dashoffset`, 180ms `ease-out`                                                                                         |
+| Toasts                            | Sonner's defaults                                                                                                             |
 
 - Never `ease-in`, never `transition: all`, nothing over 300ms. Animate `transform` and `opacity` only. No staggered or scroll-triggered entrances.
 - Reduced motion removes all scaling (`MotionConfig reducedMotion="user"` and a CSS rule); opacity fades stay.

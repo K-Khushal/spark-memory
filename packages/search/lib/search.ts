@@ -43,7 +43,7 @@ function remember(key: string, vector: number[], now: number) {
  * Direct when a keyword matched or a vector came very close (ADR-0008's
  * judge replaces this, PLAN.md §6.4); Related otherwise. Order is kept.
  */
-export const split = <R extends Hit>(hits: R[]): Ranked<R>[] =>
+const split = <R extends Hit>(hits: R[]): Ranked<R>[] =>
   hits.map((hit) => ({
     ...hit,
     match:
@@ -123,17 +123,26 @@ export function createSearch<R extends Hit>({
   }
 
   return {
-    async search(query: string, mode: Mode): Promise<Ranked<R>[]> {
+    /**
+     * `mode` in the answer is the search that actually ran: "instant" when
+     * full mode fell back, so a client knows not to keep it as final.
+     */
+    async search(
+      query: string,
+      mode: Mode
+    ): Promise<{ results: Ranked<R>[]; mode: Mode }> {
       const q = query.trim().replace(/\s+/g, " ");
-      if (!q) return [];
-      const vector = mode === "full" ? await embedQuery(q) : undefined;
+      const vector = q && mode === "full" ? await embedQuery(q) : undefined;
       const probe = vector && space && { ...space, vector };
-      return split(
+      const ran = probe ? "full" : "instant";
+      if (!q) return { results: [], mode: ran };
+      const results = split(
         await find(q, {
           ...(probe && { probe }),
           maxDistance: EMBEDDING.maxDistance,
         })
       );
+      return { results, mode: ran };
     },
 
     /** More Like This: the Memory's own vectors as the query, no provider call. */

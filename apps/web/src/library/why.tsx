@@ -32,19 +32,24 @@ export function whyLabel({ part, body }: Pick<Found, "part" | "body">) {
     case "visual":
       return "Image";
     case "overview":
-      return FIELD.description;
+      return "Overview";
   }
 }
 
 /** Height a why-chip takes under a result tile (h-6 plus its margin). */
 export const WHY_HEIGHT = 30;
 
-/** The strongest reason a result matched, under its tile: the highlighter for a Direct Match. */
+/** What matched most strongly in a result, under its tile: the highlighter for a Direct Match. */
 export function WhyChip({ found, direct }: { found: Found; direct: boolean }) {
   const label = whyLabel(found);
   if (!label) return null;
   return (
-    <Chip tone={direct ? "spark" : "why"} className="mt-1.5" dir="auto">
+    <Chip
+      tone={direct ? "spark" : "why"}
+      className="mt-1.5"
+      dir="auto"
+      title={label}
+    >
       <span>{label}</span>
     </Chip>
   );
@@ -57,10 +62,13 @@ export function WhyChip({ found, direct }: { found: Found; direct: boolean }) {
 export function MoreLikeThis({
   memory,
   onSelect,
+  compact = false,
   className,
 }: {
   memory: Memory;
   onSelect: (memory: Memory) => void;
+  /** Icon only on a phone (the image viewer's crowded toolbar). */
+  compact?: boolean;
   className?: string;
 }) {
   if (memory.aiOptOut || memory.indexState !== "searchable") return null;
@@ -71,7 +79,10 @@ export function MoreLikeThis({
       className={className}
       onClick={() => onSelect(memory)}
     >
-      <SparklesIcon aria-hidden /> More Like This
+      <SparklesIcon aria-hidden />
+      <span className={compact ? "max-sm:sr-only" : undefined}>
+        More Like This
+      </span>
     </Button>
   );
 }

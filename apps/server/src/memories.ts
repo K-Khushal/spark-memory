@@ -278,7 +278,11 @@ export const memories = new Hono<AppEnv>()
       c.var.library
     ).search(q, mode);
     return c.json({
-      results: await Promise.all(results.map((m) => forClient(c.var.files, m))),
+      // "instant" when full mode fell back (no embedder, budget, provider).
+      mode: results.mode,
+      results: await Promise.all(
+        results.results.map((m) => forClient(c.var.files, m))
+      ),
     });
   })
   /** More Like This: Memories near this one's own vectors, leaving it out. */

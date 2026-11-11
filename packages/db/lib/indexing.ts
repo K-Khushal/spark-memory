@@ -1,5 +1,11 @@
 import { and, eq, lt, sql } from "drizzle-orm";
-import type { IndexFailure, IndexingOutput, ProviderName } from "@spark/core";
+import {
+  EMBEDDING,
+  embeddingSpace,
+  type IndexFailure,
+  type IndexingOutput,
+  type ProviderName,
+} from "@spark/core";
 import type { Database } from "./client";
 import {
   aiCall,
@@ -45,7 +51,10 @@ async function replaceVectors(
   }
   await tx
     .update(memory)
-    .set({ vectorsSpace: `${model}@${dimensions}`, vectorsRevision: revision })
+    .set({
+      vectorsSpace: embeddingSpace(model, dimensions),
+      vectorsRevision: revision,
+    })
     .where(eq(memory.id, id));
 }
 
@@ -269,7 +278,7 @@ export function indexingStore(db: Database) {
     },
 
     /** Memories whose vectors in `space` are missing or stale, oldest first. */
-    async staleVectors(space: string, limit = 200) {
+    async staleVectors(space: string, limit: number = EMBEDDING.sweepBatch) {
       return db
         .select({ id: memory.id })
         .from(memory)

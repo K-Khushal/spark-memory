@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
 import { LogOutIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
@@ -24,7 +24,7 @@ import { useFlip } from "./flip";
 import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
 import { useSearch, type Found, type Results } from "./use-search";
-import { WHY_HEIGHT, WhyChip } from "./why";
+import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
 
 /**
  * The Library: sidebar (a top bar on phones) beside the masonry wall of
@@ -61,7 +61,8 @@ export function LibraryPage({ session }: { session: Session }) {
     listRef,
     instant && instant !== "failed"
       ? [...instant.direct, ...instant.related].map((m) => m.id).join()
-      : ""
+      : "",
+    draft.trim()
   );
   const opened = library.memories.find((m) => m.id === openId);
   // The viewer steps through the images of the wall on screen.
@@ -465,12 +466,15 @@ function ResultWall({
   label,
   found,
   direct,
+  glideKey,
   query,
   onOpen,
   tiles,
 }: {
   label: string;
   found: Found[];
+  /** The search these answer: reordering within it glides (Masonry). */
+  glideKey: string;
   /** Direct or Related; undefined for More Like This, which needs no why-chip. */
   direct?: boolean;
   query: string;
@@ -485,10 +489,14 @@ function ResultWall({
       getKey={(m) => m.id}
       getHeight={tileHeight}
       getCaption={() => (direct === undefined ? 0 : WHY_HEIGHT)}
-      getLabel={tileLabel}
+      getLabel={(m) =>
+        [tileLabel(m), direct !== undefined && whyLabel(m)]
+          .filter(Boolean)
+          .join(", ")
+      }
       onOpen={open}
       onPreview={open}
-      glide
+      glideKey={glideKey}
       renderItem={(m, tile) => (
         <div className="flex h-full flex-col items-start">
           <div className="w-full" style={{ height: tile.height }}>
@@ -533,16 +541,18 @@ function SearchResults({
     const found = [...results.direct, ...results.related];
     return (
       <div data-search={results.mode}>
-        <h2
+        <Landing
+          key={results.key}
           className={cn(
             found.length ? "sr-only" : "text-sm font-medium text-ink-muted"
           )}
         >
           {found.length ? "More Like This" : "Nothing Like This"}
-        </h2>
+        </Landing>
         <ResultWall
           label="More Like This"
           found={found}
+          glideKey={results.key}
           query=""
           onOpen={onOpen}
           tiles={tiles}
@@ -561,6 +571,7 @@ function SearchResults({
             label="Direct Matches"
             found={results.direct}
             direct
+            glideKey={results.key}
             query={query}
             onOpen={onOpen}
             tiles={tiles}
@@ -576,6 +587,7 @@ function SearchResults({
             label="Related Matches"
             found={results.related}
             direct={false}
+            glideKey={results.key}
             query={query}
             onOpen={onOpen}
             tiles={tiles}
@@ -583,6 +595,26 @@ function SearchResults({
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * A heading that takes focus when it appears: More Like This replaces the
+ * tile that had focus, so focus lands on what replaced it, not on nothing.
+ */
+function Landing({
+  className,
+  children,
+}: {
+  className: string;
+  children: string;
+}) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useEffect(() => ref.current?.focus({ preventScroll: true }), []);
+  return (
+    <h2 ref={ref} tabIndex={-1} className={cn("outline-none", className)}>
+      {children}
+    </h2>
   );
 }
 

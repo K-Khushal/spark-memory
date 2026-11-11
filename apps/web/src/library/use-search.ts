@@ -14,7 +14,13 @@ export type { MatchedPart, SearchRequest } from "./search-session";
 
 /** A result: the wall's own copy of the Memory, and what matched in it. */
 export type Found = Memory & { part: MatchedPart | null };
-export type Results = { direct: Found[]; related: Found[]; mode: Mode };
+/** `key` names the search the results answer (requestKey). */
+export type Results = {
+  direct: Found[];
+  related: Found[];
+  mode: Mode;
+  key: string;
+};
 
 /** How long typing pauses before the full search (with meaning) runs. */
 export const FULL_SEARCH_PAUSE_MS = 350;
@@ -25,7 +31,7 @@ async function fetchHits(
   request: SearchRequest,
   mode: Mode,
   signal: AbortSignal
-): Promise<Hit[]> {
+): Promise<{ hits: Hit[]; final: boolean }> {
   const init = { init: { signal } };
   const res =
     "like" in request
@@ -40,7 +46,12 @@ async function fetchHits(
           init
         );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return ((await res.json()) as { results: Hit[] }).results;
+  const body = (await res.json()) as { results: Hit[]; mode?: Mode };
+  // A full search that fell back to keywords says so: shown, not kept.
+  return {
+    hits: body.results,
+    final: mode === "instant" || body.mode !== "instant",
+  };
 }
 
 /** Full answers, shared by the ⌘K menu and the wall. */
@@ -75,9 +86,16 @@ export function useSearch(
 
   return useMemo((): Results | "failed" | undefined => {
     if (!answer || (!query && !like)) return undefined;
+    // Words and More Like This never stand in for each other while loading.
+    if (answer.key.startsWith("like:") !== !!like) return undefined;
     if ("failed" in answer) return "failed";
     const wall = new Map(memories.map((m) => [m.id, m]));
-    const results: Results = { direct: [], related: [], mode: answer.mode };
+    const results: Results = {
+      direct: [],
+      related: [],
+      mode: answer.mode,
+      key: answer.key,
+    };
     for (const hit of answer.hits) {
       const memory = wall.get(hit.id);
       if (memory) results[hit.match].push({ ...memory, part: hit.part });
