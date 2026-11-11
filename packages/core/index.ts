@@ -62,7 +62,6 @@ export {
   type ProductPayload,
 } from "./lib/product-events";
 export {
-  LINK_MAX_CHARS,
   LinkCapture,
   type LinkMetadata,
   linkFromPaste,

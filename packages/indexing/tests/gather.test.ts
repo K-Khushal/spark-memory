@@ -187,6 +187,24 @@ describe("publicFetch refuses what is not the public web", () => {
     expect(sent.credentials).not.toBe("include");
   });
 
+  it("never sends the caller's headers on to where a redirect points", async () => {
+    const hops = web({
+      "https://r.test/a": () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://elsewhere.test/b" },
+        }),
+      "https://elsewhere.test/b": html("<p>hi</p>"),
+    });
+    await publicFetch("https://r.test/a", {
+      fetch: hops.fetch,
+      resolve: resolve(),
+      headers: { authorization: "Bearer k" },
+    });
+    expect(hops.requests[0]!.headers.get("authorization")).toBe("Bearer k");
+    expect(hops.requests[1]!.headers.get("authorization")).toBeNull();
+  });
+
   it("calls a 5xx unavailable and a 4xx refused", async () => {
     const down = web({
       "https://a.test/5": () => new Response("", { status: 503 }),
@@ -419,6 +437,43 @@ describe("gather", () => {
     site.requests.length = 0;
     await gather("https://spa.test/", { reader: false });
     expect(site.requests.map((r) => r.url)).toEqual(["https://spa.test/"]);
+  });
+
+  it("never asks a reader or oEmbed about a link that is not on the public web", async () => {
+    const site = web({});
+    const { gather } = createGatherer({
+      fetch: site.fetch,
+      resolve: resolve({ "wiki.corp.test": ["10.0.0.9"] }),
+      reader: {},
+    });
+    await gather("https://wiki.corp.test/secret");
+    await gather("http://169.254.169.254/latest");
+    expect(site.requests).toEqual([]);
+  });
+
+  it("keeps reading past a tag with an unterminated quote", async () => {
+    const ok = web({
+      "https://q.test/": html(
+        `<p><a title="oops>broken</a></p><p>${"Text after a broken tag. ".repeat(20)}</p>`
+      ),
+    });
+    const again = createGatherer({ fetch: ok.fetch, resolve: resolve() });
+    expect((await again.gather("https://q.test/")).text).toContain(
+      "Text after a broken tag."
+    );
+  });
+
+  it("cuts a page title to what a person can keep as a title", async () => {
+    const site = web({
+      "https://long.test/": html("", `<title>${"T".repeat(5000)}</title>`),
+    });
+    const { gather } = createGatherer({
+      fetch: site.fetch,
+      resolve: resolve(),
+    });
+    expect((await gather("https://long.test/")).metadata.title).toHaveLength(
+      300
+    );
   });
 
   it("says a failure may pass when the Source is down", async () => {

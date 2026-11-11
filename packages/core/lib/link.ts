@@ -19,7 +19,7 @@ declare const URLSearchParams: new (init: [string, string][]) => {
 };
 
 /** The longest link Spark keeps; longer ones are almost always tracking junk. */
-export const LINK_MAX_CHARS = 2048;
+const LINK_MAX_CHARS = 2048;
 
 /** Query parameters that only say who sent the click, never what the page is. */
 const TRACKERS = new Set([
@@ -34,6 +34,10 @@ const TRACKERS = new Set([
   "twclid",
   "ttclid",
   "igshid",
+  "igsh",
+  "si",
+  "ref_src",
+  "mibextid",
   "mc_cid",
   "mc_eid",
   "_ga",

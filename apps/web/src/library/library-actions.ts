@@ -479,8 +479,13 @@ export function libraryActions({
       return;
     }
     const sent = edit.fields;
+    // A link's title starts as the page's: it becomes the person's own
+    // only once they change it.
+    const base = serverCopy.get(id);
+    const pageTitle =
+      base?.kind === "link" && sent.title.trim() === textOf(base).title.trim();
     const json: MemoryEditRequest = {
-      title: sent.title,
+      ...(!pageTitle && { title: sent.title }),
       captureNote: sent.captureNote,
       // Text can't be emptied; the other fields still save.
       ...(sent.body.trim() && { body: sent.body }),

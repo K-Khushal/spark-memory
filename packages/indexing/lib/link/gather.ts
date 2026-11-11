@@ -5,6 +5,7 @@ import {
   isTransient,
   publicFetch,
   type PublicResponse,
+  type Refusal,
   type Resolve,
 } from "./public-fetch";
 
@@ -20,7 +21,7 @@ export type Gathered = {
 };
 
 export type Gatherer = {
-  /** `reader: false` (AI opt-out) keeps the link away from every third party. */
+  /** `reader: false` (AI opt-out) never sends the link to a reader service. */
   gather(url: string, options?: { reader?: boolean }): Promise<Gathered>;
 };
 
@@ -39,6 +40,20 @@ const OEMBED: [RegExp, string][] = [
   [/^open\.spotify\.com$/, "https://open.spotify.com/oembed?url="],
   [/^(www\.|old\.)?reddit\.com$/, "https://www.reddit.com/oembed?url="],
 ];
+
+/** Refusals that mean the link is not for the public web: no reader is asked either. */
+const NOT_PUBLIC = new Set<Refusal>([
+  "scheme",
+  "credentials",
+  "port",
+  "private_address",
+  "unresolved",
+  "too_many_redirects",
+]);
+/** What the person can edit later (FREE_ALLOWANCE), so a page title is never too long to keep. */
+const MAX_CHARS: Partial<Record<keyof LinkMetadata, number>> = {
+  title: FREE_ALLOWANCE.titleMaxChars,
+};
 
 const JSON_TYPES = ["application/json", "text/json", "text/javascript"];
 const ARTICLE =
@@ -85,7 +100,10 @@ function fill(into: LinkMetadata, from: LinkMetadata) {
     keyof LinkMetadata,
     string | undefined,
   ][]) {
-    const clean = value?.replace(/\s+/g, " ").trim().slice(0, 2000);
+    const clean = value
+      ?.replace(/\s+/g, " ")
+      .trim()
+      .slice(0, MAX_CHARS[key] ?? 2000);
     if (clean && !into[key]) into[key] = clean;
   }
 }
@@ -160,6 +178,7 @@ export function createGatherer({
     let text = "";
     let transient = false;
     let discovered: string | undefined;
+    let notPublic = false;
 
     const page = await get(url);
     if (page.ok) {
@@ -177,12 +196,13 @@ export function createGatherer({
       }
     } else {
       transient = isTransient(page.reason);
+      notPublic = NOT_PUBLIC.has(page.reason);
     }
 
     const host = new URL(url).hostname;
     const known = OEMBED.find(([pattern]) => pattern.test(host));
     const endpoint = known ? known[1] + encodeURIComponent(url) : discovered;
-    if (endpoint) {
+    if (endpoint && !notPublic) {
       const o = parseJson(
         await get(endpoint, {
           accept: JSON_TYPES,
@@ -204,7 +224,12 @@ export function createGatherer({
       }
     }
 
-    if (text.length < GATHER.minPreservedChars && reader && allowReader) {
+    if (
+      text.length < GATHER.minPreservedChars &&
+      reader &&
+      allowReader &&
+      !notPublic
+    ) {
       const res = await get(GATHER.readerUrl + url, {
         accept: ["application/json"],
         timeoutMs: GATHER.readerTimeoutMs,

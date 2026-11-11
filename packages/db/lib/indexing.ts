@@ -131,9 +131,12 @@ const failed = (reason: IndexFailure) => ({
   indexLeaseUntil: null,
 });
 
-/** A link's Source and what gathering found, for Indexing to read. */
+/**
+ * A link's Source (normalised: no tracking parameters go to the Source or
+ * a model) and what gathering found, for Indexing to read.
+ */
 const linkColumns = {
-  sourceUrl: memory.sourceUrl,
+  sourceUrl: memory.sourceUrlNormalised,
   gathered: sql<boolean>`${memory.metadata} is not null`,
   pageTitle: sql<string | null>`${memory.metadata}->>'title'`,
   description: sql<string | null>`${memory.metadata}->>'description'`,

@@ -53,7 +53,6 @@ const SKIP = new Set([
   "header",
   "footer",
   "aside",
-  "form",
   "button",
   "select",
   "template",
@@ -131,10 +130,12 @@ function tagEnd(html: string, from: number) {
       afterEquals = c === 61;
     }
   }
-  return -1;
+  // An unterminated quote: read the tag as ending at the next '>' instead.
+  return quote ? html.indexOf(">", from) : -1;
 }
 
 const NAME = /[a-zA-Z][\w:-]*/y;
+const NO_ATTRIBUTES = new Map<string, string>();
 
 /** Paragraphs of collected text, whitespace folded. */
 class Text {
@@ -225,7 +226,11 @@ export function scanHtml(html: string, maxText = 200_000): ScannedPage {
       }
       continue;
     }
-    const attrs = attributesOf(html.slice(NAME.lastIndex, end));
+    // Only these tags carry anything that is kept.
+    const attrs =
+      name === "meta" || name === "link" || name === "script"
+        ? attributesOf(html.slice(NAME.lastIndex, end))
+        : NO_ATTRIBUTES;
 
     if (RAW.has(name)) {
       const close = new RegExp(`</${name}[\\s/>]`, "gi");

@@ -13,7 +13,7 @@ describe("normaliseUrl", () => {
   it("strips every known tracker and keeps the rest in a stable order", () => {
     expect(
       normaliseUrl(
-        "https://example.com/p?z=1&mc_cid=1&a=2&igshid=3&msclkid=4&_ga=5&yclid=6&dclid=7&mc_eid=8&twclid=9"
+        "https://example.com/p?z=1&mc_cid=1&a=2&igshid=3&msclkid=4&_ga=5&yclid=6&dclid=7&mc_eid=8&twclid=9&si=x&ref_src=tw&mibextid=m&igsh=i"
       )
     ).toBe("https://example.com/p?a=2&z=1");
   });

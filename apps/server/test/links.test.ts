@@ -83,10 +83,13 @@ describe.skipIf(!databaseUrl)("link Capture", () => {
     });
     expect(queues.fresh.sent.map((m) => m.body.memoryId)).toContain(memory.id);
 
-    const asked = stubWeb({ [url]: page("Growing Basil", ARTICLE) });
+    const asked = stubWeb({
+      "https://garden.test/basil": page("Growing Basil", ARTICLE),
+    });
     const [message] = await drain(memory.id);
     expect(message!.ack).toHaveBeenCalled();
-    expect(asked).toEqual([url]);
+    // Fetched without its tracking parameters.
+    expect(asked).toEqual(["https://garden.test/basil"]);
     expect(await read(call, memory.id)).toMatchObject({
       indexState: "searchable",
       preservation: "preserved",

@@ -206,3 +206,36 @@ describe("Capture of a link", () => {
     expect(onCaptured).not.toHaveBeenCalled();
   });
 });
+
+describe("an edit of a link", () => {
+  it("keeps the page's title the page's until the person changes it", async () => {
+    const link = memory({
+      kind: "link",
+      body: "Preserved text",
+      sourceUrl: "https://garden.test/",
+      pageTitle: "Growing Basil",
+    });
+    const patch = vi
+      .fn()
+      .mockResolvedValue({ ...link, captureNote: "n", revision: 2 });
+    const { actions } = setup({ patch }, [link]);
+    actions.openEdit(link);
+    actions.editText(link, {
+      title: "Growing Basil",
+      body: "",
+      captureNote: "n",
+    });
+    actions.saveEdit(link.id);
+    await settle();
+    expect(patch.mock.calls[0]![1]).toEqual({ captureNote: "n", revision: 1 });
+
+    actions.editText(link, {
+      title: "Basil, mine",
+      body: "",
+      captureNote: "n",
+    });
+    actions.saveEdit(link.id);
+    await settle();
+    expect(patch.mock.calls[1]![1]).toMatchObject({ title: "Basil, mine" });
+  });
+});

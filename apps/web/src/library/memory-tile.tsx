@@ -391,7 +391,11 @@ function LinkTile({
           </p>
         )}
         <div className="mt-auto flex h-6 shrink-0 items-center justify-between gap-2">
-          <span className="min-w-0 truncate text-xs text-ink-muted" dir="ltr">
+          <span
+            className="min-w-0 truncate text-xs text-ink-muted"
+            dir="ltr"
+            translate="no"
+          >
             {host !== name && <Highlighted text={host} query={query} />}
           </span>
           {isReferenceOnly(memory) ? (

@@ -46,9 +46,6 @@ export {
 export {
   dohResolver,
   GATHER,
-  isPrivateAddress,
   publicFetch,
-  type PublicResponse,
-  type Refusal,
   type Resolve,
 } from "./lib/link/public-fetch";

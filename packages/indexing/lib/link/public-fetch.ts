@@ -6,8 +6,13 @@ export const GATHER = {
   timeoutMs: 8_000,
   readerTimeoutMs: 15_000,
   dnsTimeoutMs: 3_000,
-  /** HTML read per page: metadata sits in the head, an article well inside this. */
-  maxHtmlBytes: 1_000_000,
+  /**
+   * HTML read per page: metadata sits in the head, an article well inside
+   * this. Scanning takes about 24 ms of V8 CPU per MB (measured on Node
+   * 22), so this keeps the worst page near 12 ms and a typical one
+   * (about 100 KB) near 2 ms.
+   */
+  maxHtmlBytes: 512_000,
   maxJsonBytes: 256_000,
   /** Less readable text than this is a login wall or an app shell, not a Preserved copy. */
   minPreservedChars: 280,
@@ -235,13 +240,16 @@ export async function publicFetch(
   for (let hop = 0; ; hop++) {
     const url = await check(current, resolve);
     if (typeof url === "string") return { ok: false, reason: url };
+    // Name lookups count towards the time limit too.
+    if (signal.aborted) return { ok: false, reason: "timeout" };
     let res: Response;
     try {
       res = await fetch(url.href, {
         redirect: "manual",
         signal,
         headers: {
-          ...headers,
+          // The caller's headers (a reader's key) never follow a redirect.
+          ...(hop === 0 && headers),
           "user-agent": GATHER.userAgent,
           accept: [...accept, "*/*;q=0.1"].join(", "),
         },

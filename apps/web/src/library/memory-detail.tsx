@@ -11,7 +11,7 @@ import {
 import type { Draft } from "./drafts";
 import { AiOptOutSwitch, IndexStatus, type IndexingProps } from "./index-state";
 import { textOf, type libraryActions } from "./library-actions";
-import { hostOf, isReferenceOnly } from "./memory-tile";
+import { hostOf, isReferenceOnly, ReferenceOnlyBadge } from "./memory-tile";
 import type { Memory } from "./use-library";
 import { MoreLikeThis } from "./why";
 
@@ -91,6 +91,7 @@ function Fields({
     () => edit?.fields ?? textOf(memory)
   );
   const bodyField = useRef<HTMLTextAreaElement>(null);
+  const titleField = useRef<HTMLInputElement>(null);
   const autosave = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closing = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -137,13 +138,14 @@ function Fields({
     >
       <DialogTitle className="sr-only">Memory</DialogTitle>
       <input
+        ref={titleField}
         value={shown.title}
         onChange={(e) => change({ ...shown, title: e.target.value })}
         maxLength={FREE_ALLOWANCE.titleMaxChars}
         placeholder="Title"
         aria-label="Title"
         dir="auto"
-        className="mr-8 min-w-0 rounded-chip bg-transparent font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
+        className="mr-8 min-w-0 rounded-chip bg-transparent text-ellipsis font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
       />
       {memory.kind === "link" ? (
         <Reader memory={memory} />
@@ -184,7 +186,7 @@ function Fields({
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <div className="flex items-center gap-2">
             {isReferenceOnly(memory) && (
-              <span className="text-sm text-ink-muted">Reference Only</span>
+              <ReferenceOnlyBadge className="text-sm" />
             )}
             <IndexStatus memory={memory} />
             {memory.indexState === "failed" && (
@@ -205,7 +207,7 @@ function Fields({
                 const restored = edits.restoreEdit(id);
                 if (restored) setFields(restored);
                 // The button goes; focus moves to the restored text.
-                bodyField.current?.focus();
+                (bodyField.current ?? titleField.current)?.focus();
               }}
             >
               Restore Your Edit
@@ -230,7 +232,7 @@ const webLink = (url: string | null) =>
  * the page's description when it is Reference Only.
  */
 function Reader({ memory }: { memory: Memory }) {
-  const text = memory.body ?? memory.description ?? "";
+  const text = memory.body || memory.description || "";
   const href = webLink(memory.sourceUrl);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -243,7 +245,10 @@ function Reader({ memory }: { memory: Memory }) {
           dir="ltr"
           className="inline-flex min-h-6 max-w-full items-center gap-1 self-start rounded-chip text-sm text-ink-muted transition-colors duration-(--duration-press) hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
-          <span className="truncate">{hostOf(memory)}</span>
+          <span className="truncate" translate="no">
+            {hostOf(memory)}
+          </span>
+          <span className="sr-only">, Opens in New Tab</span>
           <ArrowUpRightIcon className="size-4 shrink-0" aria-hidden />
         </a>
       )}
@@ -253,13 +258,19 @@ function Reader({ memory }: { memory: Memory }) {
           tabIndex={0}
           aria-label="Text"
           dir="auto"
-          className="max-h-[55dvh] min-h-0 flex-1 overflow-y-auto rounded-chip text-base break-words text-ink focus-visible:outline-2 focus-visible:outline-ring"
+          className="max-h-[55dvh] min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-chip text-base break-words text-ink focus-visible:outline-2 focus-visible:outline-ring"
         >
-          {text.split(/\n{2,}/).map((paragraph, i) => (
-            <p key={i} className="mb-4 max-w-[65ch] last:mb-0">
-              {paragraph}
-            </p>
-          ))}
+          {text
+            .split(/\n\s*\n/)
+            .filter((paragraph) => paragraph.trim())
+            .map((paragraph, i) => (
+              <p
+                key={i}
+                className="mb-4 max-w-[65ch] whitespace-pre-line last:mb-0"
+              >
+                {paragraph}
+              </p>
+            ))}
         </article>
       )}
     </div>
