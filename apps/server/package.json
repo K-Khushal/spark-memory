@@ -17,6 +17,7 @@
     "@spark/auth": "workspace:*",
     "@spark/core": "workspace:*",
     "@spark/db": "workspace:*",
+    "@spark/indexing": "workspace:*",
     "aws4fetch": "1.0.20",
     "better-auth": "1.7.19",
     "hono": "^4.13.17"

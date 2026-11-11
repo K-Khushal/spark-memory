@@ -19,6 +19,7 @@
   // Turnstile test keys. Sign-in codes go to the dev outbox (no Resend).
   "vars": {
     "SPARK_ENV": "local",
+    "INDEXING_PROVIDER": "fake",
     "BETTER_AUTH_URL": "http://localhost:5173",
     "BETTER_AUTH_SECRET": "local-only-insecure-secret-never-deployed-0000",
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
@@ -34,14 +35,46 @@
   // Memory files. Locally Miniflare simulates the bucket (in .wrangler/state)
   // and, without R2 credentials, uploads go to /api/local-files on this Worker.
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "spark-files-local" }],
-  // Daily sweep of image uploads that never finished (src/sweep.ts).
-  "triggers": { "crons": ["17 3 * * *"] },
+  // Hourly: image uploads that never finished (src/sweep.ts), and Memories
+  // whose Indexing message was lost (src/indexing.ts).
+  "triggers": { "crons": ["17 * * * *"] },
+
+  // Indexing (src/indexing.ts). Queues have no priorities, so fresh Captures
+  // and Retry get their own queue, consumed at once; background re-indexing
+  // waits behind it (one consumer at a time, larger batches). After
+  // max_retries the dead-letter queue marks the Memory Failed. Locally,
+  // Miniflare runs the queues and the fake provider stands in for the AI
+  // (no AI binding, no keys): INDEXING_PROVIDER in vars above.
+  "queues": {
+    "producers": [
+      { "binding": "INDEX_QUEUE", "queue": "spark-index-local" },
+      { "binding": "REINDEX_QUEUE", "queue": "spark-reindex-local" },
+    ],
+    "consumers": [
+      {
+        "queue": "spark-index-local",
+        "max_batch_size": 5,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "spark-index-failed-local",
+      },
+      {
+        "queue": "spark-reindex-local",
+        "max_batch_size": 5,
+        "max_batch_timeout": 30,
+        "max_retries": 3,
+        "max_concurrency": 1,
+        "dead_letter_queue": "spark-index-failed-local",
+      },
+      { "queue": "spark-index-failed-local", "max_batch_size": 10 },
+    ],
+  },
 
   // Bindings and vars do not inherit: repeat each one per environment.
   // Secrets per environment (`wrangler secret put <NAME> --env <name>`): SENTRY_DSN,
   // BETTER_AUTH_SECRET, TURNSTILE_SECRET_KEY, RESEND_API_KEY, and optionally
   // GOOGLE_CLIENT_ID/_SECRET and GITHUB_CLIENT_ID/_SECRET, R2_ACCOUNT_ID,
-  // R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY.
+  // R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY, and GEMINI_API_KEY (paid tier only).
   // See docs/deploy.md for creating the Hyperdrive configs and replacing the ids.
   "env": {
     "dev": {
@@ -51,12 +84,40 @@
         "TURNSTILE_SITE_KEY": "PLACEHOLDER_DEV_TURNSTILE_SITE_KEY",
         "EMAIL_FROM": "Spark <onboarding@resend.dev>",
         "R2_BUCKET": "spark-files-dev",
+        // "true" only once GEMINI_API_KEY's Cloud project has billing on (ADR-0005).
+        "GEMINI_PAID_TIER": "false",
       },
       "hyperdrive": [
         { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_DEV_HYPERDRIVE_ID" },
       ],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "spark-files-dev" }],
-      "triggers": { "crons": ["17 3 * * *"] },
+      "triggers": { "crons": ["17 * * * *"] },
+      // Workers AI: Gemma 4, first in the Indexing chain (ADR-0005).
+      "ai": { "binding": "AI" },
+      "queues": {
+        "producers": [
+          { "binding": "INDEX_QUEUE", "queue": "spark-index-dev" },
+          { "binding": "REINDEX_QUEUE", "queue": "spark-reindex-dev" },
+        ],
+        "consumers": [
+          {
+            "queue": "spark-index-dev",
+            "max_batch_size": 5,
+            "max_batch_timeout": 1,
+            "max_retries": 3,
+            "dead_letter_queue": "spark-index-failed-dev",
+          },
+          {
+            "queue": "spark-reindex-dev",
+            "max_batch_size": 5,
+            "max_batch_timeout": 30,
+            "max_retries": 3,
+            "max_concurrency": 1,
+            "dead_letter_queue": "spark-index-failed-dev",
+          },
+          { "queue": "spark-index-failed-dev", "max_batch_size": 10 },
+        ],
+      },
     },
     "production": {
       "vars": {
@@ -65,13 +126,41 @@
         "TURNSTILE_SITE_KEY": "PLACEHOLDER_PROD_TURNSTILE_SITE_KEY",
         "EMAIL_FROM": "Spark <onboarding@resend.dev>",
         "R2_BUCKET": "spark-files-prod",
+        // "true" only once GEMINI_API_KEY's Cloud project has billing on (ADR-0005).
+        "GEMINI_PAID_TIER": "false",
       },
       "hyperdrive": [
         { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_PROD_HYPERDRIVE_ID" },
       ],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "spark-files-prod" }],
-      "triggers": { "crons": ["17 3 * * *"] },
+      "triggers": { "crons": ["17 * * * *"] },
+      // Workers AI: Gemma 4, first in the Indexing chain (ADR-0005).
+      "ai": { "binding": "AI" },
+      "queues": {
+        "producers": [
+          { "binding": "INDEX_QUEUE", "queue": "spark-index-prod" },
+          { "binding": "REINDEX_QUEUE", "queue": "spark-reindex-prod" },
+        ],
+        "consumers": [
+          {
+            "queue": "spark-index-prod",
+            "max_batch_size": 5,
+            "max_batch_timeout": 1,
+            "max_retries": 3,
+            "dead_letter_queue": "spark-index-failed-prod",
+          },
+          {
+            "queue": "spark-reindex-prod",
+            "max_batch_size": 5,
+            "max_batch_timeout": 30,
+            "max_retries": 3,
+            "max_concurrency": 1,
+            "dead_letter_queue": "spark-index-failed-prod",
+          },
+          { "queue": "spark-index-failed-prod", "max_batch_size": 10 },
+        ],
+      },
     },
   },
-  // Queues, Workers AI and Browser Rendering arrive with their tickets.
+  // Browser Rendering arrives with its ticket.
 }

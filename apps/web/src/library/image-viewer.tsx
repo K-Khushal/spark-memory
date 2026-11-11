@@ -4,6 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { Button, Dialog, DialogContent, DialogTitle, cn } from "@spark/ui";
 import { DURATION, EASING, SPRING } from "@spark/ui/tokens";
+import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
 import { memoryName, UploadBadge } from "./memory-tile";
 import type { WallMemory } from "./use-library";
 
@@ -27,6 +28,8 @@ export function ImageViewer({
   onDelete,
   onRetry,
   onBroken,
+  onRetryIndexing,
+  onAiOptOut,
 }: {
   /** The image Memories in wall order. */
   memories: WallMemory[];
@@ -36,7 +39,7 @@ export function ImageViewer({
   onDelete: (memory: WallMemory) => void;
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
-}) {
+} & IndexingProps) {
   const index = memories.findIndex((m) => m.id === openId);
   const memory = memories[index];
   const [direction, setDirection] = useState(0);
@@ -111,23 +114,34 @@ export function ImageViewer({
               <Picture memory={memory} tall={tall} onBroken={onBroken} />
             </motion.div>
           </AnimatePresence>
-          {memory.upload && (
+          {memory.upload ? (
             <UploadBadge
               upload={memory.upload}
               onRetry={() => onRetry(memory.id)}
               onDelete={() => remove(memory)}
               className="absolute top-3 left-3 h-11"
             />
+          ) : (
+            <IndexBadge
+              memory={memory}
+              onRetry={() => onRetryIndexing(memory)}
+              // No Memory detail for images: the viewer says why.
+              withReason
+              className="absolute top-5.5 left-3"
+            />
           )}
-          <Button
-            variant="quiet"
-            size="icon"
-            aria-label="Delete"
-            className="absolute top-3 right-16 size-11"
-            onClick={() => remove(memory)}
-          >
-            <Trash2Icon aria-hidden />
-          </Button>
+          <div className="absolute top-3 right-16 flex items-center gap-3">
+            <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
+            <Button
+              variant="quiet"
+              size="icon"
+              aria-label="Delete"
+              className="size-11"
+              onClick={() => remove(memory)}
+            >
+              <Trash2Icon aria-hidden />
+            </Button>
+          </div>
           <Step side="left" disabled={index <= 0} onClick={() => go(-1)} />
           <Step
             side="right"

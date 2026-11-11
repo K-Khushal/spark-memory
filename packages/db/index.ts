@@ -23,4 +23,5 @@ export {
   type Page,
   type SearchResult,
 } from "./lib/library";
+export { indexingStore, type IndexingStore } from "./lib/indexing";
 export * as schema from "./lib/schema";

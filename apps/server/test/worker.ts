@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, vi } from "vitest";
 import worker from "../src/index";
-import type { Bindings, FileBucket } from "../src/env";
+import type {
+  Bindings,
+  FileBucket,
+  IndexMessage,
+  IndexQueue,
+} from "../src/env";
 
 // Integration test through the Worker's HTTP interface, against real Postgres
 // with migrations applied. Turnstile's siteverify is the one faked boundary.
@@ -40,10 +45,61 @@ export function memoryBucket() {
 
 export const files = memoryBucket();
 
+/** A queue that keeps what was sent, for a test to deliver (the third faked boundary). */
+export function recordingQueue(name: string) {
+  const sent: { body: IndexMessage; delaySeconds?: number }[] = [];
+  const queue: IndexQueue = {
+    send: async (body, options) => {
+      sent.push({ body, delaySeconds: options?.delaySeconds });
+    },
+  };
+  return Object.assign(queue, { name, sent });
+}
+
+export const queues = {
+  fresh: recordingQueue("spark-index-local"),
+  background: recordingQueue("spark-reindex-local"),
+};
+
+/** One delivery of `body` to the consumer, as Cloudflare Queues would make it. */
+export async function deliver(
+  queue: string,
+  body: IndexMessage,
+  attempts = 1,
+  bindings = env()
+) {
+  const message = { body, attempts, ack: vi.fn(), retry: vi.fn() };
+  await worker.queue(
+    { queue, messages: [message] } as unknown as MessageBatch<IndexMessage>,
+    bindings
+  );
+  return message;
+}
+
+/** Delivers (once each) every message sent so far for `memoryId`, fresh first. */
+export async function drain(memoryId: string, bindings = env()) {
+  const delivered = [];
+  for (const queue of [queues.fresh, queues.background]) {
+    const mine = queue.sent.filter((m) => m.body.memoryId === memoryId);
+    queue.sent.splice(
+      0,
+      queue.sent.length,
+      ...queue.sent.filter((m) => !mine.includes(m))
+    );
+    for (const { body } of mine) {
+      delivered.push(await deliver(queue.name, body, 1, bindings));
+    }
+  }
+  return delivered;
+}
+
 export function env(overrides: Partial<Bindings> = {}): Bindings {
   return {
     HYPERDRIVE: { connectionString: databaseUrl! },
     FILES: files,
+    INDEX_QUEUE: queues.fresh,
+    REINDEX_QUEUE: queues.background,
+    INDEXING_PROVIDER: "fake",
     SPARK_ENV: "local",
     BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-0123",
     BETTER_AUTH_URL: ORIGIN,

@@ -7,7 +7,7 @@ import {
   TextCapture,
 } from "@spark/core";
 import type { Database } from "./client";
-import { memory, memoryFile, type FileRole } from "./schema";
+import { memory, memoryFile, memoryIndex, type FileRole } from "./schema";
 
 /** An image Memory's files: what the wall needs, and the keys to sign. */
 export type MemoryImage = {
@@ -30,6 +30,11 @@ const image = sql<MemoryImage | null>`(
     on t.memory_id = o.memory_id and t.role = 'thumbnail'
   where o.memory_id = ${memory.id} and o.role = 'original')`;
 
+/** The title Indexing gave a Memory, never shown for one with AI opt-out. */
+const indexTitle = sql<string | null>`(
+  select i.title from ${memoryIndex} i
+  where i.memory_id = ${memory.id} and not ${memory.aiOptOut})`;
+
 const columns = {
   id: memory.id,
   kind: memory.kind,
@@ -39,6 +44,12 @@ const columns = {
   preservation: memory.preservation,
   indexState: memory.indexState,
   revision: memory.revision,
+  /** For queue messages only; routes leave these out of answers. */
+  indexRun: memory.indexRun,
+  indexPriority: memory.indexPriority,
+  aiOptOut: memory.aiOptOut,
+  indexError: memory.indexError,
+  indexTitle,
   capturedAt: memory.capturedAt,
   updatedAt: memory.updatedAt,
   image,
@@ -47,8 +58,8 @@ const columns = {
 /** A Memory as the API reads it; routes turn `image` keys into signed URLs. */
 export type Memory = Pick<
   typeof memory.$inferSelect,
-  Exclude<keyof typeof columns, "image">
-> & { image: MemoryImage | null };
+  Exclude<keyof typeof columns, "image" | "indexTitle">
+> & { image: MemoryImage | null; indexTitle: string | null };
 
 /** A Memory shows once every file it has is stored. */
 const allStored = sql`not exists (select 1 from memory_file f where f.memory_id = ${memory.id} and f.stored_at is null)`;
@@ -103,6 +114,21 @@ const fileColumns = {
   bytes: memoryFile.bytes,
   stored: sql<boolean>`${memoryFile.storedAt} is not null`,
 };
+
+const today = sql`(now() at time zone 'utc')::date`;
+
+/**
+ * Indexing starts over as a new run, so whatever ran before cannot write.
+ * For a person's Retry or opt-in: first in line once a Memory a day, then
+ * in the background, which the daily budget limits.
+ */
+const restartIndexing = {
+  indexState: "indexing",
+  indexError: null,
+  indexRun: sql`${memory.indexRun} + 1`,
+  indexPriority: sql`case when ${memory.indexFreshDay} = ${today} then 'background' else 'fresh' end`,
+  indexFreshDay: today,
+} as const;
 
 /** Which search legs found a Memory (ADR-0004). */
 export type MatchedBy = "keyword" | "typo";
@@ -169,10 +195,19 @@ export function openLibrary(db: Database, userId: string) {
   return {
     get,
 
+    /** The owner's Memories among `ids` (the dashboard polls those Indexing). */
+    getMany: (ids: string[]): Promise<Memory[]> =>
+      ids.length
+        ? db
+            .select(columns)
+            .from(memory)
+            .where(and(eq(memory.userId, userId), inArray(memory.id, ids)))
+        : Promise.resolve([]),
+
     /**
-     * Saves pasted text. Text needs no further Indexing for now: its keyword
-     * index is written with the row, so it is Searchable at once. A retry with
-     * the same `id` returns the Memory already saved.
+     * Saves pasted text, Indexing; its own words are keyword-searchable at
+     * once (the trigger writes search_tsv with the row). The caller enqueues
+     * Indexing. A retry with the same `id` returns the Memory already saved.
      */
     async capture(input: TextCapture): Promise<CaptureResult> {
       const { id, body, title, captureNote } = TextCapture.parse(input);
@@ -185,7 +220,7 @@ export function openLibrary(db: Database, userId: string) {
           body,
           title,
           captureNote,
-          indexState: "searchable",
+          indexPriority: "fresh",
         })
         .onConflictDoNothing({ target: memory.id })
         .returning(columns);
@@ -265,6 +300,7 @@ export function openLibrary(db: Database, userId: string) {
           kind: "image",
           contentHash: capture.contentHash,
           indexState: "indexing",
+          indexPriority: "fresh",
         });
         const uploads: FileUpload[] = [
           {
@@ -287,6 +323,7 @@ export function openLibrary(db: Database, userId: string) {
             width: capture.width,
             height: capture.height,
             thumbhash: capture.thumbhash,
+            palette: capture.palette ?? null,
           },
           { memoryId: id, ...uploads[1]! },
         ]);
@@ -401,7 +438,8 @@ export function openLibrary(db: Database, userId: string) {
     },
 
     /**
-     * Edits text fields; the generated keyword index re-indexes with the row.
+     * Edits text fields; the keyword index follows with the row. A changed
+     * text restarts Indexing (unless AI opt-out); the caller enqueues it.
      * With `revision`, the edit applies only if the Memory is still at that
      * revision, so a save that arrives late can never undo a newer one.
      */
@@ -412,9 +450,22 @@ export function openLibrary(db: Database, userId: string) {
     ): Promise<EditResult> {
       const changes = MemoryEdit.parse(input);
       if (Object.keys(changes).length === 0) return get(id);
+      const reindex =
+        changes.body === undefined
+          ? sql`false`
+          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut}`;
       const [row] = await db
         .update(memory)
-        .set({ ...changes, revision: sql`${memory.revision} + 1` })
+        .set({
+          ...changes,
+          revision: sql`${memory.revision} + 1`,
+          indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
+          indexRun: sql`${memory.indexRun} + (${reindex})::int`,
+          indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
+          // A fix to a Capture still on its first, fresh run stays first in
+          // line; any later edit is background work.
+          indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
+        })
         .where(
           and(
             owned(id),
@@ -438,6 +489,47 @@ export function openLibrary(db: Database, userId: string) {
         .where(owned(id))
         .returning({ id: memory.id });
       return rows.length > 0;
+    },
+
+    /**
+     * Retry on a Failed Memory: Indexing again, as a new run; the caller
+     * enqueues it. Any other Memory comes back as it is.
+     */
+    async retryIndexing(id: string): Promise<Memory | undefined> {
+      await db
+        .update(memory)
+        .set(restartIndexing)
+        .where(and(owned(id), eq(memory.indexState, "failed")));
+      return get(id);
+    },
+
+    /**
+     * AI opt-out on: what Indexing found is deleted and the Memory is
+     * Searchable by its own text at once; any Indexing under way is dropped
+     * (a new run). Off: Indexing again, as a new run; the caller enqueues it.
+     */
+    async setAiOptOut(id: string, on: boolean): Promise<Memory | undefined> {
+      await db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(memory)
+          .set(
+            on
+              ? {
+                  aiOptOut: true,
+                  indexState: "searchable",
+                  indexError: null,
+                  indexRun: sql`${memory.indexRun} + 1`,
+                  language: null,
+                }
+              : { aiOptOut: false, ...restartIndexing }
+          )
+          .where(and(owned(id), eq(memory.aiOptOut, !on)))
+          .returning({ id: memory.id });
+        if (row && on) {
+          await tx.delete(memoryIndex).where(eq(memoryIndex.memoryId, id));
+        }
+      });
+      return get(id);
     },
 
     /** Instant search: keyword and typo matching, no AI (PLAN.md §6.2). */

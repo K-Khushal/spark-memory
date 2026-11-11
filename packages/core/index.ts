@@ -9,6 +9,7 @@ export {
   TextCapture,
   MemoryEdit,
   MemoryEditRequest,
+  AiOptOut,
   IMAGE_TYPES,
   ImageType,
   THUMBNAIL_TYPES,
@@ -22,3 +23,12 @@ export {
   DEFAULT_PLAN,
   type Plan,
 } from "./lib/allowance";
+export {
+  INDEXING,
+  INDEX_FAILURES,
+  INDEXING_OUTPUT_JSON_SCHEMA,
+  IndexingOutput,
+  Palette,
+  type IndexFailure,
+  type ProviderName,
+} from "./lib/indexing";

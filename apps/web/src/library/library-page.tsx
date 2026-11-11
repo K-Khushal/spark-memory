@@ -75,6 +75,7 @@ export function LibraryPage({ session }: { session: Session }) {
     onRetry: library.retryUpload,
     onBroken: library.refresh,
     onDelete: library.remove,
+    onRetryIndexing: library.retryIndexing,
   };
   const showOnWall = (q: string) => {
     setQuery(q.trim());
@@ -327,6 +328,8 @@ export function LibraryPage({ session }: { session: Session }) {
           onDelete={library.remove}
           onRetry={library.retryUpload}
           onBroken={library.refresh}
+          onRetryIndexing={library.retryIndexing}
+          onAiOptOut={library.setAiOptOut}
         />
         {dropping && (
           <div
@@ -343,6 +346,8 @@ export function LibraryPage({ session }: { session: Session }) {
           edits={library.edits}
           onClose={() => setOpenId(undefined)}
           onDelete={library.remove}
+          onRetryIndexing={library.retryIndexing}
+          onAiOptOut={library.setAiOptOut}
         />
         <Toaster />
       </div>
@@ -375,11 +380,12 @@ function Centred({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** What a tile can ask of the Library: Try Again or Delete for an upload, fresh URLs for a broken image. */
+/** What a tile can ask of the Library: Try Again or Delete for an upload, Retry for Indexing, fresh URLs for a broken image. */
 type TileActions = {
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onDelete: (memory: WallMemory) => void;
+  onRetryIndexing: (memory: WallMemory) => void;
 };
 
 function Wall({

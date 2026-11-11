@@ -1,6 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./sign-in";
 
+/** An image goes by its Capture day until Indexing (the fake provider, locally) names it. */
+const IMAGE_NAME = /^(Image|Fake Image Title)/;
+
 /**
  * Drops files on the page as a person dragging them in would: a small real
  * PNG (drawn on a canvas) and, when asked, a fake one over 25 MB.
@@ -38,7 +41,7 @@ test("drop images: one is Captured and uploaded, one over 25 MB is refused; view
     page.getByText("Images Over 25 MB Can't Be Captured")
   ).toBeVisible();
   const wall = page.getByRole("list", { name: "All Memories" });
-  const tile = wall.getByRole("listitem", { name: /^Image/ });
+  const tile = wall.getByRole("listitem", { name: IMAGE_NAME });
   await expect(tile).toHaveCount(1);
 
   // Uploaded straight to storage, checked, and saved: there after a reload.
@@ -55,8 +58,8 @@ test("drop images: one is Captured and uploaded, one over 25 MB is refused; view
   // The viewer shows the Preserved copy; Escape closes it.
   await tile.click();
   const viewer = page.getByRole("dialog");
-  await expect(viewer.getByRole("img", { name: /^Image/ })).toBeVisible();
-  await expect(viewer.getByRole("img", { name: /^Image/ })).toHaveJSProperty(
+  await expect(viewer.getByRole("img", { name: IMAGE_NAME })).toBeVisible();
+  await expect(viewer.getByRole("img", { name: IMAGE_NAME })).toHaveJSProperty(
     "naturalWidth",
     64
   );
@@ -85,7 +88,7 @@ test("a failed upload shows on its tile, and Try Again finishes it", async ({
       : route.fallback()
   );
   await dropImages(page);
-  const tile = page.getByRole("listitem", { name: /^Image/ });
+  const tile = page.getByRole("listitem", { name: IMAGE_NAME });
   await expect(tile.getByText("Failed")).toBeVisible();
   fail = false;
   await tile.getByRole("button", { name: "Try Again" }).click();
@@ -104,7 +107,7 @@ test("an upload a reload cut short shows as Failed, and Delete removes it", asyn
     route.request().method() === "PUT" ? undefined : route.fallback()
   );
   await dropImages(page);
-  const tile = page.getByRole("listitem", { name: /^Image/ });
+  const tile = page.getByRole("listitem", { name: IMAGE_NAME });
   await expect(tile.getByRole("progressbar")).toBeVisible();
   await expect
     .poll(async () => (await page.request.get("/api/memories")).json())
@@ -128,7 +131,7 @@ test("the viewer keeps focus at the last image, so the arrow keys still work", a
   await signIn(page);
   await dropImages(page);
   await dropImages(page);
-  const tiles = page.getByRole("listitem", { name: /^Image/ });
+  const tiles = page.getByRole("listitem", { name: IMAGE_NAME });
   await expect(tiles).toHaveCount(2);
   await expect(page.getByRole("progressbar")).toHaveCount(0);
 

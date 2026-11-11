@@ -92,7 +92,8 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 - **⌘K / Ctrl K** (or `/`) opens Search from anywhere. Typing shows instant results; Enter puts the full results on the wall.
 - **⌘V / Ctrl V** outside a text field Captures the clipboard. The Capture button does the same for pointer and touch.
 - **Optimistic Capture**: the Memory lands first on the wall as Indexing, and a toast says "Captured" with **Undo**. Failed shows on the tile with a Retry.
-- Text Memories land Searchable, not Indexing, until Indexing exists: their keyword index is written with the Memory.
+- **Index state on tiles** shows only while a Memory is not Searchable: Indexing, or Failed with a Retry whose label says why. Over images it sits on the same fixed dark plate as the upload badge; the image viewer, which has no Memory detail, shows the reason in place of "Failed". The wall asks after Indexing Memories every 2 s, backing off to 30 s, and stops once none are left. While a text tile shows a badge, its last line makes room for it, so the wall never moves when Indexing finishes.
+- **AI Opt-Out** is a switch in Memory detail and the image viewer. Memory detail also shows why Indexing failed, with Retry.
 - **Preservation on image tiles** shows only while an image is not yet Preserved: a progress ring while it uploads, Failed with Try Again (or Delete, after a reload cut the upload short). A stored image shows no badge, because every stored image is Preserved.
 - **Images open in `ImageViewer`** for now (← →, swipe, Escape), not Quick preview; it folds into Quick preview when that lands.
 - **Arrow keys** move spatially on the wall (`neighbour` in `@spark/ui/layout`). Enter and Space open Quick preview. Escape closes the top layer.

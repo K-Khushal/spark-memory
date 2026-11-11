@@ -36,6 +36,34 @@
       "when": 1794335468902,
       "tag": "0004_image_files",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794376442487,
+      "tag": "0005_indexing",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794376474187,
+      "tag": "0006_search_language",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794377860337,
+      "tag": "0007_index_lease",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794379434113,
+      "tag": "0008_index_lease_run",
+      "breakpoints": true
     }
   ]
 }

@@ -115,6 +115,7 @@ export function imageCapture({
         height: prepared.height,
         contentHash: prepared.contentHash,
         thumbhash: prepared.thumbhash,
+        palette: prepared.palette,
         thumbnail: {
           mime: prepared.thumbnailMime,
           bytes: prepared.thumbnail.size,
@@ -261,6 +262,9 @@ export function imageCapture({
       captureNote: null,
       preservation: "preserved",
       indexState: "indexing",
+      indexError: null,
+      indexTitle: null,
+      aiOptOut: false,
       revision: 1,
       capturedAt: now,
       updatedAt: now,

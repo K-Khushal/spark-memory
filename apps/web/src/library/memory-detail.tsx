@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Trash2Icon } from "lucide-react";
+import { RotateCwIcon, Trash2Icon } from "lucide-react";
 import { FREE_ALLOWANCE } from "@spark/core";
 import {
   Button,
@@ -9,6 +9,7 @@ import {
   Textarea,
 } from "@spark/ui";
 import type { Draft } from "./drafts";
+import { AiOptOutSwitch, IndexStatus, type IndexingProps } from "./index-state";
 import { textOf, type libraryActions } from "./library-actions";
 import type { Memory } from "./use-library";
 
@@ -38,12 +39,14 @@ export function MemoryDetail({
   edits,
   onClose,
   onDelete,
+  onRetryIndexing,
+  onAiOptOut,
 }: {
   memory: Memory | undefined;
   edits: Edits;
   onClose: () => void;
   onDelete: (memory: Memory) => void;
-}) {
+} & IndexingProps) {
   return (
     <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
       {memory && (
@@ -53,6 +56,8 @@ export function MemoryDetail({
           edits={edits}
           onClose={onClose}
           onDelete={onDelete}
+          onRetryIndexing={onRetryIndexing}
+          onAiOptOut={onAiOptOut}
         />
       )}
     </Dialog>
@@ -64,12 +69,14 @@ function Fields({
   edits,
   onClose,
   onDelete,
+  onRetryIndexing,
+  onAiOptOut,
 }: {
   memory: Memory;
   edits: Edits;
   onClose: () => void;
   onDelete: (memory: Memory) => void;
-}) {
+} & IndexingProps) {
   const id = memory.id;
   const [opening] = useState(memory);
   const [edit, setEdit] = useState(() => edits.previewEdit(memory));
@@ -148,18 +155,33 @@ function Fields({
         dir="auto"
         className="h-10 min-w-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
       />
-      <div className="flex justify-between gap-2 pt-1">
-        <Button
-          variant="quiet"
-          size="sm"
-          onClick={() => {
-            onDelete(memory);
-            onClose();
-          }}
-        >
-          <Trash2Icon aria-hidden /> Delete
-        </Button>
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="quiet"
+            size="sm"
+            onClick={() => {
+              onDelete(memory);
+              onClose();
+            }}
+          >
+            <Trash2Icon aria-hidden /> Delete
+          </Button>
+          <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex items-center gap-2">
+            <IndexStatus memory={memory} />
+            {memory.indexState === "failed" && (
+              <Button
+                variant="quiet"
+                size="sm"
+                onClick={() => onRetryIndexing(memory)}
+              >
+                <RotateCwIcon aria-hidden /> Retry
+              </Button>
+            )}
+          </div>
           {edit?.refused && (
             <Button
               variant="quiet"

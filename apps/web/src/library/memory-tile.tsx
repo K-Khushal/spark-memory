@@ -1,4 +1,5 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
+import { IndexBadge } from "./index-state";
 import { motion } from "motion/react";
 import { RotateCwIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
@@ -79,16 +80,24 @@ const day = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
  */
 export function memoryName(memory: WallMemory) {
   if (memory.kind === "image") {
-    return memory.title || `Image, ${day.format(new Date(memory.capturedAt))}`;
+    return (
+      memory.title ||
+      memory.indexTitle ||
+      `Image, ${day.format(new Date(memory.capturedAt))}`
+    );
   }
   return memory.title || memory.body?.split("\n")[0]?.slice(0, 120) || "";
 }
 
-/** A tile's accessible name: its Memory's, and its upload while it lasts. */
+/** A tile's accessible name: its Memory's, then its upload or Index state while they last. */
 export function tileLabel(memory: WallMemory) {
   const name = memoryName(memory);
-  if (!memory.upload) return name;
-  return `${name}, ${memory.upload.step === "sending" ? "Uploading" : "Failed"}`;
+  if (memory.upload) {
+    return `${name}, ${memory.upload.step === "sending" ? "Uploading" : "Failed"}`;
+  }
+  if (memory.indexState === "indexing") return `${name}, Indexing`;
+  if (memory.indexState === "failed") return `${name}, Indexing Failed`;
+  return name;
 }
 
 /** One Memory on the wall, landing with DESIGN.md's Capture motion. */
@@ -99,16 +108,33 @@ export function MemoryTile(props: {
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onDelete: (memory: WallMemory) => void;
+  onRetryIndexing: (memory: WallMemory) => void;
 }) {
+  const { memory } = props;
+  // Inside the tile's frame, so it moves with the tile on press.
+  const badge = !memory.upload && (
+    <IndexBadge
+      memory={memory}
+      onRetry={() => props.onRetryIndexing(memory)}
+      // One tab stop per wall: the keyboard retries from Memory detail.
+      focusable={false}
+      plate={!!memory.image}
+      className="absolute right-2 bottom-2"
+    />
+  );
   return (
     <motion.div
       className="h-full w-full"
       // DESIGN.md → Motion: a new Capture fades and grows into place.
-      initial={props.memory.fresh ? { opacity: 0, scale: 0.96 } : false}
+      initial={memory.fresh ? { opacity: 0, scale: 0.96 } : false}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: DURATION.panel / 1000, ease: EASING.out }}
     >
-      {props.memory.image ? <ImageTile {...props} /> : <TextTile {...props} />}
+      {memory.image ? (
+        <ImageTile {...props} badge={badge} />
+      ) : (
+        <TextTile {...props} badge={badge} />
+      )}
     </motion.div>
   );
 }
@@ -122,11 +148,13 @@ function ImageTile({
   onRetry,
   onBroken,
   onDelete,
+  badge,
 }: {
   memory: WallMemory;
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onDelete: (memory: WallMemory) => void;
+  badge: ReactNode;
 }) {
   const image = memory.image!;
   const placeholder = placeholderUrl(image.thumbhash);
@@ -163,6 +191,7 @@ function ImageTile({
             className="absolute right-2 bottom-2"
           />
         )}
+        {badge}
       </div>
     </figure>
   );
@@ -255,12 +284,18 @@ function TextTile({
   memory,
   query,
   width,
+  badge,
 }: {
   memory: WallMemory;
   query: string;
   width: number;
+  badge: ReactNode;
 }) {
   const layout = tileLayout(memory, width);
+  // While a badge shows, the last line makes room for it; the height stays,
+  // so nothing on the wall moves when Indexing finishes.
+  const badged = !!badge && memory.indexState !== "searchable";
+  const bodyLines = badged && layout.body > 1 ? layout.body - 1 : layout.body;
   return (
     <figure className="group h-full cursor-pointer">
       <div
@@ -281,9 +316,11 @@ function TextTile({
         <p
           className={cn(
             "overflow-hidden text-sm break-words whitespace-pre-line [display:-webkit-box] [-webkit-box-orient:vertical]",
-            memory.title ? "text-ink-muted" : "text-ink"
+            memory.title ? "text-ink-muted" : "text-ink",
+            // A single line keeps clear of the badge (pinned right, even in RTL).
+            badged && bodyLines === layout.body && "pr-24"
           )}
-          style={{ WebkitLineClamp: layout.body }}
+          style={{ WebkitLineClamp: bodyLines }}
           dir="auto"
         >
           <Highlighted
@@ -291,6 +328,7 @@ function TextTile({
             query={query}
           />
         </p>
+        {badge}
       </div>
     </figure>
   );

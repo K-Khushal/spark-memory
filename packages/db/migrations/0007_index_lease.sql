@@ -1,0 +1,1 @@
+ALTER TABLE "memory" ADD COLUMN "index_lease_until" timestamp with time zone;

@@ -1,10 +1,11 @@
 // Drizzle schema. Tables arrive with their tickets (PLAN.md §4). The first
 // migration only enables the extensions search needs (ADR-0004).
-import { sql, type SQL } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
   customType,
+  date,
   index,
   integer,
   pgTable,
@@ -15,10 +16,12 @@ import {
 } from "drizzle-orm/pg-core";
 import {
   DEFAULT_PLAN,
+  type IndexFailure,
   type IndexState,
   type MemoryKind,
   type Plan,
   type Preservation,
+  type ProviderName,
 } from "@spark/core";
 
 // Better Auth tables (ADR-0007), as `npx auth generate` writes them for the
@@ -139,13 +142,45 @@ export const memory = pgTable(
       .notNull(),
     /** Goes up by one on every edit; an edit based on an older one is refused. */
     revision: integer("revision").default(1).notNull(),
+    /**
+     * Goes up by one whenever Indexing (re)starts. Indexing writes its result
+     * only if the run it loaded is still current, so a late or duplicate
+     * queue message can never overwrite newer work.
+     */
+    indexRun: integer("index_run").default(1).notNull(),
+    /**
+     * Set while one consumer works on the run, so a duplicate delivery skips
+     * instead of paying for the same AI call twice. Expires on its own if
+     * that consumer dies.
+     */
+    indexLeaseUntil: timestamp("index_lease_until", { withTimezone: true }),
+    /** The run the lease is for: a new run is never blocked by an old lease. */
+    indexLeaseRun: integer("index_lease_run"),
+    /**
+     * Which queue the current run belongs on (the hourly sweep re-sends it
+     * there). Every Capture sets fresh; the default is background, so rows
+     * left Indexing from before the queues existed never crowd fresh work.
+     */
+    indexPriority: text("index_priority")
+      .$type<"fresh" | "background">()
+      .default("background")
+      .notNull(),
+    /** The UTC day a Retry or opt-in last went first in line (once a day). */
+    indexFreshDay: date("index_fresh_day"),
+    /** Why Indexing failed; set only while `indexState` is failed. */
+    indexError: text("index_error").$type<IndexFailure>(),
+    /** AI opt-out (GLOSSARY.md, ADR-0011): never sent to any AI provider. */
+    aiOptOut: boolean("ai_opt_out").default(false).notNull(),
+    /** BCP-47 tag Indexing detected; picks the keyword index's language. */
+    language: text("language"),
     capturedAt: instant("captured_at"),
     updatedAt: instant("updated_at").$onUpdate(() => new Date()),
-    /** Keyword index (ADR-0004): title, then Capture note, then body. */
-    searchTsv: tsvector("search_tsv").generatedAlwaysAs(
-      (): SQL =>
-        sql`setweight(to_tsvector('english'::regconfig, coalesce(${memory.title}, '')), 'A') || setweight(to_tsvector('english'::regconfig, coalesce(${memory.captureNote}, '')), 'B') || setweight(to_tsvector('english'::regconfig, coalesce(${memory.body}, '')), 'C')`
-    ),
+    /**
+     * Keyword index (ADR-0004), weighted and language-aware. Written by a
+     * trigger (migrations/0006) from the Memory's own text and, unless it has
+     * AI opt-out, its memory_index row: never write it directly.
+     */
+    searchTsv: tsvector("search_tsv"),
   },
   (t) => [
     index("memory_user_captured_idx").on(
@@ -179,6 +214,8 @@ export const memoryFile = pgTable(
     width: integer("width"),
     height: integer("height"),
     thumbhash: text("thumbhash"),
+    /** An original's dominant colours (hex), most of the image first. */
+    palette: text("palette").array(),
     createdAt: instant("created_at"),
     storedAt: timestamp("stored_at", { withTimezone: true }),
   },
@@ -212,4 +249,61 @@ export const memoryWord = pgTable(
     index("memory_word_user_idx").on(t.userId),
     index("memory_word_trgm_idx").using("gin", t.word.op("gin_trgm_ops")),
   ]
+);
+
+/**
+ * What Indexing found for a Memory (PLAN.md §4): one row, replaced on each
+ * run, removed when the Memory gets AI opt-out. Feeds search_tsv and
+ * memory_word through triggers (migrations/0006).
+ */
+export const memoryIndex = pgTable("memory_index", {
+  memoryId: uuid("memory_id")
+    .primaryKey()
+    .references(() => memory.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  ocrText: text("ocr_text").notNull(),
+  entities: text("entities").array().notNull(),
+  tags: text("tags").array().notNull(),
+  model: text("model").notNull(),
+  indexedAt: instant("indexed_at"),
+});
+
+/**
+ * Every AI call Indexing made, with its cost, for the admin page (#32): per
+ * Memory and per person. Kept when the Memory is deleted (no foreign key),
+ * because the money was spent.
+ */
+export const aiCall = pgTable(
+  "ai_call",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    memoryId: uuid("memory_id").notNull(),
+    /** The UTC day, as the budget counts it. */
+    day: date("day").notNull(),
+    provider: text("provider").$type<ProviderName>().notNull(),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    costMicros: bigint("cost_micros", { mode: "number" }).notNull(),
+    /** True when the cost is a guess: the call timed out, so no usage came back. */
+    estimated: boolean("estimated").default(false).notNull(),
+    at: instant("at"),
+  },
+  (t) => [
+    index("ai_call_memory_idx").on(t.memoryId),
+    index("ai_call_user_day_idx").on(t.userId, t.day),
+  ]
+);
+
+/** AI spend per UTC day and provider: the global budget breaker reads it. */
+export const spendDay = pgTable(
+  "spend_day",
+  {
+    day: date("day").notNull(),
+    provider: text("provider").$type<ProviderName>().notNull(),
+    costMicros: bigint("cost_micros", { mode: "number" }).default(0).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.provider] })]
 );

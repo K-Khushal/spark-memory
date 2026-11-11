@@ -3,6 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
 import {
+  AiOptOut,
   FREE_ALLOWANCE,
   ImageCapture,
   MemoryEditRequest,
@@ -12,6 +13,7 @@ import { openLibrary, type Library } from "@spark/db";
 import type { AppEnv } from "./env";
 import { requireUser, withAuth, type UserVariables } from "./auth";
 import { fileStore, forClient, type FileStore } from "./files";
+import { enqueue } from "./indexing";
 
 /** The signed-in person's Library, for every route below. */
 const withLibrary = createMiddleware<
@@ -64,6 +66,9 @@ const limitBody = bodyLimit({
 /** Longer queries are cut: nobody types more to find a Memory. */
 const MAX_QUERY_CHARS = 300;
 
+/** At most this many Memories per poll; the wall polls the ones it shows Indexing. */
+const MAX_POLLED = 100;
+
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 const notFound = { ok: false, error: "not_found" } as const;
 
@@ -91,6 +96,21 @@ export const memories = new Hono<AppEnv>()
   .use("/search", ...signedIn)
   .use("/storage", ...signedIn)
   .get("/memories", async (c) => {
+    // `ids`: just these Memories, for the dashboard's poll while they Index.
+    const ids = c.req.query("ids");
+    if (ids !== undefined) {
+      const wanted = ids.split(",").filter((id) => UUID.test(id));
+      if (wanted.length > MAX_POLLED) {
+        return c.json({ ok: false, error: "invalid" } as const, 400);
+      }
+      const found = await c.var.library.getMany(wanted);
+      return c.json({
+        memories: await Promise.all(
+          found.map((m) => forClient(c.var.files, m))
+        ),
+        unfinished: [],
+      });
+    }
     const after = c.req.query("after");
     const page = await c.var.library.list(after ? { after } : {});
     if (!page) return c.json({ ok: false, error: "invalid" } as const, 400);
@@ -108,6 +128,10 @@ export const memories = new Hono<AppEnv>()
     const result = await c.var.library.capture(c.req.valid("json"));
     if ("conflict" in result) {
       return c.json({ ok: false, error: "conflict" } as const, 409);
+    }
+    // A retry of a Capture still Indexing enqueues again: duplicates are harmless.
+    if (result.memory.indexState === "indexing") {
+      await enqueue(c.env, result.memory);
     }
     const memory = await forClient(c.var.files, result.memory);
     return c.json(memory, result.created ? 201 : 200);
@@ -149,6 +173,31 @@ export const memories = new Hono<AppEnv>()
     if (memory === "missing" || memory === "expired") {
       return c.json({ ok: false, error: "not_uploaded" } as const, 409);
     }
+    if (memory.indexState === "indexing") {
+      await enqueue(c.env, memory);
+    }
+    return c.json(await forClient(c.var.files, memory));
+  })
+  /** Retry on a Failed Memory: Indexing again, first in line once a day. */
+  .post("/memories/:id/reindex", async (c) => {
+    const id = c.req.param("id");
+    const memory = UUID.test(id) && (await c.var.library.retryIndexing(id));
+    if (!memory) return c.json(notFound, 404);
+    if (memory.indexState === "indexing") {
+      await enqueue(c.env, memory);
+    }
+    return c.json(await forClient(c.var.files, memory));
+  })
+  /** AI opt-out (ADR-0011): on, nothing more goes to a provider; off, Indexing again. */
+  .put("/memories/:id/ai-opt-out", json(AiOptOut), async (c) => {
+    const id = c.req.param("id");
+    const { aiOptOut } = c.req.valid("json");
+    const memory =
+      UUID.test(id) && (await c.var.library.setAiOptOut(id, aiOptOut));
+    if (!memory) return c.json(notFound, 404);
+    if (!aiOptOut && memory.indexState === "indexing") {
+      await enqueue(c.env, memory);
+    }
     return c.json(await forClient(c.var.files, memory));
   })
   .get("/storage", async (c) =>
@@ -172,6 +221,10 @@ export const memories = new Hono<AppEnv>()
     if (!result) return c.json(notFound, 404);
     if ("stale" in result) {
       return c.json({ ok: false, error: "stale" } as const, 409);
+    }
+    // New text is Indexed again, behind fresh Captures.
+    if (changes.body !== undefined && result.indexState === "indexing") {
+      await enqueue(c.env, result);
     }
     return c.json(await forClient(c.var.files, result));
   })
