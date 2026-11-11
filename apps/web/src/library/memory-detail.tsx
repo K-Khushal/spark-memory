@@ -189,7 +189,7 @@ function Fields({
               </Button>
             )}
           </div>
-          {edit?.refused && (
+          {!!edit?.refused?.length && (
             <Button
               variant="quiet"
               size="sm"
