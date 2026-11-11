@@ -190,11 +190,13 @@ export function libraryActions({
   /**
    * Drop every stored version whose text the server already has, whichever
    * page owns the record. Unmatched text, including the owner's own unsaved
-   * fields, stays. An empty record is removed.
+   * fields, stays. An empty record is removed. A delayed older response
+   * must not drop fields or refused written on a newer revision.
    */
   function pruneStored(id: string, memory: Memory) {
     const kept = drafts.read(id);
     if (!kept) return;
+    if (kept.baseRevision > memory.revision) return;
     const fields =
       kept.fields && !saved(memory, kept.fields) ? kept.fields : undefined;
     const refused = withoutSaved(kept.refused, memory);

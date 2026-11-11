@@ -59,6 +59,7 @@ function fakeServer() {
   let failPatches = 0;
   let failGets = 0;
   let failRemoves = 0;
+  let snapshotGets = 0;
   const patch = vi.fn(
     async (_id: string, json: Record<string, unknown>, _init?: unknown) => {
       await patchGate.wait();
@@ -73,12 +74,14 @@ function fakeServer() {
     }
   );
   const get = vi.fn(async () => {
+    const snapshot = snapshotGets > 0 ? { ...row } : undefined;
+    if (snapshotGets > 0) snapshotGets--;
     await getGate.wait();
     if (failGets > 0) {
       failGets--;
       throw new Error("offline");
     }
-    return row;
+    return snapshot ?? row;
   });
   return {
     row: () => row,
@@ -97,6 +100,8 @@ function fakeServer() {
     failNext: () => void failPatches++,
     failNextGet: () => void failGets++,
     failNextRemove: () => void failRemoves++,
+    /** Next GET returns the row as it is when the request starts. */
+    holdNextGet: () => void snapshotGets++,
     /** Another tab edits the Memory. */
     editElsewhere(title: string) {
       row = { ...row, title, revision: row.revision + 1 };
@@ -522,6 +527,31 @@ describe("another tab's draft", () => {
     server.editElsewhere("Later");
     const again = setup({ server, drafts: draftStore(store) });
     expect(again.actions.openEdit(server.row())).toBeUndefined();
+  });
+
+  it("does not prune another page's newer unsaved revert when a delayed GET returns older matching text", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
+    server.holdNextGet();
+    server.pauseGet();
+    tabA.actions.refresh("m1");
+    await settle();
+    server.editElsewhere("Changed");
+    const tabB = setup({ server, drafts: draftStore(store) });
+    tabB.actions.editText(server.row(), text("Start"));
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "Start" },
+      baseRevision: 2,
+      page: tabB.drafts.page,
+    });
+    server.resumeGet();
+    await settle();
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "Start" },
+      baseRevision: 2,
+      page: tabB.drafts.page,
+    });
   });
 });
 
