@@ -2,7 +2,9 @@ import {
   openDatabase,
   SWEEP_BUDGET_MS,
   sweepAbandonedUploads,
+  withUploadLease,
 } from "@spark/db";
+import type { CronCalls } from "./cron-budget";
 import type { Bindings } from "./env";
 
 /** R2 accepts at most this many keys in one delete. */
@@ -17,27 +19,35 @@ const R2_DELETE_KEYS = 1_000;
  */
 export async function sweep(
   env: Bindings,
-  deadline = Date.now() + SWEEP_BUDGET_MS
+  deadline = Date.now() + SWEEP_BUDGET_MS,
+  calls?: CronCalls
 ) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
-    let total = 0;
-    for (;;) {
-      const swept = await sweepAbandonedUploads(db, {
-        // Exact keys captured under the lock. Aborting stops the next call;
-        // a call in flight can only delete keys from that set.
-        removeObjects: async (keys, signal) => {
-          for (let i = 0; i < keys.length; i += R2_DELETE_KEYS) {
-            if (signal.aborted)
-              throw new Error("sweep: storage delete aborted");
-            await env.FILES.delete(keys.slice(i, i + R2_DELETE_KEYS));
-          }
-        },
-        deadline,
-      });
-      total += swept;
-      if (!swept || Date.now() >= deadline) break;
-    }
+    const total = await withUploadLease(db, deadline, async () => {
+      let removed = 0;
+      for (;;) {
+        const swept = await sweepAbandonedUploads(db, {
+          // The lease above covers every pass of this invocation.
+          hold: false,
+          allowCall: calls ? () => calls.take("uploads") : undefined,
+          // Exact keys captured under the lock. Aborting stops the next call;
+          // a call in flight can only delete keys from that set.
+          removeObjects: async (keys, signal) => {
+            for (let i = 0; i < keys.length; i += R2_DELETE_KEYS) {
+              if (signal.aborted)
+                throw new Error("sweep: storage delete aborted");
+              await env.FILES.delete(keys.slice(i, i + R2_DELETE_KEYS));
+            }
+          },
+          deadline,
+        });
+        removed += swept;
+        if (!swept || Date.now() >= deadline) break;
+        if (calls && calls.remaining("uploads") === 0) break;
+      }
+      return removed;
+    });
     if (total) console.log(`sweep: removed ${total} unfinished uploads`);
     return total;
   } finally {

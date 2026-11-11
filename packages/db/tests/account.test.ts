@@ -11,6 +11,7 @@ import {
   openAccount,
   openDatabase,
   openLibrary,
+  SWEEP_CURSOR_KEY,
   schema,
   type Database,
 } from "../index";
@@ -380,6 +381,40 @@ describe.skipIf(!databaseUrl)("an account", () => {
       expect(await jobs.continueDeletion(ana, async () => {})).toBe("done");
       expect(await count("user", "id", ana)).toBe(0);
     });
+
+    it("clears the upload sweep cursor when it names the deleted person", async () => {
+      const ana = await person();
+      const ben = await person();
+      const cara = await person();
+      await db
+        .insert(schema.appSetting)
+        .values({ key: SWEEP_CURSOR_KEY, value: ben, updatedBy: "sweep" })
+        .onConflictDoUpdate({
+          target: schema.appSetting.key,
+          set: { value: ben, updatedBy: "sweep" },
+        });
+      await openAccount(db, ana).requestDeletion();
+      await age(ana);
+      expect(await accountJobs(db).continueDeletion(ana, async () => {})).toBe(
+        "done"
+      );
+      const kept = await db
+        .select({ value: schema.appSetting.value })
+        .from(schema.appSetting)
+        .where(eq(schema.appSetting.key, SWEEP_CURSOR_KEY));
+      expect(kept).toEqual([{ value: ben }]);
+
+      await db
+        .update(schema.appSetting)
+        .set({ value: cara })
+        .where(eq(schema.appSetting.key, SWEEP_CURSOR_KEY));
+      await openAccount(db, cara).requestDeletion();
+      await age(cara);
+      expect(await accountJobs(db).continueDeletion(cara, async () => {})).toBe(
+        "done"
+      );
+      expect(await count("app_setting", "key", SWEEP_CURSOR_KEY)).toBe(0);
+    });
   });
 
   describe("export", () => {
@@ -635,6 +670,67 @@ describe.skipIf(!databaseUrl)("an account", () => {
       expect(await openAccount(db, ana).export()).toMatchObject({
         state: "building",
       });
+    });
+
+    it("returns only as many stalled exports as the sweep can send", async () => {
+      const first = await claimed();
+      const second = await claimed();
+      await db
+        .update(schema.libraryExport)
+        .set({ leaseUntil: sql`now() - interval '1 minute'` })
+        .where(eq(schema.libraryExport.userId, first.ana));
+      await db
+        .update(schema.libraryExport)
+        .set({ leaseUntil: sql`now() - interval '1 minute'` })
+        .where(eq(schema.libraryExport.userId, second.ana));
+      const capped = await accountJobs(db).stalledExports(1);
+      expect(capped).toHaveLength(1);
+      const all = await accountJobs(db).stalledExports();
+      expect(all.length).toBeGreaterThan(1);
+      expect(all).toEqual(expect.arrayContaining([first.id, second.id]));
+    });
+
+    it("stops removing objects once its share of calls is spent", async () => {
+      const jobs = accountJobs(db);
+      const keys = [crypto.randomUUID(), crypto.randomUUID()].map(
+        (id) => `users/budget/${id}/exports/one.zip`
+      );
+      await db
+        .insert(schema.objectRemoval)
+        .values(
+          keys.map((key) => ({ key, dueAt: sql`now() - interval '1 minute'` }))
+        );
+      let left = 1;
+      let calls = 0;
+      try {
+        await jobs.sweepExports(
+          async () => {
+            calls += 1;
+          },
+          {
+            batch: 1,
+            allowCall: () => {
+              if (left <= 0) return false;
+              left -= 1;
+              return true;
+            },
+          }
+        );
+        expect(calls).toBe(1);
+        const staying = (
+          await Promise.all(
+            keys.map((key) => count("object_removal", "key", key))
+          )
+        ).reduce((sum, n) => sum + n, 0);
+        expect(staying).toBeGreaterThan(0);
+      } finally {
+        await db
+          .delete(schema.objectRemoval)
+          .where(eq(schema.objectRemoval.key, keys[0]!));
+        await db
+          .delete(schema.objectRemoval)
+          .where(eq(schema.objectRemoval.key, keys[1]!));
+      }
     });
 
     it("never builds for a person being deleted", async () => {

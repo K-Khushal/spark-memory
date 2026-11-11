@@ -847,6 +847,21 @@ const R2_DELETE_KEYS = 1_000;
  */
 export const SWEEP_CURSOR_KEY = "sweep_upload_cursor";
 
+/**
+ * One upload sweep at a time. A row, not a session advisory lock: the pool
+ * does not pin a connection, so a session lock taken on one query would not
+ * cover the next. It expires with the sweep budget, so a dead holder cannot
+ * block the next hour.
+ */
+export const SWEEP_LEASE_KEY = "sweep_upload_lease";
+
+/**
+ * Cursor save and lease release still happen after the deadline, so a run
+ * that stopped on time can record where it stopped and let the next one in.
+ * Bounded, so they cannot hang.
+ */
+const SWEEP_BOOKKEEPING_MS = 1_000;
+
 /** Bounds SQL and lock waits in this transaction to the time the sweep has left. */
 const localTimeouts = (tx: Pick<Database, "execute">, ms: number) => {
   const budget = `${Math.max(1, Math.floor(ms))}ms`;
@@ -943,10 +958,13 @@ const untilAborted = (work: Promise<void>, signal: AbortSignal) =>
  * cursor is remembered, so the next run continues after the owner this one
  * stopped on and a slow owner cannot take every hour. A storage failure is
  * skipped for the rest of this run. Nothing starts once `deadline` (epoch
- * ms) has passed. Each batch is one bulk delete of at most `keysPerDelete`
- * exact keys captured under the owner's lock. The delete is aborted when
- * the time left runs out, the transaction rolls back, and the rows stay.
- * Returns how many Memories went.
+ * ms) has passed, and every statement uses only the time still left.
+ * Each batch is one bulk delete of at most `keysPerDelete` exact keys
+ * captured under the owner's lock. The delete is aborted when the time
+ * left runs out, the transaction rolls back, and the rows stay. One sweep
+ * holds the lease; another invocation skips this pass. `allowCall`
+ * returning false stops the pass before another storage call. Returns how
+ * many Memories went.
  */
 export async function sweepAbandonedUploads(
   db: Database,
@@ -955,17 +973,102 @@ export async function sweepAbandonedUploads(
     owners = 50,
     keysPerDelete = R2_DELETE_KEYS,
     deadline = Date.now() + SWEEP_BUDGET_MS,
+    hold = true,
+    allowCall,
   }: {
     removeObjects: (keys: string[], signal: AbortSignal) => Promise<void>;
     owners?: number;
     /** Keys in one bulk delete. One call, at most 1,000 (R2's limit). */
     keysPerDelete?: number;
     deadline?: number;
+    /**
+     * When false, the caller already holds the upload lease (see
+     * `withUploadLease`) for a pass made of several calls.
+     */
+    hold?: boolean;
+    /** False once this invocation has spent its storage calls. */
+    allowCall?: () => boolean;
+  }
+): Promise<number> {
+  let token: string | undefined;
+  if (hold) {
+    try {
+      token = await takeSweepLease(db, deadline);
+    } catch {
+      console.error("sweep: lease stopped");
+      return 0;
+    }
+    if (!token) return 0;
+  }
+  try {
+    return await sweepHeld(db, {
+      removeObjects,
+      owners,
+      keysPerDelete,
+      deadline,
+      allowCall,
+    });
+  } finally {
+    if (token) {
+      await releaseSweepLease(db, token).catch(() => {
+        console.error("sweep: lease release stopped");
+      });
+    }
+  }
+}
+
+/**
+ * Holds the upload lease around `run`, so a cron pass of several sweeps
+ * cannot interleave with another invocation. Zero when another sweep holds
+ * the lease, or taking it exceeds the deadline.
+ */
+export async function withUploadLease(
+  db: Database,
+  deadline: number,
+  run: () => Promise<number>
+): Promise<number> {
+  let token: string | undefined;
+  try {
+    token = await takeSweepLease(db, deadline);
+  } catch {
+    console.error("sweep: lease stopped");
+    return 0;
+  }
+  if (!token) return 0;
+  try {
+    return await run();
+  } finally {
+    await releaseSweepLease(db, token).catch(() => {
+      console.error("sweep: lease release stopped");
+    });
+  }
+}
+
+async function sweepHeld(
+  db: Database,
+  {
+    removeObjects,
+    owners,
+    keysPerDelete,
+    deadline,
+    allowCall,
+  }: {
+    removeObjects: (keys: string[], signal: AbortSignal) => Promise<void>;
+    owners: number;
+    keysPerDelete: number;
+    deadline: number;
+    allowCall?: () => boolean;
   }
 ): Promise<number> {
   const skipped = new Set<string>();
   let total = 0;
-  let after = await readSweepCursor(db);
+  let after: string | undefined;
+  try {
+    after = await readSweepCursor(db, deadline);
+  } catch {
+    console.error("sweep: cursor read stopped");
+    return 0;
+  }
   let wrapped = false;
   while (Date.now() < deadline) {
     let due: { userId: string }[];
@@ -997,7 +1100,11 @@ export async function sweepAbandonedUploads(
         after = undefined;
         continue;
       }
-      await clearSweepCursor(db);
+      try {
+        await clearSweepCursor(db, deadline);
+      } catch {
+        console.error("sweep: cursor clear stopped");
+      }
       break;
     }
     let stop = false;
@@ -1011,6 +1118,7 @@ export async function sweepAbandonedUploads(
         continue;
       }
       let attempted = false;
+      let spent = false;
       try {
         for (;;) {
           if (Date.now() >= deadline) {
@@ -1035,6 +1143,9 @@ export async function sweepAbandonedUploads(
                 if (controller.signal.aborted || Date.now() >= deadline) {
                   throw new Error("sweep: storage delete aborted");
                 }
+                if (allowCall && !allowCall()) {
+                  throw new Error("sweep: call budget spent");
+                }
                 await untilAborted(
                   removeObjects(
                     batch.keys.slice(i, i + R2_DELETE_KEYS),
@@ -1046,6 +1157,14 @@ export async function sweepAbandonedUploads(
             } finally {
               clearTimeout(timer);
             }
+            // The storage call may have used the whole budget. The timeout
+            // set at the start does not shrink while this transaction waits,
+            // so the statements that follow get only the time still left.
+            const sqlLeft = deadline - Date.now();
+            if (sqlLeft <= 0 || controller.signal.aborted) {
+              throw new Error("sweep: storage delete aborted");
+            }
+            await localTimeouts(tx, sqlLeft);
             if (batch.keys.length) {
               await tx
                 .delete(objectRemoval)
@@ -1066,17 +1185,32 @@ export async function sweepAbandonedUploads(
           }
         }
       } catch (error) {
-        // Their rows stay. Skip them for this run. A timeout ends the run
-        // so the next hour starts at the following owner.
-        attempted = true;
-        skipped.add(userId);
-        console.error("sweep: one owner failed");
         const message = error instanceof Error ? error.message : "";
-        stop =
-          message.includes("storage delete aborted") || Date.now() >= deadline;
+        spent = message.includes("call budget spent");
+        if (spent) {
+          // Nothing committed for this batch. Leave the cursor so the next
+          // hour starts at this owner, instead of skipping what is left.
+          stop = true;
+        } else {
+          // Their rows stay. Skip them for this run. A timeout ends the run
+          // so the next hour starts at the following owner.
+          attempted = true;
+          skipped.add(userId);
+          console.error("sweep: one owner failed");
+          stop =
+            message.includes("storage delete aborted") ||
+            Date.now() >= deadline;
+        }
       }
-      after = userId;
-      if (attempted) await saveSweepCursor(db, userId);
+      if (!spent) after = userId;
+      if (attempted && !spent) {
+        try {
+          await saveSweepCursor(db, userId, deadline);
+        } catch {
+          console.error("sweep: cursor save stopped");
+          stop = true;
+        }
+      }
       if (stop) break;
     }
     if (stop) break;
@@ -1084,22 +1218,65 @@ export async function sweepAbandonedUploads(
   return total;
 }
 
-const readSweepCursor = async (db: Database): Promise<string | undefined> => {
-  const [row] = await db
-    .select({ value: appSetting.value })
-    .from(appSetting)
-    .where(eq(appSetting.key, SWEEP_CURSOR_KEY));
-  return row?.value;
-};
+const readSweepCursor = (db: Database, deadline: number) =>
+  db.transaction(async (tx) => {
+    const left = deadline - Date.now();
+    if (left <= 0) return undefined;
+    await localTimeouts(tx, left);
+    const [row] = await tx
+      .select({ value: appSetting.value })
+      .from(appSetting)
+      .where(eq(appSetting.key, SWEEP_CURSOR_KEY));
+    return row?.value;
+  });
 
-const saveSweepCursor = (db: Database, userId: string) =>
-  db
-    .insert(appSetting)
-    .values({ key: SWEEP_CURSOR_KEY, value: userId, updatedBy: "sweep" })
-    .onConflictDoUpdate({
-      target: appSetting.key,
-      set: { value: userId, updatedAt: sql`now()` },
-    });
+const saveSweepCursor = (db: Database, userId: string, deadline: number) =>
+  db.transaction(async (tx) => {
+    const left = deadline - Date.now();
+    await localTimeouts(tx, left > 0 ? left : SWEEP_BOOKKEEPING_MS);
+    await tx
+      .insert(appSetting)
+      .values({ key: SWEEP_CURSOR_KEY, value: userId, updatedBy: "sweep" })
+      .onConflictDoUpdate({
+        target: appSetting.key,
+        set: { value: userId, updatedAt: sql`now()` },
+      });
+  });
 
-const clearSweepCursor = (db: Database) =>
-  db.delete(appSetting).where(eq(appSetting.key, SWEEP_CURSOR_KEY));
+const clearSweepCursor = (db: Database, deadline: number) =>
+  db.transaction(async (tx) => {
+    const left = deadline - Date.now();
+    if (left <= 0) return;
+    await localTimeouts(tx, left);
+    await tx.delete(appSetting).where(eq(appSetting.key, SWEEP_CURSOR_KEY));
+  });
+
+const takeSweepLease = (db: Database, deadline: number) =>
+  db.transaction(async (tx) => {
+    const left = deadline - Date.now();
+    if (left <= 0) return undefined;
+    await localTimeouts(tx, left);
+    const token = crypto.randomUUID();
+    const seconds = Math.ceil(SWEEP_BUDGET_MS / 1000);
+    const { rows } = await tx.execute<{ value: string }>(sql`
+      insert into app_setting (key, value, updated_by)
+      values (${SWEEP_LEASE_KEY}, ${token}, 'sweep')
+      on conflict (key) do update
+      set value = excluded.value,
+          updated_by = excluded.updated_by,
+          updated_at = now()
+      where app_setting.updated_at < now() - make_interval(secs => ${seconds})
+      returning value
+    `);
+    return rows[0]?.value === token ? token : undefined;
+  });
+
+const releaseSweepLease = (db: Database, token: string) =>
+  db.transaction(async (tx) => {
+    await localTimeouts(tx, SWEEP_BOOKKEEPING_MS);
+    await tx
+      .delete(appSetting)
+      .where(
+        and(eq(appSetting.key, SWEEP_LEASE_KEY), eq(appSetting.value, token))
+      );
+  });

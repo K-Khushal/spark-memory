@@ -11,6 +11,8 @@ export {
   sweepAbandonedUploads,
   SWEEP_BUDGET_MS,
   SWEEP_CURSOR_KEY,
+  SWEEP_LEASE_KEY,
+  withUploadLease,
   UPLOAD_URL_MINUTES,
   UPLOAD_WINDOW_HOURS,
   type CaptureResult,

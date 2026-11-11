@@ -8,6 +8,7 @@ import {
   type Library,
 } from "@spark/db";
 import { forgetQueryVectors } from "@spark/search";
+import type { CronCalls } from "./cron-budget";
 import type { AccountMessage, Bindings, FileBucket } from "./env";
 import { fixedParts, zipStream, type ZipEntry } from "./zip";
 
@@ -215,27 +216,37 @@ export async function buildExport(
  * message was lost go back on the queue; expired and replaced exports'
  * ZIPs are removed.
  */
-export async function sweepAccounts(env: Bindings) {
+export async function sweepAccounts(env: Bindings, calls?: CronCalls) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
     const jobs = accountJobs(db);
-    const sends = [
-      ...(await jobs.deletionsPending()).map(
-        (userId) => ({ kind: "delete", userId }) as const
-      ),
-      ...(await jobs.stalledExports()).map(
-        (exportId) => ({ kind: "export", exportId }) as const
-      ),
-    ];
-    for (const body of sends) {
-      await env.ACCOUNT_QUEUE.send(body).catch(() =>
+    const pending = await jobs.deletionsPending(
+      calls ? calls.remaining("accounts") : undefined
+    );
+    const stalled = await jobs.stalledExports(
+      calls ? calls.remaining("exports") : undefined
+    );
+    let sent = 0;
+    for (const userId of pending) {
+      if (calls && !calls.take("accounts")) break;
+      await env.ACCOUNT_QUEUE.send({ kind: "delete", userId }).catch(() =>
         console.error("account: sweep send failed")
       );
+      sent += 1;
+    }
+    for (const exportId of stalled) {
+      if (calls && !calls.take("exports")) break;
+      await env.ACCOUNT_QUEUE.send({ kind: "export", exportId }).catch(() =>
+        console.error("account: sweep send failed")
+      );
+      sent += 1;
     }
     // Bounded per run: what is left goes on the next hourly run.
-    const expired = await jobs.sweepExports((keys) => env.FILES.delete(keys));
-    if (sends.length || expired) {
-      console.log(`account: sweep sent ${sends.length}, expired ${expired}`);
+    const expired = await jobs.sweepExports((keys) => env.FILES.delete(keys), {
+      allowCall: calls ? () => calls.take("accounts") : undefined,
+    });
+    if (sent || expired) {
+      console.log(`account: sweep sent ${sent}, expired ${expired}`);
     }
   } finally {
     await close();

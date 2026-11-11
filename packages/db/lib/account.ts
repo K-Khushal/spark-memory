@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import type { Database } from "./client";
+import { SWEEP_CURSOR_KEY } from "./library";
 import { ANONYMISED_USER, lockOwner, ownerPrefix } from "./owner";
 import {
   accountDeletion,
@@ -268,6 +269,14 @@ export function accountJobs(db: Database) {
             sql`starts_with(${objectRemoval.key}, ${ownerPrefix(userId)})`
           );
         await tx.delete(user).where(eq(user.id, userId));
+        await tx
+          .delete(appSetting)
+          .where(
+            and(
+              eq(appSetting.key, SWEEP_CURSOR_KEY),
+              eq(appSetting.value, userId)
+            )
+          );
         await anonymise(tx);
         // An admin's setting changes stay (values and history), not their id.
         await tx
@@ -392,7 +401,7 @@ export function accountJobs(db: Database) {
      * ids of builds whose message was lost or whose builder died, to send
      * again.
      */
-    async stalledExports(): Promise<string[]> {
+    async stalledExports(limit?: number): Promise<string[]> {
       // Never claimed for a while, or its lease ran out (one condition).
       const idle = or(
         and(
@@ -411,10 +420,12 @@ export function accountJobs(db: Database) {
             idle
           )
         );
-      const rows = await db
+      const query = db
         .select({ id: libraryExport.id })
         .from(libraryExport)
-        .where(and(eq(libraryExport.state, "building"), idle));
+        .where(and(eq(libraryExport.state, "building"), idle))
+        .orderBy(libraryExport.id);
+      const rows = limit === undefined ? await query : await query.limit(limit);
       return rows.map((r) => r.id);
     },
 
@@ -427,7 +438,16 @@ export function accountJobs(db: Database) {
      */
     async sweepExports(
       removeObjects: (keys: string[]) => Promise<void>,
-      { batch = 100, deadline = Date.now() + 20_000 } = {}
+      {
+        batch = 100,
+        deadline = Date.now() + 20_000,
+        allowCall,
+      }: {
+        batch?: number;
+        deadline?: number;
+        /** False once this invocation has spent its storage calls. */
+        allowCall?: () => boolean;
+      } = {}
     ): Promise<number> {
       await db.execute(sql`
         with expired as (
@@ -445,6 +465,7 @@ export function accountJobs(db: Database) {
           .orderBy(objectRemoval.dueAt)
           .limit(batch);
         if (!due.length) return removed;
+        if (allowCall && !allowCall()) return removed;
         const keys = due.map((d) => d.key);
         await removeObjects(keys);
         // Only records still due go (keys are never reused by a later
