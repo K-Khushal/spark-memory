@@ -15,7 +15,11 @@
       "outputs": []
     },
     "@spark/ui#test": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/index.html"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/web/index.html",
+        "$TURBO_ROOT$/apps/web/src/**"
+      ],
       "outputs": []
     },
     "@spark/db#test": {
