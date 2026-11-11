@@ -4,10 +4,12 @@ import { ANONYMISED_USER, lockOwner, ownerPrefix } from "./owner";
 import {
   accountDeletion,
   aiCall,
+  appSetting,
   libraryExport,
   memory,
   objectRemoval,
   session,
+  settingChange,
   user,
   verification,
   type ExportState,
@@ -265,51 +267,80 @@ export function accountJobs(db: Database) {
           );
         await tx.delete(user).where(eq(user.id, userId));
         await anonymise(tx);
+        // An admin's setting changes stay (values and history), not their id.
+        await tx
+          .update(appSetting)
+          .set({ updatedBy: ANONYMISED_USER })
+          .where(eq(appSetting.updatedBy, userId));
+        await tx
+          .update(settingChange)
+          .set({ changedBy: ANONYMISED_USER })
+          .where(eq(settingChange.changedBy, userId));
       });
       return "done";
     },
 
     /**
      * Takes an export to build and leases it, so a duplicate message skips.
-     * Undefined when it is gone, not building, leased, out of attempts, or
-     * its owner is being deleted.
+     * In the same transaction its ZIP is recorded for removal once the lease
+     * is over; only `finishExport` clears that record, so a ZIP whose build
+     * failed, or whose builder died after completing the upload, is always
+     * removed by the sweep. Undefined when it is gone, not building, leased,
+     * out of attempts, or its owner is being deleted.
      */
-    async claimExport(
+    claimExport: (
       id: string
-    ): Promise<{ userId: string; key: string } | undefined> {
-      const [row] = await db
-        .update(libraryExport)
-        .set({
-          attempts: sql`${libraryExport.attempts} + 1`,
-          leaseUntil: sql`now() + make_interval(mins => ${EXPORT_LEASE_MINUTES})`,
-        })
-        .where(
-          and(
-            eq(libraryExport.id, id),
-            eq(libraryExport.state, "building"),
-            lt(libraryExport.attempts, EXPORT_ATTEMPTS),
-            or(
-              sql`${libraryExport.leaseUntil} is null`,
-              sql`${libraryExport.leaseUntil} < now()`
-            ),
-            sql`not exists (select 1 from ${accountDeletion} d where d.user_id = ${libraryExport.userId})`
+    ): Promise<{ userId: string; key: string } | undefined> =>
+      db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(libraryExport)
+          .set({
+            attempts: sql`${libraryExport.attempts} + 1`,
+            leaseUntil: sql`now() + make_interval(mins => ${EXPORT_LEASE_MINUTES})`,
+          })
+          .where(
+            and(
+              eq(libraryExport.id, id),
+              eq(libraryExport.state, "building"),
+              lt(libraryExport.attempts, EXPORT_ATTEMPTS),
+              or(
+                sql`${libraryExport.leaseUntil} is null`,
+                sql`${libraryExport.leaseUntil} < now()`
+              ),
+              sql`not exists (select 1 from ${accountDeletion} d where d.user_id = ${libraryExport.userId})`
+            )
           )
-        )
-        .returning({ userId: libraryExport.userId });
-      return row && { userId: row.userId, key: exportKey(row.userId, id) };
-    },
+          .returning({ userId: libraryExport.userId });
+        if (!row) return undefined;
+        const key = exportKey(row.userId, id);
+        const dueAt = sql`now() + make_interval(mins => ${EXPORT_LEASE_MINUTES})`;
+        await tx
+          .insert(objectRemoval)
+          .values({ key, dueAt })
+          .onConflictDoUpdate({ target: objectRemoval.key, set: { dueAt } });
+        return { userId: row.userId, key };
+      }),
 
-    /** Built: ready to download. False when it was replaced meanwhile. */
-    async finishExport(id: string, bytes: number): Promise<boolean> {
-      const rows = await db
-        .update(libraryExport)
-        .set({ state: "ready", bytes, readyAt: sql`now()`, leaseUntil: null })
-        .where(
-          and(eq(libraryExport.id, id), eq(libraryExport.state, "building"))
-        )
-        .returning({ id: libraryExport.id });
-      return rows.length > 0;
-    },
+    /**
+     * Built: ready to download, and its ZIP no longer up for removal (one
+     * transaction). False when it was replaced meanwhile: the ZIP stays up
+     * for removal.
+     */
+    finishExport: (id: string, bytes: number): Promise<boolean> =>
+      db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(libraryExport)
+          .set({ state: "ready", bytes, readyAt: sql`now()`, leaseUntil: null })
+          .where(
+            and(eq(libraryExport.id, id), eq(libraryExport.state, "building"))
+          )
+          .returning({ userId: libraryExport.userId });
+        if (!row) return false;
+        await tx
+          .delete(objectRemoval)
+          .where(eq(objectRemoval.key, exportKey(row.userId, id)));
+        return true;
+      }),
 
     /**
      * A build failed: "retry" while attempts remain (the lease is released),
@@ -335,7 +366,14 @@ export function accountJobs(db: Database) {
      * again.
      */
     async stalledExports(): Promise<string[]> {
-      const idle = sql`(${libraryExport.leaseUntil} is null and ${libraryExport.requestedAt} < now() - make_interval(mins => ${EXPORT_LEASE_MINUTES})) or ${libraryExport.leaseUntil} < now()`;
+      // Never claimed for a while, or its lease ran out (one condition).
+      const idle = or(
+        and(
+          sql`${libraryExport.leaseUntil} is null`,
+          sql`${libraryExport.requestedAt} < now() - make_interval(mins => ${EXPORT_LEASE_MINUTES})`
+        ),
+        sql`${libraryExport.leaseUntil} < now()`
+      );
       await db
         .update(libraryExport)
         .set({ state: "failed", leaseUntil: null })
@@ -351,14 +389,6 @@ export function accountJobs(db: Database) {
         .from(libraryExport)
         .where(and(eq(libraryExport.state, "building"), idle));
       return rows.map((r) => r.id);
-    },
-
-    /**
-     * A ZIP nobody points at (its build was replaced meanwhile): recorded
-     * for the sweep to remove, never deleted outright and forgotten.
-     */
-    discardExport: async (key: string) => {
-      await db.insert(objectRemoval).values({ key }).onConflictDoNothing();
     },
 
     /**
@@ -390,7 +420,15 @@ export function accountJobs(db: Database) {
         if (!due.length) return removed;
         const keys = due.map((d) => d.key);
         await removeObjects(keys);
-        await db.delete(objectRemoval).where(inArray(objectRemoval.key, keys));
+        // A build that claimed meanwhile armed its record again: kept.
+        await db
+          .delete(objectRemoval)
+          .where(
+            and(
+              inArray(objectRemoval.key, keys),
+              sql`${objectRemoval.dueAt} <= now()`
+            )
+          );
         removed += keys.length;
         if (due.length < batch || Date.now() >= deadline) return removed;
       }

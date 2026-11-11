@@ -135,6 +135,22 @@ const dayAndTime = new Intl.DateTimeFormat(undefined, {
 
 const until = (at: string) => dayAndTime.format(new Date(at));
 
+/** Whether the time `at` (ISO) has come; re-renders when it does. */
+function useReached(at: string | undefined) {
+  const [now, setNow] = useState(() => Date.now());
+  const due = at ? new Date(at).getTime() : undefined;
+  useEffect(() => {
+    if (due === undefined || due <= now) return;
+    // At most a day ahead (setTimeout's limit is about 24.8 days).
+    const timer = setTimeout(
+      () => setNow(Date.now()),
+      Math.min(due - now, 86_400_000)
+    );
+    return () => clearTimeout(timer);
+  }, [due, now]);
+  return due !== undefined && due <= now;
+}
+
 /** "Today", "Yesterday" or a date, for when a device was last active. */
 function lastActive(at: string) {
   const days = Math.round(
@@ -245,6 +261,9 @@ function Export({ account }: { account: Account }) {
   const box = useRef<HTMLDivElement>(null);
   const current = account.export === "failed" ? null : account.export;
   const state = account.pending === "export" ? "building" : current?.state;
+  const ready = current?.state === "ready" ? current : undefined;
+  // A ready export can be replaced once the hourly cooldown has passed.
+  const canExportAgain = useReached(ready?.nextExportAt);
 
   // The button changes under the keyboard: keep focus on what replaced it.
   const hadFocus = useRef(false);
@@ -264,18 +283,18 @@ function Export({ account }: { account: Account }) {
         }
       }}
     >
-      {current?.state === "ready" ? (
+      {ready && state === "ready" && (
         <Button variant="primary" asChild>
-          {/* When it expires is in its name and tooltip, not a caption. */}
+          {/* When it expires is in its accessible name, not a caption. */}
           <a
             href={EXPORT_DOWNLOAD_URL}
-            aria-label={`Download, Until ${until(current.expiresAt)}`}
-            title={`Until ${until(current.expiresAt)}`}
+            aria-label={`Download, Until ${until(ready.expiresAt)}`}
           >
             <DownloadIcon aria-hidden /> Download
           </a>
         </Button>
-      ) : (
+      )}
+      {(state !== "ready" || canExportAgain) && (
         <Button
           variant="outline"
           aria-disabled={state === "building"}

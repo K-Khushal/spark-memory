@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { AccountDeletion, confirmsDeletion } from "@spark/core";
 import {
+  EXPORT_COOLDOWN_MINUTES,
   EXPORT_TTL_HOURS,
   exportKey,
   openAccount,
@@ -142,5 +143,9 @@ function shown(found: LibraryExport | undefined) {
   const { state, requestedAt, readyAt, bytes } = found;
   if (state !== "ready" || !readyAt) return { state, requestedAt };
   const expiresAt = new Date(readyAt.getTime() + EXPORT_TTL_HOURS * 3600_000);
-  return { state, requestedAt, bytes, expiresAt };
+  // When a fresh export may start (the ready one stays until then).
+  const nextExportAt = new Date(
+    requestedAt.getTime() + EXPORT_COOLDOWN_MINUTES * 60_000
+  );
+  return { state, requestedAt, bytes, expiresAt, nextExportAt };
 }

@@ -197,12 +197,9 @@ export async function buildExport(
       bytes += part.length;
     }
     await upload.complete(parts);
-    // Replaced or its owner deleted meanwhile: the ZIP is not wanted, and
-    // the sweep removes it (a record, so a crash here cannot orphan it).
-    if (!(await jobs.finishExport(exportId, bytes))) {
-      await jobs.discardExport(claim.key);
-      return "skipped";
-    }
+    // Replaced or its owner deleted meanwhile: the ZIP is not wanted. Its
+    // claim recorded it for removal, so the sweep takes it.
+    if (!(await jobs.finishExport(exportId, bytes))) return "skipped";
     return "ready";
   } catch (error) {
     await upload.abort().catch(() => {});

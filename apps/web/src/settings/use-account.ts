@@ -11,7 +11,14 @@ export type DeviceSession = {
 
 export type LibraryExport =
   | { state: "building" | "failed"; requestedAt: string }
-  | { state: "ready"; requestedAt: string; expiresAt: string; bytes: number }
+  | {
+      state: "ready";
+      requestedAt: string;
+      expiresAt: string;
+      bytes: number;
+      /** When a fresh export may start; the ready one stays until then. */
+      nextExportAt: string;
+    }
   | null;
 
 /** Same origin: the server redirects to a freshly signed storage URL. */

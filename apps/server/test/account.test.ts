@@ -283,9 +283,32 @@ describe.skipIf(!databaseUrl)("account", () => {
       expect(JSON.stringify(memories)).not.toContain("Not yours");
       expect(JSON.stringify(memories)).not.toContain('"key"');
 
-      // Not again within the hour.
+      // Not again within the hour; the screen is told when it can.
       const soon = await call("/api/account/export", { method: "POST" });
       expect(await soon.json()).toMatchObject({ error: "too_soon" });
+      const shown = (await exportOf(call)) as unknown as {
+        requestedAt: string;
+        nextExportAt: string;
+      };
+      expect(
+        new Date(shown.nextExportAt).getTime() -
+          new Date(shown.requestedAt).getTime()
+      ).toBe(60 * 60_000);
+      // Once it has passed, a new export starts while the ready one stays.
+      await db.query(
+        `update library_export set requested_at = now() - interval '61 minutes' where user_id = $1`,
+        [await userId(call)]
+      );
+      expect(
+        new Date(
+          ((await exportOf(call)) as unknown as { nextExportAt: string })
+            .nextExportAt
+        ).getTime()
+      ).toBeLessThanOrEqual(Date.now());
+      expect(
+        (await call("/api/account/export", { method: "POST" })).status
+      ).toBe(202);
+      await deliverAccount((m) => m.kind === "export");
     });
 
     it("tries a failed build again, then shows it Failed, and lets the person ask again", async () => {
