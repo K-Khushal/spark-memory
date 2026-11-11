@@ -273,7 +273,11 @@ export function imageCapture({
       hasVectors: false,
       revision: 1,
       capturedAt: now,
+      lastSavedAt: now,
       updatedAt: now,
+      sourceUrl: null,
+      pageTitle: null,
+      description: null,
       image: {
         ...urls,
         mime: prepared.mime,

@@ -19,9 +19,20 @@ export type MemoryContent = {
   title: string | null;
   captureNote: string | null;
   body: string | null;
+  /** A link's Source, and the page's own title and description. */
+  sourceUrl?: string | null;
+  pageTitle?: string | null;
+  description?: string | null;
 };
 
-const TAGS = ["memory", "title", "capture-note", "text"];
+const TAGS = [
+  "memory",
+  "title",
+  "capture-note",
+  "text",
+  "source",
+  "description",
+];
 /** A tag name with combining marks anywhere between its letters (`me\u0301mory`). */
 const marked = (name: string) => [...name].join("\\p{M}*");
 // Anything that could close or open a delimiter is taken out of the content,
@@ -77,8 +88,10 @@ export function memoryPart(memory: MemoryContent): string {
     return `<${tag}>\n${text}\n</${tag}>\n`;
   };
   return (
-    `<memory kind="${memory.kind === "image" ? "image" : "text"}">\n` +
-    field("title", memory.title) +
+    `<memory kind="${memory.kind === "image" || memory.kind === "link" ? memory.kind : "text"}">\n` +
+    field("title", memory.title ?? memory.pageTitle ?? null) +
+    field("source", memory.sourceUrl ?? null) +
+    field("description", memory.description ?? null) +
     field("capture-note", memory.captureNote) +
     field("text", memory.body) +
     "</memory>"

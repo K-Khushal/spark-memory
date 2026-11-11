@@ -13,12 +13,14 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import {
   DEFAULT_PLAN,
   type IndexFailure,
   type IndexState,
+  type LinkMetadata,
   type MemoryKind,
   type Plan,
   type Preservation,
@@ -131,8 +133,17 @@ export const memory = pgTable(
     /** The text of a text Memory. */
     body: text("body"),
     captureNote: text("capture_note"),
-    /** SHA-256 (hex) of a file Memory's Preserved copy, for duplicate detection later. */
+    /**
+     * SHA-256 (hex) of the Preserved copy: a file Memory's file, a link's
+     * readable text. Unique per person among links.
+     */
     contentHash: text("content_hash"),
+    /** A link Memory's Source, as the person gave it. */
+    sourceUrl: text("source_url"),
+    /** `normaliseUrl` of the Source (@spark/core): unique per person, so a page is saved once. */
+    sourceUrlNormalised: text("source_url_normalised"),
+    /** What gathering a link found (null until it ran): the page's own title, description… */
+    metadata: jsonb("metadata").$type<LinkMetadata>(),
     preservation: text("preservation")
       .$type<Preservation>()
       .default("preserved")
@@ -190,6 +201,8 @@ export const memory = pgTable(
     vectorsSpace: text("vectors_space"),
     vectorsRevision: integer("vectors_revision"),
     capturedAt: instant("captured_at"),
+    /** Captured again (a duplicate resurfaces the Memory): the wall's order. */
+    lastSavedAt: instant("last_saved_at"),
     /**
      * The first time Indexing makes this Memory Searchable. Later runs
      * (an edit, Retry, opt-out off) do not move it, so time to Searchable
@@ -216,6 +229,17 @@ export const memory = pgTable(
       t.id.desc()
     ),
     index("memory_search_tsv_idx").using("gin", t.searchTsv),
+    index("memory_user_saved_idx").on(
+      t.userId,
+      t.lastSavedAt.desc(),
+      t.id.desc()
+    ),
+    uniqueIndex("memory_user_source_idx")
+      .on(t.userId, t.sourceUrlNormalised)
+      .where(sql`${t.sourceUrlNormalised} is not null`),
+    uniqueIndex("memory_user_link_hash_idx")
+      .on(t.userId, t.contentHash)
+      .where(sql`${t.kind} = 'link' and ${t.contentHash} is not null`),
   ]
 );
 

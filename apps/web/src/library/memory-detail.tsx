@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { RotateCwIcon, Trash2Icon } from "lucide-react";
+import { ArrowUpRightIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
 import { FREE_ALLOWANCE } from "@spark/core";
 import {
   Button,
@@ -11,6 +11,7 @@ import {
 import type { Draft } from "./drafts";
 import { AiOptOutSwitch, IndexStatus, type IndexingProps } from "./index-state";
 import { textOf, type libraryActions } from "./library-actions";
+import { hostOf, isReferenceOnly } from "./memory-tile";
 import type { Memory } from "./use-library";
 import { MoreLikeThis } from "./why";
 
@@ -144,14 +145,18 @@ function Fields({
         dir="auto"
         className="mr-8 min-w-0 rounded-chip bg-transparent font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
       />
-      <Textarea
-        ref={bodyField}
-        value={shown.body}
-        onChange={(e) => change({ ...shown, body: e.target.value })}
-        aria-label="Text"
-        dir="auto"
-        className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0 text-base"
-      />
+      {memory.kind === "link" ? (
+        <Reader memory={memory} />
+      ) : (
+        <Textarea
+          ref={bodyField}
+          value={shown.body}
+          onChange={(e) => change({ ...shown, body: e.target.value })}
+          aria-label="Text"
+          dir="auto"
+          className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0 text-base"
+        />
+      )}
       <input
         value={shown.captureNote}
         onChange={(e) => change({ ...shown, captureNote: e.target.value })}
@@ -178,6 +183,9 @@ function Fields({
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <div className="flex items-center gap-2">
+            {isReferenceOnly(memory) && (
+              <span className="text-sm text-ink-muted">Reference Only</span>
+            )}
             <IndexStatus memory={memory} />
             {memory.indexState === "failed" && (
               <Button
@@ -209,5 +217,51 @@ function Fields({
         </div>
       </div>
     </DialogContent>
+  );
+}
+
+/** Only a web link is ever an href: the server keeps http(s) Sources alone, and so does this. */
+const webLink = (url: string | null) =>
+  url && /^https?:\/\//i.test(url) ? url : undefined;
+
+/**
+ * A link's reader view: the Source, then its Preserved copy as plain
+ * paragraphs (React text, so nothing from the page can run or load), or
+ * the page's description when it is Reference Only.
+ */
+function Reader({ memory }: { memory: Memory }) {
+  const text = memory.body ?? memory.description ?? "";
+  const href = webLink(memory.sourceUrl);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {href && (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          referrerPolicy="no-referrer"
+          dir="ltr"
+          className="inline-flex min-h-6 max-w-full items-center gap-1 self-start rounded-chip text-sm text-ink-muted transition-colors duration-(--duration-press) hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          <span className="truncate">{hostOf(memory)}</span>
+          <ArrowUpRightIcon className="size-4 shrink-0" aria-hidden />
+        </a>
+      )}
+      {text && (
+        <article
+          // Scrolls on its own, so the keyboard needs to reach it.
+          tabIndex={0}
+          aria-label="Text"
+          dir="auto"
+          className="max-h-[55dvh] min-h-0 flex-1 overflow-y-auto rounded-chip text-base break-words text-ink focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          {text.split(/\n{2,}/).map((paragraph, i) => (
+            <p key={i} className="mb-4 max-w-[65ch] last:mb-0">
+              {paragraph}
+            </p>
+          ))}
+        </article>
+      )}
+    </div>
   );
 }

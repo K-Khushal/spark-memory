@@ -10,14 +10,22 @@ export type IndexingTransport = {
   setAiOptOut: (id: string, on: boolean) => Promise<Memory>;
 };
 
-/** The fields Indexing changes; everything else on the wall stays as the wall has it. */
-const indexFields = ({
-  indexState,
-  indexError,
-  indexTitle,
-  aiOptOut,
-  hasVectors,
-}: Memory) => ({ indexState, indexError, indexTitle, aiOptOut, hasVectors });
+/**
+ * The fields Indexing changes; everything else on the wall stays as the
+ * wall has it. For a link that includes what gathering kept (its text is
+ * never edited, so it cannot clash with an edit in progress).
+ */
+const indexFields = (m: Memory) => ({
+  indexState: m.indexState,
+  indexError: m.indexError,
+  indexTitle: m.indexTitle,
+  aiOptOut: m.aiOptOut,
+  hasVectors: m.hasVectors,
+  preservation: m.preservation,
+  pageTitle: m.pageTitle,
+  description: m.description,
+  ...(m.kind === "link" && { body: m.body }),
+});
 
 /** Poll every 2 s, then back off by half each time nothing changed, up to 30 s. */
 export const POLL = { first: 2000, factor: 1.5, max: 30_000, batch: 100 };

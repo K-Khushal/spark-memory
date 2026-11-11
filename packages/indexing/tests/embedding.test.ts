@@ -87,6 +87,7 @@ function store({
       s.completed.push(embedding);
       return true;
     },
+    saveGathered: async () => undefined,
     loadForEmbedding: async () => embed,
     stillEmbeddable: async () => current(),
     writeVectors: async (_claim: Claim, embedding: Embedding) => {

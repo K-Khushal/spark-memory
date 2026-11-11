@@ -38,3 +38,17 @@ export { workersAi, type AiBinding } from "./lib/workers-ai";
 export { gemini, type GeminiOptions } from "./lib/gemini";
 export { fakeEmbedder, fakeProvider, FAKE_WORD } from "./lib/fake";
 export { SYSTEM } from "./lib/prompt";
+export {
+  createGatherer,
+  type Gathered,
+  type Gatherer,
+} from "./lib/link/gather";
+export {
+  dohResolver,
+  GATHER,
+  isPrivateAddress,
+  publicFetch,
+  type PublicResponse,
+  type Refusal,
+  type Resolve,
+} from "./lib/link/public-fetch";

@@ -23,6 +23,10 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   hasVectors: false,
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
+  lastSavedAt: "2026-11-10T10:00:00.000Z",
+  sourceUrl: null,
+  pageTitle: null,
+  description: null,
   updatedAt: "2026-11-10T10:00:00.000Z",
   image: null,
   ...over,
@@ -41,6 +45,7 @@ function setup(transport: Partial<Transport>, initial: WallMemory[] = []) {
     },
     transport: {
       create: vi.fn(),
+      createLink: vi.fn(),
       patch: vi.fn(),
       remove: vi.fn(),
       get: vi.fn(),
@@ -129,5 +134,75 @@ describe("search freshness", () => {
     deleted![1].onAutoClose();
     await settle();
     expect(onSaved).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("Capture of a link", () => {
+  const link = (over: Partial<Memory> = {}) =>
+    memory({
+      kind: "link",
+      body: null,
+      sourceUrl: "https://garden.test/basil",
+      preservation: "reference_only",
+      indexState: "indexing",
+      ...over,
+    });
+
+  it("lands a link Memory when the paste is one URL, and sends it as a link", async () => {
+    const createLink = vi.fn(async (input) => link({ id: input.id }));
+    const create = vi.fn();
+    const { actions, wall, notify, onCaptured } = setup({ createLink, create });
+    expect(
+      actions.capture("  https://garden.test/basil \n", "for spring")
+    ).toBe(true);
+    expect(wall()[0]).toMatchObject({
+      kind: "link",
+      sourceUrl: "https://garden.test/basil",
+      body: null,
+      indexState: "indexing",
+      captureNote: "for spring",
+    });
+    expect(notify).toHaveBeenCalledWith("Captured", expect.anything());
+    await settle();
+    expect(create).not.toHaveBeenCalled();
+    expect(createLink).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: wall()[0]!.id,
+        url: "https://garden.test/basil",
+        captureNote: "for spring",
+      })
+    );
+    expect(onCaptured).toHaveBeenCalledWith("link");
+  });
+
+  it("keeps text with a link inside it as text", async () => {
+    const create = vi.fn(async (input) => memory(input));
+    const { actions } = setup({ create });
+    actions.capture("see https://garden.test/basil");
+    await settle();
+    expect(create).toHaveBeenCalled();
+  });
+
+  it("puts the Memory already saved at the top and says so, when the page is in the Library", async () => {
+    const older = link({
+      id: crypto.randomUUID(),
+      indexState: "searchable",
+      lastSavedAt: "2026-11-01T10:00:00.000Z",
+    });
+    const newer = memory({ lastSavedAt: "2026-11-05T10:00:00.000Z" });
+    const resurfaced = { ...older, lastSavedAt: "2026-11-11T10:00:00.000Z" };
+    const { actions, wall, notify, onCaptured } = setup(
+      { createLink: vi.fn().mockResolvedValue(resurfaced) },
+      [newer, older]
+    );
+    actions.capture("https://garden.test/basil?utm_source=x");
+    expect(wall()).toHaveLength(3);
+    await settle();
+    expect(wall().map((m) => m.id)).toEqual([older.id, newer.id]);
+    expect(notify).toHaveBeenLastCalledWith(
+      "Already in Your Library",
+      expect.objectContaining({ action: undefined })
+    );
+    expect(onCaptured).not.toHaveBeenCalled();
   });
 });

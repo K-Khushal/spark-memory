@@ -57,6 +57,10 @@ const serverCopy = (id: string): Memory => ({
   hasVectors: false,
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
+  lastSavedAt: "2026-11-10T10:00:00.000Z",
+  sourceUrl: null,
+  pageTitle: null,
+  description: null,
   updatedAt: "2026-11-10T10:00:00.000Z",
   image: {
     url: "https://r2/original",
@@ -75,6 +79,7 @@ function setup(transport: Partial<Transport> = {}) {
   const calls: string[] = [];
   const full: Transport = {
     create: vi.fn(),
+    createLink: vi.fn(),
     patch: vi.fn(),
     get: vi.fn(),
     remove: vi.fn(async (id) => void calls.push(`remove ${id}`)),

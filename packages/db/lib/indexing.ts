@@ -4,6 +4,7 @@ import {
   embeddingSpace,
   type IndexFailure,
   type IndexingOutput,
+  type LinkMetadata,
   type MemoryKind,
   type ProviderName,
 } from "@spark/core";
@@ -130,6 +131,14 @@ const failed = (reason: IndexFailure) => ({
   indexLeaseUntil: null,
 });
 
+/** A link's Source and what gathering found, for Indexing to read. */
+const linkColumns = {
+  sourceUrl: memory.sourceUrl,
+  gathered: sql<boolean>`${memory.metadata} is not null`,
+  pageTitle: sql<string | null>`${memory.metadata}->>'title'`,
+  description: sql<string | null>`${memory.metadata}->>'description'`,
+};
+
 /** Only a Memory whose files are all stored can be Indexed. */
 const allStored = sql`not exists (select 1 from memory_file f where f.memory_id = ${memory.id} and f.stored_at is null)`;
 
@@ -194,10 +203,66 @@ export function indexingStore(db: Database) {
           body: memory.body,
           captureNote: memory.captureNote,
           aiOptOut: memory.aiOptOut,
+          ...linkColumns,
         });
       if (!row || row.kind !== "image") return row;
       const image = await imageOf(id);
       return image ? { ...row, image } : row;
+    },
+
+    /**
+     * What gathering a link found, kept once for the Claim's run: the
+     * page's metadata and, as the Preserved copy, its text (the Memory is
+     * Preserved with text, Reference only without). A content hash another
+     * of the owner's links already has is not kept, so both stay. Returns
+     * the Memory's content as Extraction should now see it; undefined when
+     * the run moved on or it was gathered already.
+     */
+    async saveGathered(
+      claim: Claim,
+      gathered: {
+        metadata: LinkMetadata;
+        text: string | null;
+        contentHash?: string;
+      }
+    ) {
+      const write = async (hash: string | null) => {
+        const [row] = await db
+          .update(memory)
+          .set({
+            metadata: gathered.metadata,
+            body: gathered.text,
+            preservation: gathered.text ? "preserved" : "reference_only",
+            contentHash: sql`case when exists (
+              select 1 from memory o where o.user_id = ${memory.userId}
+                and o.kind = 'link' and o.content_hash = ${hash}::text
+                and o.id <> ${memory.id}) then null else ${hash}::text end`,
+          })
+          .where(
+            and(
+              claimed(claim),
+              indexing,
+              eq(memory.kind, "link"),
+              sql`${memory.metadata} is null`
+            )
+          )
+          .returning({
+            title: memory.title,
+            body: memory.body,
+            captureNote: memory.captureNote,
+            ...linkColumns,
+          });
+        return row;
+      };
+      try {
+        return await write(gathered.contentHash ?? null);
+      } catch (error) {
+        // Another link with this text was gathered at the same moment.
+        if ((error as { cause?: { code?: string } }).cause?.code !== "23505") {
+          throw error;
+        }
+        return write(null);
+      }
     },
 
     /**

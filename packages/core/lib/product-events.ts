@@ -14,7 +14,7 @@ export const PRODUCT_EVENTS = {
 } as const;
 
 export type ProductEvent =
-  | { event: "save_success"; properties: { kind: "text" | "image" } }
+  | { event: "save_success"; properties: { kind: "text" | "image" | "link" } }
   | {
       event: "time_to_searchable";
       properties: { kind: MemoryKind; milliseconds: number };

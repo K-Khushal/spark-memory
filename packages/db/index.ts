@@ -16,6 +16,7 @@ export {
   type FileCheck,
   type FileUpload,
   type ImageCaptureResult,
+  type LinkCaptureResult,
   type MemoryFileInfo,
   type MemoryImage,
   type Library,

@@ -61,3 +61,11 @@ export {
   type ProductEvent,
   type ProductPayload,
 } from "./lib/product-events";
+export {
+  LINK_MAX_CHARS,
+  LinkCapture,
+  type LinkMetadata,
+  linkFromPaste,
+  normaliseUrl,
+  sourceHost,
+} from "./lib/link";

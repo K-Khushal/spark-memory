@@ -1,6 +1,10 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { InferResponseType } from "@spark/api-client";
-import { FREE_ALLOWANCE, type MemoryEditRequest } from "@spark/core";
+import {
+  FREE_ALLOWANCE,
+  linkFromPaste,
+  type MemoryEditRequest,
+} from "@spark/core";
 import type { toast } from "@spark/ui";
 import type { api } from "../api";
 import { captureProductAnalytics } from "../product-analytics";
@@ -32,6 +36,13 @@ export type Transport = ImageTransport & {
   create: (input: {
     id: string;
     body: string;
+    captureNote: string | null;
+    productAnalytics?: boolean;
+  }) => Promise<Memory>;
+  /** A pasted link; a different id back means the page was already saved. */
+  createLink: (input: {
+    id: string;
+    url: string;
     captureNote: string | null;
     productAnalytics?: boolean;
   }) => Promise<Memory>;
@@ -74,11 +85,23 @@ export type PendingEdit = Readonly<{
   fromStorage: boolean;
 }>;
 
-export const textOf = (memory: Memory): Draft => ({
-  title: memory.title ?? "",
-  body: memory.body ?? "",
-  captureNote: memory.captureNote ?? "",
-});
+/**
+ * What Memory detail edits. A link's text is its Preserved copy, never
+ * edited (body stays empty, so it is never sent), and its title starts as
+ * the page's own.
+ */
+export const textOf = (memory: Memory): Draft =>
+  memory.kind === "link"
+    ? {
+        title: memory.title ?? memory.pageTitle ?? "",
+        body: "",
+        captureNote: memory.captureNote ?? "",
+      }
+    : {
+        title: memory.title ?? "",
+        body: memory.body ?? "",
+        captureNote: memory.captureNote ?? "",
+      };
 
 /** `memory` showing `fields`, as the server will store them. */
 const trimmed = (d: Draft): Draft => ({
@@ -122,8 +145,9 @@ const withText = (memory: Memory, fields: Draft): Memory => ({
   captureNote: fields.captureNote.trim() || null,
 });
 
+/** The wall's order: last saved first (a duplicate Capture moves a Memory up). */
 export const newestFirst = (a: Memory, b: Memory) =>
-  b.capturedAt.localeCompare(a.capturedAt) || b.id.localeCompare(a.id);
+  b.lastSavedAt.localeCompare(a.lastSavedAt) || b.id.localeCompare(a.id);
 
 /**
  * Capture, edit and delete, optimistic: the wall changes first and rolls back
@@ -146,7 +170,7 @@ export function libraryActions({
   notify: typeof toast;
   onSaved: () => void;
   /** The server accepted a new Memory. Kind only, for the product event. */
-  onCaptured?: (kind: "text" | "image") => void;
+  onCaptured?: (kind: "text" | "image" | "link") => void;
 }) {
   /** Deletes waiting out their Undo window: id → send it now. */
   const pendingDeletes = new Map<string, () => void>();
@@ -265,6 +289,7 @@ export function libraryActions({
         : [...all, memory].sort(newestFirst)
     );
 
+  /** Captures pasted text, or a link when the paste is exactly one URL. */
   function capture(text: string, captureNote?: string): boolean {
     const body = text.trim();
     if (!body) {
@@ -275,14 +300,19 @@ export function libraryActions({
       notify("Too Long to Capture");
       return false;
     }
+    const url = linkFromPaste(body);
     const now = new Date().toISOString();
     send({
       id: crypto.randomUUID(),
-      kind: "text",
+      kind: url ? "link" : "text",
       title: null,
-      body,
+      body: url ? null : body,
+      sourceUrl: url ?? null,
+      pageTitle: null,
+      description: null,
       captureNote: captureNote?.trim() || null,
-      preservation: "preserved",
+      // A link keeps nothing until gathering does.
+      preservation: url ? "reference_only" : "preserved",
       indexState: "indexing",
       indexError: null,
       indexTitle: null,
@@ -290,6 +320,7 @@ export function libraryActions({
       hasVectors: false,
       revision: 1,
       capturedAt: now,
+      lastSavedAt: now,
       updatedAt: now,
       image: null,
       fresh: true,
@@ -338,12 +369,19 @@ export function libraryActions({
       all.some((m) => m.id === memory.id) ? all : [memory, ...all]
     );
     const created = inOrder(memory.id, () =>
-      transport.create({
-        id: memory.id,
-        body: memory.body ?? "",
-        captureNote: memory.captureNote,
-        productAnalytics: captureProductAnalytics(),
-      })
+      memory.kind === "link"
+        ? transport.createLink({
+            id: memory.id,
+            url: memory.sourceUrl ?? "",
+            captureNote: memory.captureNote,
+            productAnalytics: captureProductAnalytics(),
+          })
+        : transport.create({
+            id: memory.id,
+            body: memory.body ?? "",
+            captureNote: memory.captureNote,
+            productAnalytics: captureProductAnalytics(),
+          })
     );
 
     const undo = () => {
@@ -367,10 +405,13 @@ export function libraryActions({
 
     created.then(
       (saved) => {
+        onSaved();
+        if (memory.kind === "link" && saved.id !== memory.id) {
+          return resurface(memory.id, saved, toastId);
+        }
         // The server's copy (its Capture time) replaces the optimistic one,
         // unless Undo already took it off the wall.
-        onSaved();
-        onCaptured?.("text");
+        onCaptured?.(memory.kind === "link" ? "link" : "text");
         if (!pending.has(saved.id)) replaceLocal(saved);
       },
       () => {
@@ -382,6 +423,27 @@ export function libraryActions({
         });
       }
     );
+  }
+
+  /**
+   * The page was already in the Library: the optimistic Memory goes, the
+   * one saved before moves to the top (keeping any edit in progress), and
+   * the Capture's toast says so, without Undo (nothing new was made).
+   */
+  function resurface(sent: string, saved: Memory, toastId: string | number) {
+    const lastSavedAt = saved.lastSavedAt;
+    setMemories((all) => {
+      const kept = all.filter((m) => m.id !== sent && m.id !== saved.id);
+      const before = all.find((m) => m.id === saved.id);
+      const now =
+        before && pending.has(saved.id) ? { ...before, lastSavedAt } : saved;
+      return [...kept, now].sort(newestFirst);
+    });
+    notify("Already in Your Library", {
+      id: toastId,
+      duration: 4000,
+      action: undefined,
+    });
   }
 
   /**
@@ -576,7 +638,10 @@ export function libraryActions({
       return;
     }
     if (!edit.fields) return;
-    if (!edit.fields.body.trim()) notify("Text Can't Be Empty");
+    const kind = serverCopy.get(id)?.kind;
+    if (!edit.fields.body.trim() && kind !== "link") {
+      notify("Text Can't Be Empty");
+    }
     saveEdit(id);
   }
 
