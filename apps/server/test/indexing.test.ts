@@ -15,6 +15,8 @@ import {
   signedIn,
 } from "./worker";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 // Indexing through the Worker: Capture over HTTP, the queue consumer, real
 // Postgres. Providers are stubbed at their boundary: the Workers AI binding
 // and Gemini's HTTP API (fetch).
@@ -119,6 +121,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(queues.fresh.sent.map((m) => m.body)).toContainEqual({
       memoryId: memory.id,
       run: 1,
+      generation: expect.stringMatching(UUID),
       priority: "fresh",
     });
     // Its own words are searchable before Indexing finishes.
@@ -263,6 +266,31 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect((await read(call, memory.id)).indexState).toBe("indexing");
   });
 
+  it("ignores a dead letter sent for an earlier Memory with the same id", async () => {
+    const { call } = await signedIn();
+    const memory = await capture(call, "Deleted while its message was out");
+    const [old] = sentFor(memory.id);
+    await call(`/api/memories/${memory.id}`, { method: "DELETE" });
+    const again = await call("/api/memories", {
+      method: "POST",
+      json: { id: memory.id, body: "Saved again with the same id" },
+    });
+    expect(again.status).toBe(201);
+    const fresh = sentFor(memory.id).at(-1)!.body;
+    expect(fresh).toMatchObject({ run: 1 });
+    expect(fresh.generation).not.toBe(old!.body.generation);
+    await deliver("spark-index-failed-local", old!.body);
+    expect((await read(call, memory.id)).indexState).toBe("indexing");
+    // A dead letter sent before messages carried generations is the same
+    // shape as one for the new Memory: it is acknowledged and changes nothing.
+    const legacy = { memoryId: memory.id, run: 1, priority: "fresh" as const };
+    const message = await deliver("spark-index-failed-local", legacy);
+    expect(message.ack).toHaveBeenCalled();
+    expect((await read(call, memory.id)).indexState).toBe("indexing");
+    await deliver("spark-index-failed-local", fresh);
+    expect((await read(call, memory.id)).indexState).toBe("failed");
+  });
+
   it("re-indexes changed text in the background", async () => {
     const { call } = await signedIn();
     const memory = await capture(call, "First text");
@@ -276,6 +304,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(queues.background.sent.map((m) => m.body)).toContainEqual({
       memoryId: memory.id,
       run: 2,
+      generation: expect.stringMatching(UUID),
       priority: "background",
     });
     await drain(memory.id);
@@ -393,10 +422,8 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
   it("marks a Memory Failed when the queue gives up on its message", async () => {
     const { call } = await signedIn();
     const memory = await capture(call, "Dead letter");
-    const message = await deliver("spark-index-failed-local", {
-      memoryId: memory.id,
-      priority: "fresh",
-    });
+    const [sent] = sentFor(memory.id);
+    const message = await deliver("spark-index-failed-local", sent!.body);
     expect(message.ack).toHaveBeenCalled();
     expect((await read(call, memory.id)).indexState).toBe("failed");
   });

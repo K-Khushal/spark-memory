@@ -74,6 +74,7 @@ export function geminiEmbedding({
         new ProviderError("failed", {
           inputTokens: estimate.textTokens + estimate.imageTokens,
           outputTokens: 0,
+          imageTokens: estimate.imageTokens,
         });
       let res: Response;
       try {

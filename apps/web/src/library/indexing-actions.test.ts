@@ -237,9 +237,27 @@ describe("Index state on the wall", () => {
     expect(actions.pollable(wall())).toEqual([]);
     pending = true;
     expect(actions.pollable(wall())).toEqual([m.id]);
+    // After the render that showed it sent again.
+    actions.restartMisses(wall());
     pending = false;
     // Its misses start over: one more is not enough to drop it.
     await actions.poll([m.id]);
     expect(actions.pollable(wall())).toEqual([m.id]);
+  });
+
+  it("changes nothing while the wall renders, however often it asks", async () => {
+    const m = memory();
+    let pending = false;
+    const poll = vi.fn(async (): Promise<Memory[]> => []);
+    const { actions, wall } = setup({ poll }, [m], () => pending);
+    await actions.poll([m.id]);
+    await actions.poll([m.id]);
+    pending = true;
+    // A render (StrictMode renders twice, and may throw one away) asks while
+    // it is pending: asked after, but its misses are not touched.
+    expect(actions.pollable(wall())).toEqual([m.id]);
+    expect(actions.pollable(wall())).toEqual([m.id]);
+    pending = false;
+    expect(actions.pollable(wall())).toEqual([]);
   });
 });

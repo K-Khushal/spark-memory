@@ -121,15 +121,21 @@ export function indexingActions({
       if (fresh.some((m) => m.indexState !== "indexing")) onChanged();
     },
 
-    /** The ids worth asking after: Indexing on the wall, and still on the server. */
+    /**
+     * The ids worth asking after: Indexing on the wall, and still on the
+     * server (or sent again). Pure, so the wall can ask while it renders.
+     */
     pollable: (memories: WallMemory[]) =>
       indexingIds(
-        memories.filter((m) => {
-          // Sent again (Try Again): its misses start over.
-          if (isPending(m.id)) misses.delete(m.id);
-          return (misses.get(m.id) ?? 0) < GONE_AFTER;
-        })
+        memories.filter(
+          (m) => isPending(m.id) || (misses.get(m.id) ?? 0) < GONE_AFTER
+        )
       ),
+
+    /** Memories sent again (Try Again) start their misses over: call after a render, not in it. */
+    restartMisses(memories: WallMemory[]) {
+      for (const m of memories) if (isPending(m.id)) misses.delete(m.id);
+    },
 
     async retryIndexing(memory: Memory) {
       patch(memory.id, { indexState: "indexing", indexError: null });

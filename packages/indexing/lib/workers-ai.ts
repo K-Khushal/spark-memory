@@ -3,6 +3,7 @@ import {
   base64,
   CORRECTION,
   guessTokens,
+  lostCall,
   ProviderError,
   type Provider,
 } from "./provider";
@@ -38,6 +39,8 @@ function withTimeout<T>(ms: number, call: Promise<T>): Promise<T> {
 }
 
 const MAX_OUTPUT_TOKENS = 4096;
+/** What an image is guessed to cost when the reply does not say. */
+const IMAGE_TOKENS = 1000;
 
 /**
  * Gemma 4 on Workers AI (ADR-0005): first in the chain, zero data
@@ -52,7 +55,8 @@ export function workersAi(
   return {
     name: "workers-ai",
     model,
-    async extract({ system, user, image, correction }) {
+    async extract(request) {
+      const { system, user, image, correction } = request;
       const content = image
         ? [
             { type: "text", text: user },
@@ -97,11 +101,13 @@ export function workersAi(
         // The call runs on, and is billed, after we stop waiting: estimate
         // it at its most (every output token) so the budget counts it.
         if (error instanceof TimedOut) {
-          throw new ProviderError("failed", {
-            inputTokens:
-              guessTokens(system.length + user.length) + (image ? 1000 : 0),
-            outputTokens: MAX_OUTPUT_TOKENS,
-          });
+          throw new ProviderError(
+            "failed",
+            lostCall(request, {
+              imageTokens: IMAGE_TOKENS,
+              maxOutputTokens: MAX_OUTPUT_TOKENS,
+            })
+          );
         }
         const message = error instanceof Error ? error.message : "";
         // "JSON Mode couldn't be met" is invalid output: the chain corrects it.
@@ -120,7 +126,8 @@ export function workersAi(
         usage: {
           inputTokens:
             reply.usage?.prompt_tokens ??
-            guessTokens(system.length + user.length) + (image ? 1000 : 0),
+            guessTokens(system.length + user.length) +
+              (image ? IMAGE_TOKENS : 0),
           outputTokens:
             reply.usage?.completion_tokens ?? guessTokens(text.length),
         },

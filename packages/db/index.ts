@@ -47,8 +47,10 @@ export {
 } from "./lib/owner";
 export {
   indexingStore,
+  type Claim,
   type Embedding,
   type IndexingStore,
+  type IndexMessageTarget,
 } from "./lib/indexing";
 export {
   ADMIN_USERS_LIMIT,

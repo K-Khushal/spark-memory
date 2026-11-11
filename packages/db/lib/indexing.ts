@@ -23,6 +23,28 @@ import {
   type VectorKind,
 } from "./schema";
 
+/**
+ * The row a delivery took, as `load` read it (structurally @spark/indexing's
+ * Claim). The generation is the server's, set when the row is created, so a
+ * Memory deleted and saved again with the same id (by anyone) never matches.
+ */
+export type Claim = {
+  memoryId: string;
+  userId: string;
+  generation: string;
+  run: number;
+};
+
+/**
+ * What a queue message names: the Memory, and the run and generation it was
+ * sent for when it carries them (messages sent before they were do not).
+ */
+export type IndexMessageTarget = {
+  memoryId: string;
+  run?: number;
+  generation?: string;
+};
+
 /** A Memory's vectors as one model made them from one revision of its text. */
 export type Embedding = {
   model: string;
@@ -80,24 +102,46 @@ const lease = () => ({
   indexLeaseUntil: sql`now() + make_interval(mins => ${LEASE_MINUTES})`,
 });
 
+/** The row a message names, as far as it names it: only for taking work, never to write a result. */
+const named = ({ memoryId, run, generation }: IndexMessageTarget) =>
+  and(
+    eq(memory.id, memoryId),
+    run === undefined ? undefined : eq(memory.indexRun, run),
+    generation === undefined
+      ? undefined
+      : eq(memory.indexGeneration, generation)
+  );
+/**
+ * The row a Claim was loaded from, still at its run: the owner, the
+ * generation and the run, always all of them. Every Indexing write checks it.
+ */
+const claimed = ({ memoryId, userId, generation, run }: Claim) =>
+  and(
+    eq(memory.id, memoryId),
+    eq(memory.userId, userId),
+    eq(memory.indexGeneration, generation),
+    eq(memory.indexRun, run)
+  );
+const indexing = eq(memory.indexState, "indexing");
+
+const failed = (reason: IndexFailure) => ({
+  indexState: "failed" as const,
+  indexError: reason,
+  indexLeaseUntil: null,
+});
+
 /** Only a Memory whose files are all stored can be Indexed. */
 const allStored = sql`not exists (select 1 from memory_file f where f.memory_id = ${memory.id} and f.stored_at is null)`;
 
 /**
  * Indexing's side of the database, for the queue consumer (not scoped to a
  * person: it acts on queue messages). Structurally the `IndexStore` of
- * @spark/indexing. Every write names the run it read and changes nothing
- * once Indexing has moved on, so duplicate or late messages are harmless.
- * No transaction is held across an AI call: each write is its own.
+ * @spark/indexing. Every write names the Claim it loaded (owner, generation
+ * and run) and changes nothing once Indexing has moved on or the Memory is
+ * not the one loaded, so duplicate or late messages are harmless. No
+ * transaction is held across an AI call: each write is its own.
  */
 export function indexingStore(db: Database) {
-  const atRun = (id: string, run: number) =>
-    and(
-      eq(memory.id, id),
-      eq(memory.indexRun, run),
-      eq(memory.indexState, "indexing")
-    );
-
   /** An image Memory's original and thumbnail keys, for a model to read. */
   async function imageOf(id: string) {
     const files = await db
@@ -123,25 +167,26 @@ export function indexingStore(db: Database) {
 
   return {
     /**
-     * Takes a Memory waiting for Indexing (at `run`, when given) and leases
-     * it for LEASE_MINUTES. Undefined when it is gone, not waiting, at
-     * another run, or leased by another delivery of the same work.
+     * Takes a Memory waiting for Indexing (at `run` and `generation`, when
+     * given) and leases it for LEASE_MINUTES. Undefined when it is gone, not
+     * waiting, at another run or generation, or leased by another delivery
+     * of the same work.
      */
-    async load(id: string, run?: number) {
+    async load(id: string, run?: number, generation?: string) {
       const [row] = await db
         .update(memory)
         .set({ ...lease(), indexLeaseRun: sql`${memory.indexRun}` })
         .where(
           and(
-            eq(memory.id, id),
-            eq(memory.indexState, "indexing"),
-            run === undefined ? undefined : eq(memory.indexRun, run),
+            named({ memoryId: id, run, generation }),
+            indexing,
             unleased,
             allStored
           )
         )
         .returning({
           userId: memory.userId,
+          generation: memory.indexGeneration,
           kind: memory.kind,
           run: memory.indexRun,
           revision: memory.revision,
@@ -161,11 +206,11 @@ export function indexingStore(db: Database) {
      * been edited since (else the hourly sweep makes them again).
      */
     async complete(
-      id: string,
-      run: number,
+      claim: Claim,
       extraction: { output: IndexingOutput; model: string } | null,
       embedding?: Embedding
     ): Promise<boolean> {
+      const id = claim.memoryId;
       return db.transaction(async (tx) => {
         const [row] = await tx
           .update(memory)
@@ -177,7 +222,8 @@ export function indexingStore(db: Database) {
           })
           .where(
             and(
-              atRun(id, run),
+              claimed(claim),
+              indexing,
               // A result from a model is never kept for AI opt-out.
               extraction ? eq(memory.aiOptOut, false) : undefined
             )
@@ -210,13 +256,21 @@ export function indexingStore(db: Database) {
      * what Indexing found, under the same lease as `load`. Undefined when it
      * is gone, has AI opt-out, is not stale, or is taken.
      */
-    async loadForEmbedding(id: string, space: string) {
+    async loadForEmbedding(id: string, space: string, generation?: string) {
       const [row] = await db
         .update(memory)
         .set({ ...lease(), indexLeaseRun: sql`${memory.indexRun}` })
-        .where(and(eq(memory.id, id), embeddable, staleIn(space), unleased))
+        .where(
+          and(
+            named({ memoryId: id, generation }),
+            embeddable,
+            staleIn(space),
+            unleased
+          )
+        )
         .returning({
           userId: memory.userId,
+          generation: memory.indexGeneration,
           kind: memory.kind,
           run: memory.indexRun,
           revision: memory.revision,
@@ -241,43 +295,35 @@ export function indexingStore(db: Database) {
     },
 
     /**
-     * Whether the Memory is still Searchable at `run` and `revision`,
-     * without AI opt-out: asked right before the embedding call. Renews
-     * the lease.
+     * Whether the Memory loaded is still Searchable at the Claim's run and
+     * `revision`, without AI opt-out: asked right before the embedding
+     * call. Renews the lease.
      */
-    async stillEmbeddable(id: string, run: number, revision: number) {
+    async stillEmbeddable(claim: Claim, revision: number) {
       const [row] = await db
         .update(memory)
         .set(lease())
-        .where(
-          and(
-            eq(memory.id, id),
-            eq(memory.indexRun, run),
-            eq(memory.revision, revision),
-            embeddable
-          )
-        )
+        .where(and(claimed(claim), eq(memory.revision, revision), embeddable))
         .returning({ id: memory.id });
       return !!row;
     },
 
     /** New vectors for a Searchable Memory, if nothing changed since loading. */
-    async writeVectors(id: string, run: number, embedding: Embedding) {
+    async writeVectors(claim: Claim, embedding: Embedding) {
       return db.transaction(async (tx) => {
         const [row] = await tx
           .update(memory)
           .set({ indexLeaseUntil: null })
           .where(
             and(
-              eq(memory.id, id),
-              eq(memory.indexRun, run),
+              claimed(claim),
               eq(memory.revision, embedding.revision),
               embeddable
             )
           )
           .returning({ userId: memory.userId });
         if (!row) return false;
-        await replaceVectors(tx, id, row.userId, embedding);
+        await replaceVectors(tx, claim.memoryId, row.userId, embedding);
         return true;
       });
     },
@@ -285,40 +331,46 @@ export function indexingStore(db: Database) {
     /** Memories whose vectors in `space` are missing or stale, oldest first. */
     async staleVectors(space: string, limit: number = EMBEDDING.sweepBatch) {
       return db
-        .select({ id: memory.id })
+        .select({ id: memory.id, generation: memory.indexGeneration })
         .from(memory)
         .where(and(embeddable, staleIn(space), unleased))
         .orderBy(memory.updatedAt)
         .limit(limit);
     },
 
-    /**
-     * Failed with `reason`. Without `run` (a message the queue gave up on,
-     * from before runs were in messages) whatever run is current fails.
-     */
-    async fail(id: string, run: number | undefined, reason: IndexFailure) {
+    /** Failed with `reason`, if the Claim is still current. */
+    async fail(claim: Claim, reason: IndexFailure) {
       const rows = await db
         .update(memory)
-        .set({
-          indexState: "failed",
-          indexError: reason,
-          indexLeaseUntil: null,
-        })
-        .where(
-          run === undefined
-            ? and(eq(memory.id, id), eq(memory.indexState, "indexing"))
-            : atRun(id, run)
-        )
+        .set(failed(reason))
+        .where(and(claimed(claim), indexing))
+        .returning({ id: memory.id });
+      return rows.length > 0;
+    },
+
+    /**
+     * Failed as unavailable: a message the queue gave up on (the
+     * dead-letter queue), for the run and Memory it was sent for. A message
+     * from before generations were sent cannot say which Memory it was for
+     * (a new one with its id restarts at run 1), so it changes nothing: the
+     * hourly sweep sends whatever is still Indexing again.
+     */
+    async giveUp(message: IndexMessageTarget) {
+      if (message.generation === undefined) return false;
+      const rows = await db
+        .update(memory)
+        .set(failed("unavailable"))
+        .where(and(named(message), indexing))
         .returning({ id: memory.id });
       return rows.length > 0;
     },
 
     /** Gives the lease back, for the next attempt of the same message. */
-    async release(id: string, run: number) {
+    async release(claim: Claim) {
       await db
         .update(memory)
         .set({ indexLeaseUntil: null })
-        .where(and(eq(memory.id, id), eq(memory.indexRun, run)));
+        .where(claimed(claim));
     },
 
     /**
@@ -327,12 +379,12 @@ export function indexingStore(db: Database) {
      * mid-flight stops any call not yet made. Renews the lease, so a long
      * chain never loses it.
      */
-    async isCurrent(id: string, run: number): Promise<boolean> {
+    async isCurrent(claim: Claim): Promise<boolean> {
       // Still working on it: the lease runs from now again.
       const [row] = await db
         .update(memory)
         .set(lease())
-        .where(and(atRun(id, run), eq(memory.aiOptOut, false)))
+        .where(and(claimed(claim), indexing, eq(memory.aiOptOut, false)))
         .returning({ id: memory.id });
       return !!row;
     },
@@ -357,10 +409,12 @@ export function indexingStore(db: Database) {
      * send the event again. The duration is a bigint: an int overflows after
      * about 24 days. Nothing is returned when the Capture opted out, but the
      * timestamp is still set so a later change cannot emit a skewed event.
-     * Kind and duration only: no title, text or email.
+     * Kind and duration only: no title, text or email. Only the Memory of
+     * `generation` is claimed, never a later one with its id.
      */
     async claimFirstSearchable(
-      id: string
+      id: string,
+      generation: string
     ): Promise<
       { userId: string; kind: MemoryKind; milliseconds: number } | undefined
     > {
@@ -373,6 +427,7 @@ export function indexingStore(db: Database) {
         update memory
         set first_searchable_at = clock_timestamp()
         where id = ${id}
+          and index_generation = ${generation}
           and index_state = 'searchable'
           and first_searchable_at is null
         returning user_id, kind, product_analytics,
@@ -400,6 +455,8 @@ export function indexingStore(db: Database) {
       userId: string;
       /** Null for a search query's embedding. */
       memoryId: string | null;
+      /** The Memory's generation, so the row names it even once the id is reused. */
+      memoryGeneration?: string;
       provider: ProviderName;
       model: string;
       usage: { inputTokens: number; outputTokens: number };
@@ -412,6 +469,7 @@ export function indexingStore(db: Database) {
         await tx.insert(aiCall).values({
           userId: sql`case when exists (select 1 from ${user} where ${user.id} = ${call.userId}) and not exists (select 1 from ${accountDeletion} where ${accountDeletion.userId} = ${call.userId}) then ${call.userId} else ${ANONYMISED_USER} end`,
           memoryId: call.memoryId,
+          memoryGeneration: call.memoryGeneration ?? null,
           day: today,
           provider: call.provider,
           model: call.model,
@@ -444,12 +502,18 @@ export function indexingStore(db: Database) {
       minutes = 60,
       limit = 500
     ): Promise<
-      { id: string; run: number; priority: "fresh" | "background" }[]
+      {
+        id: string;
+        run: number;
+        generation: string;
+        priority: "fresh" | "background";
+      }[]
     > {
       return db
         .select({
           id: memory.id,
           run: memory.indexRun,
+          generation: memory.indexGeneration,
           priority: memory.indexPriority,
         })
         .from(memory)

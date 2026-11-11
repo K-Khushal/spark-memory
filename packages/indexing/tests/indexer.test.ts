@@ -7,6 +7,7 @@ import {
   ProviderError,
   SYSTEM,
   workersAi,
+  type Claim,
   type ExtractRequest,
   type IndexStore,
   type PendingMemory,
@@ -44,6 +45,7 @@ function scripted(
 
 const textMemory = (over: Partial<PendingMemory> = {}): PendingMemory => ({
   userId: "u1",
+  generation: "g1",
   run: 1,
   revision: 1,
   kind: "text",
@@ -73,14 +75,14 @@ function memoryStore(
     release: async () => {
       store.released++;
     },
-    isCurrent: async (_id: string, run: number) =>
+    isCurrent: async ({ run }: Claim) =>
       run === store.memory?.run && !store.memory.aiOptOut,
-    complete: vi.fn(async (_id: string, run: number, extraction: unknown) => {
+    complete: vi.fn(async ({ run }: Claim, extraction: unknown) => {
       if (run !== store.memory?.run) return false;
       store.completed.push(extraction);
       return true;
     }),
-    fail: vi.fn(async (_id: string, run: number, reason: string) => {
+    fail: vi.fn(async ({ run }: Claim, reason: string) => {
       if (run !== store.memory?.run) return false;
       store.failed.push(reason);
       return true;
