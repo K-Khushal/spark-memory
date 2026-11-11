@@ -31,13 +31,8 @@ import {
 import { EmptyLibrary, MemoryVisual } from "./memory-visual";
 import { QuickPreview } from "./quick-preview";
 import { Tile, captionHeight } from "./tile";
-import {
-  DATA_SETS,
-  useLibrary,
-  useSearchShortcut,
-  type DataSet,
-  type LiveMemory,
-} from "./use-library";
+import { DATA_SETS, type DataSet } from "./data-sets";
+import { useLibrary, useSearchShortcut, type LiveMemory } from "./use-library";
 
 type Filter = { kind?: MemoryKind; category?: string; colour?: string };
 
@@ -93,7 +88,7 @@ export function LibraryPage({ data }: { data: DataSet }) {
     <button
       type="button"
       onClick={openSearch}
-      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-transform duration-[120ms] ease-out active:scale-[0.99]"
+      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-transform duration-(--duration-press) ease-out active:scale-[0.99]"
     >
       <SearchIcon className="size-4 shrink-0" aria-hidden />
       <span className={cn("min-w-0 flex-1 truncate", query && "text-ink")}>
@@ -376,7 +371,7 @@ function NavItem({
         aria-pressed={active}
         onClick={onClick}
         className={cn(
-          "flex h-8 w-full items-center rounded-control px-2 text-left text-sm text-ink-muted transition-colors duration-[120ms] hover:text-ink",
+          "flex h-8 w-full items-center rounded-control px-2 text-left text-sm text-ink-muted transition-colors duration-(--duration-press) hover:text-ink",
           active && "bg-surface font-medium text-ink shadow-raised"
         )}
       >

@@ -140,7 +140,7 @@ export function MemoryTile(props: {
 }
 
 const tileFrame =
-  "relative h-full overflow-hidden rounded-tile transition-[transform,background-color] duration-[120ms] ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]";
+  "relative h-full overflow-hidden rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]";
 
 /** An image Memory: its thumbnail over its ThumbHash, and its upload while it lasts. */
 function ImageTile({
@@ -272,7 +272,7 @@ export function UploadBadge({
           pathLength={100}
           strokeDasharray="100"
           strokeDashoffset={100 - Math.max(4, percent)}
-          className="transition-[stroke-dashoffset] duration-[180ms] ease-out"
+          className="transition-[stroke-dashoffset] duration-(--duration-small) ease-out"
         />
       </svg>
     </span>
