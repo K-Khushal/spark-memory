@@ -32,7 +32,7 @@ const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin",
   beforeLoad: async () => {
-    const { session, admin } = await requireSession();
+    const { session, admin } = await requireSession({ freshAdmin: true });
     if (!admin) throw redirect({ to: "/" });
     return { session };
   },

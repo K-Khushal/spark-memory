@@ -4,7 +4,12 @@ import type { InferResponseType } from "@spark/api-client";
 import { Button, Input, Toaster, cn, toast } from "@spark/ui";
 import { api } from "../api";
 import { startAnalytics, stopAnalytics } from "../analytics";
-import { authClient, clearAdminCache, type AppSession } from "../auth";
+import {
+  authClient,
+  clearAdminCache,
+  noteAdminStatus,
+  type AppSession,
+} from "../auth";
 import { DeskSidebar } from "../shell";
 import {
   dollarsToMicros,
@@ -45,6 +50,8 @@ export function AdminPage({ session }: { session: AppSession }) {
       .then(async ([summaryRes, usersRes]) => {
         if (cancelled) return;
         if (!summaryRes.ok || !usersRes.ok) {
+          noteAdminStatus(summaryRes.status);
+          noteAdminStatus(usersRes.status);
           setFailed(true);
           return;
         }
@@ -88,6 +95,7 @@ export function AdminPage({ session }: { session: AppSession }) {
     try {
       const res = await api.api.admin.budget.$put({ json: { limitMicros } });
       if (!res.ok) {
+        noteAdminStatus(res.status);
         toast("Budget Did Not Save");
         return;
       }

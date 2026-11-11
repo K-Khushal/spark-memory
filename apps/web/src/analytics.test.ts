@@ -38,6 +38,35 @@ describe("analytics identity", () => {
     expect(clients[0]?.identify).not.toHaveBeenCalledWith("bo");
   });
 
+  it("does not let a late load from the previous sign-in reset the current person", async () => {
+    const shared = {
+      identify: vi.fn(),
+      reset: vi.fn(),
+      capture: vi.fn(),
+    };
+    let resolveA: (client: typeof shared) => void = () => {};
+    let resolveB: (client: typeof shared) => void = () => {};
+    let calls = 0;
+    const analytics = createAnalytics(
+      () =>
+        new Promise((resolve) => {
+          calls += 1;
+          if (calls === 1) resolveA = resolve;
+          else resolveB = resolve;
+        })
+    );
+
+    analytics.start("A");
+    analytics.stop();
+    analytics.start("B");
+    resolveB(shared);
+    await vi.waitFor(() => expect(shared.identify).toHaveBeenCalledWith("B"));
+    resolveA(shared);
+    await Promise.resolve();
+    expect(shared.reset).not.toHaveBeenCalled();
+    expect(shared.identify).not.toHaveBeenCalledWith("A");
+  });
+
   it("resets a client that arrives after stop", async () => {
     let finish: (client: {
       identify: () => void;

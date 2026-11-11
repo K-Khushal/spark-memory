@@ -114,8 +114,8 @@ export function allowOutgoingProductEvent<
   },
 >(event: T | null): T | null {
   if (!event) return null;
+  if (!Object.hasOwn(EVENT_PROPERTIES, event.event)) return null;
   const allowed = EVENT_PROPERTIES[event.event as ProductPayload["event"]];
-  if (!allowed) return null;
   const source = event.properties ?? {};
   const properties: Record<string, unknown> = {};
   if (typeof source.token === "string") properties.token = source.token;

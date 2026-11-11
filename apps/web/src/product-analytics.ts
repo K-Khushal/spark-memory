@@ -43,9 +43,11 @@ export function createAnalytics(
   let client: Client | null = null;
   let starting = false;
   let pendingId: string | null = null;
+  let generation = 0;
 
   return {
     stop() {
+      generation += 1;
       client?.reset();
       client = null;
       starting = false;
@@ -59,20 +61,26 @@ export function createAnalytics(
       }
       if (starting) return;
       if (!captureProductAnalytics()) return;
+      const token = generation;
       starting = true;
       void load(userId)
         .then((next) => {
-          if (!starting || !pendingId) {
-            next?.reset();
+          if (token !== generation) {
+            // A newer sign-in owns the client. Resetting this one would
+            // clear that person when both loads share PostHog.
+            if (next && next !== client && !starting && client === null) {
+              next.reset();
+            }
             return;
           }
           client = next;
-          client?.identify(pendingId);
+          if (client && pendingId) client.identify(pendingId);
         })
         .catch(() => {
           // Product analytics never blocks the Library.
         })
         .finally(() => {
+          if (token !== generation) return;
           starting = false;
         });
     },

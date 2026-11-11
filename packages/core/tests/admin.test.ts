@@ -58,9 +58,11 @@ describe("daily budget", () => {
     expect(effectiveDailyBudgetMicros("0")).toBe(0);
     expect(effectiveDailyBudgetMicros("nope")).toBe(INDEXING.dailyBudgetMicros);
     expect(effectiveDailyBudgetMicros("-5")).toBe(INDEXING.dailyBudgetMicros);
-    expect(
-      effectiveDailyBudgetMicros(String(DAILY_BUDGET_MAX_MICROS + 1))
-    ).toBe(INDEXING.dailyBudgetMicros);
+  });
+
+  it("clamps a stored value above the cap to $20", () => {
+    expect(effectiveDailyBudgetMicros("20000001")).toBe(20_000_000);
+    expect(effectiveDailyBudgetMicros("100000000000")).toBe(20_000_000);
   });
 
   it("caps the editable budget at $20 a day", () => {
@@ -163,6 +165,12 @@ describe("product events", () => {
     ).toBeNull();
     expect(
       allowOutgoingProductEvent({ event: "$pageview", properties: {} })
+    ).toBeNull();
+    expect(
+      allowOutgoingProductEvent({ event: "toString", properties: {} })
+    ).toBeNull();
+    expect(
+      allowOutgoingProductEvent({ event: "constructor", properties: {} })
     ).toBeNull();
   });
 

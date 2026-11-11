@@ -11,7 +11,8 @@ export const DAILY_BUDGET_MAX_MICROS = 20_000_000;
 
 /**
  * The budget the breaker uses. A missing or unreadable stored value falls
- * back to INDEXING.dailyBudgetMicros ($1).
+ * back to INDEXING.dailyBudgetMicros ($1). A stored value above the cap
+ * clamps to the cap, so an old row cannot raise the breaker.
  */
 export function effectiveDailyBudgetMicros(
   stored: string | null | undefined
@@ -20,7 +21,7 @@ export function effectiveDailyBudgetMicros(
     return INDEXING.dailyBudgetMicros;
   const micros = Number(stored);
   if (!Number.isSafeInteger(micros) || micros > DAILY_BUDGET_MAX_MICROS) {
-    return INDEXING.dailyBudgetMicros;
+    return DAILY_BUDGET_MAX_MICROS;
   }
   return micros;
 }
