@@ -7,7 +7,7 @@ import {
   type AuthConfig,
 } from "@spark/auth";
 import { openDatabase, type Database } from "@spark/db";
-import type { Plan } from "@spark/core";
+import { isAdmin, type Plan } from "@spark/core";
 import type { AppEnv, Bindings } from "./env";
 
 export type SignedInUser = {
@@ -116,6 +116,28 @@ export const requireUser = createMiddleware<
   });
   if (!session) {
     return c.json({ ok: false, error: "unauthorized" } as const, 401);
+  }
+  const { id, email, name, image, plan } = session.user;
+  c.set("user", { id, email, name, image, plan: plan as Plan });
+  await next();
+});
+
+/**
+ * Admin routes. 401 when there is no session, 403 for anyone whose address
+ * is not in ADMIN_EMAILS. The role is that list: nothing in the database
+ * grants it, and no route can change it.
+ */
+export const requireAdmin = createMiddleware<
+  AppEnv & { Variables: UserVariables }
+>(async (c, next) => {
+  const session = await c.var.auth.api.getSession({
+    headers: c.req.raw.headers,
+  });
+  if (!session) {
+    return c.json({ ok: false, error: "unauthorized" } as const, 401);
+  }
+  if (!isAdmin(session.user.email, c.env.ADMIN_EMAILS)) {
+    return c.json({ ok: false, error: "forbidden" } as const, 403);
   }
   const { id, email, name, image, plan } = session.user;
   c.set("user", { id, email, name, image, plan: plan as Plan });

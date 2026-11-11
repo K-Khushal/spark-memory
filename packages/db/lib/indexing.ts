@@ -1,5 +1,11 @@
 import { and, eq, lt, sql } from "drizzle-orm";
-import type { IndexFailure, IndexingOutput, ProviderName } from "@spark/core";
+import type {
+  IndexFailure,
+  IndexingOutput,
+  MemoryKind,
+  ProviderName,
+} from "@spark/core";
+import { readDailyBudgetMicros } from "./admin";
 import type { Database } from "./client";
 import { aiCall, memory, memoryFile, memoryIndex, spendDay } from "./schema";
 
@@ -177,6 +183,30 @@ export function indexingStore(db: Database) {
         .from(spendDay)
         .where(eq(spendDay.day, today));
       return Number(row?.micros ?? 0);
+    },
+
+    /** The admin's daily budget, or the config default when they have not set one. */
+    dailyBudgetMicros: () => readDailyBudgetMicros(db),
+
+    /**
+     * How long a Memory that is already Searchable took, for the product
+     * event. Kind and duration only: no title, text or email.
+     */
+    async searchableTiming(
+      id: string
+    ): Promise<
+      { userId: string; kind: MemoryKind; milliseconds: number } | undefined
+    > {
+      const [row] = await db
+        .select({
+          userId: memory.userId,
+          kind: memory.kind,
+          milliseconds: sql<number>`greatest(0, floor(extract(epoch from (clock_timestamp() - ${memory.capturedAt})) * 1000))::int`,
+        })
+        .from(memory)
+        .where(and(eq(memory.id, id), eq(memory.indexState, "searchable")));
+      if (!row) return undefined;
+      return { ...row, milliseconds: Number(row.milliseconds) };
     },
 
     /** One AI call: its own row, and today's total, added to atomically. */

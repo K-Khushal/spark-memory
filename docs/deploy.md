@@ -116,6 +116,8 @@ Set each with `cd apps/server && npx wrangler secret put <NAME> --env dev`, then
 | `R2_ACCESS_KEY_ID`     | yes      | the R2 API token from step 2, for this environment's bucket                                                                                        |
 | `R2_SECRET_ACCESS_KEY` | yes      | the same R2 API token                                                                                                                              |
 | `GEMINI_API_KEY`       | no       | Google AI Studio → API keys, in a Cloud project with billing on (step 2, Gemini); used only with `GEMINI_PAID_TIER` set to `"true"`                |
+| `ADMIN_EMAILS`         | no       | Comma-separated owner addresses. Grants the admin role. Unset means nobody is an admin. Not a column, and no API can set it.                       |
+| `POSTHOG_KEY`          | no       | PostHog project API key (starts with `phc_`). Unset means product events are not sent. See Product events below.                                   |
 
 A social provider turns on only when both its client id and secret are set; otherwise its button is hidden.
 
@@ -140,6 +142,7 @@ Plain vars in `wrangler.jsonc`, per environment:
 | `EMAIL_FROM`         | `Spark <onboarding@resend.dev>` until a domain is verified in Resend (it then only delivers to the Resend account's own address); then `Spark <sign-in@<domain>>`                                                                                                                              |
 | `BETTER_AUTH_URL`    | the public https origin, e.g. `https://spark-dev.<subdomain>.workers.dev`, in place of `PLACEHOLDER_DEV_BETTER_AUTH_URL` / `PLACEHOLDER_PROD_BETTER_AUTH_URL`. Required: outside local, auth refuses to start without an https origin, and cookies are always `Secure`. Deploys fail until set |
 | `GEMINI_PAID_TIER`   | `"false"` until `GEMINI_API_KEY` belongs to a Cloud project with active billing, then `"true"`; Gemini is never called otherwise (ADR-0005)                                                                                                                                                    |
+| `POSTHOG_HOST`       | optional. The PostHog capture host, `https://us.i.posthog.com` or `https://eu.i.posthog.com`. When unset, the Worker uses `https://us.i.posthog.com`. Must be `https`.                                                                                                                         |
 
 Locally, `wrangler.jsonc`'s top level carries a throwaway `BETTER_AUTH_SECRET` and Cloudflare's always-pass [Turnstile test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/). Without `RESEND_API_KEY`, sign-in codes are not emailed: the local Worker keeps the latest code per address and returns it from `GET /api/dev/sign-in-code?email=…`. That route exists only when `SPARK_ENV` is `local` and Resend is not configured.
 
@@ -150,9 +153,23 @@ After Capture (text on create, an image once its files are stored) the Worker se
 - **Queues.** Cloudflare Queues has no priorities, so `spark-index-*` takes fresh Captures, Retry and AI opt-out switched off, and `spark-reindex-*` takes edited text, one consumer at a time. A failed attempt retries the message after 30 s, then 60 s; the third failure sets the Memory Failed (`unavailable`). Messages the platform gives up on land in `spark-index-failed-*`, whose consumer sets Failed too (only if that run is still current). The hourly cron re-sends Memories stuck Indexing for over an hour, unless the budget is spent. Every message is idempotent: it names the Memory's `index_run` (bumped by an edit, Retry or AI opt-out), a message for an older run does nothing, and every write requires the run unchanged. A delivery takes a 5-minute lease on the run (renewed before each provider call; each call times out after 60 s), so a duplicate delivered at the same time skips instead of paying for the same AI call; a crashed consumer's lease expires on its own, and a new run (an edit, Retry or opt-in) is never held up by an older run's lease.
 - **Providers.** Gemma 4 on Workers AI, then Gemini Flash-Lite on the paid tier (model ids, prices and order in `packages/core/lib/indexing.ts`). Images go to the model as bytes read through the R2 binding, never as URLs.
 - **AI opt-out.** No provider call, ever: the consumer checks it after loading and again before every provider call, and switching it on starts a new run (so nothing in flight can write) and deletes what Indexing found.
-- **Budget.** Every call's tokens and cost go to `ai_call` (per Memory and person) and `spend_day` (per UTC day and provider, added to atomically). The daily budget is **$1** by default (`INDEXING.dailyBudgetMicros` in `packages/core/lib/indexing.ts`; change it there). Past it, background messages are re-sent with a delay (to the next UTC day, at most 12 hours at a time, though Queues allows 24); fresh Captures still index, and the hourly sweep still re-sends fresh work whose message was lost. A person's Retry or opt-in goes first in line once a Memory a day, then to the background, so it cannot bypass the budget without limit. A Workers AI call that times out is still billed, so it is recorded at an estimated cost (its prompt, and every output token it may use), marked `estimated` in `ai_call`. In-flight calls can overshoot the limit by a few calls.
+- **Budget.** Every call's tokens and cost go to `ai_call` (per Memory and person) and `spend_day` (per UTC day and provider, added to atomically). The daily budget is **$1** by default (`INDEXING.dailyBudgetMicros` in `packages/core/lib/indexing.ts`). An admin can change it on the admin page; the value is stored in `app_setting` and each change is logged in `setting_change` (who, as a user id, and when). When no usable value is stored, the breaker uses the default. Past the limit, background messages are re-sent with a delay (to the next UTC day, at most 12 hours at a time, though Queues allows 24); fresh Captures still index, and the hourly sweep still re-sends fresh work whose message was lost. A person's Retry or opt-in goes first in line once a Memory a day, then to the background, so it cannot bypass the budget without limit. A Workers AI call that times out is still billed, so it is recorded at an estimated cost (its prompt, and every output token it may use), marked `estimated` in `ai_call`. In-flight calls can overshoot the limit by a few calls.
 - **Locally**, Miniflare runs the queues and `INDEXING_PROVIDER: "fake"` Indexes without keys or network. Content containing `fake:fail` gets output that is never valid, so it shows Failed at once.
 - **Logs** carry outcomes only, never content, prompts or model output.
+
+## Admin
+
+`/admin` shows daily AI spend by provider and model (`ai_call`, the last 30 UTC days), per-person usage (Memories, storage counted the same way as the Free allowance, AI cost) and the daily budget against today's `spend_day` total. The page says whether background Indexing is paused.
+
+The admin role is `ADMIN_EMAILS`. Every `/api/admin/*` route checks it: 401 with no session, 403 for anyone else. The dashboard hides the link for everyone else, and that is not the protection. A change to the budget is refused above $10,000 and below $0; $0 pauses background Indexing at once. The log stores the admin's user id, never their email.
+
+Locally, `wrangler.jsonc`'s top-level vars set `ADMIN_EMAILS` to `admin@example.test` so the smoke test can open the page. That var is not deployed.
+
+## Product events
+
+PostHog receives five events, named in `packages/core/lib/product-events.ts`: `save_success`, `time_to_searchable`, `search_success`, `search_reformulated`, `time_to_find`. Properties are a kind, counts or a duration. Never a Memory's text or title, a search query, or an email. The person is the user id.
+
+The dashboard loads `posthog-js` only when `POSTHOG_KEY` is set and the browser's Do Not Track is off (`GET /api/analytics` returns the public project key and host; no key means `{ "key": null }` and the script is never fetched). Time to Searchable is sent by the Worker when Indexing finishes, with a 2 second timeout, after the database connection is closed. A missing key, a non-https host, or a timeout skips the event. Nothing about it is logged.
 
 ## Sign-in
 

@@ -307,3 +307,24 @@ export const spendDay = pgTable(
   },
   (t) => [primaryKey({ columns: [t.day, t.provider] })]
 );
+
+/**
+ * A setting an admin changed (the daily budget). The config default applies
+ * when the row is absent. `updatedBy` is a user id, never an email.
+ */
+export const appSetting = pgTable("app_setting", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: instant("updated_at"),
+});
+
+/** One change to a setting: who (user id) and when. Kept if the person is deleted. */
+export const settingChange = pgTable("setting_change", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").notNull(),
+  previousValue: text("previous_value"),
+  value: text("value").notNull(),
+  changedBy: text("changed_by").notNull(),
+  changedAt: instant("changed_at"),
+});

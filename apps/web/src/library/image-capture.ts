@@ -63,12 +63,14 @@ export function imageCapture({
   transport,
   notify,
   onSaved,
+  onCaptured,
   inOrder,
 }: {
   setMemories: Dispatch<SetStateAction<WallMemory[]>>;
   transport: ImageTransport;
   notify: typeof toast;
   onSaved: () => void;
+  onCaptured?: () => void;
   inOrder: <T>(id: string, task: () => Promise<T>) => Promise<T>;
 }) {
   type Entry = {
@@ -160,6 +162,7 @@ export function imageCapture({
         )
       );
       onSaved();
+      onCaptured?.();
       if (saved.image) {
         await transport.preload(saved.image.thumbnailUrl).catch(() => {});
         setMemories((all) =>

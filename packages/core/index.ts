@@ -32,3 +32,19 @@ export {
   type IndexFailure,
   type ProviderName,
 } from "./lib/indexing";
+export { ROLES, adminEmails, isAdmin, rolesFor, type Role } from "./lib/role";
+export {
+  DAILY_BUDGET_KEY,
+  DAILY_BUDGET_MAX_MICROS,
+  budgetPaused,
+  effectiveDailyBudgetMicros,
+  parseDailyBudgetMicros,
+} from "./lib/budget";
+export {
+  PRODUCT_EVENTS,
+  productAnalyticsEnabled,
+  productPayload,
+  sendProductEvent,
+  type ProductEvent,
+  type ProductPayload,
+} from "./lib/product-events";

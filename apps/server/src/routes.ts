@@ -1,6 +1,8 @@
 import { Hono } from "hono";
+import { isAdmin } from "@spark/core";
 import { checkDatabase } from "@spark/db";
 import type { AppEnv } from "./env";
+import { admin } from "./admin";
 import { memories } from "./memories";
 import { FILE_CACHE_CONTROL, usesLocalFiles, verifyLocalUrl } from "./files";
 import {
@@ -29,7 +31,21 @@ export const routes = new Hono<AppEnv>()
       turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
     })
   )
-  .get("/me", withAuth, requireUser, (c) => c.json(c.var.user))
+  .get("/me", withAuth, requireUser, (c) =>
+    c.json({
+      ...c.var.user,
+      admin: isAdmin(c.var.user.email, c.env.ADMIN_EMAILS),
+    })
+  )
+  // Public: the dashboard decides whether to load product analytics.
+  // The key is a PostHog project key; nothing here is a person or a Memory.
+  .get("/analytics", (c) =>
+    c.json({
+      key: c.env.POSTHOG_KEY ?? null,
+      host: c.env.POSTHOG_HOST || "https://us.i.posthog.com",
+    })
+  )
+  .route("/admin", admin)
   // Local development only (never with Resend configured, never deployed).
   .get("/dev/sign-in-code", (c) => {
     const code =

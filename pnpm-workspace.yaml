@@ -46,3 +46,4 @@ allowBuilds:
   esbuild: true
   workerd: true
   "@tailwindcss/oxide": true
+  core-js: false

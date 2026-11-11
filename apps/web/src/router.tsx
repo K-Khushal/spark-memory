@@ -4,11 +4,13 @@ import {
   createRouter,
   Link,
   Outlet,
+  redirect,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Button } from "@spark/ui";
 import { api } from "./api";
 import { redirectIfSignedIn, requireSession } from "./auth";
+import { AdminPage } from "./admin/admin-page";
 import { LibraryPage } from "./library/library-page";
 import { SignInPage } from "./sign-in/sign-in-page";
 import { LibraryPage as PrototypeLibraryPage } from "./prototypes/library";
@@ -19,10 +21,30 @@ const rootRoute = createRootRoute({ component: () => <Outlet /> });
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  beforeLoad: requireSession,
+  beforeLoad: async () => {
+    const { session } = await requireSession();
+    const res = await api.api.me.$get();
+    const admin = res.ok ? (await res.json()).admin : false;
+    return { session, admin };
+  },
   component: function Library() {
-    const { session } = libraryRoute.useRouteContext();
-    return <LibraryPage session={session} />;
+    const { session, admin } = libraryRoute.useRouteContext();
+    return <LibraryPage session={session} admin={admin} />;
+  },
+});
+
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin",
+  beforeLoad: async () => {
+    const { session } = await requireSession();
+    const res = await api.api.me.$get();
+    if (!res.ok || !(await res.json()).admin) throw redirect({ to: "/" });
+    return { session };
+  },
+  component: function Admin() {
+    const { session } = adminRoute.useRouteContext();
+    return <AdminPage session={session} />;
   },
 });
 
@@ -88,6 +110,7 @@ export const router = createRouter({
   ),
   routeTree: rootRoute.addChildren([
     libraryRoute,
+    adminRoute,
     signInRoute,
     prototypesRoute,
   ]),
