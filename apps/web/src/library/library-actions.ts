@@ -97,6 +97,24 @@ const withoutSaved = (list: Draft[] | undefined, memory: Memory) => {
   return kept?.length ? kept : undefined;
 };
 
+/**
+ * Stored text this snapshot does not already have. An older snapshot never
+ * drops fields or refused written on a newer revision.
+ */
+const leftUnsaved = (
+  kept: StoredEdit,
+  memory: Memory
+): Pick<StoredEdit, "fields" | "refused"> | undefined => {
+  if (kept.baseRevision > memory.revision) {
+    return { fields: kept.fields, refused: kept.refused };
+  }
+  const fields =
+    kept.fields && !saved(memory, kept.fields) ? kept.fields : undefined;
+  const refused = withoutSaved(kept.refused, memory);
+  if (!fields && !refused) return undefined;
+  return { fields, refused };
+};
+
 const withText = (memory: Memory, fields: Draft): Memory => ({
   ...memory,
   title: fields.title.trim() || null,
@@ -196,17 +214,13 @@ export function libraryActions({
   function pruneStored(id: string, memory: Memory) {
     const kept = drafts.read(id);
     if (!kept) return;
-    if (kept.baseRevision > memory.revision) return;
-    const fields =
-      kept.fields && !saved(memory, kept.fields) ? kept.fields : undefined;
-    const refused = withoutSaved(kept.refused, memory);
-    if (!fields && !refused) {
+    const remaining = leftUnsaved(kept, memory);
+    if (!remaining) {
       drafts.discard(id);
       return;
     }
     drafts.keep(id, {
-      fields,
-      refused,
+      ...remaining,
       baseRevision: kept.baseRevision,
       page: kept.page,
     });
@@ -508,18 +522,18 @@ export function libraryActions({
   /**
    * What opening `memory` finds from storage: never sent by itself. Text
    * the server already has is dropped; everything else is offered through
-   * Restore Your Edit.
+   * Restore Your Edit. A delayed older snapshot does not drop a newer record.
    */
   function fromStorage(
     memory: Memory,
     kept: StoredEdit | undefined
   ): PendingEdit | undefined {
     if (!kept) return undefined;
+    const remaining = leftUnsaved(kept, memory);
+    if (!remaining) return undefined;
     const offered: Draft[] = [];
-    if (kept.fields && !saved(memory, kept.fields)) offered.push(kept.fields);
-    for (const draft of kept.refused ?? []) {
-      if (!saved(memory, draft)) offered.push(draft);
-    }
+    if (remaining.fields) offered.push(remaining.fields);
+    for (const draft of remaining.refused ?? []) offered.push(draft);
     const refused = withRefused(offered.slice(1), offered[0]);
     if (!refused?.length) return undefined;
     return {
@@ -536,11 +550,12 @@ export function libraryActions({
     const now = pending.get(id);
     if (now) return now;
     const kept = drafts.read(id);
-    const edit = fromStorage(memory, kept);
-    if (!edit) {
-      if (kept) drafts.discard(id);
+    if (kept && !leftUnsaved(kept, memory)) {
+      drafts.discard(id);
       return undefined;
     }
+    const edit = fromStorage(memory, kept);
+    if (!edit) return undefined;
     serverCopy.set(id, memory);
     setPending(id, edit);
     return pending.get(id);

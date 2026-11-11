@@ -553,6 +553,32 @@ describe("another tab's draft", () => {
       page: tabB.drafts.page,
     });
   });
+
+  it("does not discard another page's newer unsaved revert when opening a stale snapshot", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
+    server.holdNextGet();
+    server.pauseGet();
+    tabA.actions.refresh("m1");
+    await settle();
+    server.editElsewhere("Changed");
+    const tabB = setup({ server, drafts: draftStore(store) });
+    tabB.actions.editText(server.row(), text("Start"));
+    server.resumeGet();
+    await settle();
+    expect(tabA.onWall()).toMatchObject({ title: "Start", revision: 1 });
+    expect(tabA.actions.openEdit(tabA.onWall()!)).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Start" }],
+      fromStorage: true,
+    });
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "Start" },
+      baseRevision: 2,
+      page: tabB.drafts.page,
+    });
+  });
 });
 
 describe("a draft after reload", () => {
