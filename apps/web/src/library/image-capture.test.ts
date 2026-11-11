@@ -143,6 +143,30 @@ describe("image Capture", () => {
     revoke.mockRestore();
   });
 
+  it("Undo right after a confirm does not wait for the thumbnail to load", async () => {
+    const loaded = later();
+    let removed = false;
+    const { actions, wall, notify, calls } = setup({
+      preload: () => loaded.promise,
+      remove: async (id) => {
+        removed = true;
+        calls.push(`remove ${id}`);
+      },
+    });
+    await actions.captureImages([png()]);
+    await settle();
+    const id = wall()[0]!.id;
+    expect(wall()[0]!.image!.url).toMatch(/^blob:/);
+    toastAction(notify, "Undo")();
+    await settle();
+    expect(removed).toBe(true);
+    expect(calls).toContain(`remove ${id}`);
+    expect(wall()).toEqual([]);
+    loaded.resolve();
+    await settle();
+    expect(wall()).toEqual([]);
+  });
+
   it("shows a failed upload on its tile, and Try Again resends the same Memory", async () => {
     const put = vi
       .fn()

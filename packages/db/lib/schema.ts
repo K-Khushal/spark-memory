@@ -248,7 +248,9 @@ export type FileRole = "original" | "thumbnail";
 /**
  * A file of a Memory in object storage (PLAN.md §4): the original (its
  * Preserved copy) and its thumbnail. `key` is chosen by the server and starts
- * with the owner's id. `storedAt` is set once the upload was checked; a
+ * with the owner's id. `generation` is one upload attempt: Try Again mints
+ * another, and the object key includes it, so a confirm cannot accept a
+ * later attempt's row. `storedAt` is set once the upload was checked; a
  * Memory with a file not yet stored is left off the wall, and swept if it
  * stays that way (sweepAbandonedUploads).
  */
@@ -259,6 +261,8 @@ export const memoryFile = pgTable(
       .notNull()
       .references(() => memory.id, { onDelete: "cascade" }),
     role: text("role").$type<FileRole>().notNull(),
+    /** One upload attempt. A new one is minted on create and on Try Again. */
+    generation: uuid("generation").notNull().defaultRandom(),
     key: text("r2_key").notNull().unique(),
     mime: text("mime").notNull(),
     bytes: integer("bytes").notNull(),

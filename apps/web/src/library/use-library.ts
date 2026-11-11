@@ -159,7 +159,8 @@ export function useLibrary() {
         );
         const page = await res.json();
         if (cancelled) return;
-        // Uploads an earlier page left unfinished show as Failed, to delete.
+        // Uploads an earlier page left unfinished, once their PUT has
+        // expired, show as Failed, to delete.
         const unfinished: Memory[] = page.unfinished ?? [];
         const stranded = unfinished.map((m): WallMemory => ({
           ...m,

@@ -1,5 +1,5 @@
 {
-  "id": "178e8dd2-6281-4361-9ec8-fc9f8ef504da",
+  "id": "2fb414cf-2294-4cdc-9a9e-96814e59c305",
   "prevId": "3852dca8-1ed9-4ff6-8bfa-640a33e3c172",
   "version": "7",
   "dialect": "postgresql",
@@ -449,24 +449,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "source_url": {
-          "name": "source_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source_url_normalised": {
-          "name": "source_url_normalised",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "preservation": {
           "name": "preservation",
           "type": "text",
@@ -565,13 +547,6 @@
           "notNull": true,
           "default": "now()"
         },
-        "last_saved_at": {
-          "name": "last_saved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
         "first_searchable_at": {
           "name": "first_searchable_at",
           "type": "timestamp with time zone",
@@ -641,77 +616,6 @@
           "concurrently": false,
           "method": "gin",
           "with": {}
-        },
-        "memory_user_saved_idx": {
-          "name": "memory_user_saved_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "last_saved_at",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": false,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "memory_user_source_idx": {
-          "name": "memory_user_source_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "source_url_normalised",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"memory\".\"source_url_normalised\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "memory_user_link_hash_idx": {
-          "name": "memory_user_link_hash_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "content_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"memory\".\"kind\" = 'link' and \"memory\".\"content_hash\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -746,6 +650,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "generation": {
+          "name": "generation",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
         },
         "r2_key": {
           "name": "r2_key",

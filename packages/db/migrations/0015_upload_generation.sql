@@ -1,0 +1,1 @@
+ALTER TABLE "memory_file" ADD COLUMN "generation" uuid DEFAULT gen_random_uuid() NOT NULL;

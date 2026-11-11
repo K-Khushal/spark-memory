@@ -151,28 +151,41 @@ export function imageCapture({
       entries.delete(id);
       // The server's copy, but the local files stay on screen (no reload
       // flash) until the stored thumbnail has loaded; then they are freed.
+      const urls = entry.urls;
       const local = (m: WallMemory) =>
-        m.id === id && m.image?.thumbnailUrl === entry.urls.thumbnailUrl;
+        m.id === id && m.image?.thumbnailUrl === urls.thumbnailUrl;
       setMemories((all) =>
         all.map((m) =>
           m.id === id
             ? {
                 ...saved,
-                image: saved.image && { ...saved.image, ...entry.urls },
+                image: saved.image && { ...saved.image, ...urls },
               }
             : m
         )
       );
       onSaved();
       onCaptured?.();
-      if (saved.image) {
-        await transport.preload(saved.image.thumbnailUrl).catch(() => {});
-        setMemories((all) =>
-          all.map((m) => (local(m) ? { ...m, image: saved.image } : m))
-        );
+      const release = () => {
+        URL.revokeObjectURL(urls.url);
+        URL.revokeObjectURL(urls.thumbnailUrl);
+      };
+      if (!saved.image) {
+        release();
+        return;
       }
-      URL.revokeObjectURL(entry.urls.url);
-      URL.revokeObjectURL(entry.urls.thumbnailUrl);
+      // Not awaited: this task is the Memory's queue, and Undo or delete
+      // right after a confirm must not wait for the thumbnail.
+      const image = saved.image;
+      void transport
+        .preload(image.thumbnailUrl)
+        .catch(() => {})
+        .then(() => {
+          setMemories((all) =>
+            all.map((m) => (local(m) ? { ...m, image } : m))
+          );
+          release();
+        });
     } catch (error) {
       if (!current()) return;
       // One file failed: stop the other, so no PUT outlives its run.
