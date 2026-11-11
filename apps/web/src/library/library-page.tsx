@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
 import { LogOutIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
@@ -20,9 +20,11 @@ import { MemoryDetail } from "./memory-detail";
 import { MemoryTile, memoryName, tileHeight, tileLabel } from "./memory-tile";
 import { PasteBox } from "./paste-box";
 import { ImageViewer } from "./image-viewer";
+import { useFlip } from "./flip";
 import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
-import { useInstantSearch, type Results } from "./use-search";
+import { useSearch, type Found, type Results } from "./use-search";
+import { WHY_HEIGHT, WhyChip } from "./why";
 
 /**
  * The Library: sidebar (a top bar on phones) beside the masonry wall of
@@ -38,12 +40,33 @@ export function LibraryPage({ session }: { session: Session }) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [openId, setOpenId] = useState<string>();
   const [imageId, setImageId] = useState<string>();
-  const instant = useInstantSearch(draft, library.memories, library.version);
-  const results = useInstantSearch(query, library.memories, library.version);
+  /** The Memory the wall shows More Like This of, instead of a query. */
+  const [like, setLike] = useState<Memory>();
+  // ⌘K: instant per keystroke, full once typing pauses. The wall: both at
+  // once (often straight from the cache the menu filled).
+  const instant = useSearch(
+    { query: draft },
+    library.memories,
+    library.version
+  );
+  const results = useSearch(
+    like ? { like: like.id } : { query },
+    library.memories,
+    library.version,
+    0
+  );
+  const searching = !!like || !!query;
+  const listRef = useRef<HTMLDivElement>(null);
+  useFlip(
+    listRef,
+    instant && instant !== "failed"
+      ? [...instant.direct, ...instant.related].map((m) => m.id).join()
+      : ""
+  );
   const opened = library.memories.find((m) => m.id === openId);
   // The viewer steps through the images of the wall on screen.
   const images = useMemo(() => {
-    if (!query || !results || results === "failed") {
+    if (!searching || !results || results === "failed") {
       return library.memories.filter((m) => m.image);
     }
     const live = new Map(library.memories.map((m) => [m.id, m]));
@@ -51,7 +74,7 @@ export function LibraryPage({ session }: { session: Session }) {
       const now = live.get(m.id);
       return now?.image ? [now] : [];
     });
-  }, [query, results, library.memories]);
+  }, [searching, results, library.memories]);
 
   const openSearch = () => {
     setDraft(query);
@@ -79,8 +102,20 @@ export function LibraryPage({ session }: { session: Session }) {
   };
   const showOnWall = (q: string) => {
     setQuery(q.trim());
+    setLike(undefined);
     setSearchOpen(false);
     window.scrollTo({ top: 0 });
+  };
+  const moreLikeThis = (memory: Memory) => {
+    setOpenId(undefined);
+    setImageId(undefined);
+    setQuery("");
+    setLike(memory);
+    window.scrollTo({ top: 0 });
+  };
+  const clearSearch = () => {
+    setQuery("");
+    setLike(undefined);
   };
 
   useLibraryShortcuts({
@@ -115,19 +150,19 @@ export function LibraryPage({ session }: { session: Session }) {
       >
         <SearchIcon className="size-4 shrink-0" aria-hidden />
         <span
-          className={cn("min-w-0 flex-1 truncate", query && "text-ink")}
+          className={cn("min-w-0 flex-1 truncate", searching && "text-ink")}
           dir="auto"
         >
-          {query || "Search"}
+          {like ? "More Like This" : query || "Search"}
         </span>
-        {!query && <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>}
+        {!searching && <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>}
       </button>
-      {query && (
+      {searching && (
         <Button
           variant="quiet"
           size="icon-sm"
           aria-label="Clear Search"
-          onClick={() => setQuery("")}
+          onClick={clearSearch}
         >
           <XIcon aria-hidden />
         </Button>
@@ -157,7 +192,7 @@ export function LibraryPage({ session }: { session: Session }) {
                 <Link
                   to="/"
                   aria-current="page"
-                  onClick={() => setQuery("")}
+                  onClick={clearSearch}
                   className="flex h-8 items-center rounded-control bg-surface px-2 text-sm font-medium text-ink shadow-raised"
                 >
                   All Memories
@@ -225,9 +260,10 @@ export function LibraryPage({ session }: { session: Session }) {
             </Centred>
           ) : (
             <div className="p-4 md:p-6">
-              {query ? (
+              {searching ? (
                 <SearchResults
                   results={results}
+                  like={!!like}
                   query={query}
                   onOpen={openMemory}
                   tiles={tiles}
@@ -257,7 +293,7 @@ export function LibraryPage({ session }: { session: Session }) {
             placeholder="Search…"
             className="text-[1rem] md:text-md"
           />
-          <CommandList>
+          <CommandList ref={listRef}>
             {draft.trim() ? (
               instant === "failed" ? (
                 <ListNote>Search Is Unreachable</ListNote>
@@ -330,6 +366,7 @@ export function LibraryPage({ session }: { session: Session }) {
           onBroken={library.refresh}
           onRetryIndexing={library.retryIndexing}
           onAiOptOut={library.setAiOptOut}
+          onMoreLikeThis={moreLikeThis}
         />
         {dropping && (
           <div
@@ -348,6 +385,7 @@ export function LibraryPage({ session }: { session: Session }) {
           onDelete={library.remove}
           onRetryIndexing={library.retryIndexing}
           onAiOptOut={library.setAiOptOut}
+          onMoreLikeThis={moreLikeThis}
         />
         <Toaster />
       </div>
@@ -418,14 +456,67 @@ function Wall({
   );
 }
 
+/**
+ * Results on the wall: each tile with its why-chip under it, every tile
+ * the same caption height so a chip arriving never moves anything, and
+ * tiles that change place when the full answer lands glide there.
+ */
+function ResultWall({
+  label,
+  found,
+  direct,
+  query,
+  onOpen,
+  tiles,
+}: {
+  label: string;
+  found: Found[];
+  /** Direct or Related; undefined for More Like This, which needs no why-chip. */
+  direct?: boolean;
+  query: string;
+  onOpen: (memory: Memory) => void;
+  tiles: TileActions;
+}) {
+  const open = (i: number) => found[i] && onOpen(found[i]);
+  return (
+    <Masonry
+      label={label}
+      items={found}
+      getKey={(m) => m.id}
+      getHeight={tileHeight}
+      getCaption={() => (direct === undefined ? 0 : WHY_HEIGHT)}
+      getLabel={tileLabel}
+      onOpen={open}
+      onPreview={open}
+      glide
+      renderItem={(m, tile) => (
+        <div className="flex h-full flex-col items-start">
+          <div className="w-full" style={{ height: tile.height }}>
+            <MemoryTile
+              memory={m}
+              query={query}
+              width={tile.width}
+              {...tiles}
+            />
+          </div>
+          {direct !== undefined && <WhyChip found={m} direct={direct} />}
+        </div>
+      )}
+    />
+  );
+}
+
 /** Direct Matches first, Related Matches apart (DESIGN.md → Interaction baseline). */
 function SearchResults({
   results,
+  like,
   query,
   onOpen,
   tiles,
 }: {
   results: Results | "failed" | undefined;
+  /** More Like This: one wall, nearest first, no headings or chips. */
+  like: boolean;
   query: string;
   onOpen: (memory: Memory) => void;
   tiles: TileActions;
@@ -438,16 +529,38 @@ function SearchResults({
       </h2>
     );
   }
+  if (like) {
+    const found = [...results.direct, ...results.related];
+    return (
+      <div data-search={results.mode}>
+        <h2
+          className={cn(
+            found.length ? "sr-only" : "text-sm font-medium text-ink-muted"
+          )}
+        >
+          {found.length ? "More Like This" : "Nothing Like This"}
+        </h2>
+        <ResultWall
+          label="More Like This"
+          found={found}
+          query=""
+          onOpen={onOpen}
+          tiles={tiles}
+        />
+      </div>
+    );
+  }
   return (
-    <>
+    <div data-search={results.mode}>
       <section>
         <h2 className="mb-3 text-sm font-medium text-ink-muted">
           {results.direct.length ? "Direct Matches" : "No Direct Matches"}
         </h2>
         {results.direct.length > 0 && (
-          <Wall
+          <ResultWall
             label="Direct Matches"
-            memories={results.direct}
+            found={results.direct}
+            direct
             query={query}
             onOpen={onOpen}
             tiles={tiles}
@@ -459,16 +572,17 @@ function SearchResults({
           <h2 className="mb-3 text-sm font-medium text-ink-muted">
             Related Matches
           </h2>
-          <Wall
+          <ResultWall
             label="Related Matches"
-            memories={results.related}
+            found={results.related}
+            direct={false}
             query={query}
             onOpen={onOpen}
             tiles={tiles}
           />
         </section>
       )}
-    </>
+    </div>
   );
 }
 
@@ -488,6 +602,7 @@ function ResultGroup({
         <CommandItem
           key={memory.id}
           value={memory.id}
+          data-flip={memory.id}
           onSelect={() => onOpen(memory)}
         >
           <span className="min-w-0 flex-1 truncate" dir="auto">

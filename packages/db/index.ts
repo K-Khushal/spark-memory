@@ -19,9 +19,16 @@ export {
   type MemoryImage,
   type Library,
   type MatchedBy,
+  type MatchedPart,
   type Memory,
   type Page,
+  type SearchOptions,
   type SearchResult,
+  type VectorProbe,
 } from "./lib/library";
-export { indexingStore, type IndexingStore } from "./lib/indexing";
+export {
+  indexingStore,
+  type Embedding,
+  type IndexingStore,
+} from "./lib/indexing";
 export * as schema from "./lib/schema";

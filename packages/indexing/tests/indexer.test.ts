@@ -45,6 +45,7 @@ function scripted(
 const textMemory = (over: Partial<PendingMemory> = {}): PendingMemory => ({
   userId: "u1",
   run: 1,
+  revision: 1,
   kind: "text",
   title: null,
   captureNote: null,
@@ -79,6 +80,9 @@ function memoryStore(memory: PendingMemory | undefined, spent = 0) {
       store.failed.push(reason);
       return true;
     }),
+    loadForEmbedding: async () => undefined,
+    stillEmbeddable: async () => false,
+    writeVectors: async () => false,
     spentTodayMicros: async () => store.spent,
     recordCall: async (call: { provider: string; costMicros: number }) => {
       store.calls.push(call);

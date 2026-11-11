@@ -8,6 +8,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -173,6 +174,13 @@ export const memory = pgTable(
     aiOptOut: boolean("ai_opt_out").default(false).notNull(),
     /** BCP-47 tag Indexing detected; picks the keyword index's language. */
     language: text("language"),
+    /**
+     * What the Memory's vectors were made from: the embedding space
+     * (`model@dimensions`) and the revision of its text. Either differing
+     * from now makes them stale, and the hourly sweep makes them again.
+     */
+    vectorsSpace: text("vectors_space"),
+    vectorsRevision: integer("vectors_revision"),
     capturedAt: instant("captured_at"),
     updatedAt: instant("updated_at").$onUpdate(() => new Date()),
     /**
@@ -269,6 +277,46 @@ export const memoryIndex = pgTable("memory_index", {
   indexedAt: instant("indexed_at"),
 });
 
+const halfvec = customType<{ data: number[]; driverData: string }>({
+  // Any dimension: each row says its own, so a new size is a re-embed, not a migration.
+  dataType: () => "halfvec",
+  toDriver: (v) => `[${v.join(",")}]`,
+  fromDriver: (v) => JSON.parse(v) as number[],
+});
+
+export type VectorKind = "overview" | "visual" | "passage";
+/** Where a Passage sits: character offsets into the Memory's text or the text in its image. */
+export type PassageAnchor = {
+  field: "body" | "ocr";
+  start: number;
+  end: number;
+};
+
+/**
+ * A Memory's vectors (ADR-0004): one Overview, a Visual for an image, and a
+ * Passage per chunk of text, each with the model and dimensions that made
+ * it. Replaced whole by each embedding; gone with AI opt-out (ADR-0011).
+ * Search scans one owner's rows exactly, so `user_id` leads the index.
+ */
+export const memoryVector = pgTable(
+  "memory_vector",
+  {
+    memoryId: uuid("memory_id")
+      .notNull()
+      .references(() => memory.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    kind: text("kind").$type<VectorKind>().notNull(),
+    anchor: jsonb("anchor").$type<PassageAnchor>(),
+    model: text("model").notNull(),
+    dimensions: integer("dimensions").notNull(),
+    embedding: halfvec("embedding").notNull(),
+  },
+  (t) => [
+    index("memory_vector_user_idx").on(t.userId, t.model),
+    index("memory_vector_memory_idx").on(t.memoryId),
+  ]
+);
+
 /**
  * Every AI call Indexing made, with its cost, for the admin page (#32): per
  * Memory and per person. Kept when the Memory is deleted (no foreign key),
@@ -279,7 +327,8 @@ export const aiCall = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id").notNull(),
-    memoryId: uuid("memory_id").notNull(),
+    /** Null for a search query's embedding. */
+    memoryId: uuid("memory_id"),
     /** The UTC day, as the budget counts it. */
     day: date("day").notNull(),
     provider: text("provider").$type<ProviderName>().notNull(),

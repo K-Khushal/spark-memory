@@ -12,6 +12,12 @@ import {
 
 // Delimiters that cannot be rebuilt or faked, and provider calls that end.
 
+const noEmbedding = {
+  loadForEmbedding: async () => undefined,
+  stillEmbeddable: async () => false,
+  writeVectors: async () => false,
+};
+
 /** The user part the provider receives for a text Memory with `body`. */
 async function userPartFor(body: string) {
   let seen: ExtractRequest | undefined;
@@ -26,6 +32,7 @@ async function userPartFor(body: string) {
   const memory: PendingMemory = {
     userId: "u",
     run: 1,
+    revision: 1,
     kind: "text",
     title: null,
     captureNote: null,
@@ -38,6 +45,7 @@ async function userPartFor(body: string) {
     isCurrent: async () => true,
     complete: async () => true,
     fail: async () => true,
+    ...noEmbedding,
     spentTodayMicros: async () => 0,
     recordCall: async () => {},
   };
@@ -110,6 +118,7 @@ describe("provider calls", () => {
       load: async () => ({
         userId: "u",
         run: 1,
+        revision: 1,
         kind: "text",
         title: null,
         captureNote: null,
@@ -120,6 +129,7 @@ describe("provider calls", () => {
       isCurrent: async () => true,
       complete: async () => true,
       fail: async () => true,
+      ...noEmbedding,
       spentTodayMicros: async () => 0,
       recordCall: async (call) => {
         calls.push(call);

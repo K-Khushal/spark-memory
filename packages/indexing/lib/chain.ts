@@ -1,6 +1,8 @@
 import { INDEXING } from "@spark/core";
-import { fakeProvider } from "./fake";
+import type { Embedder } from "./embedder";
+import { fakeEmbedder, fakeProvider } from "./fake";
 import { gemini } from "./gemini";
+import { geminiEmbedding } from "./gemini-embedding";
 import type { Provider } from "./provider";
 import { workersAi, type AiBinding } from "./workers-ai";
 
@@ -28,4 +30,17 @@ export function providerChain(options: ChainOptions): Provider[] {
     }
   }
   return chain;
+}
+
+/**
+ * The embedding model this environment has: the fake one locally, Gemini
+ * Embedding 2 with a paid-tier key (ADR-0005), else none, and Memories are
+ * found by keyword only.
+ */
+export function embedderFor(options: ChainOptions): Embedder | undefined {
+  if (options.fake) return fakeEmbedder();
+  if (options.geminiApiKey && options.geminiPaidTier === true) {
+    return geminiEmbedding({ apiKey: options.geminiApiKey, paidTier: true });
+  }
+  return undefined;
 }

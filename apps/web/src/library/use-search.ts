@@ -1,60 +1,87 @@
 import { useEffect, useMemo, useState } from "react";
-import type { InferResponseType } from "@spark/api-client";
 import { api } from "../api";
+import {
+  searchSession,
+  type Answer,
+  type Hit,
+  type MatchedPart,
+  type Mode,
+  type SearchRequest,
+} from "./search-session";
 import type { Memory } from "./use-library";
 
-type Hit = InferResponseType<typeof api.api.search.$get>["results"][number];
+export type { MatchedPart, SearchRequest } from "./search-session";
 
-export type Results = { direct: Memory[]; related: Memory[] };
+/** A result: the wall's own copy of the Memory, and what matched in it. */
+export type Found = Memory & { part: MatchedPart | null };
+export type Results = { direct: Found[]; related: Found[]; mode: Mode };
+
+/** How long typing pauses before the full search (with meaning) runs. */
+export const FULL_SEARCH_PAUSE_MS = 350;
+
+const byId = api.api.memories[":id"];
+
+async function fetchHits(
+  request: SearchRequest,
+  mode: Mode,
+  signal: AbortSignal
+): Promise<Hit[]> {
+  const init = { init: { signal } };
+  const res =
+    "like" in request
+      ? await byId.similar.$get({ param: { id: request.like } }, init)
+      : await api.api.search.$get(
+          {
+            query: {
+              q: request.query,
+              ...(mode === "full" && { mode: "full" }),
+            },
+          },
+          init
+        );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return ((await res.json()) as { results: Hit[] }).results;
+}
+
+/** Full answers, shared by the ⌘K menu and the wall. */
+const cache = new Map<string, Hit[]>();
 
 /**
- * Instant search on every keystroke (keyword and typo matching, no AI).
- * Each keystroke cancels the previous request, and so does every change
- * the server accepts, so new and edited Memories show up or drop out. Hits are read through the
- * wall's own Memories, so local edits show and pending deletes stay hidden.
- * Until the Direct match judge lands (PLAN.md §6.4), a keyword match counts
- * as Direct and a typo-only match as Related.
+ * Search as the person types (searchSession): an instant answer per
+ * keystroke, the full one once typing pauses (`pauseMs`; 0 on the wall).
+ * Until a new answer arrives the last one stays, so results never flash
+ * empty, and they keep their keys (Memory ids) so they move instead of
+ * swapping. Hits are read through the wall's own Memories, so local edits
+ * show and pending deletes stay hidden. `version` goes up when the server
+ * accepts a change: the search runs again.
  */
-export function useInstantSearch(
-  query: string,
+export function useSearch(
+  request: SearchRequest | undefined,
   memories: Memory[],
-  /** Bumped when a change reaches the server: the search runs again. */
-  version: number
+  version: number,
+  pauseMs = FULL_SEARCH_PAUSE_MS
 ) {
-  const [hits, setHits] = useState<{
-    query: string;
-    hits: Hit[];
-    failed?: boolean;
-  }>();
-  const q = query.trim();
+  const [answer, setAnswer] = useState<Answer>();
+  const [session] = useState(() =>
+    searchSession({ fetch: fetchHits, onAnswer: setAnswer, pauseMs, cache })
+  );
+  const query = request && "query" in request ? request.query.trim() : "";
+  const like = request && "like" in request ? request.like : "";
 
   useEffect(() => {
-    if (!q) return;
-    const controller = new AbortController();
-    api.api.search
-      .$get({ query: { q } }, { init: { signal: controller.signal } })
-      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-      .then(({ results }) => setHits({ query: q, hits: results }))
-      .catch(() => {
-        if (controller.signal.aborted) return; // the next keystroke took over
-        setHits({ query: q, hits: [], failed: true });
-      });
-    return () => controller.abort();
-  }, [q, version]);
+    session.set(like ? { like } : query ? { query } : undefined, version);
+  }, [session, query, like, version]);
+  useEffect(() => () => session.stop(), [session]);
 
   return useMemo((): Results | "failed" | undefined => {
-    // Undefined until this query's answer arrives: never another query's.
-    if (!q || hits?.query !== q) return undefined;
-    if (hits.failed) return "failed";
+    if (!answer || (!query && !like)) return undefined;
+    if ("failed" in answer) return "failed";
     const wall = new Map(memories.map((m) => [m.id, m]));
-    const results: Results = { direct: [], related: [] };
-    for (const hit of hits.hits) {
+    const results: Results = { direct: [], related: [], mode: answer.mode };
+    for (const hit of answer.hits) {
       const memory = wall.get(hit.id);
-      if (!memory) continue;
-      (hit.matched.includes("keyword") ? results.direct : results.related).push(
-        memory
-      );
+      if (memory) results[hit.match].push({ ...memory, part: hit.part });
     }
     return results;
-  }, [q, hits, memories]);
+  }, [answer, query, like, memories]);
 }

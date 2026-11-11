@@ -1,0 +1,72 @@
+import { expect, test, type Page } from "@playwright/test";
+import { signIn } from "./sign-in";
+
+// Hybrid search end to end on the local stack: the fake embedder
+// (INDEXING_PROVIDER=fake) reads "twilight", "dusk" and "sunset" as one
+// meaning, and "harbor", "port" and "dock" as another (FAKE_MEANINGS).
+
+async function paste(page: Page, text: string) {
+  await page.evaluate((text) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    document.body.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: data, bubbles: true })
+    );
+  }, text);
+}
+
+/** Captures `text` and waits for it to be Searchable. */
+async function capture(page: Page, text: string) {
+  await paste(page, text);
+  await expect(
+    page
+      .getByRole("list", { name: "All Memories" })
+      .getByRole("listitem", { name: text, exact: true })
+  ).toBeVisible({ timeout: 15_000 });
+}
+
+test("finds a Memory by meaning, says what matched, and finds More Like This", async ({
+  page,
+}) => {
+  await signIn(page);
+  await capture(page, "Sunset over the dock");
+  await capture(page, "Grocery list: eggs and milk");
+
+  // None of these words are in either Memory: instant search finds
+  // nothing, and the full search, once typing pauses, finds the sunset.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("twilight harbor");
+  const menu = page.getByRole("listbox");
+  await expect(
+    menu.getByRole("option", { name: "Sunset over the dock" })
+  ).toBeVisible();
+  await expect(menu.getByRole("option", { name: /Grocery/ })).toHaveCount(0);
+
+  // Enter puts the results on the wall, each with its why-chip.
+  await page.keyboard.press("Enter");
+  const direct = page.getByRole("list", { name: "Direct Matches" });
+  const first = direct.getByRole("listitem").first();
+  await expect(first).toHaveAccessibleName("Sunset over the dock");
+  await expect(first.getByText("Description")).toBeVisible();
+  await expect(page.locator("[data-search=full]")).toBeVisible();
+
+  // More Like This, from Memory detail.
+  await page.getByRole("button", { name: "Clear Search" }).click();
+  await capture(page, "Dusk by the port");
+  await page
+    .getByRole("list", { name: "All Memories" })
+    .getByRole("listitem", { name: "Sunset over the dock" })
+    .click();
+  await page.getByRole("button", { name: "More Like This" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const similar = page.locator("[data-search=full]");
+  await expect(
+    similar.getByRole("listitem", { name: "Dusk by the port" })
+  ).toBeVisible();
+  await expect(
+    similar.getByRole("listitem", { name: "Sunset over the dock" })
+  ).toHaveCount(0);
+  await expect(similar.getByRole("listitem", { name: /Grocery/ })).toHaveCount(
+    0
+  );
+});

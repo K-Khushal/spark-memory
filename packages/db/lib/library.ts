@@ -7,7 +7,14 @@ import {
   TextCapture,
 } from "@spark/core";
 import type { Database } from "./client";
-import { memory, memoryFile, memoryIndex, type FileRole } from "./schema";
+import {
+  memory,
+  memoryFile,
+  memoryIndex,
+  memoryVector,
+  type FileRole,
+  type PassageAnchor,
+} from "./schema";
 
 /** An image Memory's files: what the wall needs, and the keys to sign. */
 export type MemoryImage = {
@@ -131,8 +138,33 @@ const restartIndexing = {
 } as const;
 
 /** Which search legs found a Memory (ADR-0004). */
-export type MatchedBy = "keyword" | "typo";
-export type SearchResult = Memory & { matched: MatchedBy[] };
+export type MatchedBy = "keyword" | "typo" | "vector";
+/** What matched in the leg that ranked a Memory highest (migrations/0010). */
+export type MatchedPart =
+  | {
+      kind: "field";
+      field?: "title" | "note" | "tags" | "text" | "ocr" | "description";
+    }
+  | ({ kind: "passage" } & PassageAnchor)
+  | { kind: "overview" | "visual" };
+export type SearchResult = Memory & {
+  matched: MatchedBy[];
+  /** Cosine distance of its closest vector; null when the vector leg did not find it. */
+  distance: number | null;
+  part: MatchedPart;
+};
+
+/** The query's side of the vector leg: its vector, or a Memory's own (More Like This). */
+export type VectorProbe = { model: string; dimensions: number } & (
+  { vector: number[] } | { like: string }
+);
+
+export type SearchOptions = {
+  limit?: number;
+  probe?: VectorProbe;
+  maxDistance?: number;
+  kinds?: Memory["kind"][];
+};
 
 export type EditResult = Memory | { stale: true } | undefined;
 
@@ -527,30 +559,56 @@ export function openLibrary(db: Database, userId: string) {
           .returning({ id: memory.id });
         if (row && on) {
           await tx.delete(memoryIndex).where(eq(memoryIndex.memoryId, id));
+          await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
+          await tx
+            .update(memory)
+            .set({ vectorsSpace: null, vectorsRevision: null })
+            .where(eq(memory.id, id));
         }
       });
       return get(id);
     },
 
-    /** Instant search: keyword and typo matching, no AI (PLAN.md §6.2). */
-    async search(query: string, limit = 40): Promise<SearchResult[]> {
-      if (!query.trim()) return [];
+    /**
+     * Hybrid search (ADR-0004), best first: keyword and typo matching, and
+     * with a `probe` the vector leg too. Without one it is instant search
+     * (PLAN.md §6.2). A `like` probe is More Like This for one of the
+     * owner's Memories, which is left out.
+     */
+    async search(
+      query: string,
+      { limit = 40, probe, maxDistance = 0.6, kinds }: SearchOptions = {}
+    ): Promise<SearchResult[]> {
+      if (!query.trim() && !probe) return [];
+      const vector =
+        probe && "vector" in probe ? `[${probe.vector.join(",")}]` : null;
+      const like = probe && "like" in probe ? probe.like : null;
+      if (like && !UUID.test(like)) return [];
       const hits = db.$with("hits").as(
         db
           .select({
             id: sql<string>`id`.as("hit_id"),
             score: sql<number>`score`.as("score"),
             matched: sql<MatchedBy[]>`matched`.as("matched"),
+            distance: sql<number | null>`distance`.as("distance"),
+            part: sql<MatchedPart>`part`.as("part"),
           })
-          .from(sql`search_memories(${userId}, ${query}, ${limit})`)
+          .from(
+            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[])`
+          )
       );
       return db
         .with(hits)
-        .select({ ...columns, matched: hits.matched })
+        .select({
+          ...columns,
+          matched: hits.matched,
+          distance: hits.distance,
+          part: hits.part,
+        })
         .from(hits)
         .innerJoin(memory, eq(memory.id, hits.id))
         .where(and(eq(memory.userId, userId), allStored))
-        .orderBy(desc(hits.score));
+        .orderBy(desc(hits.score), asc(hits.id));
     },
   };
 }

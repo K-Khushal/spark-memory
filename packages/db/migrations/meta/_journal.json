@@ -64,6 +64,20 @@
       "when": 1794379434113,
       "tag": "0008_index_lease_run",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794395413996,
+      "tag": "0009_vectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794395416382,
+      "tag": "0010_hybrid_search",
+      "breakpoints": true
     }
   ]
 }

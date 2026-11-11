@@ -248,6 +248,9 @@ importers:
       '@spark/indexing':
         specifier: workspace:*
         version: link:../../packages/indexing
+      '@spark/search':
+        specifier: workspace:*
+        version: link:../../packages/search
       aws4fetch:
         specifier: 1.0.20
         version: 1.0.20
@@ -412,6 +415,12 @@ importers:
       '@spark/config':
         specifier: workspace:*
         version: link:../config
+      '@spark/indexing':
+        specifier: workspace:*
+        version: link:../indexing
+      '@spark/search':
+        specifier: workspace:*
+        version: link:../search
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
@@ -433,6 +442,13 @@ importers:
         version: link:../config
 
   packages/search:
+    dependencies:
+      '@spark/core':
+        specifier: workspace:*
+        version: link:../core
+      '@spark/indexing':
+        specifier: workspace:*
+        version: link:../indexing
     devDependencies:
       '@spark/config':
         specifier: workspace:*

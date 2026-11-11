@@ -51,11 +51,15 @@ export type Bindings = {
   INDEXING_PROVIDER?: string;
 };
 
-/** What a queue message carries: which Memory, at which run, and how urgent. */
+/**
+ * What a queue message carries: which Memory, at which run, and how urgent.
+ * `task: "embed"` makes only its vectors again (always background).
+ */
 export type IndexMessage = {
   memoryId: string;
   run?: number;
   priority: Priority;
+  task?: "embed";
 };
 export type IndexQueue = {
   send(body: IndexMessage, options?: { delaySeconds?: number }): Promise<void>;

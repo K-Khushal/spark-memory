@@ -12,6 +12,7 @@ import type { Draft } from "./drafts";
 import { AiOptOutSwitch, IndexStatus, type IndexingProps } from "./index-state";
 import { textOf, type libraryActions } from "./library-actions";
 import type { Memory } from "./use-library";
+import { MoreLikeThis } from "./why";
 
 const AUTOSAVE_MS = 800;
 
@@ -41,11 +42,13 @@ export function MemoryDetail({
   onDelete,
   onRetryIndexing,
   onAiOptOut,
+  onMoreLikeThis,
 }: {
   memory: Memory | undefined;
   edits: Edits;
   onClose: () => void;
   onDelete: (memory: Memory) => void;
+  onMoreLikeThis: (memory: Memory) => void;
 } & IndexingProps) {
   return (
     <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
@@ -58,6 +61,7 @@ export function MemoryDetail({
           onDelete={onDelete}
           onRetryIndexing={onRetryIndexing}
           onAiOptOut={onAiOptOut}
+          onMoreLikeThis={onMoreLikeThis}
         />
       )}
     </Dialog>
@@ -71,11 +75,13 @@ function Fields({
   onDelete,
   onRetryIndexing,
   onAiOptOut,
+  onMoreLikeThis,
 }: {
   memory: Memory;
   edits: Edits;
   onClose: () => void;
   onDelete: (memory: Memory) => void;
+  onMoreLikeThis: (memory: Memory) => void;
 } & IndexingProps) {
   const id = memory.id;
   const [opening] = useState(memory);
@@ -156,7 +162,7 @@ function Fields({
         className="h-10 min-w-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
       />
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Button
             variant="quiet"
             size="sm"
@@ -167,6 +173,7 @@ function Fields({
           >
             <Trash2Icon aria-hidden /> Delete
           </Button>
+          <MoreLikeThis memory={memory} onSelect={onMoreLikeThis} />
           <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">

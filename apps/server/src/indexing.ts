@@ -1,9 +1,11 @@
-import { INDEXING } from "@spark/core";
+import { EMBEDDING, embeddingSpace, INDEXING } from "@spark/core";
 import { indexingStore, openDatabase } from "@spark/db";
 import {
   backoffSeconds,
   createIndexer,
+  embedderFor,
   providerChain,
+  type ChainOptions,
   type IndexOutcome,
   type Priority,
 } from "@spark/indexing";
@@ -27,6 +29,34 @@ export async function enqueue(
     await queue.send({ memoryId: memory.id, run: memory.indexRun, priority });
   } catch {
     console.error("indexing: enqueue failed");
+  }
+}
+
+/** What this environment's providers are (secrets and vars in wrangler.jsonc). */
+export const providers = (env: Bindings): ChainOptions => ({
+  fake: env.SPARK_ENV === "local" && env.INDEXING_PROVIDER === "fake",
+  ai: env.AI,
+  geminiApiKey: env.GEMINI_API_KEY,
+  geminiPaidTier: env.GEMINI_PAID_TIER === "true",
+});
+
+/**
+ * Queues an embed job: the vectors of a Searchable Memory, made again in
+ * the background (after an edited title, after `delaySeconds`, so a burst
+ * of autosaves embeds once). A lost message is sent again by the sweep.
+ */
+export async function enqueueEmbed(
+  env: Bindings,
+  memoryId: string,
+  delaySeconds?: number
+) {
+  try {
+    await env.REINDEX_QUEUE.send(
+      { memoryId, priority: "background", task: "embed" },
+      delaySeconds ? { delaySeconds } : undefined
+    );
+  } catch {
+    console.error("indexing: embed enqueue failed");
   }
 }
 
@@ -58,20 +88,19 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     const store = indexingStore(db);
     if (isDeadLetter(batch.queue)) {
       for (const message of batch.messages) {
-        const { memoryId, run } = message.body;
-        await store.fail(memoryId, run, "unavailable");
+        const { memoryId, run, task } = message.body;
+        // A lost embed job leaves the Memory Searchable; the sweep tries again.
+        if (task !== "embed") await store.fail(memoryId, run, "unavailable");
         message.ack();
       }
       return;
     }
+    const options = providers(env);
+    const embedder = embedderFor(options);
     const { index } = createIndexer({
       store,
-      providers: providerChain({
-        fake: env.SPARK_ENV === "local" && env.INDEXING_PROVIDER === "fake",
-        ai: env.AI,
-        geminiApiKey: env.GEMINI_API_KEY,
-        geminiPaidTier: env.GEMINI_PAID_TIER === "true",
-      }),
+      providers: providerChain(options),
+      ...(embedder && { embedder }),
       readFile: async (key) => {
         const object = await env.FILES.get(key);
         return object
@@ -81,13 +110,14 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     });
     await Promise.all(
       batch.messages.map(async (message) => {
-        const { memoryId, run, priority } = message.body;
+        const { memoryId, run, priority, task } = message.body;
         let outcome: IndexOutcome;
         try {
           outcome = await index({
             memoryId,
             run,
             priority,
+            task,
             attempt: message.attempts,
           });
         } catch {
@@ -110,7 +140,7 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
         } else {
           message.ack();
         }
-        console.log(`indexing: ${priority} ${outcome.result}`);
+        console.log(`indexing: ${task ?? priority} ${outcome.result}`);
       })
     );
   } finally {
@@ -134,6 +164,16 @@ export async function requeueStalled(env: Bindings) {
       await enqueue(env, { id, indexRun: run, indexPriority: priority });
     }
     if (stalled.length) console.log(`indexing: re-enqueued ${stalled.length}`);
+    // Vectors missing (an embedding that failed) or stale (a new model or
+    // size, an edited title): made again in the background, within budget.
+    const embedder = embedderFor(providers(env));
+    if (!embedder || spent) return;
+    const stale = await store.staleVectors(
+      embeddingSpace(embedder.model, embedder.dimensions),
+      EMBEDDING.sweepBatch
+    );
+    for (const { id } of stale) await enqueueEmbed(env, id);
+    if (stale.length) console.log(`indexing: re-embedding ${stale.length}`);
   } finally {
     await close();
   }

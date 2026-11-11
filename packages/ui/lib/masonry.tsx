@@ -32,6 +32,11 @@ type MasonryProps<T> = {
   gap?: number;
   label: string;
   className?: string;
+  /**
+   * Items that change place glide there (transform, 200ms ease-out), so a
+   * reordered result reads as a move, not a swap. Off under reduced motion.
+   */
+  glide?: boolean;
   onOpen?: (index: number) => void;
   onPreview?: (index: number) => void;
   renderItem: (item: T, tile: MasonryTile) => ReactNode;
@@ -54,6 +59,7 @@ export function Masonry<T>({
   gap = 12,
   label,
   className,
+  glide = false,
   onOpen,
   onPreview,
   renderItem,
@@ -154,7 +160,11 @@ export function Masonry<T>({
             aria-label={getLabel(item)}
             onFocus={() => setActive(v.index)}
             onClick={() => onOpen?.(v.index)}
-            className="absolute top-0 left-0 rounded-tile outline-offset-2"
+            className={cn(
+              "absolute top-0 left-0 rounded-tile outline-offset-2",
+              glide &&
+                "transition-transform duration-200 ease-out motion-reduce:transition-none"
+            )}
             style={{
               width: colWidth,
               height: v.size,
