@@ -9,7 +9,8 @@ const api = `http://localhost:${process.env.SPARK_API_PORT ?? 8787}`;
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: "*.e2e.ts",
+  testMatch:
+    process.env.ADMIN_SCREENSHOTS === "1" ? "admin.screenshots.ts" : "*.e2e.ts",
   timeout: 30_000,
   retries: process.env.CI ? 1 : 0,
   use: {

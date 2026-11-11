@@ -31,9 +31,13 @@ export async function signIn(page: Page, address?: string): Promise<string> {
   const { code } = (await res.json()) as { code: string };
   await page.getByRole("textbox", { name: "Code" }).fill(code);
   await expect(page).toHaveURL(/\/$/);
-  // The Library has loaded (its shortcuts are listening) for a new person.
+  // LibraryPage has mounted (its shortcuts are listening). The empty
+  // heading or the wall, not the sidebar link, is what it renders. A
+  // known address may already have Memories from an earlier run.
   await expect(
-    page.getByRole("heading", { name: "No Memories Yet" })
+    page
+      .getByRole("heading", { name: "No Memories Yet" })
+      .or(page.getByRole("list", { name: "All Memories" }))
   ).toBeVisible();
   return email;
 }
