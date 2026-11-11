@@ -5,9 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
 // Needs Postgres with migrations applied (`pnpm db:migrate`).
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: process.env.ADMIN_SCREENSHOTS
-    ? "admin.screenshots.ts"
-    : "*.e2e.ts",
+  testMatch:
+    process.env.ADMIN_SCREENSHOTS === "1" ? "admin.screenshots.ts" : "*.e2e.ts",
   timeout: 30_000,
   retries: process.env.CI ? 1 : 0,
   use: {

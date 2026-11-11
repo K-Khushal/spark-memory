@@ -43,7 +43,11 @@ test("an admin sees spend and usage, and can change the daily budget", async ({
     page.getByRole("heading", { name: "Daily Spend" })
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Usage" })).toBeVisible();
-  await expect(page.getByRole("columnheader", { name: "Email" })).toBeVisible();
+  const usage = page.getByRole("table", { name: "Usage" });
+  await expect(
+    usage.getByRole("columnheader", { name: "Email" })
+  ).toBeVisible();
+  await expect(usage.locator("tbody tr").first()).toBeVisible();
   await expect(page.getByText("Active")).toBeVisible();
   // Usage is paginated (50, dearest first). A database that already holds
   // many people may not put this admin on page 1, so the smoke does not
