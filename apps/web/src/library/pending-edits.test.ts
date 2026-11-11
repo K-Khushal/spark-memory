@@ -479,6 +479,27 @@ describe("another tab's draft", () => {
     tabB.actions.closeEdit("m1");
     expect(tabB.drafts.read("m1")).toEqual(crashCopy);
   });
+
+  it("a successful save does not delete another page's crash copy", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
+    const tabB = setup({ server, drafts: draftStore(store) });
+    tabA.actions.editText(start, text("A text"));
+    tabB.actions.openEdit(start);
+    tabB.actions.editText(start, text("B unsent"));
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "B unsent" },
+      page: tabB.drafts.page,
+    });
+    tabA.actions.closeEdit("m1");
+    await settle();
+    expect(server.row().title).toBe("A text");
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "B unsent" },
+      page: tabB.drafts.page,
+    });
+  });
 });
 
 describe("a draft after reload", () => {
@@ -560,6 +581,28 @@ describe("Restore Your Edit", () => {
     expect(t.actions.pendingEdit("m1")).toMatchObject({
       refused: [{ title: "New typing" }],
     });
+  });
+});
+
+describe("a 409 against a server copy that already has an offered draft", () => {
+  it("drops refused versions whose text the server already has", async () => {
+    const t = setup();
+    t.drafts.keep("m1", {
+      fields: text("Old"),
+      baseRevision: 0,
+      page: "earlier",
+    });
+    t.actions.openEdit(start);
+    t.server.editElsewhere("Old");
+    t.actions.editText(t.onWall()!, text("New"));
+    t.actions.saveEdit("m1");
+    await settle();
+    expect(t.actions.pendingEdit("m1")).toMatchObject({
+      status: "idle",
+      refused: [text("New")],
+    });
+    expect(t.drafts.read("m1")?.refused).toEqual([text("New")]);
+    expect(t.onWall()?.title).toBe("Old");
   });
 });
 

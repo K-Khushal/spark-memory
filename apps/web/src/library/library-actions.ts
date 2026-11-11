@@ -90,6 +90,11 @@ const saved = (memory: Memory, fields: Draft) =>
   (!fields.body.trim() &&
     sameText({ ...trimmed(fields), body: memory.body ?? "" }, textOf(memory)));
 
+const withoutSaved = (list: Draft[] | undefined, memory: Memory) => {
+  const kept = list?.filter((d) => !saved(memory, d));
+  return kept?.length ? kept : undefined;
+};
+
 const withText = (memory: Memory, fields: Draft): Memory => ({
   ...memory,
   title: fields.title.trim() || null,
@@ -138,25 +143,52 @@ export function libraryActions({
     generation.set(id, (generation.get(id) ?? 0) + 1);
 
   /** The only way a pending edit changes: kept as a draft, and watchers told. */
-  function setPending(id: string, edit: PendingEdit | undefined) {
+  function setPending(
+    id: string,
+    edit: PendingEdit | undefined,
+    opts: { sent?: Draft; dropStorage?: boolean; take?: boolean } = {}
+  ) {
     if (edit && (edit.fields || edit.refused?.length)) {
       pending.set(id, edit);
-      // An offer from storage belongs to the page that wrote it; leave it.
+      // An offer from storage belongs to the page that wrote it; leave it
+      // unless this page is now typing or restoring (take).
       if (!edit.fromStorage) {
-        drafts.keep(id, {
-          fields: edit.fields,
-          baseRevision: edit.baseRevision,
-          refused: edit.refused,
-          page,
-        });
+        const kept = drafts.read(id);
+        if (opts.take || !kept || kept.page === page) {
+          drafts.keep(id, {
+            fields: edit.fields,
+            baseRevision: edit.baseRevision,
+            refused: edit.refused,
+            page,
+          });
+        }
       }
     } else {
       edit = undefined;
       pending.delete(id);
       serverCopy.delete(id);
-      drafts.discard(id);
+      if (opts.dropStorage) {
+        drafts.discard(id);
+      } else {
+        const kept = drafts.read(id);
+        if (
+          kept?.page === page &&
+          (!opts.sent || !kept.fields || sameText(kept.fields, opts.sent))
+        ) {
+          drafts.discard(id);
+        }
+      }
     }
     for (const watch of watchers.get(id) ?? []) watch(edit);
+  }
+
+  /** Drop refused versions the server already stores. */
+  function dropRefusedOnServer(id: string, memory: Memory) {
+    const now = pending.get(id);
+    if (!now?.refused?.length) return;
+    const refused = withoutSaved(now.refused, memory);
+    if ((refused?.length ?? 0) === now.refused.length) return;
+    setPending(id, { ...now, refused });
   }
 
   function inOrder<T>(id: string, task: () => Promise<T>): Promise<T> {
@@ -314,14 +346,18 @@ export function libraryActions({
     const now = pending.get(id);
     const base = serverCopy.get(id) ?? memory;
     if (!serverCopy.has(id)) serverCopy.set(id, base);
-    setPending(id, {
-      fields,
-      baseRevision:
-        !now || now.status === "idle" ? base.revision : now.baseRevision,
-      status: now?.status === "sending" ? "sending" : "dirty",
-      refused: now?.refused,
-      fromStorage: false,
-    });
+    setPending(
+      id,
+      {
+        fields,
+        baseRevision:
+          !now || now.status === "idle" ? base.revision : now.baseRevision,
+        status: now?.status === "sending" ? "sending" : "dirty",
+        refused: now?.refused,
+        fromStorage: false,
+      },
+      { take: true }
+    );
     replaceLocal(withText(base, fields));
   }
 
@@ -365,7 +401,7 @@ export function libraryActions({
         setPending(id, {
           baseRevision: latest.revision,
           status: "idle",
-          refused: withRefused(now.refused, now.fields),
+          refused: withoutSaved(withRefused(now.refused, now.fields), latest),
           fromStorage: false,
         });
         return;
@@ -373,18 +409,25 @@ export function libraryActions({
       onSaved();
       serverCopy.set(id, result);
       const now = pending.get(id)!;
+      const refused = withoutSaved(now.refused, result);
       if (now.fields && sameText(now.fields, sent)) {
-        setPending(id, {
-          ...now,
-          fields: undefined,
-          baseRevision: result.revision,
-          status: "idle",
-        });
+        setPending(
+          id,
+          {
+            ...now,
+            fields: undefined,
+            refused,
+            baseRevision: result.revision,
+            status: "idle",
+          },
+          { sent }
+        );
         replaceLocal(result);
       } else {
         // Typed during the send: that is next, on the new revision.
         setPending(id, {
           ...now,
+          refused,
           baseRevision: result.revision,
           status: "dirty",
         });
@@ -408,14 +451,18 @@ export function libraryActions({
     const older = edit.refused.slice(1);
     const displaced =
       edit.fields && !sameText(edit.fields, newest) ? edit.fields : undefined;
-    setPending(id, {
-      fields: newest,
-      baseRevision:
-        edit.status === "sending" ? edit.baseRevision : base.revision,
-      status: edit.status === "sending" ? "sending" : "dirty",
-      refused: withRefused(older, displaced),
-      fromStorage: false,
-    });
+    setPending(
+      id,
+      {
+        fields: newest,
+        baseRevision:
+          edit.status === "sending" ? edit.baseRevision : base.revision,
+        status: edit.status === "sending" ? "sending" : "dirty",
+        refused: withRefused(older, displaced),
+        fromStorage: false,
+      },
+      { take: true }
+    );
     replaceLocal(withText(base, newest));
     saveEdit(id);
     return newest;
@@ -516,7 +563,7 @@ export function libraryActions({
       pendingDeletes.delete(id);
       const known = serverCopy.get(id);
       const gen = generation.get(id) ?? 0;
-      setPending(id, undefined);
+      setPending(id, undefined, { dropStorage: true });
       inOrder(id, () => transport.remove(id, { keepalive })).then(
         onSaved,
         () => {
@@ -573,12 +620,14 @@ export function libraryActions({
     if (images.isUploading(id) || Date.now() - last < 60_000) return;
     refreshed.set(id, Date.now());
     void transport.get(id).then(
-      // Fresh URLs only: whatever the wall knows of its upload stays.
-      (fresh) =>
-        fresh &&
+      (fresh) => {
+        if (!fresh) return;
+        // Fresh URLs only: whatever the wall knows of its upload stays.
         setMemories((all) =>
           all.map((m) => (m.id === id ? { ...fresh, upload: m.upload } : m))
-        ),
+        );
+        dropRefusedOnServer(id, fresh);
+      },
       () => {}
     );
   }
