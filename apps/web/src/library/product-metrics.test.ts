@@ -26,6 +26,27 @@ describe("product metrics", () => {
     expect(JSON.stringify(events)).not.toContain("cardamom");
   });
 
+  it("records the search when a result is opened from the menu", () => {
+    let time = 1_000;
+    const events: ProductEvent[] = [];
+    const metrics = productMetrics(
+      (event) => events.push(event),
+      () => time
+    );
+    metrics.searchOpened();
+    metrics.committedSearch("cardamom buns", { direct: 1, related: 0 });
+    time = 4_000;
+    metrics.choseResult("cardamom", { direct: 2, related: 1 });
+    metrics.abandoned();
+    expect(events).toEqual([
+      { event: "search_success", properties: { direct: 1, related: 0 } },
+      { event: "search_reformulated", properties: {} },
+      { event: "search_success", properties: { direct: 2, related: 1 } },
+      { event: "time_to_find", properties: { milliseconds: 3_000 } },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("cardamom");
+  });
+
   it("does not count a tile opened after the menu was closed with no search", () => {
     const events: ProductEvent[] = [];
     const metrics = productMetrics((event) => events.push(event));

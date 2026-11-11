@@ -47,6 +47,15 @@ describe.skipIf(!databaseUrl)("admin", () => {
       key: "phc_test",
       host: "https://eu.i.posthog.com",
     });
+    const plain = await call(
+      "/api/analytics",
+      {},
+      env({ POSTHOG_KEY: "phc_test", POSTHOG_HOST: "http://evil.example" })
+    );
+    expect(await plain.json()).toEqual({
+      key: null,
+      host: "http://evil.example",
+    });
   });
 
   it("refuses anonymous and ordinary people, and lets an admin read and change the budget", async () => {
@@ -70,6 +79,32 @@ describe.skipIf(!databaseUrl)("admin", () => {
     expect(
       (await json<{ admin: boolean }>(await ordinary.call("/api/me"))).admin
     ).toBe(false);
+    const unverified = await signedIn();
+    await sql.query(
+      `update "user" set email_verified = false where email = $1`,
+      [unverified.address]
+    );
+    const asUnverified = env({ ADMIN_EMAILS: unverified.address });
+    expect(
+      (
+        await json<{ admin: boolean }>(
+          await unverified.call("/api/me", {}, asUnverified)
+        )
+      ).admin
+    ).toBe(false);
+    expect(
+      (await unverified.call("/api/admin/summary", {}, asUnverified)).status
+    ).toBe(403);
+    expect(
+      (
+        await unverified.call(
+          "/api/admin/budget",
+          { method: "PUT", json: { limitMicros: 1 } },
+          asUnverified
+        )
+      ).status
+    ).toBe(403);
+
     expect((await ordinary.call("/api/admin/summary")).status).toBe(403);
     expect(await (await ordinary.call("/api/admin/summary")).json()).toEqual({
       ok: false,
@@ -211,24 +246,41 @@ describe.skipIf(!databaseUrl)("admin", () => {
     const phrase = `private-phrase-${crypto.randomUUID()}`;
     const created = await call("/api/memories", {
       method: "POST",
-      json: { body: phrase },
+      json: { body: phrase, productAnalytics: true },
     });
     const { id } = (await created.json()) as { id: string };
     const me = (await (await call("/api/me")).json()) as {
       id: string;
       email: string;
     };
-    await drain(
-      id,
-      env({ POSTHOG_KEY: "phc_test", POSTHOG_HOST: "https://us.i.posthog.com" })
-    );
-
-    expect(seen).toContainEqual({
-      api_key: "phc_test",
-      event: "time_to_searchable",
-      distinct_id: me.id,
-      properties: { kind: "text", milliseconds: expect.any(Number) },
+    const posthog = env({
+      POSTHOG_KEY: "phc_test",
+      POSTHOG_HOST: "https://us.i.posthog.com",
     });
+    await drain(id, posthog);
+
+    expect(seen).toEqual([
+      {
+        api_key: "phc_test",
+        event: "time_to_searchable",
+        distinct_id: me.id,
+        properties: { kind: "text", milliseconds: expect.any(Number) },
+      },
+    ]);
+    await call(`/api/memories/${id}`, {
+      method: "PATCH",
+      json: { body: `${phrase} edited` },
+    });
+    await drain(id, posthog);
+    expect(seen).toHaveLength(1);
+
+    const quiet = await call("/api/memories", {
+      method: "POST",
+      json: { body: `${phrase} quiet` },
+    });
+    const quietId = ((await quiet.json()) as { id: string }).id;
+    await drain(quietId, posthog);
+    expect(seen).toHaveLength(1);
     const wire = JSON.stringify(seen);
     expect(wire).not.toContain(phrase);
     expect(wire).not.toContain(me.email);

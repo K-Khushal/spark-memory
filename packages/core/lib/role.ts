@@ -26,3 +26,14 @@ export function rolesFor(email: string, adminList: string | undefined): Role[] {
 export function isAdmin(email: string, adminList: string | undefined): boolean {
   return rolesFor(email, adminList).includes("admin");
 }
+
+/**
+ * Admin is the allowlist plus a verified address. An unverified session for
+ * an allowlisted address is not an admin: the address has not been proved.
+ */
+export function isVerifiedAdmin(
+  user: { email: string; emailVerified: boolean },
+  adminList: string | undefined
+): boolean {
+  return user.emailVerified === true && isAdmin(user.email, adminList);
+}

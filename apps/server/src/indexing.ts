@@ -112,8 +112,11 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
           message.ack();
         }
         if (outcome.result === "searchable") {
+          // Sent from the Worker, not the tile: Indexing can finish after
+          // the dashboard is closed. The Capture stored whether Do Not
+          // Track was off, and only the first Searchable run is counted.
           const timing = await store
-            .searchableTiming(memoryId)
+            .claimFirstSearchable(memoryId)
             .catch(() => undefined);
           if (timing) {
             pending.push({

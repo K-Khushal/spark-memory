@@ -77,6 +77,65 @@ export function productAnalyticsEnabled(options: {
 
 const DEFAULT_HOST = "https://us.i.posthog.com";
 
+const EVENT_PROPERTIES: Record<ProductPayload["event"], readonly string[]> = {
+  save_success: ["kind"],
+  time_to_searchable: ["kind", "milliseconds"],
+  search_success: ["direct", "related"],
+  search_reformulated: [],
+  time_to_find: ["milliseconds"],
+};
+
+/**
+ * What the dashboard may learn about analytics. A host that is not https
+ * never carries a key, so the client cannot initialise against it.
+ */
+export function publicAnalytics(options: {
+  key?: string | null;
+  host?: string | null;
+}): { key: string | null; host: string } {
+  const host = options.host || DEFAULT_HOST;
+  if (!host.startsWith("https://")) return { key: null, host };
+  return { key: options.key || null, host };
+}
+
+/**
+ * The last gate on an outgoing event. PostHog adds the current URL, the
+ * referrer, campaign parameters and the browser on its own, and a URL can
+ * hold a query string. Keep the event's own properties, the distinct id and
+ * the project token (PostHog drops an event whose token was removed).
+ * Anything else, including a dead click and its element text, is dropped.
+ */
+export function allowOutgoingProductEvent<
+  T extends {
+    uuid?: string;
+    event: string;
+    properties?: Record<string, unknown> | null;
+    timestamp?: Date;
+  },
+>(event: T | null): T | null {
+  if (!event) return null;
+  const allowed = EVENT_PROPERTIES[event.event as ProductPayload["event"]];
+  if (!allowed) return null;
+  const source = event.properties ?? {};
+  const properties: Record<string, unknown> = {};
+  if (typeof source.token === "string") properties.token = source.token;
+  if (typeof source.distinct_id === "string") {
+    properties.distinct_id = source.distinct_id;
+  }
+  for (const key of allowed) {
+    const value = source[key];
+    if (typeof value === "string" || typeof value === "number") {
+      properties[key] = value;
+    }
+  }
+  return {
+    uuid: event.uuid,
+    event: event.event,
+    properties,
+    timestamp: event.timestamp,
+  } as T;
+}
+
 /** The slice of fetch this call needs. The timeout signal is attached by the caller. */
 export type CaptureFetch = (
   url: string,

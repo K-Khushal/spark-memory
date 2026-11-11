@@ -189,24 +189,43 @@ export function indexingStore(db: Database) {
     dailyBudgetMicros: () => readDailyBudgetMicros(db),
 
     /**
-     * How long a Memory that is already Searchable took, for the product
-     * event. Kind and duration only: no title, text or email.
+     * Claims the first time this Memory became Searchable. One update wins
+     * when several runs finish together. Later runs find the timestamp set
+     * and return nothing, so an edit, Retry or budget-delayed run does not
+     * send the event again. The duration is a bigint: an int overflows after
+     * about 24 days. Nothing is returned when the Capture opted out, but the
+     * timestamp is still set so a later change cannot emit a skewed event.
+     * Kind and duration only: no title, text or email.
      */
-    async searchableTiming(
+    async claimFirstSearchable(
       id: string
     ): Promise<
       { userId: string; kind: MemoryKind; milliseconds: number } | undefined
     > {
-      const [row] = await db
-        .select({
-          userId: memory.userId,
-          kind: memory.kind,
-          milliseconds: sql<number>`greatest(0, floor(extract(epoch from (clock_timestamp() - ${memory.capturedAt})) * 1000))::int`,
-        })
-        .from(memory)
-        .where(and(eq(memory.id, id), eq(memory.indexState, "searchable")));
-      if (!row) return undefined;
-      return { ...row, milliseconds: Number(row.milliseconds) };
+      const { rows } = await db.execute<{
+        user_id: string;
+        kind: MemoryKind;
+        product_analytics: boolean;
+        milliseconds: string;
+      }>(sql`
+        update memory
+        set first_searchable_at = clock_timestamp()
+        where id = ${id}
+          and index_state = 'searchable'
+          and first_searchable_at is null
+        returning user_id, kind, product_analytics,
+          greatest(
+            0,
+            floor(extract(epoch from (first_searchable_at - captured_at)) * 1000)
+          )::bigint as milliseconds
+      `);
+      const row = rows[0];
+      if (!row?.product_analytics) return undefined;
+      return {
+        userId: row.user_id,
+        kind: row.kind,
+        milliseconds: Number(row.milliseconds),
+      };
     },
 
     /** One AI call: its own row, and today's total, added to atomically. */

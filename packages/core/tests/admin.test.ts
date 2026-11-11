@@ -4,10 +4,13 @@ import {
   INDEXING,
   budgetPaused,
   effectiveDailyBudgetMicros,
+  allowOutgoingProductEvent,
   isAdmin,
+  isVerifiedAdmin,
   parseDailyBudgetMicros,
   productAnalyticsEnabled,
   productPayload,
+  publicAnalytics,
   rolesFor,
   sendProductEvent,
 } from "../index";
@@ -20,6 +23,22 @@ describe("admin role", () => {
     expect(rolesFor("owner@example.com", list)).toEqual(["admin"]);
     expect(isAdmin("person@example.com", list)).toBe(false);
     expect(rolesFor("person@example.com", list)).toEqual([]);
+  });
+
+  it("requires a verified address as well as the list", () => {
+    const list = "owner@example.com";
+    expect(
+      isVerifiedAdmin({ email: "owner@example.com", emailVerified: true }, list)
+    ).toBe(true);
+    expect(
+      isVerifiedAdmin(
+        { email: "owner@example.com", emailVerified: false },
+        list
+      )
+    ).toBe(false);
+    expect(
+      isVerifiedAdmin({ email: "other@example.com", emailVerified: true }, list)
+    ).toBe(false);
   });
 
   it("grants nobody when the list is missing or empty", () => {
@@ -42,6 +61,10 @@ describe("daily budget", () => {
     expect(
       effectiveDailyBudgetMicros(String(DAILY_BUDGET_MAX_MICROS + 1))
     ).toBe(INDEXING.dailyBudgetMicros);
+  });
+
+  it("caps the editable budget at $20 a day", () => {
+    expect(DAILY_BUDGET_MAX_MICROS).toBe(20_000_000);
   });
 
   it("accepts an integer from $0 up to the cap", () => {
@@ -99,6 +122,61 @@ describe("product events", () => {
         properties: { milliseconds: 800 },
       })
     ).toEqual({ event: "time_to_find", properties: { milliseconds: 800 } });
+  });
+
+  it("keeps only the event's own keys, the distinct id and the token", () => {
+    const sentAt = new Date("2026-11-11T00:00:00.000Z");
+    const kept = allowOutgoingProductEvent({
+      uuid: "evt-1",
+      event: "time_to_searchable",
+      timestamp: sentAt,
+      properties: {
+        token: "phc_test",
+        distinct_id: "user-1",
+        kind: "text",
+        milliseconds: 1200,
+        $current_url: "https://app.example/library?q=secret+lemon",
+        $referrer: "https://campaign.example/?utm=1",
+        $browser: "Chrome",
+        utm_campaign: "spring",
+        $el_text: "private lemon tart text",
+      },
+    });
+    expect(kept).toEqual({
+      uuid: "evt-1",
+      event: "time_to_searchable",
+      timestamp: sentAt,
+      properties: {
+        token: "phc_test",
+        distinct_id: "user-1",
+        kind: "text",
+        milliseconds: 1200,
+      },
+    });
+    expect(JSON.stringify(kept)).not.toContain("lemon");
+    expect(JSON.stringify(kept)).not.toContain("utm");
+    expect(
+      allowOutgoingProductEvent({
+        event: "$dead_click",
+        properties: { $el_text: "private lemon tart text" },
+      })
+    ).toBeNull();
+    expect(
+      allowOutgoingProductEvent({ event: "$pageview", properties: {} })
+    ).toBeNull();
+  });
+
+  it("withholds the key unless the host is https", () => {
+    expect(
+      publicAnalytics({ key: "phc_test", host: "http://evil.example" })
+    ).toEqual({ key: null, host: "http://evil.example" });
+    expect(
+      publicAnalytics({ key: "phc_test", host: "https://eu.i.posthog.com" })
+    ).toEqual({ key: "phc_test", host: "https://eu.i.posthog.com" });
+    expect(publicAnalytics({ key: null })).toEqual({
+      key: null,
+      host: "https://us.i.posthog.com",
+    });
   });
 
   it("stays off without a key and when Do Not Track is set", () => {

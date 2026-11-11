@@ -7,6 +7,7 @@ import {
 } from "@spark/capture";
 import type { ImageCapture } from "@spark/core";
 import type { toast } from "@spark/ui";
+import { captureProductAnalytics } from "../product-analytics";
 import type { Memory, WallMemory } from "./library-actions";
 
 /** A presigned upload: PUT the file's bytes to `url` with exactly `headers`. */
@@ -122,6 +123,7 @@ export function imageCapture({
           mime: prepared.thumbnailMime,
           bytes: prepared.thumbnail.size,
         },
+        productAnalytics: captureProductAnalytics(),
       });
       if (!current()) return;
       const body = (u: Upload) =>

@@ -3,6 +3,7 @@ import type { InferResponseType } from "@spark/api-client";
 import { FREE_ALLOWANCE, type MemoryEditRequest } from "@spark/core";
 import type { toast } from "@spark/ui";
 import type { api } from "../api";
+import { captureProductAnalytics } from "../product-analytics";
 import {
   sameText,
   type Draft,
@@ -31,6 +32,7 @@ export type Transport = ImageTransport & {
     id: string;
     body: string;
     captureNote: string | null;
+    productAnalytics?: boolean;
   }) => Promise<Memory>;
   /** "stale" when the Memory has moved past `json.revision`. */
   patch: (
@@ -249,6 +251,7 @@ export function libraryActions({
         id: memory.id,
         body: memory.body ?? "",
         captureNote: memory.captureNote,
+        productAnalytics: captureProductAnalytics(),
       })
     );
 

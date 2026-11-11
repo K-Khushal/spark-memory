@@ -42,6 +42,15 @@ export function productMetrics(
       startedAt = undefined;
       looking = false;
     },
+    /**
+     * A result chosen from the search menu. Record the search, including a
+     * reformulation, before the time to find, so closing the menu does not
+     * drop them.
+     */
+    choseResult(query: string, counts: { direct: number; related: number }) {
+      this.committedSearch(query, counts);
+      this.found();
+    },
     /** The search menu closed with nothing committed: opening a tile is not a find. */
     abandoned() {
       if (committed) return;

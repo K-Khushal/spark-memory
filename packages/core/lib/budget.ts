@@ -4,10 +4,10 @@ import { INDEXING } from "./indexing";
 export const DAILY_BUDGET_KEY = "daily_budget_micros";
 
 /**
- * Above this ($10,000) a value is refused, so a stray zero cannot lift the
+ * Above this ($20) a value is refused, so a stray zero cannot lift the
  * breaker. $0 is allowed: it pauses background Indexing immediately.
  */
-export const DAILY_BUDGET_MAX_MICROS = 10_000_000_000;
+export const DAILY_BUDGET_MAX_MICROS = 20_000_000;
 
 /**
  * The budget the breaker uses. A missing or unreadable stored value falls

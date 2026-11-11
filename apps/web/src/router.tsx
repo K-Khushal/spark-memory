@@ -21,12 +21,7 @@ const rootRoute = createRootRoute({ component: () => <Outlet /> });
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  beforeLoad: async () => {
-    const { session } = await requireSession();
-    const res = await api.api.me.$get();
-    const admin = res.ok ? (await res.json()).admin : false;
-    return { session, admin };
-  },
+  beforeLoad: () => requireSession(),
   component: function Library() {
     const { session, admin } = libraryRoute.useRouteContext();
     return <LibraryPage session={session} admin={admin} />;
@@ -37,9 +32,8 @@ const adminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin",
   beforeLoad: async () => {
-    const { session } = await requireSession();
-    const res = await api.api.me.$get();
-    if (!res.ok || !(await res.json()).admin) throw redirect({ to: "/" });
+    const { session, admin } = await requireSession();
+    if (!admin) throw redirect({ to: "/" });
     return { session };
   },
   component: function Admin() {

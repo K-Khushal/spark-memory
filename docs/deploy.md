@@ -161,7 +161,7 @@ After Capture (text on create, an image once its files are stored) the Worker se
 
 `/admin` shows daily AI spend by provider and model (`ai_call`, the last 30 UTC days), per-person usage (Memories, storage counted the same way as the Free allowance, AI cost) and the daily budget against today's `spend_day` total. The page says whether background Indexing is paused.
 
-The admin role is `ADMIN_EMAILS`. Every `/api/admin/*` route checks it: 401 with no session, 403 for anyone else. The dashboard hides the link for everyone else, and that is not the protection. A change to the budget is refused above $10,000 and below $0; $0 pauses background Indexing at once. The log stores the admin's user id, never their email.
+The admin role is `ADMIN_EMAILS`, and the address must be verified. Every `/api/admin/*` route checks both: 401 with no session, 403 for anyone else. The dashboard hides the link for everyone else, and that is not the protection. A change to the budget is refused above $20 a day and below $0; $0 pauses background Indexing at once. The log stores the admin's user id, never their email.
 
 Locally, `wrangler.jsonc`'s top-level vars set `ADMIN_EMAILS` to `admin@example.test` so the smoke test can open the page. That var is not deployed.
 
@@ -169,7 +169,7 @@ Locally, `wrangler.jsonc`'s top-level vars set `ADMIN_EMAILS` to `admin@example.
 
 PostHog receives five events, named in `packages/core/lib/product-events.ts`: `save_success`, `time_to_searchable`, `search_success`, `search_reformulated`, `time_to_find`. Properties are a kind, counts or a duration. Never a Memory's text or title, a search query, or an email. The person is the user id.
 
-The dashboard loads `posthog-js` only when `POSTHOG_KEY` is set and the browser's Do Not Track is off (`GET /api/analytics` returns the public project key and host; no key means `{ "key": null }` and the script is never fetched). Time to Searchable is sent by the Worker when Indexing finishes, with a 2 second timeout, after the database connection is closed. A missing key, a non-https host, or a timeout skips the event. Nothing about it is logged.
+The dashboard loads `posthog-js` only when `POSTHOG_KEY` is set, the host is `https`, and the browser's Do Not Track is off (`GET /api/analytics` returns the public project key and host; no key, or a host that is not `https`, means `{ "key": null }` and the script is never fetched). Time to Searchable is sent by the Worker the first time Indexing makes a Memory Searchable, and only when that Capture was made with Do Not Track off. The duration is known when Indexing finishes, which can be after the dashboard is closed, so the Worker sends it. The call times out after 2 seconds, after the database connection is closed. A missing key, a non-https host, or a timeout skips the event. Nothing about it is logged.
 
 ## Sign-in
 

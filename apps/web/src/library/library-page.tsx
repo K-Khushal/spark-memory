@@ -15,8 +15,8 @@ import {
   cn,
   toast,
 } from "@spark/ui";
-import { startAnalytics, track } from "../analytics";
-import { authClient, type Session } from "../auth";
+import { startAnalytics, stopAnalytics, track } from "../analytics";
+import { authClient, clearAdminCache, type AppSession } from "../auth";
 import { DeskSidebar } from "../shell";
 import { productMetrics } from "./product-metrics";
 import { MemoryDetail } from "./memory-detail";
@@ -36,7 +36,7 @@ export function LibraryPage({
   session,
   admin,
 }: {
-  session: Session;
+  session: AppSession;
   admin: boolean;
 }) {
   const navigate = useNavigate();
@@ -76,11 +76,23 @@ export function LibraryPage({
     setSearchOpen(false);
     setPasteOpen(true);
   };
-  const openMemory = (memory: Memory) => {
-    metrics.found();
+  const reveal = (memory: Memory) => {
     setSearchOpen(false);
     if (memory.kind === "image") setImageId(memory.id);
     else setOpenId(memory.id);
+  };
+  const openMemory = (memory: Memory) => {
+    metrics.found();
+    reveal(memory);
+  };
+  const openFromSearch = (memory: Memory) => {
+    if (instant && instant !== "failed") {
+      metrics.choseResult(draft, {
+        direct: instant.direct.length,
+        related: instant.related.length,
+      });
+    }
+    reveal(memory);
   };
   const captureFiles = (files: File[]) => {
     setPasteOpen(false);
@@ -126,6 +138,8 @@ export function LibraryPage({
       });
       return;
     }
+    stopAnalytics();
+    clearAdminCache();
     await navigate({ to: "/sign-in" });
   };
 
@@ -295,7 +309,7 @@ export function LibraryPage({
                       <ResultGroup
                         heading="Direct Matches"
                         memories={instant.direct.slice(0, 6)}
-                        onOpen={openMemory}
+                        onOpen={openFromSearch}
                       />
                     ) : (
                       <ListNote>No Direct Matches</ListNote>
@@ -303,7 +317,7 @@ export function LibraryPage({
                     <ResultGroup
                       heading="Related Matches"
                       memories={instant.related.slice(0, 4)}
-                      onOpen={openMemory}
+                      onOpen={openFromSearch}
                     />
                   </>
                 )

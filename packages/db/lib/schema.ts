@@ -174,6 +174,17 @@ export const memory = pgTable(
     /** BCP-47 tag Indexing detected; picks the keyword index's language. */
     language: text("language"),
     capturedAt: instant("captured_at"),
+    /**
+     * The first time Indexing makes this Memory Searchable. Later runs
+     * (an edit, Retry, opt-out off) do not move it, so time to Searchable
+     * is measured once.
+     */
+    firstSearchableAt: timestamp("first_searchable_at", { withTimezone: true }),
+    /**
+     * The person's choice at Capture. Product events for this Memory are
+     * sent only when this is true (Do Not Track was off).
+     */
+    productAnalytics: boolean("product_analytics").default(false).notNull(),
     updatedAt: instant("updated_at").$onUpdate(() => new Date()),
     /**
      * Keyword index (ADR-0004), weighted and language-aware. Written by a

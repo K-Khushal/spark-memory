@@ -209,21 +209,44 @@ describe.skipIf(!databaseUrl)("admin costs, usage and the budget", () => {
     expect(state.limitMicros).toBe(Number(second?.value));
   });
 
-  it("reports how long a Searchable Memory took, without its text", async () => {
+  it("reports how long a Searchable Memory took, once, without its text", async () => {
     const library = openLibrary(db, ada);
+    const quiet = await library.capture({
+      body: "private lemon tart text",
+      productAnalytics: false,
+    });
+    if (!("memory" in quiet)) throw new Error("capture conflict");
+    await indexingStore(db).complete(quiet.memory.id, 1, null);
+    expect(
+      await indexingStore(db).claimFirstSearchable(quiet.memory.id)
+    ).toBeUndefined();
+    expect(
+      await indexingStore(db).claimFirstSearchable(quiet.memory.id)
+    ).toBeUndefined();
+
     const captured = await library.capture({
       body: "private lemon tart text",
+      productAnalytics: true,
     });
     if (!("memory" in captured)) throw new Error("capture conflict");
     expect(
-      await indexingStore(db).searchableTiming(captured.memory.id)
+      await indexingStore(db).claimFirstSearchable(captured.memory.id)
     ).toBeUndefined();
+    await db.execute(sql`
+      update memory
+      set captured_at = now() - interval '30 days'
+      where id = ${captured.memory.id}
+    `);
     await indexingStore(db).complete(captured.memory.id, 1, null);
-    const timing = await indexingStore(db).searchableTiming(captured.memory.id);
+    const timing = await indexingStore(db).claimFirstSearchable(
+      captured.memory.id
+    );
     expect(timing).toMatchObject({ userId: ada, kind: "text" });
-    expect(timing?.milliseconds).toBeGreaterThanOrEqual(0);
-    expect(timing?.milliseconds).toBeLessThan(60_000);
+    expect(timing?.milliseconds).toBeGreaterThan(2_147_483_647);
     expect(JSON.stringify(timing)).not.toContain("lemon");
+    expect(
+      await indexingStore(db).claimFirstSearchable(captured.memory.id)
+    ).toBeUndefined();
   });
 });
 

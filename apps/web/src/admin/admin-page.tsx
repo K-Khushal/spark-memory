@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { InferResponseType } from "@spark/api-client";
 import { Button, Input, Toaster, cn, toast } from "@spark/ui";
 import { api } from "../api";
-import { startAnalytics } from "../analytics";
-import { authClient, type Session } from "../auth";
+import { startAnalytics, stopAnalytics } from "../analytics";
+import { authClient, clearAdminCache, type AppSession } from "../auth";
 import { DeskSidebar } from "../shell";
 import {
   dollarsToMicros,
@@ -19,7 +19,7 @@ type Usage = InferResponseType<(typeof api.api.admin.users)["$get"], 200>;
 const PAGE = 50;
 
 /** Costs, usage and the daily budget. One quiet page of tables. */
-export function AdminPage({ session }: { session: Session }) {
+export function AdminPage({ session }: { session: AppSession }) {
   const navigate = useNavigate();
   const [summary, setSummary] = useState<Summary>();
   const [usage, setUsage] = useState<Usage>();
@@ -28,6 +28,7 @@ export function AdminPage({ session }: { session: Session }) {
   const [attempt, setAttempt] = useState(0);
   const [draft, setDraft] = useState("");
   const [invalid, setInvalid] = useState(false);
+  const draftReady = useRef(false);
 
   useEffect(() => {
     startAnalytics(session.user.id);
@@ -50,7 +51,10 @@ export function AdminPage({ session }: { session: Session }) {
         const next = await summaryRes.json();
         setSummary(next);
         setUsage(await usersRes.json());
-        setDraft(microsToDollars(next.budget.limitMicros));
+        if (!draftReady.current) {
+          draftReady.current = true;
+          setDraft(microsToDollars(next.budget.limitMicros));
+        }
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -68,6 +72,8 @@ export function AdminPage({ session }: { session: Session }) {
       });
       return;
     }
+    stopAnalytics();
+    clearAdminCache();
     await navigate({ to: "/sign-in" });
   };
 
@@ -79,14 +85,18 @@ export function AdminPage({ session }: { session: Session }) {
       return;
     }
     setInvalid(false);
-    const res = await api.api.admin.budget.$put({ json: { limitMicros } });
-    if (!res.ok) {
+    try {
+      const res = await api.api.admin.budget.$put({ json: { limitMicros } });
+      if (!res.ok) {
+        toast("Budget Did Not Save");
+        return;
+      }
+      const { budget } = await res.json();
+      setSummary((current) => current && { ...current, budget });
+      setDraft(microsToDollars(budget.limitMicros));
+    } catch {
       toast("Budget Did Not Save");
-      return;
     }
-    const { budget } = await res.json();
-    setSummary((current) => current && { ...current, budget });
-    setDraft(microsToDollars(budget.limitMicros));
   };
 
   return (
@@ -146,11 +156,18 @@ export function AdminPage({ session }: { session: Session }) {
                 onSubmit={(event) => void save(event)}
                 className="flex items-center gap-2"
               >
-                <div className="w-28">
+                <div className="relative w-28">
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center text-sm text-ink-muted"
+                  >
+                    $
+                  </span>
                   <Input
                     aria-label="Daily Budget"
                     inputMode="decimal"
                     autoComplete="off"
+                    className="h-8 pl-6"
                     value={draft}
                     aria-invalid={invalid || undefined}
                     onChange={(event) => {
