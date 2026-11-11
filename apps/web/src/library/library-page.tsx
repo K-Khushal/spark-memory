@@ -15,7 +15,10 @@ import {
   cn,
   toast,
 } from "@spark/ui";
-import { authClient, type Session } from "../auth";
+import { startAnalytics, stopAnalytics, track } from "../analytics";
+import { authClient, clearAdminCache, type AppSession } from "../auth";
+import { DeskSidebar } from "../shell";
+import { productMetrics } from "./product-metrics";
 import { MemoryDetail } from "./memory-detail";
 import { MemoryTile, memoryName, tileHeight, tileLabel } from "./memory-tile";
 import { PasteBox } from "./paste-box";
@@ -31,9 +34,16 @@ import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
  * Memories (DESIGN.md → Pick). ⌘V Captures, ⌘K searches, a tile opens its
  * Memory.
  */
-export function LibraryPage({ session }: { session: Session }) {
+export function LibraryPage({
+  session,
+  admin,
+}: {
+  session: AppSession;
+  admin: boolean;
+}) {
   const navigate = useNavigate();
   const library = useLibrary();
+  const [metrics] = useState(() => productMetrics(track));
   const [searchOpen, setSearchOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
@@ -77,7 +87,12 @@ export function LibraryPage({ session }: { session: Session }) {
     });
   }, [searching, results, library.memories]);
 
+  useEffect(() => {
+    startAnalytics(session.user.id);
+  }, [session.user.id]);
+
   const openSearch = () => {
+    metrics.searchOpened();
     setDraft(query);
     setSearchOpen(true);
   };
@@ -85,10 +100,23 @@ export function LibraryPage({ session }: { session: Session }) {
     setSearchOpen(false);
     setPasteOpen(true);
   };
-  const openMemory = (memory: Memory) => {
+  const reveal = (memory: Memory) => {
     setSearchOpen(false);
     if (memory.kind === "image") setImageId(memory.id);
     else setOpenId(memory.id);
+  };
+  const openMemory = (memory: Memory) => {
+    metrics.found();
+    reveal(memory);
+  };
+  const openFromSearch = (memory: Memory) => {
+    if (instant && instant !== "failed") {
+      metrics.choseResult(draft, {
+        direct: instant.direct.length,
+        related: instant.related.length,
+      });
+    }
+    reveal(memory);
   };
   const captureFiles = (files: File[]) => {
     setPasteOpen(false);
@@ -102,7 +130,14 @@ export function LibraryPage({ session }: { session: Session }) {
     onRetryIndexing: library.retryIndexing,
   };
   const showOnWall = (q: string) => {
-    setQuery(q.trim());
+    const trimmed = q.trim();
+    if (instant && instant !== "failed") {
+      metrics.committedSearch(trimmed, {
+        direct: instant.direct.length,
+        related: instant.related.length,
+      });
+    }
+    setQuery(trimmed);
     setLike(undefined);
     setSearchOpen(false);
     window.scrollTo({ top: 0 });
@@ -139,6 +174,8 @@ export function LibraryPage({ session }: { session: Session }) {
       });
       return;
     }
+    stopAnalytics();
+    clearAdminCache();
     await navigate({ to: "/sign-in" });
   };
 
@@ -163,7 +200,10 @@ export function LibraryPage({ session }: { session: Session }) {
           variant="quiet"
           size="icon-sm"
           aria-label="Clear Search"
-          onClick={clearSearch}
+          onClick={() => {
+            metrics.cleared();
+            clearSearch();
+          }}
         >
           <XIcon aria-hidden />
         </Button>
@@ -174,9 +214,16 @@ export function LibraryPage({ session }: { session: Session }) {
   return (
     <MotionConfig reducedMotion="user">
       <div className="flex min-h-dvh bg-canvas">
-        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 border-r border-line bg-sunken p-3 md:flex">
-          <div className="flex h-8 items-center justify-between pl-2">
-            <Wordmark />
+        <DeskSidebar
+          email={session.user.email}
+          current="library"
+          admin={admin}
+          onSignOut={() => void signOut()}
+          onLibrary={() => {
+            metrics.cleared();
+            clearSearch();
+          }}
+          headerAction={
             <Button
               variant="quiet"
               size="icon-sm"
@@ -185,44 +232,19 @@ export function LibraryPage({ session }: { session: Session }) {
             >
               <PlusIcon aria-hidden />
             </Button>
-          </div>
+          }
+        >
           {search}
-          <nav aria-label="Library">
-            <ul>
-              <li>
-                <Link
-                  to="/"
-                  aria-current="page"
-                  onClick={clearSearch}
-                  className="flex h-8 items-center rounded-control bg-surface px-2 text-sm font-medium text-ink shadow-raised"
-                >
-                  All Memories
-                </Link>
-              </li>
-            </ul>
-          </nav>
-          <div className="mt-auto flex items-center gap-1 pl-2">
-            <span
-              className="min-w-0 flex-1 truncate text-sm text-ink-muted"
-              title={session.user.email}
-            >
-              {session.user.email}
-            </span>
-            <Button
-              variant="quiet"
-              size="icon-sm"
-              aria-label="Sign Out"
-              title="Sign Out"
-              onClick={() => void signOut()}
-            >
-              <LogOutIcon aria-hidden />
-            </Button>
-          </div>
-        </aside>
+        </DeskSidebar>
 
         <main className="min-w-0 flex-1">
           <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden">
             <Wordmark />
+            {admin && (
+              <Link to="/admin" className="text-sm text-ink-muted">
+                Admin
+              </Link>
+            )}
             <div className="min-w-0 flex-1">{search}</div>
             <Button
               variant="primary"
@@ -285,7 +307,10 @@ export function LibraryPage({ session }: { session: Session }) {
         <CommandDialog
           title="Search"
           open={searchOpen}
-          onOpenChange={setSearchOpen}
+          onOpenChange={(open) => {
+            setSearchOpen(open);
+            if (!open) metrics.abandoned();
+          }}
           shouldFilter={false}
         >
           <CommandInput
@@ -321,7 +346,7 @@ export function LibraryPage({ session }: { session: Session }) {
                       <ResultGroup
                         heading="Direct Matches"
                         memories={instant.direct.slice(0, 6)}
-                        onOpen={openMemory}
+                        onOpen={openFromSearch}
                       />
                     ) : (
                       <ListNote>No Direct Matches</ListNote>
@@ -329,7 +354,7 @@ export function LibraryPage({ session }: { session: Session }) {
                     <ResultGroup
                       heading="Related Matches"
                       memories={instant.related.slice(0, 4)}
-                      onOpen={openMemory}
+                      onOpen={openFromSearch}
                     />
                   </>
                 )

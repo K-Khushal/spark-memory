@@ -182,6 +182,17 @@ export const memory = pgTable(
     vectorsSpace: text("vectors_space"),
     vectorsRevision: integer("vectors_revision"),
     capturedAt: instant("captured_at"),
+    /**
+     * The first time Indexing makes this Memory Searchable. Later runs
+     * (an edit, Retry, opt-out off) do not move it, so time to Searchable
+     * is measured once.
+     */
+    firstSearchableAt: timestamp("first_searchable_at", { withTimezone: true }),
+    /**
+     * The person's choice at Capture. Product events for this Memory are
+     * sent only when this is true (Do Not Track was off).
+     */
+    productAnalytics: boolean("product_analytics").default(false).notNull(),
     updatedAt: instant("updated_at").$onUpdate(() => new Date()),
     /**
      * Keyword index (ADR-0004), weighted and language-aware. Written by a
@@ -356,3 +367,24 @@ export const spendDay = pgTable(
   },
   (t) => [primaryKey({ columns: [t.day, t.provider] })]
 );
+
+/**
+ * A setting an admin changed (the daily budget). The config default applies
+ * when the row is absent. `updatedBy` is a user id, never an email.
+ */
+export const appSetting = pgTable("app_setting", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: instant("updated_at"),
+});
+
+/** One change to a setting: who (user id) and when. Kept if the person is deleted. */
+export const settingChange = pgTable("setting_change", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").notNull(),
+  previousValue: text("previous_value"),
+  value: text("value").notNull(),
+  changedBy: text("changed_by").notNull(),
+  changedAt: instant("changed_at"),
+});

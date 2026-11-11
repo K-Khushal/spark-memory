@@ -68,15 +68,29 @@
     {
       "idx": 9,
       "version": "7",
-      "when": 1794395413996,
-      "tag": "0009_vectors",
+      "when": 1794395923379,
+      "tag": "0009_admin_settings",
       "breakpoints": true
     },
     {
       "idx": 10,
       "version": "7",
-      "when": 1794395416382,
-      "tag": "0010_hybrid_search",
+      "when": 1794397833061,
+      "tag": "0010_first_searchable",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794415527754,
+      "tag": "0011_vectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794415528356,
+      "tag": "0012_hybrid_search",
       "breakpoints": true
     }
   ]

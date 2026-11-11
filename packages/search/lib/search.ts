@@ -1,4 +1,4 @@
-import { EMBEDDING, INDEXING } from "@spark/core";
+import { EMBEDDING } from "@spark/core";
 import {
   embedCostMicros,
   ProviderError,
@@ -77,6 +77,8 @@ export function createSearch<R extends Hit>({
   /** The budget breaker's side of the database (`indexingStore`). */
   spend: {
     spentTodayMicros(): Promise<number>;
+    /** The admin's daily budget, else the default. */
+    dailyBudgetMicros(): Promise<number>;
     recordCall(call: AiCall): Promise<void>;
   };
   now?: () => number;
@@ -91,9 +93,11 @@ export function createSearch<R extends Hit>({
     const key = [userId, embedder.model, embedder.dimensions, query].join("\0");
     const hit = cached(key, now());
     if (hit) return hit;
-    if ((await spend.spentTodayMicros()) >= INDEXING.dailyBudgetMicros) {
-      return undefined;
-    }
+    const [spent, limit] = await Promise.all([
+      spend.spentTodayMicros(),
+      spend.dailyBudgetMicros(),
+    ]);
+    if (spent >= limit) return undefined;
     const record = (textTokens: number, estimated?: boolean) =>
       spend.recordCall({
         userId,

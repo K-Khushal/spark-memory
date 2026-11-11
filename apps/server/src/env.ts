@@ -45,6 +45,15 @@ export type Bindings = {
   AI?: { run(model: string, input: Record<string, unknown>): Promise<unknown> };
   /** Secret: a key from a Cloud project with active billing (ADR-0005). */
   GEMINI_API_KEY?: string;
+  /**
+   * Secret. Comma-separated owner addresses. Grants the admin role.
+   * Unset means nobody is an admin. Never writable through the API.
+   */
+  ADMIN_EMAILS?: string;
+  /** Secret. PostHog project key. Unset means product events are not sent. */
+  POSTHOG_KEY?: string;
+  /** Var. Capture host, https only. Defaults to https://us.i.posthog.com. */
+  POSTHOG_HOST?: string;
   /** Var: "true" only once that project's billing is confirmed; Gemini stays out otherwise. */
   GEMINI_PAID_TIER?: string;
   /** Var: "fake" (honoured only when SPARK_ENV is local) Indexes with the fake provider. */

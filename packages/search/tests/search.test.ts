@@ -35,6 +35,7 @@ function spend(spent = 0) {
   return {
     calls,
     spentTodayMicros: async () => spent,
+    dailyBudgetMicros: async () => INDEXING.dailyBudgetMicros,
     recordCall: async (call: AiCall) => {
       calls.push(call);
     },

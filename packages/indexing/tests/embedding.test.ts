@@ -94,6 +94,7 @@ function store({
     },
     fail: async () => true,
     spentTodayMicros: async () => spent,
+    dailyBudgetMicros: async () => 1_000_000,
     recordCall: async (call: { costMicros: number; estimated?: boolean }) => {
       s.calls.push(call);
     },

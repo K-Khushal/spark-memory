@@ -3,6 +3,7 @@ import type { InferResponseType } from "@spark/api-client";
 import { FREE_ALLOWANCE, type MemoryEditRequest } from "@spark/core";
 import type { toast } from "@spark/ui";
 import type { api } from "../api";
+import { captureProductAnalytics } from "../product-analytics";
 import {
   sameText,
   type Draft,
@@ -31,6 +32,7 @@ export type Transport = ImageTransport & {
     id: string;
     body: string;
     captureNote: string | null;
+    productAnalytics?: boolean;
   }) => Promise<Memory>;
   /** "stale" when the Memory has moved past `json.revision`. */
   patch: (
@@ -111,12 +113,15 @@ export function libraryActions({
   drafts,
   notify,
   onSaved,
+  onCaptured,
 }: {
   setMemories: Dispatch<SetStateAction<WallMemory[]>>;
   transport: Transport;
   drafts: DraftStore;
   notify: typeof toast;
   onSaved: () => void;
+  /** The server accepted a new Memory. Kind only, for the product event. */
+  onCaptured?: (kind: "text" | "image") => void;
 }) {
   /** Deletes waiting out their Undo window: id → send it now. */
   const pendingDeletes = new Map<string, () => void>();
@@ -207,6 +212,7 @@ export function libraryActions({
     transport,
     notify,
     onSaved,
+    onCaptured: () => onCaptured?.("image"),
     inOrder,
   });
 
@@ -245,6 +251,7 @@ export function libraryActions({
         id: memory.id,
         body: memory.body ?? "",
         captureNote: memory.captureNote,
+        productAnalytics: captureProductAnalytics(),
       })
     );
 
@@ -272,6 +279,7 @@ export function libraryActions({
         // The server's copy (its Capture time) replaces the optimistic one,
         // unless Undo already took it off the wall.
         onSaved();
+        onCaptured?.("text");
         if (!pending.has(saved.id)) replaceLocal(saved);
       },
       () => {

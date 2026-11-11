@@ -156,7 +156,11 @@ try {
     userId,
     find: (q, options) => time(sqlTimings, () => library.search(q, options)),
     embedder: stub,
-    spend: { spentTodayMicros: async () => 0, recordCall: async () => {} },
+    spend: {
+      spentTodayMicros: async () => 0,
+      dailyBudgetMicros: async () => Number.MAX_SAFE_INTEGER,
+      recordCall: async () => {},
+    },
   });
   for (const q of QUERIES) await library.search(q); // warm up
 
