@@ -39,6 +39,7 @@ async function userPartFor(body: string) {
     complete: async () => true,
     fail: async () => true,
     spentTodayMicros: async () => 0,
+    dailyBudgetMicros: async () => 1_000_000,
     recordCall: async () => {},
   };
   await createIndexer({
@@ -121,6 +122,7 @@ describe("provider calls", () => {
       complete: async () => true,
       fail: async () => true,
       spentTodayMicros: async () => 0,
+      dailyBudgetMicros: async () => 1_000_000,
       recordCall: async (call) => {
         calls.push(call);
       },

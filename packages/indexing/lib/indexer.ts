@@ -69,6 +69,8 @@ export type IndexStore = {
   ): Promise<boolean>;
   fail(memoryId: string, run: number, reason: IndexFailure): Promise<boolean>;
   spentTodayMicros(): Promise<number>;
+  /** The effective daily budget (the admin's setting, or the config default). */
+  dailyBudgetMicros(): Promise<number>;
   recordCall(call: AiCall): Promise<void>;
 };
 
@@ -252,11 +254,14 @@ export function createIndexer({
       await store.complete(work.memoryId, work.run, null);
       return { result: "searchable" };
     }
-    if (
-      job.priority === "background" &&
-      (await store.spentTodayMicros()) >= INDEXING.dailyBudgetMicros
-    ) {
-      return { result: "paused", delaySeconds: secondsToNextUtcDay(now()) };
+    if (job.priority === "background") {
+      const [spent, limit] = await Promise.all([
+        store.spentTodayMicros(),
+        store.dailyBudgetMicros(),
+      ]);
+      if (spent >= limit) {
+        return { result: "paused", delaySeconds: secondsToNextUtcDay(now()) };
+      }
     }
 
     const finish = async (reason: IndexFailure): Promise<IndexOutcome> =>

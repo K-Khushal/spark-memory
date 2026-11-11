@@ -4,11 +4,13 @@ import {
   createRouter,
   Link,
   Outlet,
+  redirect,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Button } from "@spark/ui";
 import { api } from "./api";
 import { redirectIfSignedIn, requireSession } from "./auth";
+import { AdminPage } from "./admin/admin-page";
 import { LibraryPage } from "./library/library-page";
 import { SettingsPage } from "./settings/settings-page";
 import { SignInPage } from "./sign-in/sign-in-page";
@@ -20,20 +22,34 @@ const rootRoute = createRootRoute({ component: () => <Outlet /> });
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  beforeLoad: requireSession,
+  beforeLoad: () => requireSession(),
   component: function Library() {
-    const { session } = libraryRoute.useRouteContext();
-    return <LibraryPage session={session} />;
+    const { session, admin } = libraryRoute.useRouteContext();
+    return <LibraryPage session={session} admin={admin} />;
+  },
+});
+
+const adminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin",
+  beforeLoad: async () => {
+    const { session, admin } = await requireSession({ freshAdmin: true });
+    if (!admin) throw redirect({ to: "/" });
+    return { session };
+  },
+  component: function Admin() {
+    const { session } = adminRoute.useRouteContext();
+    return <AdminPage session={session} />;
   },
 });
 
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
-  beforeLoad: requireSession,
+  beforeLoad: () => requireSession(),
   component: function Settings() {
-    const { session } = settingsRoute.useRouteContext();
-    return <SettingsPage session={session} />;
+    const { session, admin } = settingsRoute.useRouteContext();
+    return <SettingsPage session={session} admin={admin} />;
   },
 });
 
@@ -99,6 +115,7 @@ export const router = createRouter({
   ),
   routeTree: rootRoute.addChildren([
     libraryRoute,
+    adminRoute,
     settingsRoute,
     signInRoute,
     prototypesRoute,

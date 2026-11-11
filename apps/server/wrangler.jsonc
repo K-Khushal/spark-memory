@@ -24,6 +24,8 @@
     "BETTER_AUTH_SECRET": "local-only-insecure-secret-never-deployed-0000",
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
     "TURNSTILE_SECRET_KEY": "1x0000000000000000000000000000000AA",
+    // Local smoke test only. Dev and prod set ADMIN_EMAILS with wrangler secret put.
+    "ADMIN_EMAILS": "admin@example.test",
   },
   "hyperdrive": [
     {
@@ -81,7 +83,8 @@
   // Secrets per environment (`wrangler secret put <NAME> --env <name>`): SENTRY_DSN,
   // BETTER_AUTH_SECRET, TURNSTILE_SECRET_KEY, RESEND_API_KEY, and optionally
   // GOOGLE_CLIENT_ID/_SECRET and GITHUB_CLIENT_ID/_SECRET, R2_ACCOUNT_ID,
-  // R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY, and GEMINI_API_KEY (paid tier only).
+  // R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY, GEMINI_API_KEY (paid tier only),
+  // ADMIN_EMAILS (comma-separated owner addresses) and POSTHOG_KEY.
   // See docs/deploy.md for creating the Hyperdrive configs and replacing the ids.
   "env": {
     "dev": {

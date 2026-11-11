@@ -68,15 +68,22 @@
     {
       "idx": 9,
       "version": "7",
-      "when": 1794395398249,
-      "tag": "0009_account",
+      "when": 1794395923379,
+      "tag": "0009_admin_settings",
       "breakpoints": true
     },
     {
       "idx": 10,
       "version": "7",
-      "when": 1794398843132,
-      "tag": "0010_object_removal",
+      "when": 1794397833061,
+      "tag": "0010_first_searchable",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794414549787,
+      "tag": "0011_account",
       "breakpoints": true
     }
   ]

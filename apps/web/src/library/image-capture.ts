@@ -7,6 +7,7 @@ import {
 } from "@spark/capture";
 import type { ImageCapture } from "@spark/core";
 import type { toast } from "@spark/ui";
+import { captureProductAnalytics } from "../product-analytics";
 import type { Memory, WallMemory } from "./library-actions";
 
 /** A presigned upload: PUT the file's bytes to `url` with exactly `headers`. */
@@ -63,12 +64,14 @@ export function imageCapture({
   transport,
   notify,
   onSaved,
+  onCaptured,
   inOrder,
 }: {
   setMemories: Dispatch<SetStateAction<WallMemory[]>>;
   transport: ImageTransport;
   notify: typeof toast;
   onSaved: () => void;
+  onCaptured?: () => void;
   inOrder: <T>(id: string, task: () => Promise<T>) => Promise<T>;
 }) {
   type Entry = {
@@ -120,6 +123,7 @@ export function imageCapture({
           mime: prepared.thumbnailMime,
           bytes: prepared.thumbnail.size,
         },
+        productAnalytics: captureProductAnalytics(),
       });
       if (!current()) return;
       const body = (u: Upload) =>
@@ -160,6 +164,7 @@ export function imageCapture({
         )
       );
       onSaved();
+      onCaptured?.();
       if (saved.image) {
         await transport.preload(saved.image.thumbnailUrl).catch(() => {});
         setMemories((all) =>

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
-import { INDEXING } from "@spark/core";
+import { DAILY_BUDGET_MAX_MICROS } from "@spark/core";
 import { requeueStalled } from "../src/indexing";
 import {
   databaseUrl,
@@ -30,7 +30,7 @@ describe.skipIf(!databaseUrl)("past the daily AI budget", () => {
       `insert into spend_day (day, provider, cost_micros)
        values ((now() at time zone 'utc')::date, $1, $2)
        on conflict (day, provider) do update set cost_micros = excluded.cost_micros`,
-      [PROVIDER, INDEXING.dailyBudgetMicros * 10]
+      [PROVIDER, DAILY_BUDGET_MAX_MICROS]
     );
   });
   afterAll(async () => {

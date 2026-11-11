@@ -40,6 +40,11 @@ export const TextCapture = z.object({
   body: z.string().trim().min(1).max(FREE_ALLOWANCE.textMaxChars),
   title: optionalText(FREE_ALLOWANCE.titleMaxChars),
   captureNote: optionalText(FREE_ALLOWANCE.captureNoteMaxChars),
+  /**
+   * True only when this browser allows product events (Do Not Track is off).
+   * Omitted or false: Indexing does not report time to Searchable.
+   */
+  productAnalytics: z.boolean().optional(),
 });
 export type TextCapture = z.input<typeof TextCapture>;
 
@@ -107,5 +112,7 @@ export const ImageCapture = z.object({
     mime: z.enum(THUMBNAIL_TYPES),
     bytes: z.number().int().positive().max(THUMBNAIL_MAX_BYTES),
   }),
+  /** Same choice as a text Capture: time to Searchable is sent only when true. */
+  productAnalytics: z.boolean().optional(),
 });
 export type ImageCapture = z.input<typeof ImageCapture>;

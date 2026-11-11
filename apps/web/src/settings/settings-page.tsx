@@ -18,7 +18,7 @@ import {
 } from "@spark/ui";
 import { confirmsDeletion } from "@spark/core";
 import type { Session } from "../auth";
-import { SidebarFooter, SidebarLink, Wordmark, useSignOut } from "../shell";
+import { DeskSidebar, useSignOut } from "../shell";
 import {
   EXPORT_DOWNLOAD_URL,
   useAccount,
@@ -26,7 +26,13 @@ import {
 } from "./use-account";
 
 /** Settings: signed-in devices, Library export, account deletion. */
-export function SettingsPage({ session }: { session: Session }) {
+export function SettingsPage({
+  session,
+  admin,
+}: {
+  session: Session;
+  admin: boolean;
+}) {
   const signOut = useSignOut();
   const account = useAccount();
   const { email } = session.user;
@@ -36,25 +42,12 @@ export function SettingsPage({ session }: { session: Session }) {
 
   return (
     <div className="flex min-h-dvh bg-canvas">
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 border-r border-line bg-sunken p-3 md:flex">
-        <div className="flex h-8 items-center pl-2">
-          <Wordmark />
-        </div>
-        <nav aria-label="Library">
-          <ul>
-            <li>
-              <SidebarLink to="/" current={false}>
-                All Memories
-              </SidebarLink>
-            </li>
-          </ul>
-        </nav>
-        <SidebarFooter
-          email={email}
-          current="settings"
-          onSignOut={() => void signOut()}
-        />
-      </aside>
+      <DeskSidebar
+        email={email}
+        current="settings"
+        admin={admin}
+        onSignOut={() => void signOut()}
+      />
 
       <main className="min-w-0 flex-1">
         <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden">
