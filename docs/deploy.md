@@ -68,13 +68,14 @@ pnpm dev        # Docker Postgres + pgvector, db:migrate, db:seed, Worker on :87
 
    Then Dashboard → R2 → Manage API tokens → Create API token, _Object Read & Write_, limited to that environment's bucket: its Access Key ID and Secret Access Key become the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` Worker secrets below. Presigned URLs only work on the S3 endpoint (`<account id>.r2.cloudflarestorage.com`), never on a custom domain. Keep the buckets private (no public access, no r2.dev URL).
 
-   **Queues and Workers AI (Indexing).** Create each environment's three queues (the names in `wrangler.jsonc`); Workers AI needs nothing but the `ai` binding already there:
+   **Queues and Workers AI (Indexing, accounts).** Create each environment's four queues (the names in `wrangler.jsonc`); Workers AI needs nothing but the `ai` binding already there:
 
    ```sh
    for env in dev prod; do
      npx wrangler queues create spark-index-$env
      npx wrangler queues create spark-reindex-$env
      npx wrangler queues create spark-index-failed-$env
+     npx wrangler queues create spark-account-$env
    done
    ```
 
@@ -170,6 +171,15 @@ Locally, `wrangler.jsonc`'s top-level vars set `ADMIN_EMAILS` to `admin@example.
 PostHog receives five events, named in `packages/core/lib/product-events.ts`: `save_success`, `time_to_searchable`, `search_success`, `search_reformulated`, `time_to_find`. Properties are a kind, counts or a duration. Never a Memory's text or title, a search query, or an email. The person is the user id.
 
 The dashboard loads `posthog-js` only when `POSTHOG_KEY` is set, the host is `https`, and the browser's Do Not Track is off (`GET /api/analytics` returns the public project key and host; no key, or a host that is not `https`, means `{ "key": null }` and the script is never fetched). Time to Searchable is sent by the Worker the first time Indexing makes a Memory Searchable, and only when that Capture was made with Do Not Track off. Future clients (the extension, the share target, and MCP) must pass `productAnalytics` at Capture, or time to Searchable is never reported. The duration is known when Indexing finishes, which can be after the dashboard is closed, so the Worker sends it. The call times out after 2 seconds, after the database connection is closed. A missing key, a non-https host, or a timeout skips the event. Nothing about it is logged.
+
+## Account: sessions, export, deletion
+
+Settings (`/settings`) lists signed-in devices, exports the Library and deletes the account (`apps/server/src/account.ts`, `account-jobs.ts`; `@spark/db` → `openAccount`, `accountJobs`).
+
+- **Sessions** are read and revoked straight from the `session` table; the browser sees a device name and a short hash, never a session id or token. No Better Auth route is added to the allowlist.
+- **Cross-site requests.** Every cookie-authenticated change outside `/api/auth` (Memories and account routes) must carry an `Origin` equal to `BETTER_AUTH_URL`'s origin (`src/origin.ts`); anything else is 403. A future extension or app origin has to be added there.
+- **Export** runs on `spark-account-*`: one message builds a stored (uncompressed) ZIP, `memories.json` plus every original file, streamed from R2 into an R2 multipart upload in equal 8 MiB parts, so memory stays flat. It is leased (a duplicate message skips), retried twice, then Failed. The download goes through `/api/account/export/download`, which redirects to a freshly signed URL; the ZIP is removed 24 hours after it is ready, and a new export can start an hour after the last. Every build attempt writes its own object (`users/<id>/exports/<export id>/<attempt>.zip`, the finished one's key kept on the export row), so removing an abandoned attempt can never touch the ZIP a later attempt finished, and a superseded attempt cannot finish. An attempt's ZIP is recorded in `object_removal` when the attempt is claimed (due once its lease is over), and only a successful finish clears that record, so a ZIP left by a failed build, or by a builder that died after completing the upload, is always removed. A ZIP that is let go of later (expired, or replaced by a new export) is recorded in the same transaction that lets go of it, and the hourly sweep removes it from storage before forgetting it, in batches, up to about 20 seconds a run (the rest goes next run). **On Workers Free** the 10 ms CPU limit (the CRC of every byte is computed in JavaScript) and the 1,000-calls-per-invocation limit for R2 cap exports at small Libraries; Workers Paid ($5, PLAN.md §2) lifts both (a 15-minute queue wall time and 10,000 calls).
+- **Deletion** is confirmed by typing the account's address (ADR-0007: there is no password to ask for). It ends every session and blocks sign-in at once: a Better Auth hook refuses new sessions, checks again under the per-owner lock once a session exists (closing the race with the request), and `requireUser` refuses any session of an account being deleted, then the account job removes every object under `users/<id>/`, every Memory and its rows, and anonymises `ai_call` (the money was spent; admin totals stay true) and, at the end, an admin's id in `app_setting.updated_by` and `setting_change.changed_by` (values and history stay); an AI call that finishes later is recorded without its owner, decided under the same lock. It finishes 20 minutes later with a last pass and the user row (sessions, sign-in accounts, the export and the request go with it), so an upload signed before the request (its URL lives 15 minutes) cannot land after the last pass. The hourly cron re-sends unfinished deletions and lost export messages.
 
 ## Sign-in
 

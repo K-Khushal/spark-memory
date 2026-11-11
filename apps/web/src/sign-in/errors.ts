@@ -18,6 +18,8 @@ export function errorMessage(error: unknown): string {
     case "VERIFICATION_FAILED":
     case "MISSING_RESPONSE":
       return "Spark could not check this browser. Reload and try again.";
+    case "ACCOUNT_DELETING":
+      return "This account is being deleted.";
     case "SOCIAL":
       return "That sign-in did not finish. Try again.";
   }

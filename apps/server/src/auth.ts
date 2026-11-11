@@ -6,7 +6,7 @@ import {
   type Auth,
   type AuthConfig,
 } from "@spark/auth";
-import { openDatabase, type Database } from "@spark/db";
+import { isDeletionRequested, openDatabase, type Database } from "@spark/db";
 import { isVerifiedAdmin, type Plan } from "@spark/core";
 import type { AppEnv, Bindings } from "./env";
 
@@ -107,16 +107,24 @@ export const withAuth = createMiddleware<AppEnv & { Variables: AuthVariables }>(
   }
 );
 
-export type UserVariables = AuthVariables & { user: SignedInUser };
+export type UserVariables = AuthVariables & {
+  user: SignedInUser;
+  /** This request's session (never its token). */
+  sessionId: string;
+};
 
-/** Rejects anonymous requests with 401; otherwise sets `user`. */
+/**
+ * Rejects anonymous requests with 401, and an account being deleted too
+ * (a session made in a race with the request is useless at once);
+ * otherwise sets `user`.
+ */
 export const requireUser = createMiddleware<
   AppEnv & { Variables: UserVariables }
 >(async (c, next) => {
   const session = await c.var.auth.api.getSession({
     headers: c.req.raw.headers,
   });
-  if (!session) {
+  if (!session || (await isDeletionRequested(c.var.db, session.user.id))) {
     return c.json({ ok: false, error: "unauthorized" } as const, 401);
   }
   const { id, email, name, image, plan } = session.user;
@@ -128,6 +136,7 @@ export const requireUser = createMiddleware<
     plan: plan as Plan,
     emailVerified: session.user.emailVerified === true,
   });
+  c.set("sessionId", session.session.id);
   await next();
 });
 
@@ -142,7 +151,7 @@ export const requireAdmin = createMiddleware<
   const session = await c.var.auth.api.getSession({
     headers: c.req.raw.headers,
   });
-  if (!session) {
+  if (!session || (await isDeletionRequested(c.var.db, session.user.id))) {
     return c.json({ ok: false, error: "unauthorized" } as const, 401);
   }
   const user = {
@@ -161,5 +170,6 @@ export const requireAdmin = createMiddleware<
     plan: plan as Plan,
     emailVerified: user.emailVerified,
   });
+  c.set("sessionId", session.session.id);
   await next();
 });

@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
-import { LogOutIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import {
+  LogOutIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+  XIcon,
+} from "lucide-react";
 import {
   Button,
   CommandDialog,
@@ -194,7 +200,7 @@ export function LibraryPage({
       <button
         type="button"
         onClick={openSearch}
-        className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-[transform,color] duration-[120ms] ease-out hover:text-ink active:scale-[0.97]"
+        className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-[transform,color] duration-(--duration-press) ease-out hover:text-ink active:scale-[0.97]"
       >
         <SearchIcon className="size-4 shrink-0" aria-hidden />
         <span
@@ -377,6 +383,12 @@ export function LibraryPage({
                   onSelect={openPasteBox}
                 >
                   Capture
+                </Action>
+                <Action
+                  icon={<SettingsIcon />}
+                  onSelect={() => void navigate({ to: "/settings" })}
+                >
+                  Settings
                 </Action>
                 <Action icon={<LogOutIcon />} onSelect={() => void signOut()}>
                   Sign Out

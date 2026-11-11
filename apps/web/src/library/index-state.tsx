@@ -72,7 +72,7 @@ export function IndexBadge({
           aria-label={`Retry, ${reason}`}
           title={reason}
           tabIndex={focusable ? undefined : -1}
-          className="relative grid size-5 place-items-center rounded-[4px] text-ink transition-[background-color,transform] duration-[120ms] ease-out outline-none hover:bg-sunken focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.97] before:absolute before:-inset-2.5"
+          className="relative grid size-5 place-items-center rounded-[4px] text-ink transition-[background-color,transform] duration-(--duration-press) ease-out outline-none hover:bg-sunken focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.97] before:absolute before:-inset-2.5"
         >
           <RotateCwIcon className="size-3.5" aria-hidden />
         </button>

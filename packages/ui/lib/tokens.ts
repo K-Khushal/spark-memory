@@ -52,7 +52,7 @@ export const FILTER_COLOURS = [
   { name: "Brown", hex: "#8B5A35" },
   { name: "Black", hex: "#1A1A1A" },
   { name: "Grey", hex: "#9A9A9A" },
-  { name: "White", hex: "#F7F7F5" },
+  { name: "White", hex: "#F5F6F8" },
 ] as const;
 
 /** Durations in ms. See DESIGN.md → Motion for when each applies. */

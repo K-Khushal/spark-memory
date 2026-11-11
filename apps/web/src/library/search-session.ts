@@ -4,7 +4,7 @@ export type Mode = "instant" | "full";
 /** What to search for: words typed, or a Memory to find More Like This of. */
 export type SearchRequest = { query: string } | { like: string };
 
-/** What matched in a result (migrations/0012_hybrid_search.sql). */
+/** What matched in a result (migrations/0013_hybrid_search.sql). */
 export type MatchedPart =
   | { kind: "field"; field?: string }
   | { kind: "passage"; field: "body" | "ocr"; start: number; end: number }

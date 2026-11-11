@@ -299,5 +299,10 @@ function ErrorLine({ error }: { error?: string }) {
 }
 
 function Spinner() {
-  return <LoaderIcon className="size-4 shrink-0 animate-spin" aria-hidden />;
+  return (
+    <LoaderIcon
+      className="size-4 shrink-0 animate-spin motion-reduce:animate-none"
+      aria-hidden
+    />
+  );
 }

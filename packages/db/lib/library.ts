@@ -6,8 +6,10 @@ import {
   isFileWithinAllowance,
   MemoryEdit,
   TextCapture,
+  type MemoryKind,
 } from "@spark/core";
 import type { Database } from "./client";
+import { deletionRequested, lockOwner, ownerPrefix } from "./owner";
 import {
   memory,
   memoryFile,
@@ -107,21 +109,9 @@ export const UPLOAD_WINDOW_HOURS = 24;
 /** A file whose upload did not finish within the window. */
 const expiredUpload = sql`${memoryFile.storedAt} is null and ${memoryFile.createdAt} <= now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})`;
 
-/** Seeds the per-owner advisory lock around storage checks (its own lock space). */
-const STORAGE_LOCK = 6;
-
-/**
- * One owner's uploads change one at a time: storage checks, retries,
- * confirmations and the sweep all take this lock, until the transaction ends.
- */
-const lockOwner = (tx: Pick<Database, "execute">, userId: string) =>
-  tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${STORAGE_LOCK}))`
-  );
-
 /** Object keys are the server's: the owner's id, the Memory's id, the role. */
 const keyFor = (userId: string, memoryId: string, role: FileRole) =>
-  `users/${userId}/${memoryId}/${role}`;
+  `${ownerPrefix(userId)}${memoryId}/${role}`;
 
 const fileColumns = {
   role: memoryFile.role,
@@ -148,7 +138,7 @@ const restartIndexing = {
 
 /** Which search legs found a Memory (ADR-0004). */
 export type MatchedBy = "keyword" | "typo" | "vector";
-/** What matched in the leg that ranked a Memory highest (migrations/0012). */
+/** What matched in the leg that ranked a Memory highest (migrations/0013). */
 export type MatchedPart =
   | {
       kind: "field";
@@ -181,6 +171,32 @@ export type CaptureResult =
   { created: boolean; memory: Memory } | { conflict: true };
 
 export type Page = { memories: Memory[]; next?: string };
+
+/** A Memory as an export writes it: everything the person gave and Indexing found, and its original's key. */
+export type ExportedMemory = {
+  id: string;
+  kind: MemoryKind;
+  title: string | null;
+  body: string | null;
+  captureNote: string | null;
+  aiOptOut: boolean;
+  capturedAt: Date;
+  updatedAt: Date;
+  index: {
+    title: string;
+    description: string;
+    ocrText: string;
+    tags: string[];
+    entities: string[];
+  } | null;
+  original: {
+    key: string;
+    mime: string;
+    bytes: number;
+    width: number | null;
+    height: number | null;
+  } | null;
+};
 
 // A cursor is one shape only, which this module writes: the last Memory's
 // Capture time as UTC microseconds since 1970 (exact, unlike a JS Date) and
@@ -297,6 +313,8 @@ export function openLibrary(
       const { id } = capture;
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
+        // An account being deleted takes no new uploads (account.ts).
+        if (await deletionRequested(tx, userId)) return { conflict: true };
         const [taken] = await tx
           .select({ userId: memory.userId })
           .from(memory)
@@ -605,6 +623,52 @@ export function openLibrary(
       });
       return get(id);
     },
+
+    /**
+     * Every Memory on the wall, for an export: `limit` at a time in id
+     * order; pass the last id back as `after`.
+     */
+    exportPage: (after?: string, limit = 200): Promise<ExportedMemory[]> =>
+      db
+        .select({
+          id: memory.id,
+          kind: memory.kind,
+          title: memory.title,
+          body: memory.body,
+          captureNote: memory.captureNote,
+          aiOptOut: memory.aiOptOut,
+          capturedAt: memory.capturedAt,
+          updatedAt: memory.updatedAt,
+          index: sql<
+            ExportedMemory["index"]
+          >`case when ${memoryIndex.memoryId} is null or ${memory.aiOptOut} then null else json_build_object(
+            'title', ${memoryIndex.title}, 'description', ${memoryIndex.description},
+            'ocrText', ${memoryIndex.ocrText}, 'tags', ${memoryIndex.tags},
+            'entities', ${memoryIndex.entities}) end`,
+          original: sql<
+            ExportedMemory["original"]
+          >`case when ${memoryFile.key} is null then null else json_build_object(
+            'key', ${memoryFile.key}, 'mime', ${memoryFile.mime}, 'bytes', ${memoryFile.bytes},
+            'width', ${memoryFile.width}, 'height', ${memoryFile.height}) end`,
+        })
+        .from(memory)
+        .leftJoin(memoryIndex, eq(memoryIndex.memoryId, memory.id))
+        .leftJoin(
+          memoryFile,
+          and(
+            eq(memoryFile.memoryId, memory.id),
+            eq(memoryFile.role, "original")
+          )
+        )
+        .where(
+          and(
+            eq(memory.userId, userId),
+            allStored,
+            after && UUID.test(after) ? sql`${memory.id} > ${after}` : undefined
+          )
+        )
+        .orderBy(asc(memory.id))
+        .limit(limit),
 
     /**
      * Hybrid search (ADR-0004), best first: keyword and typo matching, and

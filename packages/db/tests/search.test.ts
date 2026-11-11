@@ -11,7 +11,7 @@ import {
 } from "../index";
 import { newUser, removeUser } from "./users";
 
-// Hybrid search (migrations/0012) against real Postgres, with fixed vectors:
+// Hybrid search (migrations/0013) against real Postgres, with fixed vectors:
 // each concept is one axis, so what is near what is known exactly.
 const databaseUrl = process.env.DATABASE_URL;
 

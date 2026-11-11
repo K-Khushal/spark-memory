@@ -225,7 +225,7 @@ function Picture({
         draggable={false}
         onLoad={() => setLoaded(true)}
         onError={() => onBroken(memory.id)}
-        className="absolute inset-0 h-full w-full object-contain transition-opacity duration-[180ms] ease-out"
+        className="absolute inset-0 h-full w-full object-contain transition-opacity duration-(--duration-small) ease-out"
         style={{ opacity: loaded ? 1 : 0 }}
       />
     </div>
