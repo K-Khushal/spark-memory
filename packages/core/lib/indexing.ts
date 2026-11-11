@@ -23,8 +23,14 @@ export const INDEXING = {
     "gemini-3.1-flash-lite": [250_000, 1_500_000],
     fake: [0, 0],
   } as Record<string, readonly [number, number]>,
-  /** Global AI spend per UTC day. Past it, background re-indexing waits for the next day. */
-  dailyBudgetMicros: 2_000_000,
+  /** Global AI spend per UTC day ($1). Past it, background re-indexing waits for the next day. */
+  dailyBudgetMicros: 1_000_000,
+  /**
+   * Longest wait for one provider call. A run makes at most four (two
+   * providers, each with one corrective retry), 4 minutes in all, inside
+   * its 5-minute lease, which each call also renews.
+   */
+  providerTimeoutMs: 60_000,
   /** Attempts per queue message before the Memory is Failed. */
   maxAttempts: 3,
   /** Text sent to a model is cut to this many characters. */

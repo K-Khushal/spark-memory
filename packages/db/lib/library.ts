@@ -44,8 +44,9 @@ const columns = {
   preservation: memory.preservation,
   indexState: memory.indexState,
   revision: memory.revision,
-  /** For queue messages only; routes leave it out of answers. */
+  /** For queue messages only; routes leave these out of answers. */
   indexRun: memory.indexRun,
+  indexPriority: memory.indexPriority,
   aiOptOut: memory.aiOptOut,
   indexError: memory.indexError,
   indexTitle,
@@ -114,11 +115,19 @@ const fileColumns = {
   stored: sql<boolean>`${memoryFile.storedAt} is not null`,
 };
 
-/** Indexing starts over as a new run, so whatever ran before cannot write. */
+const today = sql`(now() at time zone 'utc')::date`;
+
+/**
+ * Indexing starts over as a new run, so whatever ran before cannot write.
+ * For a person's Retry or opt-in: first in line once a Memory a day, then
+ * in the background, which the daily budget limits.
+ */
 const restartIndexing = {
   indexState: "indexing",
   indexError: null,
   indexRun: sql`${memory.indexRun} + 1`,
+  indexPriority: sql`case when ${memory.indexFreshDay} = ${today} then 'background' else 'fresh' end`,
+  indexFreshDay: today,
 } as const;
 
 /** Which search legs found a Memory (ADR-0004). */
@@ -444,6 +453,7 @@ export function openLibrary(db: Database, userId: string) {
           indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
           indexRun: sql`${memory.indexRun} + (${reindex})::int`,
           indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
+          indexPriority: sql`case when ${reindex} then 'background' else ${memory.indexPriority} end`,
         })
         .where(
           and(

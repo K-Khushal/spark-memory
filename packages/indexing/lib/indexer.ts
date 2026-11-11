@@ -125,7 +125,11 @@ function parse(text: string) {
     : { ok: false as const, errors: describeIssues(parsed.error) };
 }
 
-/** Until the next UTC day, at most 12 hours (a safe queue delay); then it checks again. */
+/**
+ * Until the next UTC day, at most 12 hours; then it checks again. Queues
+ * documents 24 hours as the most a message can be delayed
+ * (docs/research/indexing-providers.md): 12 stays well inside it.
+ */
 const secondsToNextUtcDay = (now: Date) =>
   Math.min(
     12 * 3600,

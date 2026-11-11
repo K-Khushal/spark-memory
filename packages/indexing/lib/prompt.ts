@@ -27,8 +27,30 @@ const DELIMITER = /<\s*\/?\s*(memory|title|capture-note|text)\b[^>]*>?/gi;
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
 
-const clean = (s: string, max: number) =>
-  s.replace(CONTROL, "").replace(DELIMITER, " ").slice(0, max);
+// Brackets a model could read as < and > (NFKC already folds the fullwidth
+// and small-form ones).
+const OPENING =
+  /[\u2039\u2329\u27e8\u3008\u300a\u276e\u2770\u276c\u27ea\u29fc]/g;
+const CLOSING =
+  /[\u203a\u232a\u27e9\u3009\u300b\u276f\u2771\u276d\u27eb\u29fd]/g;
+
+/**
+ * Content with nothing left that reads as a delimiter: look-alike brackets
+ * become < and >, then delimiters are taken out until none are left, so
+ * nested ones (`<</memory>/memory>`) cannot reassemble.
+ */
+function clean(s: string, max: number) {
+  let text = s
+    .normalize("NFKC")
+    .replace(CONTROL, "")
+    .replace(OPENING, "<")
+    .replace(CLOSING, ">");
+  for (let before = ""; before !== text;) {
+    before = text;
+    text = text.replace(DELIMITER, " ");
+  }
+  return text.slice(0, max);
+}
 
 /** The Memory as delimited data, cut to INDEXING.maxInputChars in all. */
 export function memoryPart(memory: MemoryContent): string {

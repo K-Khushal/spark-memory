@@ -5,7 +5,6 @@ import { drafts } from "./drafts";
 import { Refused, type Upload } from "./image-capture";
 import {
   indexingActions,
-  indexingIds,
   nextPollDelay,
   POLL,
   type IndexingTransport,
@@ -177,7 +176,7 @@ export function useLibrary() {
   // While anything is Indexing, ask after it: every 2 s, backing off to 30 s
   // while nothing changes, starting over when something does; never while
   // the page is hidden; not at all once nothing is Indexing.
-  const pollKey = indexingIds(memories).join(",");
+  const pollKey = indexing.pollable(memories).join(",");
   useEffect(() => {
     if (!pollKey) return;
     const ids = pollKey.split(",");

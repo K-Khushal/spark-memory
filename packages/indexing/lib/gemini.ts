@@ -17,6 +17,7 @@ export type GeminiOptions = {
   paidTier: boolean;
   model?: string;
   fetch?: typeof fetch;
+  timeoutMs?: number;
 };
 
 type Reply = {
@@ -34,6 +35,7 @@ export function gemini({
   paidTier,
   model = INDEXING.models.gemini,
   fetch: send = fetch,
+  timeoutMs = INDEXING.providerTimeoutMs,
 }: GeminiOptions): Provider {
   if (paidTier !== true) {
     throw new Error(
@@ -63,6 +65,7 @@ export function gemini({
       try {
         res = await send(url, {
           method: "POST",
+          signal: AbortSignal.timeout(timeoutMs),
           headers: {
             "content-type": "application/json",
             "x-goog-api-key": apiKey,

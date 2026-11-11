@@ -116,4 +116,51 @@ describe("Index state on the wall", () => {
       indexTitle: null,
     });
   });
+
+  it("sends AI opt-out switches one at a time, the latest winning", async () => {
+    const m = memory({ indexState: "searchable" });
+    const answers: ((on: boolean) => void)[] = [];
+    const setAiOptOut = vi.fn(
+      (_id: string, on: boolean) =>
+        new Promise<Memory>((done) =>
+          answers.push(() => done({ ...m, aiOptOut: on }))
+        )
+    );
+    const { actions, wall } = setup({ setAiOptOut }, [m]);
+    const first = actions.setAiOptOut(m, true);
+    void actions.setAiOptOut(m, false);
+    void actions.setAiOptOut(m, true);
+    expect(setAiOptOut).toHaveBeenCalledTimes(1);
+    answers[0]!(true);
+    await vi.waitFor(() => expect(setAiOptOut).toHaveBeenCalledTimes(2));
+    // The switches in between collapse into the latest.
+    expect(setAiOptOut.mock.calls.map((c) => c[1])).toEqual([true, true]);
+    answers[1]!(true);
+    await first;
+    expect(wall()[0]!.aiOptOut).toBe(true);
+  });
+
+  it("rolls a failed series of switches back to where it started", async () => {
+    const m = memory({ indexState: "searchable", aiOptOut: false });
+    const { actions, wall, notify } = setup(
+      { setAiOptOut: async () => Promise.reject(new Error("down")) },
+      [m]
+    );
+    await actions.setAiOptOut(m, true);
+    expect(wall()[0]).toMatchObject({
+      aiOptOut: false,
+      indexState: "searchable",
+    });
+    expect(notify).toHaveBeenCalledWith("AI Opt-Out Did Not Change");
+  });
+
+  it("stops asking after a Memory the server no longer has", async () => {
+    const kept = memory();
+    const deleted = memory();
+    const poll = vi.fn(async () => [kept]);
+    const { actions } = setup({ poll }, [kept, deleted]);
+    expect(actions.pollable([kept, deleted])).toEqual([kept.id, deleted.id]);
+    await actions.poll([kept.id, deleted.id]);
+    expect(actions.pollable([kept, deleted])).toEqual([kept.id]);
+  });
 });

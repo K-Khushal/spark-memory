@@ -8,7 +8,11 @@ const today = sql`(now() at time zone 'utc')::date`;
 
 /** Longer than any one message's provider calls take. */
 const LEASE_MINUTES = 5;
-const unleased = sql`(${memory.indexLeaseUntil} is null or ${memory.indexLeaseUntil} < now())`;
+/** Free to take: never leased, the lease ran out, or it was for an older run. */
+const unleased = sql`(${memory.indexLeaseUntil} is null or ${memory.indexLeaseUntil} < now() or ${memory.indexLeaseRun} is distinct from ${memory.indexRun})`;
+const lease = () => ({
+  indexLeaseUntil: sql`now() + make_interval(mins => ${LEASE_MINUTES})`,
+});
 
 /** Only a Memory whose files are all stored can be Indexed. */
 const allStored = sql`not exists (select 1 from memory_file f where f.memory_id = ${memory.id} and f.stored_at is null)`;
@@ -37,9 +41,7 @@ export function indexingStore(db: Database) {
     async load(id: string, run?: number) {
       const [row] = await db
         .update(memory)
-        .set({
-          indexLeaseUntil: sql`now() + make_interval(mins => ${LEASE_MINUTES})`,
-        })
+        .set({ ...lease(), indexLeaseRun: sql`${memory.indexRun}` })
         .where(
           and(
             eq(memory.id, id),
@@ -154,13 +156,16 @@ export function indexingStore(db: Database) {
     /**
      * Whether `run` is still the one to work on, without AI opt-out: asked
      * again right before each provider call, so switching AI opt-out on
-     * mid-flight stops any call not yet made.
+     * mid-flight stops any call not yet made. Renews the lease, so a long
+     * chain never loses it.
      */
     async isCurrent(id: string, run: number): Promise<boolean> {
+      // Still working on it: the lease runs from now again.
       const [row] = await db
-        .select({ id: memory.id })
-        .from(memory)
-        .where(and(atRun(id, run), eq(memory.aiOptOut, false)));
+        .update(memory)
+        .set(lease())
+        .where(and(atRun(id, run), eq(memory.aiOptOut, false)))
+        .returning({ id: memory.id });
       return !!row;
     },
 
@@ -217,9 +222,15 @@ export function indexingStore(db: Database) {
     async stalled(
       minutes = 60,
       limit = 500
-    ): Promise<{ id: string; run: number }[]> {
+    ): Promise<
+      { id: string; run: number; priority: "fresh" | "background" }[]
+    > {
       return db
-        .select({ id: memory.id, run: memory.indexRun })
+        .select({
+          id: memory.id,
+          run: memory.indexRun,
+          priority: memory.indexPriority,
+        })
         .from(memory)
         .where(
           and(

@@ -58,9 +58,49 @@ export function indexingActions({
       all.map((m) => (m.id === id ? { ...m, ...fields } : m))
     );
 
+  /** Memories the server no longer has (deleted elsewhere): never asked after again. */
+  const gone = new Set<string>();
+  /**
+   * AI opt-out switches in flight, one request per Memory at a time:
+   * `want` is the latest switch not yet sent, `before` the wall's state
+   * before the first one, to roll back to.
+   */
+  const switching = new Map<
+    string,
+    { want?: boolean; before: ReturnType<typeof indexFields> }
+  >();
+
+  async function sendAiOptOut(id: string) {
+    const entry = switching.get(id)!;
+    while (entry.want !== undefined) {
+      const on = entry.want;
+      entry.want = undefined;
+      try {
+        const now = await transport.setAiOptOut(id, on);
+        // A later switch is waiting: its answer is the one to show.
+        if (entry.want === undefined) merge([now]);
+      } catch {
+        if (entry.want === undefined) {
+          patch(id, entry.before);
+          notify("AI Opt-Out Did Not Change");
+        }
+      }
+    }
+    switching.delete(id);
+  }
+
   return {
     /** Asks after `ids` and puts their Index state on the wall. */
-    poll: async (ids: string[]) => merge(await transport.poll(ids)),
+    async poll(ids: string[]) {
+      const fresh = await transport.poll(ids);
+      const found = new Set(fresh.map((m) => m.id));
+      for (const id of ids) if (!found.has(id)) gone.add(id);
+      merge(fresh);
+    },
+
+    /** The ids worth asking after: Indexing on the wall, and still on the server. */
+    pollable: (memories: WallMemory[]) =>
+      indexingIds(memories.filter((m) => !gone.has(m.id))),
 
     async retryIndexing(memory: Memory) {
       patch(memory.id, { indexState: "indexing", indexError: null });
@@ -72,6 +112,7 @@ export function indexingActions({
       }
     },
 
+    /** Optimistic; switches sent in order, one at a time, the latest winning. */
     async setAiOptOut(memory: Memory, on: boolean) {
       patch(memory.id, {
         aiOptOut: on,
@@ -79,12 +120,13 @@ export function indexingActions({
           ? { indexState: "searchable", indexError: null, indexTitle: null }
           : { indexState: "indexing" }),
       });
-      try {
-        merge([await transport.setAiOptOut(memory.id, on)]);
-      } catch {
-        patch(memory.id, indexFields(memory));
-        notify("AI Opt-Out Did Not Change");
+      const entry = switching.get(memory.id);
+      if (entry) {
+        entry.want = on;
+        return;
       }
+      switching.set(memory.id, { want: on, before: indexFields(memory) });
+      await sendAiOptOut(memory.id);
     },
   };
 }

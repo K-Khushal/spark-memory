@@ -154,6 +154,15 @@ export const memory = pgTable(
      * that consumer dies.
      */
     indexLeaseUntil: timestamp("index_lease_until", { withTimezone: true }),
+    /** The run the lease is for: a new run is never blocked by an old lease. */
+    indexLeaseRun: integer("index_lease_run"),
+    /** Which queue the current run belongs on (the hourly sweep re-sends it there). */
+    indexPriority: text("index_priority")
+      .$type<"fresh" | "background">()
+      .default("fresh")
+      .notNull(),
+    /** The UTC day a Retry or opt-in last went first in line (once a day). */
+    indexFreshDay: date("index_fresh_day"),
     /** Why Indexing failed; set only while `indexState` is failed. */
     indexError: text("index_error").$type<IndexFailure>(),
     /** AI opt-out (GLOSSARY.md, ADR-0011): never sent to any AI provider. */

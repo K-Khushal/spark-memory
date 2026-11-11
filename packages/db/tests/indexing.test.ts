@@ -85,6 +85,55 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(await store().isCurrent(memory.id, 1)).toBe(false);
   });
 
+  it("never lets a lease on an old run hold up a new one", async () => {
+    const edited = await capture("Typo in thsi");
+    expect(await store().load(edited.id, 1)).toBeDefined();
+    // Fixing the typo while the first run is out starts run 2, at once.
+    await library().edit(edited.id, { body: "Typo in this" });
+    expect(await store().load(edited.id, 2)).toMatchObject({ run: 2 });
+
+    const flipped = await capture("Opt out and back in");
+    expect(await store().load(flipped.id, 1)).toBeDefined();
+    await library().setAiOptOut(flipped.id, true);
+    await library().setAiOptOut(flipped.id, false);
+    expect(await store().load(flipped.id, 3)).toMatchObject({ run: 3 });
+  });
+
+  it("keeps the lease while the delivery that holds it is still working", async () => {
+    const memory = await capture("Long chain");
+    await store().load(memory.id, 1);
+    await db
+      .update(schema.memory)
+      .set({ indexLeaseUntil: sql`now() + interval '1 second'` })
+      .where(eq(schema.memory.id, memory.id));
+    // Each provider call checks the run, and extends the lease.
+    expect(await store().isCurrent(memory.id, 1)).toBe(true);
+    await new Promise((done) => setTimeout(done, 1100));
+    expect(await store().load(memory.id, 1)).toBeUndefined();
+  });
+
+  it("puts edits in the background, and Retry or opt-in first in line once a day", async () => {
+    const priority = async (id: string) =>
+      (
+        await db
+          .select({ p: schema.memory.indexPriority })
+          .from(schema.memory)
+          .where(eq(schema.memory.id, id))
+      )[0]!.p;
+    const memory = await capture("Priorities");
+    expect(await priority(memory.id)).toBe("fresh");
+    await library().edit(memory.id, { body: "Priorities, edited" });
+    expect(await priority(memory.id)).toBe("background");
+    for (const expected of ["fresh", "background"]) {
+      await store().fail(memory.id, undefined, "unavailable");
+      await library().retryIndexing(memory.id);
+      expect(await priority(memory.id)).toBe(expected);
+    }
+    await library().setAiOptOut(memory.id, true);
+    await library().setAiOptOut(memory.id, false);
+    expect(await priority(memory.id)).toBe("background");
+  });
+
   it("makes what Indexing found searchable, by keyword and typo, and names an image", async () => {
     const memory = await capture("Lemon tart with a short crust");
     expect(await ids("zesty")).not.toContain(memory.id);
@@ -262,6 +311,10 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
       .update(schema.memory)
       .set({ updatedAt: sql`now() - interval '2 hours'` })
       .where(eq(schema.memory.id, memory.id));
-    expect(await store().stalled()).toContainEqual({ id: memory.id, run: 1 });
+    expect(await store().stalled()).toContainEqual({
+      id: memory.id,
+      run: 1,
+      priority: "fresh",
+    });
   });
 });

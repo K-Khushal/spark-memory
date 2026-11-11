@@ -24,6 +24,17 @@ const OVERFLOW = /\b(3036|3040|429)\b|daily free allocation|capacity/i;
 const TOO_LARGE = /\b(3006|413)\b|too large/i;
 const JSON_MODE = /json mode/i;
 
+/** The binding takes no signal: a call that outlives `ms` is given up on. */
+function withTimeout<T>(ms: number, call: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    call,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("timed out")), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 /**
  * Gemma 4 on Workers AI (ADR-0005): first in the chain, zero data
  * retention. Output is asked for in JSON mode with the schema, but Gemma 4
@@ -31,7 +42,8 @@ const JSON_MODE = /json mode/i;
  */
 export function workersAi(
   ai: AiBinding,
-  model: string = INDEXING.models["workers-ai"]
+  model: string = INDEXING.models["workers-ai"],
+  timeoutMs: number = INDEXING.providerTimeoutMs
 ): Provider {
   return {
     name: "workers-ai",
@@ -60,20 +72,23 @@ export function workersAi(
       }
       let reply: Reply;
       try {
-        reply = (await ai.run(model, {
-          messages,
-          response_format: {
-            type: "json_schema",
-            json_schema: {
-              name: "memory_index",
-              schema: INDEXING_OUTPUT_JSON_SCHEMA,
-              strict: true,
+        reply = (await withTimeout(
+          timeoutMs,
+          ai.run(model, {
+            messages,
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "memory_index",
+                schema: INDEXING_OUTPUT_JSON_SCHEMA,
+                strict: true,
+              },
             },
-          },
-          max_completion_tokens: 4096,
-          // Thinking is on by default and billed as output: Extraction needs none.
-          chat_template_kwargs: { enable_thinking: false },
-        })) as Reply;
+            max_completion_tokens: 4096,
+            // Thinking is on by default and billed as output: Extraction needs none.
+            chat_template_kwargs: { enable_thinking: false },
+          })
+        )) as Reply;
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         // "JSON Mode couldn't be met" is invalid output: the chain corrects it.
