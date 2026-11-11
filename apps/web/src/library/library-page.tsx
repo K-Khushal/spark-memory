@@ -1,12 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import { Button, Kbd, Masonry, Toaster, cn, toast } from "@spark/ui";
@@ -15,14 +7,11 @@ import { authClient, endSession, type AppSession } from "../auth";
 import { DeskSidebar } from "../shell";
 import { productMetrics } from "./product-metrics";
 import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
+import { LibraryOverlaysHost } from "./overlays-host";
 import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
 import { useSearch, type Found, type Results } from "./use-search";
 import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
-
-const loadOverlays = () =>
-  import("./overlays").then((m) => ({ default: m.LibraryOverlays }));
-const LibraryOverlays = lazy(loadOverlays);
 
 /**
  * The Library: sidebar (a top bar on phones) beside the masonry wall of
@@ -40,6 +29,8 @@ export function LibraryPage({
   const library = useLibrary();
   const [metrics] = useState(() => productMetrics(track));
   const [searchOpen, setSearchOpen] = useState(false);
+  const [overlaysEpoch, setOverlaysEpoch] = useState(0);
+  const [overlaysDown, setOverlaysDown] = useState(false);
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -81,17 +72,20 @@ export function LibraryPage({
   useEffect(() => {
     startAnalytics(session.user.id);
   }, [session.user.id]);
-  // Start the overlays chunk with first paint so ⌘K still opens next frame.
-  useEffect(() => {
-    void loadOverlays();
-  }, []);
 
+  const retryOverlays = () => {
+    if (!overlaysDown) return;
+    setOverlaysDown(false);
+    setOverlaysEpoch((n) => n + 1);
+  };
   const openSearch = () => {
+    retryOverlays();
     metrics.searchOpened();
     setDraft(query);
     setSearchOpen(true);
   };
   const openPasteBox = () => {
+    retryOverlays();
     setSearchOpen(false);
     setPasteOpen(true);
   };
@@ -151,7 +145,14 @@ export function LibraryPage({
 
   useLibraryShortcuts({
     onSearch: openSearch,
-    onToggleSearch: () => (searchOpen ? setSearchOpen(false) : openSearch()),
+    onToggleSearch: () => {
+      if (overlaysDown) {
+        openSearch();
+        return;
+      }
+      if (searchOpen) setSearchOpen(false);
+      else openSearch();
+    },
     // Office apps put a picture of copied text beside it: text wins.
     onPaste: (data) => {
       const text = data.getData("text/plain");
@@ -293,40 +294,40 @@ export function LibraryPage({
         )}
       </main>
 
-      <Suspense fallback={null}>
-        <LibraryOverlays
-          searchOpen={searchOpen}
-          draft={draft}
-          instant={instant}
-          onSearchOpenChange={(open) => {
-            setSearchOpen(open);
-            if (!open) metrics.abandoned();
-          }}
-          onDraft={setDraft}
-          onShowOnWall={showOnWall}
-          onOpenFromSearch={openFromSearch}
-          onCapture={openPasteBox}
-          onSettings={() => void navigate({ to: "/settings" })}
-          onSignOut={() => void signOut()}
-          pasteOpen={pasteOpen}
-          onPasteOpenChange={setPasteOpen}
-          onPasteCapture={library.capture}
-          onImages={captureFiles}
-          images={images}
-          imageId={imageId}
-          onImageId={setImageId}
-          onImageClose={() => setImageId(undefined)}
-          opened={opened}
-          edits={library.edits}
-          onDetailClose={() => setOpenId(undefined)}
-          onDelete={library.remove}
-          onRetry={library.retryUpload}
-          onBroken={library.refresh}
-          onRetryIndexing={library.retryIndexing}
-          onAiOptOut={library.setAiOptOut}
-          onMoreLikeThis={moreLikeThis}
-        />
-      </Suspense>
+      <LibraryOverlaysHost
+        key={overlaysEpoch}
+        onCatch={() => setOverlaysDown(true)}
+        searchOpen={searchOpen}
+        draft={draft}
+        instant={instant}
+        onSearchOpenChange={(open) => {
+          setSearchOpen(open);
+          if (!open) metrics.abandoned();
+        }}
+        onDraft={setDraft}
+        onShowOnWall={showOnWall}
+        onOpenFromSearch={openFromSearch}
+        onCapture={openPasteBox}
+        onSettings={() => void navigate({ to: "/settings" })}
+        onSignOut={() => void signOut()}
+        pasteOpen={pasteOpen}
+        onPasteOpenChange={setPasteOpen}
+        onPasteCapture={library.capture}
+        onImages={captureFiles}
+        images={images}
+        imageId={imageId}
+        onImageId={setImageId}
+        onImageClose={() => setImageId(undefined)}
+        opened={opened}
+        edits={library.edits}
+        onDetailClose={() => setOpenId(undefined)}
+        onDelete={library.remove}
+        onRetry={library.retryUpload}
+        onBroken={library.refresh}
+        onRetryIndexing={library.retryIndexing}
+        onAiOptOut={library.setAiOptOut}
+        onMoreLikeThis={moreLikeThis}
+      />
       {dropping && (
         <div
           aria-hidden

@@ -33,12 +33,17 @@ describe("bundle split", () => {
   });
 
   it("loads ⌘K, dialogs and motion after first paint", () => {
-    expect(library).toMatch(/import\("\.\/overlays"\)/);
-    expect(library).toMatch(/lazy\(loadOverlays\)/);
+    const host = src("library/overlays-host.tsx");
+    expect(library).toMatch(/from "\.\/overlays-host"/);
+    expect(host).toMatch(/import\("\.\/overlays"\)/);
+    expect(host).toMatch(/lazy\(loadOverlays\)/);
+    expect(host).toMatch(/\.catch\(\(\) => \{\}\)/);
+    expect(host).toMatch(/getDerivedStateFromError/);
     expect(library).not.toMatch(/from "motion\/react"/);
     expect(library).not.toMatch(/CommandDialog/);
     expect(library).not.toMatch(/from "\.\/image-viewer"/);
     expect(library).not.toMatch(/from "\.\/paste-box"/);
     expect(library).not.toMatch(/from "\.\/memory-detail"/);
+    expect(library).not.toMatch(/from "\.\/overlays"/);
   });
 });
