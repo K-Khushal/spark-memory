@@ -4,9 +4,8 @@ import { ChevronLeftIcon, ChevronRightIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { Button, Dialog, DialogContent, DialogTitle, cn } from "@spark/ui";
 import { DURATION, EASING, SPRING } from "@spark/ui/tokens";
-import { AiOptOutSwitch } from "./ai-opt-out";
-import type { IndexingProps } from "./memory-detail";
-import { IndexBadge, memoryName, UploadBadge } from "./memory-tile";
+import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
+import { memoryName, UploadBadge } from "./memory-tile";
 import type { WallMemory } from "./use-library";
 
 /** A swipe moves on past 120px, or when flung. */
@@ -126,6 +125,8 @@ export function ImageViewer({
             <IndexBadge
               memory={memory}
               onRetry={() => onRetryIndexing(memory)}
+              // No Memory detail for images: the viewer says why.
+              withReason
               className="absolute top-5.5 left-3"
             />
           )}

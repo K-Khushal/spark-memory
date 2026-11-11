@@ -6,6 +6,10 @@ import { aiCall, memory, memoryFile, memoryIndex, spendDay } from "./schema";
 /** Today in UTC, by the database's clock: the day the budget counts. */
 const today = sql`(now() at time zone 'utc')::date`;
 
+/** Longer than any one message's provider calls take. */
+const LEASE_MINUTES = 5;
+const unleased = sql`(${memory.indexLeaseUntil} is null or ${memory.indexLeaseUntil} < now())`;
+
 /** Only a Memory whose files are all stored can be Indexed. */
 const allStored = sql`not exists (select 1 from memory_file f where f.memory_id = ${memory.id} and f.stored_at is null)`;
 
@@ -25,9 +29,27 @@ export function indexingStore(db: Database) {
     );
 
   return {
-    async load(id: string) {
+    /**
+     * Takes a Memory waiting for Indexing (at `run`, when given) and leases
+     * it for LEASE_MINUTES. Undefined when it is gone, not waiting, at
+     * another run, or leased by another delivery of the same work.
+     */
+    async load(id: string, run?: number) {
       const [row] = await db
-        .select({
+        .update(memory)
+        .set({
+          indexLeaseUntil: sql`now() + make_interval(mins => ${LEASE_MINUTES})`,
+        })
+        .where(
+          and(
+            eq(memory.id, id),
+            eq(memory.indexState, "indexing"),
+            run === undefined ? undefined : eq(memory.indexRun, run),
+            unleased,
+            allStored
+          )
+        )
+        .returning({
           userId: memory.userId,
           kind: memory.kind,
           run: memory.indexRun,
@@ -35,11 +57,7 @@ export function indexingStore(db: Database) {
           body: memory.body,
           captureNote: memory.captureNote,
           aiOptOut: memory.aiOptOut,
-        })
-        .from(memory)
-        .where(
-          and(eq(memory.id, id), eq(memory.indexState, "indexing"), allStored)
-        );
+        });
       if (!row) return undefined;
       if (row.kind !== "image") return row;
       const files = await db
@@ -78,6 +96,7 @@ export function indexingStore(db: Database) {
           .set({
             indexState: "searchable",
             indexError: null,
+            indexLeaseUntil: null,
             ...(extraction && { language: extraction.output.language }),
           })
           .where(
@@ -103,21 +122,46 @@ export function indexingStore(db: Database) {
       });
     },
 
-    async fail(id: string, run: number, reason: IndexFailure) {
+    /**
+     * Failed with `reason`. Without `run` (a message the queue gave up on,
+     * from before runs were in messages) whatever run is current fails.
+     */
+    async fail(id: string, run: number | undefined, reason: IndexFailure) {
       const rows = await db
         .update(memory)
-        .set({ indexState: "failed", indexError: reason })
-        .where(atRun(id, run))
+        .set({
+          indexState: "failed",
+          indexError: reason,
+          indexLeaseUntil: null,
+        })
+        .where(
+          run === undefined
+            ? and(eq(memory.id, id), eq(memory.indexState, "indexing"))
+            : atRun(id, run)
+        )
         .returning({ id: memory.id });
       return rows.length > 0;
     },
 
-    /** Fails whatever run is current: for a message the queue gave up on. */
-    async failCurrent(id: string, reason: IndexFailure) {
+    /** Gives the lease back, for the next attempt of the same message. */
+    async release(id: string, run: number) {
       await db
         .update(memory)
-        .set({ indexState: "failed", indexError: reason })
-        .where(and(eq(memory.id, id), eq(memory.indexState, "indexing")));
+        .set({ indexLeaseUntil: null })
+        .where(atRun(id, run));
+    },
+
+    /**
+     * Whether `run` is still the one to work on, without AI opt-out: asked
+     * again right before each provider call, so switching AI opt-out on
+     * mid-flight stops any call not yet made.
+     */
+    async isCurrent(id: string, run: number): Promise<boolean> {
+      const [row] = await db
+        .select({ id: memory.id })
+        .from(memory)
+        .where(and(atRun(id, run), eq(memory.aiOptOut, false)));
+      return !!row;
     },
 
     async spentTodayMicros(): Promise<number> {
@@ -170,9 +214,12 @@ export function indexingStore(db: Database) {
      * Memories Indexing for longer than `minutes` (a message lost or never
      * sent), oldest first, to enqueue again.
      */
-    async stalled(minutes = 60, limit = 500): Promise<string[]> {
-      const rows = await db
-        .select({ id: memory.id })
+    async stalled(
+      minutes = 60,
+      limit = 500
+    ): Promise<{ id: string; run: number }[]> {
+      return db
+        .select({ id: memory.id, run: memory.indexRun })
         .from(memory)
         .where(
           and(
@@ -181,12 +228,12 @@ export function indexingStore(db: Database) {
               memory.updatedAt,
               sql`now() - make_interval(mins => ${minutes})`
             ),
+            unleased,
             allStored
           )
         )
         .orderBy(memory.updatedAt)
         .limit(limit);
-      return rows.map((r) => r.id);
     },
   };
 }

@@ -44,6 +44,8 @@ const columns = {
   preservation: memory.preservation,
   indexState: memory.indexState,
   revision: memory.revision,
+  /** For queue messages only; routes leave it out of answers. */
+  indexRun: memory.indexRun,
   aiOptOut: memory.aiOptOut,
   indexError: memory.indexError,
   indexTitle,

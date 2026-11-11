@@ -148,6 +148,12 @@ export const memory = pgTable(
      * queue message can never overwrite newer work.
      */
     indexRun: integer("index_run").default(1).notNull(),
+    /**
+     * Set while one consumer works on the run, so a duplicate delivery skips
+     * instead of paying for the same AI call twice. Expires on its own if
+     * that consumer dies.
+     */
+    indexLeaseUntil: timestamp("index_lease_until", { withTimezone: true }),
     /** Why Indexing failed; set only while `indexState` is failed. */
     indexError: text("index_error").$type<IndexFailure>(),
     /** AI opt-out (GLOSSARY.md, ADR-0011): never sent to any AI provider. */

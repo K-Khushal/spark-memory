@@ -1,3 +1,5 @@
+import type { Priority } from "@spark/indexing";
+
 /**
  * Worker bindings, per Wrangler environment (see wrangler.jsonc and docs/deploy.md).
  * Typed structurally so @spark/api-client can read AppType without Workers globals.
@@ -49,10 +51,11 @@ export type Bindings = {
   INDEXING_PROVIDER?: string;
 };
 
-/** What a queue message carries: which Memory, and how urgent. */
+/** What a queue message carries: which Memory, at which run, and how urgent. */
 export type IndexMessage = {
   memoryId: string;
-  priority: "fresh" | "background";
+  run?: number;
+  priority: Priority;
 };
 export type IndexQueue = {
   send(body: IndexMessage, options?: { delaySeconds?: number }): Promise<void>;

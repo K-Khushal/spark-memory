@@ -76,7 +76,7 @@ test("a Memory that fails Indexing says why and offers Retry", async ({
   const wall = page.getByRole("list", { name: "All Memories" });
   await paste(page, "This one will fake:fail");
   const tile = wall.getByRole("listitem", {
-    name: "This one will fake:fail, Failed",
+    name: "This one will fake:fail, Indexing Failed",
   });
   await expect(tile).toBeVisible({ timeout: 15_000 });
   await expect(tile.getByRole("button", { name: /^Retry/ })).toHaveAttribute(

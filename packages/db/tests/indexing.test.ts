@@ -44,6 +44,13 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     if (!("memory" in result)) throw new Error("conflict");
     return result.memory;
   };
+  const runOf = async (id: string) =>
+    (
+      await db
+        .select({ run: schema.memory.indexRun })
+        .from(schema.memory)
+        .where(eq(schema.memory.id, id))
+    )[0]!.run;
   const ids = async (query: string) =>
     (await library().search(query)).map((m) => m.id);
   const extraction = (over?: Partial<IndexingOutput>) => ({
@@ -60,6 +67,22 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
       body: "Lemon tart with a short crust",
       aiOptOut: false,
     });
+  });
+
+  it("leases a Memory to one delivery at a time, at the run it was sent for", async () => {
+    const memory = await capture("Delivered twice at once");
+    const [first, second] = await Promise.all([
+      store().load(memory.id, 1),
+      store().load(memory.id, 1),
+    ]);
+    expect([first, second].filter(Boolean)).toHaveLength(1);
+    expect(await store().load(memory.id)).toBeUndefined();
+    await store().release(memory.id, 1);
+    expect(await store().load(memory.id, 2)).toBeUndefined();
+    expect(await store().load(memory.id, 1)).toMatchObject({ run: 1 });
+    expect(await store().isCurrent(memory.id, 1)).toBe(true);
+    await library().setAiOptOut(memory.id, true);
+    expect(await store().isCurrent(memory.id, 1)).toBe(false);
   });
 
   it("makes what Indexing found searchable, by keyword and typo, and names an image", async () => {
@@ -138,7 +161,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(same).toMatchObject({ indexState: "searchable" });
     const changed = await library().edit(memory.id, { body: "New text" });
     expect(changed).toMatchObject({ indexState: "indexing" });
-    expect((await store().load(memory.id))!.run).toBe(2);
+    expect(await runOf(memory.id)).toBe(2);
   });
 
   it("fails with a reason, and Retry starts a new run", async () => {
@@ -152,10 +175,10 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
       indexState: "indexing",
       indexError: null,
     });
-    expect((await store().load(memory.id))!.run).toBe(2);
+    expect(await runOf(memory.id)).toBe(2);
     // Retry on a Memory that has not failed changes nothing.
     await library().retryIndexing(memory.id);
-    expect((await store().load(memory.id))!.run).toBe(2);
+    expect(await runOf(memory.id)).toBe(2);
   });
 
   describe("AI opt-out", () => {
@@ -233,11 +256,12 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
 
   it("finds Memories stuck Indexing, to enqueue them again", async () => {
     const memory = await capture("Lost message");
-    expect(await store().stalled()).not.toContain(memory.id);
+    const stalled = async () => (await store().stalled()).map((m) => m.id);
+    expect(await stalled()).not.toContain(memory.id);
     await db
       .update(schema.memory)
       .set({ updatedAt: sql`now() - interval '2 hours'` })
       .where(eq(schema.memory.id, memory.id));
-    expect(await store().stalled()).toContain(memory.id);
+    expect(await store().stalled()).toContainEqual({ id: memory.id, run: 1 });
   });
 });

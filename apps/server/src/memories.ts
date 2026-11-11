@@ -131,7 +131,7 @@ export const memories = new Hono<AppEnv>()
     }
     // A retry of a Capture still Indexing enqueues again: duplicates are harmless.
     if (result.memory.indexState === "indexing") {
-      await enqueue(c.env, result.memory.id, "fresh");
+      await enqueue(c.env, result.memory, "fresh");
     }
     const memory = await forClient(c.var.files, result.memory);
     return c.json(memory, result.created ? 201 : 200);
@@ -174,7 +174,7 @@ export const memories = new Hono<AppEnv>()
       return c.json({ ok: false, error: "not_uploaded" } as const, 409);
     }
     if (memory.indexState === "indexing") {
-      await enqueue(c.env, memory.id, "fresh");
+      await enqueue(c.env, memory, "fresh");
     }
     return c.json(await forClient(c.var.files, memory));
   })
@@ -184,7 +184,7 @@ export const memories = new Hono<AppEnv>()
     const memory = UUID.test(id) && (await c.var.library.retryIndexing(id));
     if (!memory) return c.json(notFound, 404);
     if (memory.indexState === "indexing") {
-      await enqueue(c.env, memory.id, "fresh");
+      await enqueue(c.env, memory, "fresh");
     }
     return c.json(await forClient(c.var.files, memory));
   })
@@ -196,7 +196,7 @@ export const memories = new Hono<AppEnv>()
       UUID.test(id) && (await c.var.library.setAiOptOut(id, aiOptOut));
     if (!memory) return c.json(notFound, 404);
     if (!aiOptOut && memory.indexState === "indexing") {
-      await enqueue(c.env, memory.id, "fresh");
+      await enqueue(c.env, memory, "fresh");
     }
     return c.json(await forClient(c.var.files, memory));
   })
@@ -224,7 +224,7 @@ export const memories = new Hono<AppEnv>()
     }
     // New text is Indexed again, behind fresh Captures.
     if (changes.body !== undefined && result.indexState === "indexing") {
-      await enqueue(c.env, result.id, "background");
+      await enqueue(c.env, result, "background");
     }
     return c.json(await forClient(c.var.files, result));
   })

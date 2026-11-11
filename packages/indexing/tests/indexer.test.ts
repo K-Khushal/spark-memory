@@ -61,7 +61,14 @@ function memoryStore(memory: PendingMemory | undefined, spent = 0) {
     failed: [] as string[],
     calls: [] as { provider: string; costMicros: number }[],
     spent,
-    load: async () => store.memory,
+    released: 0,
+    load: async (_id: string, run?: number) =>
+      run === undefined || run === store.memory?.run ? store.memory : undefined,
+    release: async () => {
+      store.released++;
+    },
+    isCurrent: async (_id: string, run: number) =>
+      run === store.memory?.run && !store.memory.aiOptOut,
     complete: vi.fn(async (_id: string, run: number, extraction: unknown) => {
       if (run !== store.memory?.run) return false;
       store.completed.push(extraction);
@@ -99,7 +106,7 @@ describe("index(job)", () => {
       providers: [gemma, flash],
       readFile: noFiles,
     });
-    expect(await index(job())).toEqual({ status: "searchable" });
+    expect(await index(job())).toEqual({ result: "searchable" });
     expect(store.completed).toEqual([
       { output: answer, model: INDEXING.models["workers-ai"] },
     ]);
@@ -122,7 +129,7 @@ describe("index(job)", () => {
       providers: [gemma],
       readFile: noFiles,
     });
-    expect(await index(job())).toEqual({ status: "searchable" });
+    expect(await index(job())).toEqual({ result: "searchable" });
     expect(gemma.requests[1]!.correction).toEqual({
       previous: json({ ...answer, tags: "recipe" }),
       errors: expect.stringContaining("tags"),
@@ -139,7 +146,7 @@ describe("index(job)", () => {
       providers: [gemma, flash],
       readFile: noFiles,
     });
-    expect(await index(job())).toEqual({ status: "searchable" });
+    expect(await index(job())).toEqual({ result: "searchable" });
     expect(store.completed).toEqual([
       { output: answer, model: INDEXING.models.gemini },
     ]);
@@ -154,7 +161,7 @@ describe("index(job)", () => {
         providers: [scripted("workers-ai", new ProviderError(kind)), flash],
         readFile: noFiles,
       });
-      expect(await index(job())).toEqual({ status: "searchable" });
+      expect(await index(job())).toEqual({ result: "searchable" });
     }
   });
 
@@ -170,16 +177,16 @@ describe("index(job)", () => {
       readFile: noFiles,
     });
     expect(await first.index(job())).toEqual({
-      status: "retry",
+      result: "retry",
       delaySeconds: 30,
     });
     expect(await first.index(job({ attempt: 2 }))).toEqual({
-      status: "retry",
+      result: "retry",
       delaySeconds: 60,
     });
     const last = createIndexer({ store, providers: down(), readFile: noFiles });
     expect(await last.index(job({ attempt: INDEXING.maxAttempts }))).toEqual({
-      status: "failed",
+      result: "failed",
       reason: "unavailable",
     });
     expect(store.failed).toEqual(["unavailable"]);
@@ -196,7 +203,7 @@ describe("index(job)", () => {
       readFile: noFiles,
     });
     expect(await index(job())).toEqual({
-      status: "failed",
+      result: "failed",
       reason: "invalid_output",
     });
   });
@@ -206,7 +213,7 @@ describe("index(job)", () => {
     const gemma = scripted("workers-ai", json());
     const readFile = vi.fn(noFiles);
     const { index } = createIndexer({ store, providers: [gemma], readFile });
-    expect(await index(job())).toEqual({ status: "searchable" });
+    expect(await index(job())).toEqual({ result: "searchable" });
     expect(gemma.extract).not.toHaveBeenCalled();
     expect(readFile).not.toHaveBeenCalled();
     expect(store.completed).toEqual([null]);
@@ -220,7 +227,7 @@ describe("index(job)", () => {
       providers: [gemma],
       readFile: noFiles,
     });
-    expect(await index(job())).toEqual({ status: "skipped" });
+    expect(await index(job())).toEqual({ result: "skipped" });
     expect(gemma.extract).not.toHaveBeenCalled();
   });
 
@@ -236,8 +243,49 @@ describe("index(job)", () => {
       providers: [gemma],
       readFile: noFiles,
     });
-    expect(await index(job())).toEqual({ status: "skipped" });
+    expect(await index(job())).toEqual({ result: "skipped" });
     expect(store.completed).toEqual([]);
+  });
+
+  it("does nothing for a message sent for an older run", async () => {
+    const gemma = scripted("workers-ai", json());
+    const { index } = createIndexer({
+      store: memoryStore(textMemory({ run: 2 })),
+      providers: [gemma],
+      readFile: noFiles,
+    });
+    expect(await index(job({ run: 1 }))).toEqual({ result: "skipped" });
+    expect(gemma.extract).not.toHaveBeenCalled();
+  });
+
+  it("makes no further provider call once AI opt-out is switched on mid-flight", async () => {
+    const store = memoryStore(textMemory());
+    const gemma = scripted("workers-ai", "not json", json());
+    gemma.extract = vi.fn(async () => {
+      // Switched on while the first call was out: the corrective call never goes.
+      store.memory = textMemory({ run: 2, aiOptOut: true });
+      return { text: "not json", usage: { inputTokens: 0, outputTokens: 0 } };
+    });
+    const flash = scripted("gemini", json());
+    const { index } = createIndexer({
+      store,
+      providers: [gemma, flash],
+      readFile: noFiles,
+    });
+    expect(await index(job())).toEqual({ result: "skipped" });
+    expect(gemma.extract).toHaveBeenCalledTimes(1);
+    expect(flash.extract).not.toHaveBeenCalled();
+  });
+
+  it("gives the Memory back for the next attempt when it retries", async () => {
+    const store = memoryStore(textMemory());
+    const { index } = createIndexer({
+      store,
+      providers: [scripted("workers-ai", new ProviderError("failed"))],
+      readFile: noFiles,
+    });
+    expect((await index(job())).result).toBe("retry");
+    expect(store.released).toBe(1);
   });
 
   it("pauses background work past the daily budget, but fresh Captures still index", async () => {
@@ -251,7 +299,7 @@ describe("index(job)", () => {
       now: () => at,
     });
     expect(await background.index(job({ priority: "background" }))).toEqual({
-      status: "paused",
+      result: "paused",
       delaySeconds: 3600,
     });
     expect(gemma.extract).not.toHaveBeenCalled();
@@ -260,7 +308,7 @@ describe("index(job)", () => {
       providers: [gemma],
       readFile: noFiles,
     });
-    expect(await fresh.index(job())).toEqual({ status: "searchable" });
+    expect(await fresh.index(job())).toEqual({ result: "searchable" });
   });
 
   it("sends an image's bytes, the thumbnail when the original is too big or a type models do not read", async () => {
@@ -302,7 +350,7 @@ describe("index(job)", () => {
       readFile: noFiles,
     });
     expect(await index(job())).toEqual({
-      status: "failed",
+      result: "failed",
       reason: "unreadable",
     });
   });

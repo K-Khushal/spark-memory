@@ -15,11 +15,15 @@ import {
 /** Fresh Captures and Retry come first; edits and model changes wait (and pause past the budget). */
 export type Priority = "fresh" | "background";
 
-/** One queue message's worth of work. `attempt` starts at 1. */
+/**
+ * One queue message's worth of work. `attempt` starts at 1. `run` is the
+ * run it was sent for: a message for an older run does nothing.
+ */
 export type IndexJob = {
   memoryId: string;
   priority: Priority;
   attempt: number;
+  run?: number;
 };
 
 /** A Memory waiting for Indexing, as the store loads it. `run` changes whenever Indexing restarts. */
@@ -37,6 +41,9 @@ export type PendingMemory = MemoryContent & {
   };
 };
 
+/** A loaded Memory and the id it was loaded by. */
+type Work = PendingMemory & { memoryId: string };
+
 export type Extraction = { output: IndexingOutput; model: string };
 
 /**
@@ -44,8 +51,16 @@ export type Extraction = { output: IndexingOutput; model: string };
  * loaded at and does nothing (returns false) when Indexing has moved on.
  */
 export type IndexStore = {
-  /** Undefined when the Memory is gone or is not waiting for Indexing. */
-  load(memoryId: string): Promise<PendingMemory | undefined>;
+  /**
+   * Takes the Memory for this delivery (a short lease, so a duplicate
+   * delivery skips). Undefined when it is gone, not waiting for Indexing, at
+   * another run than `run`, or already taken.
+   */
+  load(memoryId: string, run?: number): Promise<PendingMemory | undefined>;
+  /** Gives the lease back for the next attempt. */
+  release(memoryId: string, run: number): Promise<void>;
+  /** Still this run, still without AI opt-out: asked before every provider call. */
+  isCurrent(memoryId: string, run: number): Promise<boolean>;
   /** Searchable; `extraction` is null for a Memory with AI opt-out. */
   complete(
     memoryId: string,
@@ -54,25 +69,30 @@ export type IndexStore = {
   ): Promise<boolean>;
   fail(memoryId: string, run: number, reason: IndexFailure): Promise<boolean>;
   spentTodayMicros(): Promise<number>;
-  recordCall(call: {
-    userId: string;
-    memoryId: string;
-    provider: ProviderName;
-    model: string;
-    usage: Usage;
-    costMicros: number;
-  }): Promise<void>;
+  recordCall(call: AiCall): Promise<void>;
+};
+
+/** One AI call and what it cost, for the admin page and the budget. */
+export type AiCall = {
+  userId: string;
+  memoryId: string;
+  provider: ProviderName;
+  model: string;
+  usage: Usage;
+  costMicros: number;
 };
 
 export type IndexOutcome =
-  | { status: "searchable" | "skipped" }
-  | { status: "failed"; reason: IndexFailure }
+  | { result: "searchable" | "skipped" }
+  | { result: "failed"; reason: IndexFailure }
   /** Try the same message again after `delaySeconds` (counts as an attempt). */
-  | { status: "retry"; delaySeconds: number }
+  | { result: "retry"; delaySeconds: number }
   /** Over the daily budget: send it again after `delaySeconds` (not an attempt). */
-  | { status: "paused"; delaySeconds: number };
+  | { result: "paused"; delaySeconds: number };
 
 class InvalidOutput extends Error {}
+/** The run moved on (an edit, Retry or AI opt-out) before a provider call. */
+class Superseded extends Error {}
 
 const costMicros = (model: string, { inputTokens, outputTokens }: Usage) => {
   const [input, output] = INDEXING.pricesMicrosPerMTokens[model] ?? [0, 0];
@@ -105,9 +125,10 @@ function parse(text: string) {
     : { ok: false as const, errors: describeIssues(parsed.error) };
 }
 
+/** Until the next UTC day, at most 12 hours (a safe queue delay); then it checks again. */
 const secondsToNextUtcDay = (now: Date) =>
-  Math.max(
-    60,
+  Math.min(
+    12 * 3600,
     Math.ceil(
       (Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) -
         now.getTime()) /
@@ -139,16 +160,15 @@ export function createIndexer({
   readFile: (key: string) => Promise<Uint8Array | undefined>;
   now?: () => Date;
 }) {
-  async function ask(
-    provider: Provider,
-    memory: PendingMemory,
-    memoryId: string,
-    request: ExtractRequest
-  ) {
+  /** One provider call for the Memory loaded as `memoryId`, recorded with its cost. */
+  async function ask(provider: Provider, work: Work, request: ExtractRequest) {
+    // AI opt-out switched on (or an edit, or Retry) since loading: stop here.
+    if (!(await store.isCurrent(work.memoryId, work.run)))
+      throw new Superseded();
     const reply = await provider.extract(request);
     await store.recordCall({
-      userId: memory.userId,
-      memoryId,
+      userId: work.userId,
+      memoryId: work.memoryId,
       provider: provider.name,
       model: provider.model,
       usage: reply.usage,
@@ -160,14 +180,13 @@ export function createIndexer({
   /** One provider, with one corrective retry carrying the validation errors. */
   async function extractWith(
     provider: Provider,
-    memory: PendingMemory,
-    memoryId: string,
+    work: Work,
     request: ExtractRequest
   ): Promise<IndexingOutput> {
-    const first = await ask(provider, memory, memoryId, request);
+    const first = await ask(provider, work, request);
     const parsed = parse(first);
     if (parsed.ok) return parsed.output;
-    const second = await ask(provider, memory, memoryId, {
+    const second = await ask(provider, work, {
       ...request,
       correction: { previous: first.slice(0, 8000), errors: parsed.errors },
     });
@@ -189,44 +208,59 @@ export function createIndexer({
   }
 
   async function index(job: IndexJob): Promise<IndexOutcome> {
-    const { memoryId } = job;
-    const memory = await store.load(memoryId);
-    if (!memory) return { status: "skipped" };
+    const loaded = await store.load(job.memoryId, job.run);
+    if (!loaded) return { result: "skipped" };
+    const work: Work = { ...loaded, memoryId: job.memoryId };
+    try {
+      const outcome = await indexLoaded(job, work);
+      // The next delivery of this message must be able to take it again.
+      if (outcome.result === "retry" || outcome.result === "paused") {
+        await store.release(work.memoryId, work.run);
+      }
+      return outcome;
+    } catch (error) {
+      await store.release(work.memoryId, work.run).catch(() => {});
+      throw error;
+    }
+  }
+
+  async function indexLoaded(job: IndexJob, work: Work): Promise<IndexOutcome> {
     // AI opt-out: keyword-indexed from its own text, never sent anywhere.
-    if (memory.aiOptOut) {
-      await store.complete(memoryId, memory.run, null);
-      return { status: "searchable" };
+    if (work.aiOptOut) {
+      await store.complete(work.memoryId, work.run, null);
+      return { result: "searchable" };
     }
     if (
       job.priority === "background" &&
       (await store.spentTodayMicros()) >= INDEXING.dailyBudgetMicros
     ) {
-      return { status: "paused", delaySeconds: secondsToNextUtcDay(now()) };
+      return { result: "paused", delaySeconds: secondsToNextUtcDay(now()) };
     }
 
     const finish = async (reason: IndexFailure): Promise<IndexOutcome> =>
-      (await store.fail(memoryId, memory.run, reason))
-        ? { status: "failed", reason }
-        : { status: "skipped" };
+      (await store.fail(work.memoryId, work.run, reason))
+        ? { result: "failed", reason }
+        : { result: "skipped" };
 
-    const image = memory.image ? await imageOf(memory.image) : undefined;
-    if (memory.image && !image) return finish("unreadable");
+    const image = work.image ? await imageOf(work.image) : undefined;
+    if (work.image && !image) return finish("unreadable");
     const request: ExtractRequest = {
       system: SYSTEM,
-      user: memoryPart(memory),
+      user: memoryPart(work),
       ...(image && { image }),
     };
 
     const seen = new Set<"invalid" | "unsupported" | "unavailable">();
     for (const provider of providers) {
       try {
-        const output = await extractWith(provider, memory, memoryId, request);
-        const written = await store.complete(memoryId, memory.run, {
+        const output = await extractWith(provider, work, request);
+        const written = await store.complete(work.memoryId, work.run, {
           output,
           model: provider.model,
         });
-        return { status: written ? "searchable" : "skipped" };
+        return { result: written ? "searchable" : "skipped" };
       } catch (error) {
+        if (error instanceof Superseded) return { result: "skipped" };
         if (error instanceof InvalidOutput) seen.add("invalid");
         else if (error instanceof ProviderError && error.kind === "unsupported")
           seen.add("unsupported");
@@ -237,7 +271,7 @@ export function createIndexer({
     // had its corrective retry for invalid output.
     if (seen.has("unavailable") || seen.size === 0) {
       return job.attempt < INDEXING.maxAttempts
-        ? { status: "retry", delaySeconds: backoffSeconds(job.attempt) }
+        ? { result: "retry", delaySeconds: backoffSeconds(job.attempt) }
         : finish("unavailable");
     }
     return finish(seen.has("invalid") ? "invalid_output" : "unreadable");

@@ -109,6 +109,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(memory.indexState).toBe("indexing");
     expect(queues.fresh.sent.map((m) => m.body)).toContainEqual({
       memoryId: memory.id,
+      run: 1,
       priority: "fresh",
     });
     // Its own words are searchable before Indexing finishes.
@@ -212,6 +213,47 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(ai.run).toHaveBeenCalledTimes(1);
   });
 
+  it("pays once when the same message is delivered twice at the same time", async () => {
+    const { call } = await signedIn();
+    const memory = await capture(call, "Delivered twice at once");
+    let answer_!: () => void;
+    const slow = {
+      run: vi.fn(async () => {
+        await new Promise<void>((done) => (answer_ = done));
+        return { choices: [{ message: { content: answer() } }] };
+      }),
+    };
+    const body = { memoryId: memory.id, run: 1, priority: "fresh" as const };
+    const first = deliver("spark-index-local", body, 1, withProviders(slow));
+    await vi.waitFor(() => expect(slow.run).toHaveBeenCalled());
+    const second = await deliver(
+      "spark-index-local",
+      body,
+      1,
+      withProviders(slow)
+    );
+    expect(second.ack).toHaveBeenCalled();
+    answer_();
+    await first;
+    expect(slow.run).toHaveBeenCalledTimes(1);
+    expect((await read(call, memory.id)).indexState).toBe("searchable");
+  });
+
+  it("ignores a dead letter from a run that has moved on", async () => {
+    const { call } = await signedIn();
+    const memory = await capture(call, "Old dead letter");
+    await call(`/api/memories/${memory.id}`, {
+      method: "PATCH",
+      json: { body: "Edited since" },
+    });
+    await deliver("spark-index-failed-local", {
+      memoryId: memory.id,
+      run: 1,
+      priority: "fresh",
+    });
+    expect((await read(call, memory.id)).indexState).toBe("indexing");
+  });
+
   it("re-indexes changed text in the background", async () => {
     const { call } = await signedIn();
     const memory = await capture(call, "First text");
@@ -224,6 +266,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(((await res.json()) as Memory).indexState).toBe("indexing");
     expect(queues.background.sent.map((m) => m.body)).toContainEqual({
       memoryId: memory.id,
+      run: 2,
       priority: "background",
     });
     await drain(memory.id);

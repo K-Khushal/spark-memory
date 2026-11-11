@@ -1,3 +1,4 @@
+import { INDEXING } from "@spark/core";
 import { indexingStore, openDatabase } from "@spark/db";
 import {
   backoffSeconds,
@@ -16,12 +17,12 @@ import type { Bindings, IndexMessage } from "./env";
  */
 export async function enqueue(
   env: Bindings,
-  memoryId: string,
+  memory: { id: string; indexRun: number },
   priority: Priority
 ) {
   const queue = priority === "fresh" ? env.INDEX_QUEUE : env.REINDEX_QUEUE;
   try {
-    await queue.send({ memoryId, priority });
+    await queue.send({ memoryId: memory.id, run: memory.indexRun, priority });
   } catch {
     console.error("indexing: enqueue failed");
   }
@@ -38,8 +39,11 @@ export type IndexBatch = {
   }[];
 };
 
-/** The dead-letter queue: messages the platform gave up on (after max_retries). */
-const isDeadLetter = (queue: string) => queue.includes("-failed");
+/**
+ * The dead-letter queue (`spark-index-failed-<env>` in wrangler.jsonc):
+ * messages the platform gave up on after max_retries.
+ */
+const isDeadLetter = (queue: string) => queue.startsWith("spark-index-failed");
 
 /**
  * The queue consumer for both Indexing queues and the dead-letter queue.
@@ -52,7 +56,8 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     const store = indexingStore(db);
     if (isDeadLetter(batch.queue)) {
       for (const message of batch.messages) {
-        await store.failCurrent(message.body.memoryId, "unavailable");
+        const { memoryId, run } = message.body;
+        await store.fail(memoryId, run, "unavailable");
         message.ack();
       }
       return;
@@ -74,24 +79,25 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     });
     await Promise.all(
       batch.messages.map(async (message) => {
-        const { memoryId, priority } = message.body;
+        const { memoryId, run, priority } = message.body;
         let outcome: IndexOutcome;
         try {
           outcome = await index({
             memoryId,
+            run,
             priority,
             attempt: message.attempts,
           });
         } catch {
           // The database, most likely: the same message, later.
           outcome = {
-            status: "retry",
+            result: "retry",
             delaySeconds: backoffSeconds(message.attempts),
           };
         }
-        if (outcome.status === "retry") {
+        if (outcome.result === "retry") {
           message.retry({ delaySeconds: outcome.delaySeconds });
-        } else if (outcome.status === "paused") {
+        } else if (outcome.result === "paused") {
           // Waiting on the budget is not an attempt: a new message, later.
           await env.REINDEX_QUEUE.send(message.body, {
             delaySeconds: outcome.delaySeconds,
@@ -102,7 +108,7 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
         } else {
           message.ack();
         }
-        console.log(`indexing: ${priority} ${outcome.status}`);
+        console.log(`indexing: ${priority} ${outcome.result}`);
       })
     );
   } finally {
@@ -114,9 +120,15 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
 export async function requeueStalled(env: Bindings) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
-    const ids = await indexingStore(db).stalled();
-    for (const id of ids) await enqueue(env, id, "background");
-    if (ids.length) console.log(`indexing: re-enqueued ${ids.length}`);
+    const store = indexingStore(db);
+    // Past the budget, background work is waiting on purpose, with its own
+    // delayed message: sending more would only pile them up.
+    if ((await store.spentTodayMicros()) >= INDEXING.dailyBudgetMicros) return;
+    const stalled = await store.stalled();
+    for (const { id, run } of stalled) {
+      await enqueue(env, { id, indexRun: run }, "background");
+    }
+    if (stalled.length) console.log(`indexing: re-enqueued ${stalled.length}`);
   } finally {
     await close();
   }

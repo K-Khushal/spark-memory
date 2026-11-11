@@ -8,9 +8,8 @@ import {
   DialogTitle,
   Textarea,
 } from "@spark/ui";
-import { AiOptOutSwitch } from "./ai-opt-out";
 import type { Draft } from "./drafts";
-import { INDEX_FAILURE_LABEL } from "./memory-tile";
+import { AiOptOutSwitch, IndexStatus, type IndexingProps } from "./index-state";
 import { textOf, type libraryActions } from "./library-actions";
 import type { Memory } from "./use-library";
 
@@ -35,12 +34,6 @@ export type Edits = Pick<
  * "Restore Your Edit" (inside the dialog, so the keyboard reaches it) puts
  * the refused text back; typing over the server copy leaves the offer up.
  */
-/** Index state controls, for Memory detail and the image viewer. */
-export type IndexingProps = {
-  onRetryIndexing: (memory: Memory) => void;
-  onAiOptOut: (memory: Memory, on: boolean) => void;
-};
-
 export function MemoryDetail({
   memory,
   edits,
@@ -177,11 +170,9 @@ function Fields({
           <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {memory.indexState === "failed" && (
-            <>
-              <span role="status" className="text-sm text-danger">
-                {INDEX_FAILURE_LABEL[memory.indexError ?? "unavailable"]}
-              </span>
+          <div className="flex items-center gap-2">
+            <IndexStatus memory={memory} />
+            {memory.indexState === "failed" && (
               <Button
                 variant="quiet"
                 size="sm"
@@ -189,8 +180,8 @@ function Fields({
               >
                 <RotateCwIcon aria-hidden /> Retry
               </Button>
-            </>
-          )}
+            )}
+          </div>
           {edit?.refused && (
             <Button
               variant="quiet"

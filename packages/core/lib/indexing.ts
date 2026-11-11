@@ -19,6 +19,7 @@ export const INDEXING = {
   pricesMicrosPerMTokens: {
     "@cf/google/gemma-4-26b-a4b-it": [100_000, 300_000],
     "gemini-3.5-flash-lite": [300_000, 2_500_000],
+    // Priced too, so switching `models.gemini` to it is a one-line change.
     "gemini-3.1-flash-lite": [250_000, 1_500_000],
     fake: [0, 0],
   } as Record<string, readonly [number, number]>,

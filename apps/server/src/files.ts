@@ -236,7 +236,7 @@ export async function verifyLocalUrl(
 }
 
 /** A Memory as clients get it: its files as signed URLs, never as keys. */
-export type ClientMemory = Omit<Memory, "image"> & {
+export type ClientMemory = Omit<Memory, "image" | "indexRun"> & {
   image: {
     url: string;
     thumbnailUrl: string;
@@ -251,8 +251,8 @@ export type ClientMemory = Omit<Memory, "image"> & {
 export async function forClient<M extends Memory>(
   store: FileStore,
   memory: M
-): Promise<Omit<M, "image"> & Pick<ClientMemory, "image">> {
-  const { image, ...rest } = memory;
+): Promise<Omit<M, "image" | "indexRun"> & Pick<ClientMemory, "image">> {
+  const { image, indexRun: _run, ...rest } = memory;
   if (!image) return { ...rest, image: null };
   const { key, thumbnailKey, thumbnailMime: _, ...shown } = image;
   const [url, thumbnailUrl] = await Promise.all([

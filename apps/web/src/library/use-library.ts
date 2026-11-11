@@ -190,12 +190,23 @@ export function useLibrary() {
       }
       if (stopped) return;
       delay = nextPollDelay(delay);
+      // One timer at a time, even when a tick from coming back overlaps one.
+      clearTimeout(timer);
       timer = setTimeout(tick, delay);
     };
     timer = setTimeout(tick, delay);
+    // Back on the page: ask at once and start the backoff over.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      clearTimeout(timer);
+      delay = POLL.first / POLL.factor;
+      void tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       stopped = true;
       clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [pollKey, indexing]);
 

@@ -4,6 +4,7 @@
 export {
   backoffSeconds,
   createIndexer,
+  type AiCall,
   type Extraction,
   type IndexJob,
   type IndexOutcome,
