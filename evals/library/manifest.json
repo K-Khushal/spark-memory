@@ -1,0 +1,4178 @@
+[
+ {
+  "id": "book-alice-tea-party",
+  "kind": "text",
+  "title": "Alice in Wonderland: A Mad Tea-Party",
+  "text": "texts/book-alice-tea-party.txt",
+  "tags": [
+   "fiction",
+   "excerpt"
+  ],
+  "language": "en",
+  "source": {
+   "type": "gutenberg",
+   "url": "https://www.gutenberg.org/ebooks/11",
+   "licence": "Public domain",
+   "attribution": "Lewis Carroll, Alice in Wonderland: A Mad Tea-Party (Project Gutenberg)"
+  }
+ },
+ {
+  "id": "book-pride-prejudice-opening",
+  "kind": "text",
+  "title": "Pride and Prejudice: opening chapters",
+  "text": "texts/book-pride-prejudice-opening.txt",
+  "tags": [
+   "fiction",
+   "novel"
+  ],
+  "language": "en",
+  "source": {
+   "type": "gutenberg",
+   "url": "https://www.gutenberg.org/ebooks/1342",
+   "licence": "Public domain",
+   "attribution": "Jane Austen, Pride and Prejudice: opening chapters (Project Gutenberg)"
+  }
+ },
+ {
+  "id": "book-red-headed-league",
+  "kind": "text",
+  "title": "The Red-Headed League",
+  "text": "texts/book-red-headed-league.txt",
+  "tags": [
+   "fiction",
+   "detective"
+  ],
+  "language": "en",
+  "source": {
+   "type": "gutenberg",
+   "url": "https://www.gutenberg.org/ebooks/1661",
+   "licence": "Public domain",
+   "attribution": "Arthur Conan Doyle, The Red-Headed League (Project Gutenberg)"
+  }
+ },
+ {
+  "id": "book-tell-tale-heart",
+  "kind": "text",
+  "title": "The Tell-Tale Heart",
+  "text": "texts/book-tell-tale-heart.txt",
+  "tags": [
+   "fiction",
+   "horror"
+  ],
+  "language": "en",
+  "source": {
+   "type": "gutenberg",
+   "url": "https://www.gutenberg.org/ebooks/2148",
+   "licence": "Public domain",
+   "attribution": "Edgar Allan Poe, The Tell-Tale Heart (Project Gutenberg)"
+  }
+ },
+ {
+  "id": "book-time-machine-opening",
+  "kind": "text",
+  "title": "The Time Machine: opening",
+  "text": "texts/book-time-machine-opening.txt",
+  "tags": [
+   "fiction",
+   "science fiction"
+  ],
+  "language": "en",
+  "source": {
+   "type": "gutenberg",
+   "url": "https://www.gutenberg.org/ebooks/35",
+   "licence": "Public domain",
+   "attribution": "H. G. Wells, The Time Machine: opening (Project Gutenberg)"
+  }
+ },
+ {
+  "id": "book-walden-where-i-lived",
+  "kind": "text",
+  "title": "Walden: Where I Lived, and What I Lived For",
+  "text": "texts/book-walden-where-i-lived.txt",
+  "tags": [
+   "essay",
+   "nature"
+  ],
+  "language": "en",
+  "source": {
+   "type": "gutenberg",
+   "url": "https://www.gutenberg.org/ebooks/205",
+   "licence": "Public domain",
+   "attribution": "Henry David Thoreau, Walden: Where I Lived, and What I Lived For (Project Gutenberg)"
+  }
+ },
+ {
+  "id": "img-amsterdam-bike",
+  "kind": "image",
+  "tags": [
+   "bicycles",
+   "Amsterdam",
+   "canal"
+  ],
+  "language": "en",
+  "file": "files/img-amsterdam-bike.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Amsterdam_bicycles_(48015340003).jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Mustang Joe · Amsterdam bicycles"
+  },
+  "extraction": {
+   "title": "Amsterdam bicycles (48015340003)",
+   "description": "A couple of bikes on a bridge over a canal in Amsterdam.",
+   "ocrText": "",
+   "tags": [
+    "bicycles",
+    "Amsterdam",
+    "canal"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 277311,
+   "width": 960,
+   "height": 540,
+   "contentHash": "e0c838d9e9d33aebfed7a837524136d433aee72f5a7b12737efcd4e18becef00",
+   "thumbhash": "GrcJDIIHq3R0lHiJaXQkb0T6Jw==",
+   "palette": [
+    "#030517"
+   ]
+  }
+ },
+ {
+  "id": "img-aurora",
+  "kind": "image",
+  "tags": [
+   "northern",
+   "lights",
+   "aurora"
+  ],
+  "language": "en",
+  "file": "files/img-aurora.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Aurora_borealis_over_Eielson_Air_Force_Base,_Alaska.jpg",
+   "licence": "Public domain",
+   "attribution": "United States Air Force photo by Senior Airman Joshua Strang · This image was released by the United States Air Force with the ID 050118-F-3488S-003 (next). This tag does not indicate the copyright st"
+  },
+  "extraction": {
+   "title": "Aurora borealis over Eielson Air Force Base, Alaska",
+   "description": "Eielson Air Force Base, Alaska — The Aurora Borealis, or Northern Lights, shines above Bear Lake",
+   "ocrText": "",
+   "tags": [
+    "northern",
+    "lights",
+    "aurora"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 88559,
+   "width": 960,
+   "height": 626,
+   "contentHash": "bf2577addb77b6ddd42f0d52ad312ac7474c69686a20b07a9bbdbc999ed00d9b",
+   "thumbhash": "H9cJFYgEhXhWhnlNmIeHiY45zwt4",
+   "palette": []
+  }
+ },
+ {
+  "id": "img-balloons",
+  "kind": "image",
+  "tags": [
+   "hot",
+   "air",
+   "balloons",
+   "Cappadocia"
+  ],
+  "language": "en",
+  "file": "files/img-balloons.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Aerial_view_of_Cappadocia_from_hot_air_balloon_01.jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Netha Hussain · Own work"
+  },
+  "extraction": {
+   "title": "Aerial view of Cappadocia from hot air balloon 01",
+   "description": "Aerial view of Cappadocia from hot air balloon",
+   "ocrText": "",
+   "tags": [
+    "hot",
+    "air",
+    "balloons",
+    "Cappadocia"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 60868,
+   "width": 960,
+   "height": 720,
+   "contentHash": "fb97a746733d045a47927661f090c263ae9872be32dc155d14b3b8fca1ddb036",
+   "thumbhash": "pfcNBYBoeXh/h4d2eIiIdqZgqwa1",
+   "palette": [
+    "#b6bbc5",
+    "#959ba7",
+    "#757b85"
+   ]
+  }
+ },
+ {
+  "id": "img-blue-door",
+  "kind": "image",
+  "tags": [
+   "blue",
+   "door",
+   "Morocco"
+  ],
+  "language": "en",
+  "file": "files/img-blue-door.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Chefchaouen,_Morocco_(5409541369)_(4).jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "YoTuT from United States · Chefchaouen, Morocco"
+  },
+  "extraction": {
+   "title": "Chefchaouen, Morocco (5409541369) (4)",
+   "description": "A tall blue arched wooden door in a white and blue painted wall in Chefchaouen, Morocco.",
+   "ocrText": "",
+   "tags": [
+    "blue",
+    "door",
+    "Morocco"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 349928,
+   "width": 960,
+   "height": 1285,
+   "contentHash": "20fcfe9cebf61ab6d0414c740f45b8eb2e37d3b0316a3795e01cde9de11330a2",
+   "thumbhash": "G9cNDQKKZl+Kd4h4h4V5ePWeT/66",
+   "palette": [
+    "#061b37",
+    "#b5b8ba",
+    "#030509",
+    "#377ca5"
+   ]
+  }
+ },
+ {
+  "id": "img-book-cover",
+  "kind": "image",
+  "tags": [
+   "vintage",
+   "book",
+   "cover",
+   "illustration"
+  ],
+  "language": "en",
+  "file": "files/img-book-cover.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Cover_~_The_Lost_Princess_of_Oz.jpg",
+   "licence": "Public domain",
+   "attribution": "John R. Neill · Flickr: Cover ~ The Lost Princess of Oz"
+  },
+  "extraction": {
+   "title": "Cover ~ The Lost Princess of Oz",
+   "description": "The cover of the book The Lost Princess of Oz by L. Frank Baum, showing a girl and a frog in a red coat, illustrated by John R. Neill, 1917.",
+   "ocrText": "Z by L. FRANK BAUM",
+   "tags": [
+    "vintage",
+    "book",
+    "cover",
+    "illustration"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 638393,
+   "width": 960,
+   "height": 1352,
+   "contentHash": "941ac176651abb695ef96342f78eb2d873a0d5720da1663a00f515dd38a5e930",
+   "thumbhash": "YRgGDQL3anZ1+jcmxndmd3l6cGYH",
+   "palette": [
+    "#a7a6a8",
+    "#070406",
+    "#888789"
+   ]
+  }
+ },
+ {
+  "id": "img-bridge-night",
+  "kind": "image",
+  "tags": [
+   "bridge",
+   "at",
+   "night",
+   "city",
+   "lights"
+  ],
+  "language": "en",
+  "file": "files/img-bridge-night.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:City-landmark-lights-night_(23699876683).jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "www.Pixel.la Free Stock Photos · city-landmark-lights-night Alternative: http://unsplash.com/photos/nrLtvA05jk8 Anders Jildén"
+  },
+  "extraction": {
+   "title": "City-landmark-lights-night (23699876683)",
+   "description": "A long suspension bridge over a river at night with a glowing city skyline in purple and blue light.",
+   "ocrText": "",
+   "tags": [
+    "bridge",
+    "at",
+    "night",
+    "city",
+    "lights"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 109519,
+   "width": 960,
+   "height": 640,
+   "contentHash": "b0a99ed00a611cd53423f728f1b6cca33840fde45517da71948a72cbba859715",
+   "thumbhash": "TRcGDYJZp3h5iIZgd5doiX2wlakK",
+   "palette": [
+    "#251d45",
+    "#140a1a"
+   ]
+  }
+ },
+ {
+  "id": "img-cake",
+  "kind": "image",
+  "tags": [
+   "birthday",
+   "cake",
+   "candles"
+  ],
+  "language": "en",
+  "file": "files/img-cake.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Tim_Tams_and_Nuts_on_a_Birthday_Cake_With_Candles_during_her_Anniversary.jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Brassluff · Own work"
+  },
+  "extraction": {
+   "title": "Tim Tams and Nuts on a Birthday Cake With Candles during her Anniversary",
+   "description": "Tim Tams filled on the Side and Nuts filled on top of a Birthday Cake With 2 and 6 Shaped Candles During her Anniversary",
+   "ocrText": "",
+   "tags": [
+    "birthday",
+    "cake",
+    "candles"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 277589,
+   "width": 960,
+   "height": 1280,
+   "contentHash": "d2659558e864f87909c6b050c4a7feeb178d9ccb2441d79918fbf718e282a77f",
+   "thumbhash": "nRgODQK3t3GE92coqIl4dwRcYfZX",
+   "palette": [
+    "#fefffc",
+    "#191614",
+    "#453c36"
+   ]
+  }
+ },
+ {
+  "id": "img-chai",
+  "kind": "image",
+  "tags": [
+   "chai",
+   "tea",
+   "glass"
+  ],
+  "language": "en",
+  "file": "files/img-chai.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Chai_in_a_Glass.jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "Jamie · originally posted to Flickr as Chai in a Glass"
+  },
+  "extraction": {
+   "title": "Chai in a Glass",
+   "description": "A glass of milky masala chai the colour of chocolate milk, served in a glass in a restaurant.",
+   "ocrText": "",
+   "tags": [
+    "chai",
+    "tea",
+    "glass"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 361938,
+   "width": 960,
+   "height": 1280,
+   "contentHash": "cbbf85f318628416d3c53b449b3e4720a6c35524ad10f7999968b0a0e0d46fc6",
+   "thumbhash": "3SgSHQRmmIB2WIh3mHd3eDaAZQJH",
+   "palette": [
+    "#070706"
+   ]
+  }
+ },
+ {
+  "id": "img-chess",
+  "kind": "image",
+  "tags": [
+   "chess",
+   "board",
+   "pieces"
+  ],
+  "language": "en",
+  "file": "files/img-chess.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Chess_game_Staunton_No._6_perfil_view_8.jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Wilfredor · Own work"
+  },
+  "extraction": {
+   "title": "Chess game Staunton No. 6 perfil view 8",
+   "description": "Chess set composed of Rio Staunton pieces by House of Chess and a Wegiel Handmade Wooden Chess Board. The pieces are made of Ringy rosewood and boxwood, with triple internal weighting, beveled bases, and green felt pads on the underside to reduce frictional wear on the board. The knight is hand-carv",
+   "ocrText": "",
+   "tags": [
+    "chess",
+    "board",
+    "pieces"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 140599,
+   "width": 960,
+   "height": 630,
+   "contentHash": "c6acbe47124ea633c31b7669405b37ee64a406309d0b01e3be5c9d25a61a0acd",
+   "thumbhash": "KTkOHYT357d6eHeLiKd4fgiEgUAo",
+   "palette": [
+    "#ffffff",
+    "#784628",
+    "#a76738"
+   ]
+  }
+ },
+ {
+  "id": "img-circuit",
+  "kind": "image",
+  "tags": [
+   "circuit",
+   "board",
+   "closeup"
+  ],
+  "language": "en",
+  "file": "files/img-circuit.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Circuit_board_Closeup_(24884297257).jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "Jonathan Cutrer from San Angelo, Texas, United States · Circuit board Closeup"
+  },
+  "extraction": {
+   "title": "Circuit board Closeup (24884297257)",
+   "description": "A close-up of a dark blue circuit board covered in small electronic components and gold connectors.",
+   "ocrText": "",
+   "tags": [
+    "circuit",
+    "board",
+    "closeup"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 504883,
+   "width": 960,
+   "height": 1280,
+   "contentHash": "f6500f553b735d137bfa0033da6c6ffcc9f897b7bae2bbff15effdaababcc005",
+   "thumbhash": "EggGDQK/mWibGWPVe7l8p3hQeAil",
+   "palette": [
+    "#1a242b",
+    "#fefef9"
+   ]
+  }
+ },
+ {
+  "id": "img-eiffel",
+  "kind": "image",
+  "tags": [
+   "Eiffel",
+   "tower",
+   "night"
+  ],
+  "language": "en",
+  "file": "files/img-eiffel.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Eiffel_Tower_and_Pont_Alexandre_III_at_night.jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "Getfunky Paris · Flickr"
+  },
+  "extraction": {
+   "title": "Eiffel Tower and Pont Alexandre III at night",
+   "description": "Eiffel Tower and Pont Alexandre III at night.",
+   "ocrText": "",
+   "tags": [
+    "Eiffel",
+    "tower",
+    "night"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 110903,
+   "width": 960,
+   "height": 615,
+   "contentHash": "3c9bc541a6fbe0dfe3bf23fcd867fd19cef1dc45fe34ccdce6cea22dca35a3e7",
+   "thumbhash": "mbYFPI5Kd2h3iHiQeGKKYKQIRg==",
+   "palette": [
+    "#015a97"
+   ]
+  }
+ },
+ {
+  "id": "img-espresso",
+  "kind": "image",
+  "tags": [
+   "espresso",
+   "coffee",
+   "cup"
+  ],
+  "language": "en",
+  "file": "files/img-espresso.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Espresso_Coffee_01.jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Jubair1985 · Own work"
+  },
+  "extraction": {
+   "title": "Espresso Coffee 01",
+   "description": "A small cup of espresso with crema seen from above on a white table.",
+   "ocrText": "",
+   "tags": [
+    "espresso",
+    "coffee",
+    "cup"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 148103,
+   "width": 960,
+   "height": 640,
+   "contentHash": "79b93f155c821b6adef53ffdc6eaafd9563fb4c4f8b4177905244a9c0864aac0",
+   "thumbhash": "MwgKDYL4VniHeId9k4l3hwaHYHAH",
+   "palette": [
+    "#e4e5e6"
+   ]
+  }
+ },
+ {
+  "id": "img-fog-forest",
+  "kind": "image",
+  "tags": [
+   "misty",
+   "forest",
+   "morning"
+  ],
+  "language": "en",
+  "file": "files/img-fog-forest.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Duke_Forest_misty_morning_h.jpg",
+   "licence": "CC BY 3.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/3.0",
+   "attribution": "Dcrjsr · Own work"
+  },
+  "extraction": {
+   "title": "Duke Forest misty morning h",
+   "description": "Early morning mist in winter woods. Duke Forest Korstian Division, Durham, North Carolina.",
+   "ocrText": "",
+   "tags": [
+    "misty",
+    "forest",
+    "morning"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 236189,
+   "width": 960,
+   "height": 600,
+   "contentHash": "a896e2892830052b9fe0bb5a049a82d3a3ea1014df734eccbc7468698f4038a1",
+   "thumbhash": "mhgKBIBsRVivh3aFh4lvmfMpZw==",
+   "palette": [
+    "#867869",
+    "#65574b",
+    "#352b25",
+    "#a69989"
+   ]
+  }
+ },
+ {
+  "id": "img-holi",
+  "kind": "image",
+  "tags": [
+   "Holi",
+   "festival",
+   "colours"
+  ],
+  "language": "en",
+  "file": "files/img-holi.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:HOLI_FESTIVAL_IN_INDIA_11.jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "DEBA PRASAD ROY · Own work"
+  },
+  "extraction": {
+   "title": "HOLI FESTIVAL IN INDIA 11",
+   "description": "A crowd celebrating Holi, the festival of colours, throwing bright yellow, pink and magenta powder in the air.",
+   "ocrText": "",
+   "tags": [
+    "Holi",
+    "festival",
+    "colours"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 254604,
+   "width": 960,
+   "height": 638,
+   "contentHash": "14684a0ae52fd5b263e5490d4a75d746559112fdbe4a2d7d3888b9a5971d67b0",
+   "thumbhash": "HDkKLYgHZneKZodnipiXeQmeAiqb",
+   "palette": []
+  }
+ },
+ {
+  "id": "img-kayak",
+  "kind": "image",
+  "tags": [
+   "kayak",
+   "lake",
+   "mountains"
+  ],
+  "language": "en",
+  "file": "files/img-kayak.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Kayak_on_a_mountain_lake_(Unsplash).jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Nitish Meena nitishm · https://unsplash.com/photos/RWAIyGmgHTQ Image at the Wayback Machine Gallery at the Wayback Machine"
+  },
+  "extraction": {
+   "title": "Kayak on a mountain lake (Unsplash)",
+   "description": "A person paddling an orange kayak on a lake below Mount Gould in Glacier National Park, Montana.",
+   "ocrText": "",
+   "tags": [
+    "kayak",
+    "lake",
+    "mountains"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 241663,
+   "width": 960,
+   "height": 737,
+   "contentHash": "c21b8ba422d7100e42dd9d4a3ec905d240c66b9fb5b6d50010d2506f9b42b909",
+   "thumbhash": "o9cNHYRZd3d/h4h5iVd3h0Z3cJIG",
+   "palette": [
+    "#c9c9c6"
+   ]
+  }
+ },
+ {
+  "id": "img-keyboard",
+  "kind": "image",
+  "tags": [
+   "mechanical",
+   "keyboard"
+  ],
+  "language": "en",
+  "file": "files/img-keyboard.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Microcenter_keyboard_isle.jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Punker1999 · Own work"
+  },
+  "extraction": {
+   "title": "Microcenter keyboard isle",
+   "description": "The isle of microcenter with mechanical keyboards.",
+   "ocrText": "",
+   "tags": [
+    "mechanical",
+    "keyboard"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 346788,
+   "width": 900,
+   "height": 1200,
+   "contentHash": "8083f4761b54382afd3beb5ab1fbb1f50af30a26a082912e28fec911bec7ded8",
+   "thumbhash": "WwgKDQJheH+ImHmXeJh4eEOQDUS5",
+   "palette": [
+    "#665a47",
+    "#857b66",
+    "#161717"
+   ]
+  }
+ },
+ {
+  "id": "img-lavender",
+  "kind": "image",
+  "tags": [
+   "purple",
+   "lavender",
+   "field",
+   "Provence"
+  ],
+  "language": "en",
+  "file": "files/img-lavender.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Lavender_field.jpg",
+   "licence": "Public domain",
+   "attribution": "Andyblind · Own work"
+  },
+  "extraction": {
+   "title": "Lavender field",
+   "description": "Rows of purple lavender in a field in Provence, France, with a stone farmhouse and hills in the distance.",
+   "ocrText": "",
+   "tags": [
+    "purple",
+    "lavender",
+    "field",
+    "Provence"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 214230,
+   "width": 960,
+   "height": 699,
+   "contentHash": "ced1082044d6572925168539a7206bae80b01568bacc56ccfcd50d98b83bb0f3",
+   "thumbhash": "n1cSDYp3d4d/h4iLeKeIiNiAcQg4",
+   "palette": [
+    "#dbe5fb"
+   ]
+  }
+ },
+ {
+  "id": "img-lego",
+  "kind": "image",
+  "tags": [
+   "Lego",
+   "bricks"
+  ],
+  "language": "en",
+  "file": "files/img-lego.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Lego_WeDo_2.0_Bricks.jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Klaus-Dieter Keller · Own work"
+  },
+  "extraction": {
+   "title": "Lego WeDo 2.0 Bricks",
+   "description": "A white tray of Lego bricks sorted by colour into compartments: green, blue, orange and white.",
+   "ocrText": "",
+   "tags": [
+    "Lego",
+    "bricks"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 276806,
+   "width": 960,
+   "height": 1360,
+   "contentHash": "26f1fc96b15ba30cfac456ffe53927700f2533c78c22e7adae1217d58067918b",
+   "thumbhash": "G/gFFQJ5l3Zpi4ZIio9Wl4uPyPlz",
+   "palette": [
+    "#6a6558",
+    "#c6cad5"
+   ]
+  }
+ },
+ {
+  "id": "img-locomotive",
+  "kind": "image",
+  "tags": [
+   "steam",
+   "locomotive"
+  ],
+  "language": "en",
+  "file": "files/img-locomotive.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:JA1271_crossing_the_Otaki_River.jpg",
+   "licence": "Public domain",
+   "attribution": "Karora · Own work"
+  },
+  "extraction": {
+   "title": "JA1271 crossing the Otaki River",
+   "description": "NZR JA class 1271 crossing the Otaki River on returning from an excusion to Woodville, New Zealand, 22 September 2012.",
+   "ocrText": "",
+   "tags": [
+    "steam",
+    "locomotive"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 197572,
+   "width": 960,
+   "height": 637,
+   "contentHash": "3e91dd4b19371955c5e00f41422881f802c0c26d479e808abadf4fb8221e049c",
+   "thumbhash": "3xgSHYKHiId/eId4h3d3h3eAaEcI",
+   "palette": [
+    "#c9c5b9"
+   ]
+  }
+ },
+ {
+  "id": "img-menu-board",
+  "kind": "image",
+  "tags": [
+   "chalkboard",
+   "menu",
+   "cafe"
+  ],
+  "language": "en",
+  "file": "files/img-menu-board.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Refreshing_cocktail_served_in_a_stylish_glass_against_a_chalkboard_menu_in_a_cozy_cafe_setting.jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "Shixart1985 · Own work"
+  },
+  "extraction": {
+   "title": "Refreshing cocktail served in a stylish glass against a chalkboard menu in a cozy cafe setting",
+   "description": "A red cocktail in a glass in front of a chalkboard menu listing fresh coffee, latte and espresso in a cosy cafe.",
+   "ocrText": "CAFE FRESH LATTE ESPRESSO",
+   "tags": [
+    "chalkboard",
+    "menu",
+    "cafe"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 211116,
+   "width": 960,
+   "height": 1438,
+   "contentHash": "49a41ada9d99255b5a2db36af822910b800f5c3dcd274a054709eb804f838a65",
+   "thumbhash": "0/cFBQJheTt4CFiIaXmYiCVJgEA3",
+   "palette": [
+    "#131c26",
+    "#55585a",
+    "#767977"
+   ]
+  }
+ },
+ {
+  "id": "img-monarch",
+  "kind": "image",
+  "tags": [
+   "monarch",
+   "butterfly"
+  ],
+  "language": "en",
+  "file": "files/img-monarch.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Danaus_plexippus_(7).jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "Thomas Bresson · Danaus plexippus Uploaded by ComputerHotline"
+  },
+  "extraction": {
+   "title": "Danaus plexippus (7)",
+   "description": "Monarch butterfly",
+   "ocrText": "",
+   "tags": [
+    "monarch",
+    "butterfly"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 142704,
+   "width": 960,
+   "height": 567,
+   "contentHash": "c6aeeb30afbb7442ea79beebe75e037a3fa9862cb4f437d52af8b25fc63a3771",
+   "thumbhash": "lPgJDII7Y3dXi3dQiYmAG0aSBw==",
+   "palette": [
+    "#070904",
+    "#253818"
+   ]
+  }
+ },
+ {
+  "id": "img-mural",
+  "kind": "image",
+  "tags": [
+   "street",
+   "art",
+   "mural"
+  ],
+  "language": "en",
+  "file": "files/img-mural.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Mural_en_Santiago,_Chile_A74178720240526.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "Rjcastillo · Own work"
+  },
+  "extraction": {
+   "title": "Mural en Santiago, Chile A74178720240526",
+   "description": "A street mural of a large grey whale and fish above orange coral on a turquoise wall in Santiago, Chile.",
+   "ocrText": "",
+   "tags": [
+    "street",
+    "art",
+    "mural"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 96904,
+   "width": 960,
+   "height": 234,
+   "contentHash": "5a9c6d470316ad40b98dbd4376b4d9d9287cd4a3c9ca33c69d67ef9e0deca164",
+   "thumbhash": "3OcFGoYCxrZHyHiH+KJ6H4o=",
+   "palette": []
+  }
+ },
+ {
+  "id": "img-neon",
+  "kind": "image",
+  "tags": [
+   "neon",
+   "sign",
+   "orange",
+   "night"
+  ],
+  "language": "en",
+  "file": "files/img-neon.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Boulevard_Hotel_(Neon_sign),_Miami_Beach.jpg",
+   "licence": "Public domain",
+   "attribution": "Photograph: Radomianin · Own work"
+  },
+  "extraction": {
+   "title": "Boulevard Hotel (Neon sign), Miami Beach",
+   "description": "A glowing orange neon sign of the Boulevard Hotel at night on Ocean Drive in Miami Beach, in red-lit Art Deco style.",
+   "ocrText": "BOULEVARD Hotel",
+   "tags": [
+    "neon",
+    "sign",
+    "orange",
+    "night"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 86881,
+   "width": 960,
+   "height": 641,
+   "contentHash": "138e0e390ae1df991c737d0448bf4fffb127ccfbf8df78e73b19ce42192d8b5e",
+   "thumbhash": "zMkGJYxpiEh3c3dweieodnlnoFgG",
+   "palette": [
+    "#080104",
+    "#470101",
+    "#fc1602",
+    "#c80502",
+    "#770101"
+   ]
+  }
+ },
+ {
+  "id": "img-old-map",
+  "kind": "image",
+  "tags": [
+   "antique",
+   "map"
+  ],
+  "language": "en",
+  "file": "files/img-old-map.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:World_Map_1689.JPG",
+   "licence": "Public domain",
+   "attribution": "Gerard van Schagen · This image is made up of six separate images downloaded from Helmink.com and stitched together."
+  },
+  "extraction": {
+   "title": "World Map 1689",
+   "description": "World map - Produced in Amsterdam First edition : 1689. Original size : 48.3 x 56.0 cm. Produced using copper engraving. Extremely rare set of maps, only known in one other example in the Amsterdam University. No copies in American libraries. In original hand color.",
+   "ocrText": "",
+   "tags": [
+    "antique",
+    "map"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 426227,
+   "width": 960,
+   "height": 829,
+   "contentHash": "15782f06925af27c3cde6353765fefb2f3cf612e49f20f177fdcc9663f302022",
+   "thumbhash": "IxkGBoBoZzaGiYhgiNyIiZmIBHxa87g=",
+   "palette": [
+    "#e8d8b6",
+    "#c8b997"
+   ]
+  }
+ },
+ {
+  "id": "img-orange-cat",
+  "kind": "image",
+  "tags": [
+   "orange",
+   "tabby",
+   "cat",
+   "couch"
+  ],
+  "language": "en",
+  "file": "files/img-orange-cat.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Orange_Tabby_Cat_sitting_on_a_couch.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "LauraDelga · Own work"
+  },
+  "extraction": {
+   "title": "Orange Tabby Cat sitting on a couch",
+   "description": "An orange tabby cat with green eyes sitting on a couch and staring at the camera.",
+   "ocrText": "",
+   "tags": [
+    "orange",
+    "tabby",
+    "cat",
+    "couch"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 101049,
+   "width": 960,
+   "height": 640,
+   "contentHash": "3afba4e77ae9cb2ce95b9f2cf9769189dab0f87719630d0b351c89ac892dbb1c",
+   "thumbhash": "mRgOFYRHioeQaIl2imZ3d3lQcwkW",
+   "palette": [
+    "#151b25"
+   ]
+  }
+ },
+ {
+  "id": "img-owl",
+  "kind": "image",
+  "tags": [
+   "owl",
+   "portrait"
+  ],
+  "language": "en",
+  "file": "files/img-owl.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Self_portrait_with_owl,_by_Jan_Mankes.jpg",
+   "licence": "Public domain",
+   "attribution": "Jan Mankes · Museum Arnhem"
+  },
+  "extraction": {
+   "title": "Self portrait with owl, by Jan Mankes",
+   "description": "A painted self-portrait of a pale young man holding a barn owl close to his face, by Jan Mankes.",
+   "ocrText": "",
+   "tags": [
+    "owl",
+    "portrait"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 278519,
+   "width": 960,
+   "height": 1099,
+   "contentHash": "dd3d213a84ca6bc50d1341ccb5ab5c7d6c1fb299955c4a11e59764d231ea394f",
+   "thumbhash": "JSkSFgJ1eAd5iHh4h3d5d3iIOzKwIAI=",
+   "palette": [
+    "#e7d9c8",
+    "#6a645a"
+   ]
+  }
+ },
+ {
+  "id": "img-pizza",
+  "kind": "image",
+  "tags": [
+   "pizza",
+   "margherita"
+  ],
+  "language": "en",
+  "file": "files/img-pizza.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Margherita_pizza_on_plate.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "Shisma · Own work"
+  },
+  "extraction": {
+   "title": "Margherita pizza on plate",
+   "description": "Margherita pizza on plate",
+   "ocrText": "",
+   "tags": [
+    "pizza",
+    "margherita"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 171769,
+   "width": 960,
+   "height": 720,
+   "contentHash": "29a3d406c1b5a0472ebdbc1708bee41ad30d62125e609ccb1a1b18991c0d607e",
+   "thumbhash": "HDkKDYLVd2eIaJePhISJiQ2c0dMK",
+   "palette": [
+    "#b6b5b5"
+   ]
+  }
+ },
+ {
+  "id": "img-ramen",
+  "kind": "image",
+  "tags": [
+   "ramen",
+   "noodles",
+   "soup",
+   "Tokyo"
+  ],
+  "language": "en",
+  "file": "files/img-ramen.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Tsukemen_at_a_Tokyo_restaurant.jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "City Foodsters · Tsukemen"
+  },
+  "extraction": {
+   "title": "Tsukemen at a Tokyo restaurant",
+   "description": "A bowl of tsukemen dipping ramen soup with a pink and white fish cake, next to a plate of thick noodles, at a restaurant in Tokyo.",
+   "ocrText": "",
+   "tags": [
+    "ramen",
+    "noodles",
+    "soup",
+    "Tokyo"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 127136,
+   "width": 960,
+   "height": 640,
+   "contentHash": "261c0594519abe31b65059f1df806021bb8ab0696b82152a79fa6f8ec8c0f1e2",
+   "thumbhash": "2UkGFYQ2VLh2Y3RRzJYvspKwSgms",
+   "palette": [
+    "#170b01",
+    "#d9833b",
+    "#462709"
+   ]
+  }
+ },
+ {
+  "id": "img-rangoli",
+  "kind": "image",
+  "tags": [
+   "Diwali",
+   "rangoli",
+   "diya"
+  ],
+  "language": "en",
+  "file": "files/img-rangoli.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Rangoli_in_diwali_2025.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "Anushka10patel · Own work"
+  },
+  "extraction": {
+   "title": "Rangoli in diwali 2025",
+   "description": "A Diwali rangoli on a wooden floor: a blue pattern with red and orange flowers and a glowing lit diya.",
+   "ocrText": "",
+   "tags": [
+    "Diwali",
+    "rangoli",
+    "diya"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 247438,
+   "width": 960,
+   "height": 720,
+   "contentHash": "9e47b6ae3fef2edaa95faf381b6a0a4fa51c2faed4ee46f2933481a55edc7471",
+   "thumbhash": "FBgGFYSEh3igdHl5iSaYhslnn/Sn",
+   "palette": [
+    "#014c94"
+   ]
+  }
+ },
+ {
+  "id": "img-red-car",
+  "kind": "image",
+  "tags": [
+   "red",
+   "vintage car",
+   "Havana"
+  ],
+  "language": "en",
+  "file": "files/img-red-car.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Red_vintage_car_in_La_Habana_(10108264664).jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "Christopher Holt from Saltspring Island, Canada · Reds"
+  },
+  "extraction": {
+   "title": "Red vintage car in La Habana (10108264664)",
+   "description": "A bright red vintage American car parked on a Havana street in front of a graffiti wall.",
+   "ocrText": "",
+   "tags": [
+    "red",
+    "vintage car",
+    "Havana"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 211292,
+   "width": 960,
+   "height": 638,
+   "contentHash": "9a3af33ad442b8f08eb94c4dc985fdb6ae6dd139cb6d591d8427648af9a047cd",
+   "thumbhash": "IBgKFYaYeHpyd4iZhQeVpQuEhmEI",
+   "palette": [
+    "#fcfcfb"
+   ]
+  }
+ },
+ {
+  "id": "img-red-fort",
+  "kind": "image",
+  "tags": [
+   "Red",
+   "Fort",
+   "Delhi"
+  ],
+  "language": "en",
+  "file": "files/img-red-fort.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Delhi,_India,_Khas_Mahal_2,_Red_Fort.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "Vyacheslav Argenberg · Own work"
+  },
+  "extraction": {
+   "title": "Delhi, India, Khas Mahal 2, Red Fort",
+   "description": "Khas Mahal of pure white marble, Mughal emperor's private residence, Red Fort, Delhi, India.",
+   "ocrText": "",
+   "tags": [
+    "Red",
+    "Fort",
+    "Delhi"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 148760,
+   "width": 960,
+   "height": 640,
+   "contentHash": "60736881a64567cb9107f6aed5ef0440161b36e2902d14bf639233a5cbdb72dd",
+   "thumbhash": "ZfgNJYKGd3iPh3iYh2iHZ3iAqVgH",
+   "palette": [
+    "#b6bbc8",
+    "#76784a"
+   ]
+  }
+ },
+ {
+  "id": "img-red-panda",
+  "kind": "image",
+  "tags": [
+   "red",
+   "panda"
+  ],
+  "language": "en",
+  "file": "files/img-red-panda.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Red_Panda_(24986761703).jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Mathias Appel · Red Panda"
+  },
+  "extraction": {
+   "title": "Red Panda (24986761703)",
+   "description": "Red Panda at a zoo",
+   "ocrText": "",
+   "tags": [
+    "red",
+    "panda"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 137190,
+   "width": 960,
+   "height": 636,
+   "contentHash": "2aece75a54d904170cf94165d92f81824843c6e57bea580a1d053ff4a0991240",
+   "thumbhash": "VvgJDYKlVZdfhndJqGeaZ084wYBU",
+   "palette": [
+    "#070609"
+   ]
+  }
+ },
+ {
+  "id": "img-sailboat",
+  "kind": "image",
+  "tags": [
+   "sailboat",
+   "sunset"
+  ],
+  "language": "en",
+  "file": "files/img-sailboat.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Sunset_Key_and_Sailboats,_Florida,_2025.jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Julian Lupyan · Own work"
+  },
+  "extraction": {
+   "title": "Sunset Key and Sailboats, Florida, 2025",
+   "description": "Two white sailboats on calm blue water near a small island with palm trees at sunset, Florida.",
+   "ocrText": "",
+   "tags": [
+    "sailboat",
+    "sunset"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 136646,
+   "width": 960,
+   "height": 500,
+   "contentHash": "cc5de09e1eb7bb81dd002231a8ee86786c73999c615b469ee99c54b499fe3e1e",
+   "thumbhash": "YMcNFISbiHePeHd5d4hvnOL2OA==",
+   "palette": [
+    "#768b96",
+    "#79a8c5",
+    "#286677"
+   ]
+  }
+ },
+ {
+  "id": "img-sakura",
+  "kind": "image",
+  "tags": [
+   "cherry",
+   "blossom",
+   "Japan"
+  ],
+  "language": "en",
+  "file": "files/img-sakura.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Lake_Kawaguchiko_Sakura_Mount_Fuji_4.JPG",
+   "licence": "CC BY 3.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/3.0",
+   "attribution": "Midori · Own work"
+  },
+  "extraction": {
+   "title": "Lake Kawaguchiko Sakura Mount Fuji 4",
+   "description": "Mount Fuji and Cherry Blossoms",
+   "ocrText": "",
+   "tags": [
+    "cherry",
+    "blossom",
+    "Japan"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 169475,
+   "width": 960,
+   "height": 643,
+   "contentHash": "a55fe64758160bd71f93eb7d921c8611a869531d6ea1fc10a36edead8d19af15",
+   "thumbhash": "J/cJFYJdeXiPd4d3eDiGirKQASsp",
+   "palette": [
+    "#aabae3",
+    "#697697",
+    "#8996b8"
+   ]
+  }
+ },
+ {
+  "id": "img-snow-cabin",
+  "kind": "image",
+  "tags": [
+   "snow",
+   "cabin",
+   "winter"
+  ],
+  "language": "en",
+  "file": "files/img-snow-cabin.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:A_wood_cabin_in_the_snow_(Unsplash).jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Patrick Tomasso impatrickt · https://unsplash.com/photos/6nDc17j4x98 Image at the Wayback Machine Gallery at the Wayback Machine"
+  },
+  "extraction": {
+   "title": "A wood cabin in the snow (Unsplash)",
+   "description": "A small wooden cabin with a red-brown roof surrounded by snow-covered trees in winter, Muskoka, Canada.",
+   "ocrText": "",
+   "tags": [
+    "snow",
+    "cabin",
+    "winter"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 373266,
+   "width": 960,
+   "height": 720,
+   "contentHash": "e57dff1c519ac4374555a3a320bed35c92183d899d82442a14727ab481bdd539",
+   "thumbhash": "5PcNBYB5uXlzl5hvdkaJfA5g6yB3",
+   "palette": [
+    "#fbfcfc",
+    "#161c24"
+   ]
+  }
+ },
+ {
+  "id": "img-sourdough",
+  "kind": "image",
+  "tags": [
+   "bread",
+   "loaf",
+   "Roman"
+  ],
+  "language": "en",
+  "file": "files/img-sourdough.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Herculaneum_loaf_2.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "Shisma · Own work"
+  },
+  "extraction": {
+   "title": "Herculaneum loaf 2",
+   "description": "A round loaf of ancient Roman bread, about two thousand years old, from Herculaneum, on a rack.",
+   "ocrText": "",
+   "tags": [
+    "bread",
+    "loaf",
+    "Roman"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 229058,
+   "width": 960,
+   "height": 720,
+   "contentHash": "4b0eae6943a7fb6510da4dac0a71dd328960e7bd6f99fe3d2444436ad1425ce2",
+   "thumbhash": "WzkGJYZplHefVIh2SKpYiIiTgCgJ",
+   "palette": [
+    "#a77846"
+   ]
+  }
+ },
+ {
+  "id": "img-spices",
+  "kind": "image",
+  "tags": [
+   "spices",
+   "market",
+   "colorful"
+  ],
+  "language": "en",
+  "file": "files/img-spices.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Colorful_Spices_and_Teas.jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "Christopher from Shanghai, China · Colorful Spices and Teas Uploaded by JohnnyMrNinja"
+  },
+  "extraction": {
+   "title": "Colorful Spices and Teas",
+   "description": "A spice stall with trays of colourful ground spices and teas: red, yellow, orange, green and brown.",
+   "ocrText": "",
+   "tags": [
+    "spices",
+    "market",
+    "colorful"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 205901,
+   "width": 960,
+   "height": 540,
+   "contentHash": "bbceb65afe4cc5ca00fd4eba94a569a00855cc2737e6814afa8d7c8975a8a39b",
+   "thumbhash": "1hgGHIQNV4pOiYfWOIc3eXDSCA==",
+   "palette": [
+    "#050302"
+   ]
+  }
+ },
+ {
+  "id": "img-stained-glass",
+  "kind": "image",
+  "tags": [
+   "stained",
+   "glass",
+   "window"
+  ],
+  "language": "en",
+  "file": "files/img-stained-glass.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Stained_glass_window_Saint_Elijah_Orthodox_church,_Stara_Pazova,_Serbia.jpg",
+   "licence": "Public domain",
+   "attribution": "unknown · Petar Milošević"
+  },
+  "extraction": {
+   "title": "Stained glass window Saint Elijah Orthodox church, Stara Pazova, Serbia",
+   "description": "Stained glass window in Saint Elijah Orthodox church, Stara Pazova, Serbia",
+   "ocrText": "",
+   "tags": [
+    "stained",
+    "glass",
+    "window"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 685529,
+   "width": 960,
+   "height": 1732,
+   "contentHash": "d0967ba2c930f3dab5319ce867650613f93c7e5c79277ebf2a4724b7bb204f48",
+   "thumbhash": "TRgGDAJXZlhJV5BKV2gHjoFQJw==",
+   "palette": [
+    "#020101",
+    "#fcfcfc"
+   ]
+  }
+ },
+ {
+  "id": "img-street-food",
+  "kind": "image",
+  "tags": [
+   "street",
+   "food",
+   "market",
+   "India"
+  ],
+  "language": "en",
+  "file": "files/img-street-food.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Street_food_vendors_in_Panaji,_Goa.jpg",
+   "licence": "CC BY 3.0 pl",
+   "licenceUrl": "https://creativecommons.org/licenses/by/3.0/pl/deed.en",
+   "attribution": "Radosław Botev · own archive"
+  },
+  "extraction": {
+   "title": "Street food vendors in Panaji, Goa",
+   "description": "Street food vendors in Panaji, Goa, India",
+   "ocrText": "",
+   "tags": [
+    "street",
+    "food",
+    "market",
+    "India"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 283521,
+   "width": 960,
+   "height": 720,
+   "contentHash": "1d41914752a8fd09a7eb6bcbdfbe018c30e6615b6696e45a95367681a275f190",
+   "thumbhash": "nRgKFYKgZFaTaHeshoh2hThg+jOb",
+   "palette": [
+    "#181719"
+   ]
+  }
+ },
+ {
+  "id": "img-sushi",
+  "kind": "image",
+  "tags": [
+   "sushi",
+   "platter"
+  ],
+  "language": "en",
+  "file": "files/img-sushi.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Mrs_Y%27s_Sushi_on_platters.jpg",
+   "licence": "CC BY 2.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/2.0",
+   "attribution": "syvwlch · originally posted to Flickr as Mrs Y's Sushi"
+  },
+  "extraction": {
+   "title": "Mrs Y's Sushi on platters",
+   "description": "Mrs Y makes killer homemade sushi. June 2008 Trip to Japan with Andrew.",
+   "ocrText": "",
+   "tags": [
+    "sushi",
+    "platter"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 230235,
+   "width": 960,
+   "height": 1326,
+   "contentHash": "1e199c7b726b75fad6d678ed904271092c5ce3786217ea5c3d67c40cf5b34420",
+   "thumbhash": "1igKDQJ3douIF5n6aIpHl2dv9exm",
+   "palette": [
+    "#160101",
+    "#cac8c8"
+   ]
+  }
+ },
+ {
+  "id": "img-telescope",
+  "kind": "image",
+  "tags": [
+   "telescope",
+   "observatory"
+  ],
+  "language": "en",
+  "file": "files/img-telescope.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Kitt_Peak_National_Observatory_Beneath_Star_Trails_(noirlab2512ae).jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "DESI Collaboration/DOE/KPNO/NOIRLab/NSF/AURA/L. Tyas · Kitt Peak National Observatory Beneath Star Trails"
+  },
+  "extraction": {
+   "title": "Kitt Peak National Observatory Beneath Star Trails (noirlab2512ae)",
+   "description": "The U.S. National Science Foundation Kitt Peak National Observatory (KPNO), a Program of NSF NOIRLab, beneath streaking star trails, created by long-exposure photography. The tallest telescope seen is the Nicholas U. Mayall 4-meter Telescope, on which DESI is mounted.",
+   "ocrText": "",
+   "tags": [
+    "telescope",
+    "observatory"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 269900,
+   "width": 960,
+   "height": 641,
+   "contentHash": "c932c0cc957a4f1b321a0be22cc8abec9b5a1185b778c67ae1fe644709112f0c",
+   "thumbhash": "1QcGFYJKVoieh3dwh9hng2VwSQiY",
+   "palette": [
+    "#080706",
+    "#474648"
+   ]
+  }
+ },
+ {
+  "id": "img-tram",
+  "kind": "image",
+  "tags": [
+   "yellow",
+   "tram",
+   "Lisbon"
+  ],
+  "language": "en",
+  "file": "files/img-tram.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Tram_of_line_28E_on_Rua_Augusto_Rosa_in_Lisbon,_20250603_2011_9033.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "Jakub Hałun · Own work"
+  },
+  "extraction": {
+   "title": "Tram of line 28E on Rua Augusto Rosa in Lisbon, 20250603 2011 9033",
+   "description": "A yellow tram of line 28E on a narrow street in Lisbon, Portugal, with the destination Prazeres.",
+   "ocrText": "PRAZERES 28E",
+   "tags": [
+    "yellow",
+    "tram",
+    "Lisbon"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 505221,
+   "width": 960,
+   "height": 1438,
+   "contentHash": "167b7335bef07e2757de898c5da8b1a599226ae98e81f514a5f9ae34429a694f",
+   "thumbhash": "XQgGDQBXho+IlpiXenpIp0pmwHQG",
+   "palette": [
+    "#060404",
+    "#787778"
+   ]
+  }
+ },
+ {
+  "id": "img-tree-frog",
+  "kind": "image",
+  "tags": [
+   "green",
+   "frog"
+  ],
+  "language": "en",
+  "file": "files/img-tree-frog.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Australia_green_tree_frog_(Litoria_caerulea)_crop.jpg",
+   "licence": "Public domain",
+   "attribution": "LiquidGhoul · Own work"
+  },
+  "extraction": {
+   "title": "Australia green tree frog (Litoria caerulea) crop",
+   "description": "A plump bright green Australian tree frog with white spots sitting on a branch.",
+   "ocrText": "",
+   "tags": [
+    "green",
+    "frog"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 206397,
+   "width": 960,
+   "height": 633,
+   "contentHash": "0a7cb30d8147fdb0ab92c1c784a1f2fca0db2b1bf4ce027fd606312604fff0f5",
+   "thumbhash": "HMkFDYT32rmYlIiWhieYk2qyQCj3",
+   "palette": []
+  }
+ },
+ {
+  "id": "img-typewriter",
+  "kind": "image",
+  "tags": [
+   "vintage",
+   "typewriter"
+  ],
+  "language": "en",
+  "file": "files/img-typewriter.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Vintage_typewriter_(Unsplash).jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Florian Klauer florianklauer · http://unsplash.com/photos/mk7D-4UCfmg Image at the Wayback Machine Gallery at the Wayback Machine"
+  },
+  "extraction": {
+   "title": "Vintage typewriter (Unsplash)",
+   "description": "A black vintage typewriter seen from above with a blank sheet of paper in it, on a white background.",
+   "ocrText": "",
+   "tags": [
+    "vintage",
+    "typewriter"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 125853,
+   "width": 960,
+   "height": 1408,
+   "contentHash": "8fb46f6685ab6bac450b3ac1cb0849d7e4ffe8da57f672de224e0718d397d1ca",
+   "thumbhash": "8gcKBQD6dX2G+BY5uIK6d5+PNANL",
+   "palette": [
+    "#e8e8e9",
+    "#c8c8cb",
+    "#060606"
+   ]
+  }
+ },
+ {
+  "id": "img-veg-market",
+  "kind": "image",
+  "tags": [
+   "farmers",
+   "market",
+   "vegetables"
+  ],
+  "language": "en",
+  "file": "files/img-veg-market.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Richfield_Farmers_Market-03.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "Myotus · Own work"
+  },
+  "extraction": {
+   "title": "Richfield Farmers Market-03",
+   "description": "Richfield Farmers Market Veterans Park Richfield, Minnesota, USA 2021",
+   "ocrText": "",
+   "tags": [
+    "farmers",
+    "market",
+    "vegetables"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 320641,
+   "width": 960,
+   "height": 720,
+   "contentHash": "d0c98ef13462569d3562987512db6ea80e129b528765d9252413315e3eaec46e",
+   "thumbhash": "WfgFHYKDial/VmiXh6aHk4l/m/m3",
+   "palette": []
+  }
+ },
+ {
+  "id": "img-vegas-sign",
+  "kind": "image",
+  "tags": [
+   "Welcome",
+   "to",
+   "Fabulous",
+   "Las",
+   "Vegas",
+   "sign"
+  ],
+  "language": "en",
+  "file": "files/img-vegas-sign.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Welcome_to_Fabulous_Las_Vegas_sign_2009.jpg",
+   "licence": "CC0",
+   "licenceUrl": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+   "attribution": "Ypsilon from Finland · Own work"
+  },
+  "extraction": {
+   "title": "Welcome to Fabulous Las Vegas sign 2009",
+   "description": "The famous 'Welcome to Fabulous Las Vegas Nevada' sign with palm trees and a golden casino tower behind.",
+   "ocrText": "WELCOME TO FABULOUS LAS VEGAS NEVADA",
+   "tags": [
+    "Welcome",
+    "to",
+    "Fabulous",
+    "Las",
+    "Vegas",
+    "sign"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 214934,
+   "width": 960,
+   "height": 720,
+   "contentHash": "43fea4aeffbd97d9054bab475fff337e7cbb20040715088c654eb61d3851c541",
+   "thumbhash": "3+cRHYiImIiPiIh4d4eIh1mAggZY",
+   "palette": [
+    "#99c9dc",
+    "#181718"
+   ]
+  }
+ },
+ {
+  "id": "img-vinyl",
+  "kind": "image",
+  "tags": [
+   "vinyl",
+   "record",
+   "turntable"
+  ],
+  "language": "en",
+  "file": "files/img-vinyl.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Kazantip,_Popovka,_Crimea,_Technics_turntable,_Vinyl_turntable.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "Vyacheslav Argenberg · Own work"
+  },
+  "extraction": {
+   "title": "Kazantip, Popovka, Crimea, Technics turntable, Vinyl turntable",
+   "description": "Kazantip Festival in Crimea in the 2000s: sun, sea, sandy beaches, parties, partygoers, celebrations, days, nights, DJs, serotonin, dopamine, trance, house and techno music.",
+   "ocrText": "",
+   "tags": [
+    "vinyl",
+    "record",
+    "turntable"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 137042,
+   "width": 960,
+   "height": 720,
+   "contentHash": "98c03300bc7c286fa045ffc7759f0e8b6d1883f7d27ad9b1ceb8e8445ee12c5e",
+   "thumbhash": "0QcOBYKWd3d/eWiJiLhmidplX9f1",
+   "palette": [
+    "#070707",
+    "#272927",
+    "#898688"
+   ]
+  }
+ },
+ {
+  "id": "img-windmill",
+  "kind": "image",
+  "tags": [
+   "windmill",
+   "Netherlands",
+   "tulips"
+  ],
+  "language": "en",
+  "file": "files/img-windmill.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:Dutch_Tulips_(209942087).jpeg",
+   "licence": "CC BY 3.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/3.0",
+   "attribution": "La Taupe · Imported from 500px (archived version) by the Archive Team. (detail page)"
+  },
+  "extraction": {
+   "title": "Dutch Tulips (209942087)",
+   "description": "A field of bright yellow tulips in the Netherlands at sunset, with wind turbines on the horizon under a pink and purple sky.",
+   "ocrText": "",
+   "tags": [
+    "windmill",
+    "Netherlands",
+    "tulips"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 209408,
+   "width": 960,
+   "height": 640,
+   "contentHash": "c53fa8943e78d5f434a4bb8bf88ff270d6886fca2986baa2ab7a87250fd916f6",
+   "thumbhash": "oXkKXYRriHeeh4iAeBeHiHmAlgd6",
+   "palette": [
+    "#fda79a"
+   ]
+  }
+ },
+ {
+  "id": "img-yellow-taxi",
+  "kind": "image",
+  "tags": [
+   "yellow",
+   "taxi",
+   "New York"
+  ],
+  "language": "en",
+  "file": "files/img-yellow-taxi.jpg",
+  "source": {
+   "type": "commons",
+   "url": "https://commons.wikimedia.org/wiki/File:(USA-New_York)_NYC_Medallion_Cab_Toyota_RAV4_NY-Taxi-Y202490C_2024-06-15.jpg",
+   "licence": "CC BY 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by/4.0",
+   "attribution": "S5A-0043 · Own work"
+  },
+  "extraction": {
+   "title": "(USA-New York) NYC Medallion Cab Toyota RAV4 NY-Taxi-Y202490C 2024-06-15",
+   "description": "Y202490C, a Toyota RAV4 Medallion Cab in New York City. Photo taken on 2024/6/15.",
+   "ocrText": "",
+   "tags": [
+    "yellow",
+    "taxi",
+    "New York"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/jpeg",
+   "bytes": 276598,
+   "width": 960,
+   "height": 768,
+   "contentHash": "39ac698fb1311281569e9764f196237999620122e42d30b4e2df4331632682cd",
+   "thumbhash": "GBkGNoZ/d2d2h5XHWjhZ6HaEWYegdgg=",
+   "palette": [
+    "#060706",
+    "#fda601",
+    "#585856",
+    "#272827"
+   ]
+  }
+ },
+ {
+  "id": "long-ada-lovelace",
+  "kind": "text",
+  "title": "Ada Lovelace",
+  "text": "texts/long-ada-lovelace.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Ada_Lovelace&oldid=1384127064",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Ada Lovelace\""
+  }
+ },
+ {
+  "id": "long-antikythera-mechanism",
+  "kind": "text",
+  "title": "Antikythera mechanism",
+  "text": "texts/long-antikythera-mechanism.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Antikythera_mechanism&oldid=1383971017",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Antikythera mechanism\""
+  }
+ },
+ {
+  "id": "long-black-hole",
+  "kind": "text",
+  "title": "Black hole",
+  "text": "texts/long-black-hole.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Black_hole&oldid=1384668324",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Black hole\""
+  }
+ },
+ {
+  "id": "long-great-barrier-reef",
+  "kind": "text",
+  "title": "Great Barrier Reef",
+  "text": "texts/long-great-barrier-reef.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Great_Barrier_Reef&oldid=1381928932",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Great Barrier Reef\""
+  }
+ },
+ {
+  "id": "long-history-of-chess",
+  "kind": "text",
+  "title": "History of chess",
+  "text": "texts/long-history-of-chess.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=History_of_chess&oldid=1383164055",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"History of chess\""
+  }
+ },
+ {
+  "id": "long-kyoto",
+  "kind": "text",
+  "title": "Kyoto",
+  "text": "texts/long-kyoto.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Kyoto&oldid=1384608151",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Kyoto\""
+  }
+ },
+ {
+  "id": "long-machu-picchu",
+  "kind": "text",
+  "title": "Machu Picchu",
+  "text": "texts/long-machu-picchu.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Machu_Picchu&oldid=1384906238",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Machu Picchu\""
+  }
+ },
+ {
+  "id": "long-rosetta-stone",
+  "kind": "text",
+  "title": "Rosetta Stone",
+  "text": "texts/long-rosetta-stone.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Rosetta_Stone&oldid=1384972356",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Rosetta Stone\""
+  }
+ },
+ {
+  "id": "long-tardigrade",
+  "kind": "text",
+  "title": "Tardigrade",
+  "text": "texts/long-tardigrade.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Tardigrade&oldid=1385037772",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Tardigrade\""
+  }
+ },
+ {
+  "id": "long-voynich-manuscript",
+  "kind": "text",
+  "title": "Voynich manuscript",
+  "text": "texts/long-voynich-manuscript.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Voynich_manuscript&oldid=1385054680",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Voynich manuscript\""
+  }
+ },
+ {
+  "id": "note-car-service",
+  "kind": "text",
+  "title": "Car service and tyre notes",
+  "text": "texts/note-car-service.txt",
+  "tags": [
+   "car",
+   "maintenance"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-dal-tadka-hinglish",
+  "kind": "text",
+  "title": "Nani ki dal tadka",
+  "text": "texts/note-dal-tadka-hinglish.txt",
+  "captureNote": "nani wali recipe, sunday ko banani hai",
+  "tags": [
+   "recipe",
+   "dal",
+   "hinglish"
+  ],
+  "language": "hi-Latn",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-flat-hunting-hinglish",
+  "kind": "text",
+  "title": "Flat dekhna hai Baner mein",
+  "text": "texts/note-flat-hunting-hinglish.txt",
+  "tags": [
+   "flat",
+   "rent",
+   "hinglish"
+  ],
+  "language": "hi-Latn",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-garden-calendar",
+  "kind": "text",
+  "title": "Balcony garden calendar",
+  "text": "texts/note-garden-calendar.txt",
+  "tags": [
+   "garden",
+   "plants",
+   "plan"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-gym-plan",
+  "kind": "text",
+  "title": "Gym plan, 12 weeks",
+  "text": "texts/note-gym-plan.txt",
+  "tags": [
+   "fitness",
+   "plan"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-kedarkantha-trek-hinglish",
+  "kind": "text",
+  "title": "Kedarkantha trek plan",
+  "text": "texts/note-kedarkantha-trek-hinglish.txt",
+  "tags": [
+   "trek",
+   "travel",
+   "hinglish"
+  ],
+  "language": "hi-Latn",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-lisbon-trip",
+  "kind": "text",
+  "title": "Lisbon trip plan",
+  "text": "texts/note-lisbon-trip.txt",
+  "tags": [
+   "travel",
+   "plan",
+   "lisbon"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-movie-watchlist",
+  "kind": "text",
+  "title": "Movie watchlist",
+  "text": "texts/note-movie-watchlist.txt",
+  "tags": [
+   "movies",
+   "list"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-passport-renewal",
+  "kind": "text",
+  "title": "Passport renewal appointment",
+  "text": "texts/note-passport-renewal.txt",
+  "tags": [
+   "passport",
+   "appointment",
+   "documents"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-plant-app-idea",
+  "kind": "text",
+  "title": "App idea: plant watering nudges",
+  "text": "texts/note-plant-app-idea.txt",
+  "tags": [
+   "idea",
+   "app",
+   "plants"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-q2-planning-meeting",
+  "kind": "text",
+  "title": "Q2 planning meeting notes",
+  "text": "texts/note-q2-planning-meeting.txt",
+  "tags": [
+   "meeting",
+   "planning",
+   "work"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-reading-list",
+  "kind": "text",
+  "title": "Books to read this year",
+  "text": "texts/note-reading-list.txt",
+  "tags": [
+   "books",
+   "list"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-sleep-reading",
+  "kind": "text",
+  "title": "What I learned about sleep",
+  "text": "texts/note-sleep-reading.txt",
+  "tags": [
+   "sleep",
+   "health"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "note-thesis-feedback",
+  "kind": "text",
+  "title": "Thesis chapter 3 reviewer comments",
+  "text": "texts/note-thesis-feedback.txt",
+  "tags": [
+   "thesis",
+   "feedback",
+   "writing"
+  ],
+  "language": "en",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Written for this sample Library"
+  }
+ },
+ {
+  "id": "shot-boarding-pass",
+  "kind": "image",
+  "tags": [
+   "boarding pass",
+   "flight",
+   "travel"
+  ],
+  "language": "en",
+  "file": "files/shot-boarding-pass.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Skyline Air boarding pass Delhi to Bengaluru",
+   "description": "A boarding pass for Skyline Air flight SK 482 from Delhi to Bengaluru on 9 April, seat 14C, gate B7, in dark blue and white.",
+   "ocrText": "SKYLINE AIR\nDEL\n→\nBLR\nDelhi\nBengaluru\nFlight SK 482\n9 Apr 2026\nBoards 06:15\nSeat 14C\nGate B7\nPriya Nair\nSEAT\n14C\nGATE B7",
+   "tags": [
+    "boarding pass",
+    "flight",
+    "travel"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 18659,
+   "width": 720,
+   "height": 300,
+   "contentHash": "2fb104a323613a8f2307c089a69ad4215b8d9d6307d095ab2be3529df7ba0ab0",
+   "thumbhash": "s/cVG4Ifa5d3eIh4H3f4cYc=",
+   "palette": [
+    "#ffffff",
+    "#0b2a5b"
+   ]
+  }
+ },
+ {
+  "id": "shot-budget-sheet",
+  "kind": "image",
+  "tags": [
+   "spreadsheet",
+   "budget",
+   "finance"
+  ],
+  "language": "en",
+  "file": "files/shot-budget-sheet.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Household budget spreadsheet",
+   "description": "A spreadsheet of monthly household spending with rent, groceries, transport and utilities, and a total of 2,340.",
+   "ocrText": "Category\tAmount\nRent\t1,200\nGroceries\t540\nTransport\t210\nUtilities\t390\nTotal\t2,340",
+   "tags": [
+    "spreadsheet",
+    "budget",
+    "finance"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 12782,
+   "width": 640,
+   "height": 340,
+   "contentHash": "fa019c12d0b9f7f74ec67a201c7a13fd4cec9c5d2bc0db9520ab9ee4f150ea43",
+   "thumbhash": "OegNDIZ3d3hweIiBiIJ3f44IGA==",
+   "palette": [
+    "#ffffff",
+    "#188038"
+   ]
+  }
+ },
+ {
+  "id": "shot-cafe-receipt",
+  "kind": "image",
+  "tags": [
+   "receipt",
+   "cafe",
+   "payment"
+  ],
+  "language": "en",
+  "file": "files/shot-cafe-receipt.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Marigold Cafe receipt",
+   "description": "A cream paper receipt from Marigold Cafe listing two flat whites, a lemon tart and a banana bread, total 18.40.",
+   "ocrText": "MARIGOLD CAFE\n14 Orchard Lane\n12 March 2026 09:41\n2 x Flat white\n7.00\n1 x Lemon tart\n4.90\n1 x Banana bread\n3.50\nService\n3.00\nTOTAL\n18.40\nPaid by card ending 4417\nThank you, see you soon!",
+   "tags": [
+    "receipt",
+    "cafe",
+    "payment"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 22832,
+   "width": 480,
+   "height": 560,
+   "contentHash": "d93d5fecf2ee5660b4b2a9c0c5a7bd8ec942c4f6a3d05a29de5f686c68675943",
+   "thumbhash": "eggCBgBmSfiHWAipd4d5d0ent3B/C/c=",
+   "palette": [
+    "#fffdf7"
+   ]
+  }
+ },
+ {
+  "id": "shot-calendar-invite",
+  "kind": "image",
+  "tags": [
+   "calendar",
+   "meeting",
+   "invite"
+  ],
+  "language": "en",
+  "file": "files/shot-calendar-invite.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Calendar invite for the quarterly planning meeting",
+   "description": "A calendar event card for the quarterly planning meeting on Thursday 20 June at 3 pm in Meeting Room Cedar.",
+   "ocrText": "Quarterly planning\nThursday 20 June · 3:00 – 4:30 pm\nMeeting Room Cedar, 3rd floor\nAgenda: roadmap, hiring, budget",
+   "tags": [
+    "calendar",
+    "meeting",
+    "invite"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 15093,
+   "width": 520,
+   "height": 340,
+   "contentHash": "fbcaac017737bf8ffcaeeee40b225c2f4447126591a9480c7d8e78e95d0415ae",
+   "thumbhash": "/PcBBYBwWHg3h4aXiKh7mwBGCYCE",
+   "palette": [
+    "#f7f8f8"
+   ]
+  }
+ },
+ {
+  "id": "shot-chat-address",
+  "kind": "image",
+  "tags": [
+   "chat",
+   "address",
+   "party"
+  ],
+  "language": "en",
+  "file": "files/shot-chat-address.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Chat with an address and door code",
+   "description": "A chat screen where a friend sends a flat address and a door code for a party.",
+   "ocrText": "Meera\nParty is at Flat 6B, 22 Chestnut Road\nWhat time should I come?\nAnytime after 7. Door code is 4821#",
+   "tags": [
+    "chat",
+    "address",
+    "party"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 14112,
+   "width": 420,
+   "height": 420,
+   "contentHash": "3ca6416bf4d0607e1f193b99890b7062897bd81c0bbe6e9893437e1f60bfd460",
+   "thumbhash": "ivcFFwJGeIh+hYeFeAipF5mGuguqu6AK",
+   "palette": [
+    "#1c1c1e",
+    "#0a84ff"
+   ]
+  }
+ },
+ {
+  "id": "shot-chat-hinglish",
+  "kind": "image",
+  "tags": [
+   "chat",
+   "hinglish",
+   "dinner"
+  ],
+  "language": "en",
+  "file": "files/shot-chat-hinglish.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Chat about dinner plans in Hinglish",
+   "description": "A green chat screen between two friends planning dinner in Hinglish, deciding on paneer tikka at 8 baje.",
+   "ocrText": "Rohan\nBhai aaj dinner ka kya plan hai?\nPaneer tikka khate hain, wahi naya wala restaurant\nDone, 8 baje milte hain. Table main book kar deta hoon\nPerfect, paise kal de dunga",
+   "tags": [
+    "chat",
+    "hinglish",
+    "dinner"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 18995,
+   "width": 420,
+   "height": 520,
+   "contentHash": "1f45bd8de5245c020250fbc1b9fefd4290686f0c707fd7bedb9c97328d301ec4",
+   "thumbhash": "dPgJDgaIiAeIeBd4d4F3cjc3dnKACTg=",
+   "palette": [
+    "#ece5dd",
+    "#075e54"
+   ]
+  }
+ },
+ {
+  "id": "shot-code-debounce",
+  "kind": "image",
+  "tags": [
+   "code",
+   "typescript",
+   "editor"
+  ],
+  "language": "en",
+  "file": "files/shot-code-debounce.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "TypeScript debounce function in an editor",
+   "description": "A code editor with a TypeScript function named debounce that delays calling a callback, on a dark purple theme.",
+   "ocrText": "// utils/debounce.ts\nexport function debounce(fn, wait = 200) {\n  let timer;\n  return (...args) => {\n    clearTimeout(timer);\n    timer = setTimeout(() => fn(...args), wait);\n  };\n}",
+   "tags": [
+    "code",
+    "typescript",
+    "editor"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 20230,
+   "width": 700,
+   "height": 360,
+   "contentHash": "187cca3b6d269a5782b2dce7d8e66313f9907f89bf1c3bac225717719e818ab9",
+   "thumbhash": "jPcBBIB9VlO9eFZjiDBdrfDffQ==",
+   "palette": [
+    "#282a36"
+   ]
+  }
+ },
+ {
+  "id": "shot-concert-ticket",
+  "kind": "image",
+  "tags": [
+   "ticket",
+   "concert",
+   "event",
+   "purple"
+  ],
+  "language": "en",
+  "file": "files/shot-concert-ticket.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Concert ticket for Neon Harbour",
+   "description": "A purple concert ticket for Neon Harbour live at Riverside Hall on 18 October, doors 7 pm, row F seat 12.",
+   "ocrText": "NEON HARBOUR LIVE\nRiverside Hall · 18 October 2026 · Doors 7 pm\nRow F · Seat 12\nOrder 88-4410-27",
+   "tags": [
+    "ticket",
+    "concert",
+    "event",
+    "purple"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 59132,
+   "width": 680,
+   "height": 280,
+   "contentHash": "14688834e2d8a596fd949fd0fff588e695d2897b0e414bd48129b230f31acd1f",
+   "thumbhash": "YtQCE4pwdHe+ZodocJoIeIc=",
+   "palette": [
+    "#a826d4",
+    "#7827d8"
+   ]
+  }
+ },
+ {
+  "id": "shot-dashboard-dark",
+  "kind": "image",
+  "tags": [
+   "dashboard",
+   "dark mode",
+   "monitoring"
+  ],
+  "language": "en",
+  "file": "files/shot-dashboard-dark.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Dark mode server monitoring dashboard",
+   "description": "A dark mode monitoring dashboard with green status indicators and CPU, memory and uptime tiles.",
+   "ocrText": "Servers\nCPU\n34%\nMemory\n71%\nUptime\n99.98%\n● api-1 healthy   ● api-2 healthy   ● worker-3 down",
+   "tags": [
+    "dashboard",
+    "dark mode",
+    "monitoring"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 17346,
+   "width": 740,
+   "height": 380,
+   "contentHash": "0479f55d6f0457ecc33fcd7da1b3f64ee3355574a202ac42323469b8219ae3b2",
+   "thumbhash": "xvcBBICLeGmfmYhwmZAodpAgqA==",
+   "palette": [
+    "#0d1117"
+   ]
+  }
+ },
+ {
+  "id": "shot-dashboard-purple",
+  "kind": "image",
+  "tags": [
+   "dashboard",
+   "design reference",
+   "purple",
+   "analytics"
+  ],
+  "language": "en",
+  "file": "files/shot-dashboard-purple.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Analytics dashboard with a purple sidebar",
+   "description": "A web analytics dashboard with a dark purple sidebar, white cards and a line chart of weekly signups.",
+   "ocrText": "Orbit\nOverview\nSignups\nRevenue\nSettings\nWeekly signups\nThis week\n1,284\nGrowth\n+12%",
+   "tags": [
+    "dashboard",
+    "design reference",
+    "purple",
+    "analytics"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 21323,
+   "width": 760,
+   "height": 440,
+   "contentHash": "9e77772c18466b985355758ea3f1980fedfc15fd51bb2936a34a522205b39993",
+   "thumbhash": "NBcSJIQgdJiHiHh4iHcgePh9dw==",
+   "palette": [
+    "#f7f5ff",
+    "#4c1d95"
+   ]
+  }
+ },
+ {
+  "id": "shot-error-dialog",
+  "kind": "image",
+  "tags": [
+   "error",
+   "dialog",
+   "disk"
+  ],
+  "language": "en",
+  "file": "files/shot-error-dialog.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Disk full error dialog",
+   "description": "A desktop error dialog with a red icon saying there is not enough disk space to save the file, with a Free up space button.",
+   "ocrText": "!\nNot enough disk space\nCould not save “thesis-final-v7.docx”. Free up 240 MB and try again.\nFree up space",
+   "tags": [
+    "error",
+    "dialog",
+    "disk"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 16067,
+   "width": 520,
+   "height": 260,
+   "contentHash": "b1dfb894993358fba859a9b6265720f7f96f1cbfaa4a265fde07b2a4f4c5cceb",
+   "thumbhash": "N/cBFIJLhYVOp5QzuvNMfvDnSQ==",
+   "palette": [
+    "#ffffff",
+    "#c7d2fe",
+    "#2563eb"
+   ]
+  }
+ },
+ {
+  "id": "shot-git-log",
+  "kind": "image",
+  "tags": [
+   "terminal",
+   "git",
+   "code"
+  ],
+  "language": "en",
+  "file": "files/shot-git-log.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Terminal git log",
+   "description": "A terminal showing a short git log with three commits about fixing the login redirect, adding dark mode and bumping dependencies.",
+   "ocrText": "$ git log --oneline -3\na41c9e2 Fix login redirect loop on expired session\n7be03d1 Add dark mode toggle to settings\n19dd5f8 Bump dependencies",
+   "tags": [
+    "terminal",
+    "git",
+    "code"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 15239,
+   "width": 760,
+   "height": 300,
+   "contentHash": "08145b50d9f2985006ccf39d4c5beb1a1e00db8ab99a535a31b3cac0860e4204",
+   "thumbhash": "ifcBA4COl3jPeJh4/cpIChM=",
+   "palette": [
+    "#1e1e2e"
+   ]
+  }
+ },
+ {
+  "id": "shot-kindle-highlight",
+  "kind": "image",
+  "tags": [
+   "book",
+   "highlight",
+   "quote"
+  ],
+  "language": "en",
+  "file": "files/shot-kindle-highlight.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "E-reader highlight about deliberate practice",
+   "description": "An e-reader page with a highlighted sentence about deliberate practice requiring full attention, from the book Peak Performance Notes.",
+   "ocrText": "Most people practise by repeating what they can already do.\nDeliberate practice demands your full attention and a task just beyond your reach.\nPeak Performance Notes · Location 1042",
+   "tags": [
+    "book",
+    "highlight",
+    "quote"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 22853,
+   "width": 480,
+   "height": 440,
+   "contentHash": "66f4e32875dd4a89870437a2cb5891e9e4e6ccd03a6de6b10cab6587baaaaa88",
+   "thumbhash": "uQgGDoCml5hweYmId+ho2GiJWI+E9Eg=",
+   "palette": [
+    "#f6f1e7",
+    "#fde047"
+   ]
+  }
+ },
+ {
+  "id": "shot-map-directions",
+  "kind": "image",
+  "tags": [
+   "map",
+   "directions",
+   "vet"
+  ],
+  "language": "en",
+  "file": "files/shot-map-directions.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Map directions to the vet",
+   "description": "A map with a blue route line and a banner saying 12 minutes by car to Paws and Claws Vet, 4.3 km.",
+   "ocrText": "12 min · 4.3 km\nPaws and Claws Vet",
+   "tags": [
+    "map",
+    "directions",
+    "vet"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 11350,
+   "width": 520,
+   "height": 420,
+   "contentHash": "863203ecbbdb8c73ab70c2af6b85ffd14d0e968ee462aa591581f3741ff47264",
+   "thumbhash": "OvgBBoBliIludphvddhkyIZ7p+B72fk=",
+   "palette": [
+    "#e8efe6"
+   ]
+  }
+ },
+ {
+  "id": "shot-music-player",
+  "kind": "image",
+  "tags": [
+   "music",
+   "player",
+   "app"
+  ],
+  "language": "en",
+  "file": "files/shot-music-player.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Music player showing Midnight Drive",
+   "description": "A music player with pink and orange sunset artwork, the track Midnight Drive by Neon Harbour paused at 1:42.",
+   "ocrText": "Midnight Drive\nNeon Harbour\n1:42\n4:15",
+   "tags": [
+    "music",
+    "player",
+    "app"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 44348,
+   "width": 420,
+   "height": 560,
+   "contentHash": "5b9c93c38e9ecdde26217aa7279822d52b8dc6c1a61f1e46badb9ba1834385b5",
+   "thumbhash": "1FgSHQ5YZ492VodIh3d3Z1RfgvVo",
+   "palette": [
+    "#111111",
+    "#f78278"
+   ]
+  }
+ },
+ {
+  "id": "shot-newsletter-email",
+  "kind": "image",
+  "tags": [
+   "email",
+   "newsletter",
+   "gardening"
+  ],
+  "language": "en",
+  "file": "files/shot-newsletter-email.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Newsletter email about winter gardening",
+   "description": "An email in a mail client from The Greenhouse Weekly with the subject Five jobs for the winter garden.",
+   "ocrText": "Five jobs for the winter garden\nThe Greenhouse Weekly · 2 December 2025\n1. Prune apple trees while they are dormant.\n2. Mulch beds with leaf mould.\n3. Clean and oil your tools.\n4. Order seeds before the rush.\n5. Wrap pots against frost.",
+   "tags": [
+    "email",
+    "newsletter",
+    "gardening"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 25132,
+   "width": 600,
+   "height": 360,
+   "contentHash": "990267d940072d7bc528c5d1e86dc7f7ef727f2cddc7023e60f2a1a3eb8599e4",
+   "thumbhash": "/vcBBICAm5hBmYiaaKuRQCgKZA==",
+   "palette": [
+    "#ffffff"
+   ]
+  }
+ },
+ {
+  "id": "shot-notes-grocery",
+  "kind": "image",
+  "tags": [
+   "notes",
+   "grocery",
+   "list"
+  ],
+  "language": "en",
+  "file": "files/shot-notes-grocery.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Notes app grocery list",
+   "description": "A yellow notes app page with a grocery list: milk, eggs, spinach, rice, tomatoes and green tea.",
+   "ocrText": "Grocery list\n☐ Milk\n☐ Eggs\n☐ Spinach\n☑ Rice\n☐ Tomatoes\n☐ Green tea",
+   "tags": [
+    "notes",
+    "grocery",
+    "list"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 12622,
+   "width": 420,
+   "height": 460,
+   "contentHash": "f968b82433d5f3ff870a68e3c38777764111f56ea1d68cc0be4733544a8201c5",
+   "thumbhash": "uQkCBgBQuRtjqYmIeJmJd2iXUDH36ow=",
+   "palette": [
+    "#fef9c3"
+   ]
+  }
+ },
+ {
+  "id": "shot-parking-sign",
+  "kind": "image",
+  "tags": [
+   "sign",
+   "parking",
+   "rules"
+  ],
+  "language": "en",
+  "file": "files/shot-parking-sign.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Parking rules sign",
+   "description": "A blue and white street sign listing parking rules: two hour limit Monday to Saturday, 8 am to 6 pm, permit holders excepted.",
+   "ocrText": "P\n2 HOUR LIMIT\nMon – Sat\n8 am – 6 pm\nPermit holders excepted",
+   "tags": [
+    "sign",
+    "parking",
+    "rules"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 9151,
+   "width": 420,
+   "height": 460,
+   "contentHash": "9e0ef91e9dbfa358066f6d8221c8624803d8650c8b09fa19a63da902acf9ad44",
+   "thumbhash": "HKMBBgAn5+dXxweod4eJezhXJ35w4gc=",
+   "palette": [
+    "#1d4ed8"
+   ]
+  }
+ },
+ {
+  "id": "shot-postgres-error",
+  "kind": "image",
+  "tags": [
+   "terminal",
+   "error",
+   "postgres",
+   "node"
+  ],
+  "language": "en",
+  "file": "files/shot-postgres-error.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Postgres connection refused error",
+   "description": "A dark terminal window showing a Node stack trace with the error ECONNREFUSED 127.0.0.1:5432 while connecting to Postgres.",
+   "ocrText": "$ pnpm dev\n> spark@0.0.0 dev\nError: connect ECONNREFUSED 127.0.0.1:5432\nat TCPConnectWrap.afterConnect (node:net:1555:16)\nat Pool._pulseQueue (pg-pool/index.js:148:28)\ndatabase \"spark\" is not accepting connections\nhint: run docker compose up -d db",
+   "tags": [
+    "terminal",
+    "error",
+    "postgres",
+    "node"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 25048,
+   "width": 760,
+   "height": 380,
+   "contentHash": "be2df588044416c708d97ec51a39f696c229cbe186ac4a0e20419ef914e8c3b5",
+   "thumbhash": "xvcBBICPhnjOeIhmmEGfrPLWGg==",
+   "palette": [
+    "#14161a"
+   ]
+  }
+ },
+ {
+  "id": "shot-pricing-page",
+  "kind": "image",
+  "tags": [
+   "pricing",
+   "landing page",
+   "design reference",
+   "orange"
+  ],
+  "language": "en",
+  "file": "files/shot-pricing-page.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "SaaS pricing page with three plans",
+   "description": "A pricing page with three plan cards, Starter free, Pro at 12 dollars a month highlighted in orange, and Team at 29 dollars.",
+   "ocrText": "Simple pricing\nStarter\nFree\n1 project\nPro\n$12/mo\nUnlimited projects\nTeam\n$29/mo\nShared workspace",
+   "tags": [
+    "pricing",
+    "landing page",
+    "design reference",
+    "orange"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 21137,
+   "width": 760,
+   "height": 420,
+   "contentHash": "241974121da6b781d7a277acab30130a7dac077c02736b7d71e674657ee3210c",
+   "thumbhash": "PggCBID4Z8eAe4Z/hn8Ii4KwKA==",
+   "palette": [
+    "#ffffff"
+   ]
+  }
+ },
+ {
+  "id": "shot-product-shoes",
+  "kind": "image",
+  "tags": [
+   "product",
+   "shopping",
+   "shoes",
+   "red"
+  ],
+  "language": "en",
+  "file": "files/shot-product-shoes.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Running shoes product page",
+   "description": "A shop product page for red trail running shoes priced 89 dollars with size and add to cart buttons.",
+   "ocrText": "👟\nRidgeline Trail Runner\n$89\nColour: Crimson red\nSizes 7 8 9 10 11\nAdd to cart",
+   "tags": [
+    "product",
+    "shopping",
+    "shoes",
+    "red"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 12630,
+   "width": 720,
+   "height": 400,
+   "contentHash": "50ceecaeeab33ec97dc6a8ae74774edbbc485611975f8ff3c0557746ef86c8cf",
+   "thumbhash": "PAgGDILiVqxSiIifk5ifvPbJaw==",
+   "palette": [
+    "#ffffff"
+   ]
+  }
+ },
+ {
+  "id": "shot-recipe-card",
+  "kind": "image",
+  "tags": [
+   "recipe",
+   "lemon rice",
+   "food"
+  ],
+  "language": "en",
+  "file": "files/shot-recipe-card.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Handwritten-style recipe card for lemon rice",
+   "description": "A yellow recipe card for South Indian lemon rice listing ingredients like mustard seeds, curry leaves, peanuts and turmeric.",
+   "ocrText": "Lemon Rice\nServes 4 · 20 minutes\n• 2 cups cooked rice\n• 2 tbsp oil, 1 tsp mustard seeds\n• curry leaves, 2 green chillies\n• handful of roasted peanuts\n• ½ tsp turmeric, juice of 1 lemon\nTemper the seeds, add everything, toss with rice, finish with lemon.",
+   "tags": [
+    "recipe",
+    "lemon rice",
+    "food"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 26152,
+   "width": 480,
+   "height": 520,
+   "contentHash": "59dd4dac5f605d1a8d0c6a2847426c1c1f2e852acc51dbc58b393fb9542043a7",
+   "thumbhash": "MisCBgCRqwmDmrh3iJx2hUeXkTDr9kw=",
+   "palette": [
+    "#fde68a"
+   ]
+  }
+ },
+ {
+  "id": "shot-settings-screen",
+  "kind": "image",
+  "tags": [
+   "settings",
+   "toggle",
+   "phone"
+  ],
+  "language": "en",
+  "file": "files/shot-settings-screen.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Phone settings with a battery saver toggle",
+   "description": "A phone settings list with toggles for Wi-Fi, Bluetooth and battery saver, which is switched on in green.",
+   "ocrText": "Settings\nWi-Fi\nOn\nBluetooth\nOff\nBattery saver\nON",
+   "tags": [
+    "settings",
+    "toggle",
+    "phone"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 9385,
+   "width": 420,
+   "height": 440,
+   "contentHash": "6ffc939c02f291a0316bc89fb2497f3b7b11de8e71827e8640c414d36f0ef323",
+   "thumbhash": "/PcBBwADusk4hKlDegemB2iEaucHPpYP",
+   "palette": [
+    "#f6f6f9"
+   ]
+  }
+ },
+ {
+  "id": "shot-tweet-post",
+  "kind": "image",
+  "tags": [
+   "social post",
+   "octopus",
+   "thread"
+  ],
+  "language": "en",
+  "file": "files/shot-tweet-post.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Social post about an octopus escaping a tank",
+   "description": "A social media post with a short thread about an octopus that escaped its tank overnight, with 24 thousand likes.",
+   "ocrText": "Dr. Anika Rao @anika_marine · 5h\nUpdate from the lab: the octopus opened its tank lid, walked across the floor to the next tank, ate two crabs and went home. Nobody saw it happen.\n♥ 24K   ↻ 6.1K",
+   "tags": [
+    "social post",
+    "octopus",
+    "thread"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 21913,
+   "width": 520,
+   "height": 320,
+   "contentHash": "725fcb072eef83cc3740165f6f64dc73a1838d29adee62a960a22d028f1d71ad",
+   "thumbhash": "/fcFBICVl5hgeIh4h32UYEgJdg==",
+   "palette": [
+    "#ffffff"
+   ]
+  }
+ },
+ {
+  "id": "shot-upi-payment",
+  "kind": "image",
+  "tags": [
+   "payment",
+   "upi",
+   "receipt"
+  ],
+  "language": "en",
+  "file": "files/shot-upi-payment.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "UPI payment confirmation",
+   "description": "A payment confirmation screen with a green tick showing 1,250 rupees paid to Sharma Electricals.",
+   "ocrText": "✓\nPayment successful\n₹1,250\nPaid to Sharma Electricals\nUPI Ref 4093 5521 7718\n3 February 2026, 6:12 pm",
+   "tags": [
+    "payment",
+    "upi",
+    "receipt"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 19231,
+   "width": 420,
+   "height": 520,
+   "contentHash": "3225f4778f583ddd89b572dce01c46237184b5abf3d54a490028acd7fefd5cae",
+   "thumbhash": "PfgFBgL3ODfHR5h4Z4qGiqanB3+MH0g=",
+   "palette": [
+    "#ffffff"
+   ]
+  }
+ },
+ {
+  "id": "shot-weather",
+  "kind": "image",
+  "tags": [
+   "weather",
+   "app",
+   "blue"
+  ],
+  "language": "en",
+  "file": "files/shot-weather.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Weather app for Pune",
+   "description": "A weather app screen on a blue gradient showing 31 degrees and partly cloudy in Pune with a five day forecast.",
+   "ocrText": "Pune\n31°\nPartly cloudy\nMon 32°\nTue 30°\nWed 28°\nThu 29°\nFri 31°",
+   "tags": [
+    "weather",
+    "app",
+    "blue"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 18006,
+   "width": 400,
+   "height": 560,
+   "contentHash": "bebeace8b7dc181561b06f6c78137d8c6eda0ffc781e3ee3b0cfd86b43e7367c",
+   "thumbhash": "ooMFDQBoh4Z3KIcHh3x4N1iHgOT4",
+   "palette": [
+    "#2558dc",
+    "#4785ed"
+   ]
+  }
+ },
+ {
+  "id": "shot-wifi-card",
+  "kind": "image",
+  "tags": [
+   "wifi",
+   "password",
+   "card"
+  ],
+  "language": "en",
+  "file": "files/shot-wifi-card.png",
+  "source": {
+   "type": "original",
+   "url": "",
+   "licence": "CC0 1.0",
+   "attribution": "Drawn for this sample Library (evals/scripts/screens.ts)"
+  },
+  "extraction": {
+   "title": "Guest Wi-Fi card",
+   "description": "A printed guest Wi-Fi card on a teal background with the network name and password.",
+   "ocrText": "Guest Wi-Fi\nNetwork\nLighthouse_5G\nPassword\norange-falcon-27\nPlease do not share outside the house.",
+   "tags": [
+    "wifi",
+    "password",
+    "card"
+   ],
+   "language": "en"
+  },
+  "image": {
+   "mime": "image/png",
+   "bytes": 16451,
+   "width": 520,
+   "height": 320,
+   "contentHash": "15c4e99e0c2a34b8bf8772a2a04ca02fda7668ba6a0af73b14af6affccde0db7",
+   "thumbhash": "lTYBBICPZlWZeWZkiImPmfSYSQ==",
+   "palette": [
+    "#0f766e"
+   ]
+  }
+ },
+ {
+  "id": "wiki-art-nouveau",
+  "kind": "text",
+  "title": "Art Nouveau",
+  "text": "texts/wiki-art-nouveau.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Art_Nouveau&oldid=1384671508",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Art Nouveau\""
+  }
+ },
+ {
+  "id": "wiki-aurora",
+  "kind": "text",
+  "title": "Aurora",
+  "text": "texts/wiki-aurora.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Aurora&oldid=1384256499",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Aurora\""
+  }
+ },
+ {
+  "id": "wiki-axolotl",
+  "kind": "text",
+  "title": "Axolotl",
+  "text": "texts/wiki-axolotl.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Axolotl&oldid=1383221607",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Axolotl\""
+  }
+ },
+ {
+  "id": "wiki-bauhaus",
+  "kind": "text",
+  "title": "Bauhaus",
+  "text": "texts/wiki-bauhaus.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Bauhaus&oldid=1383411406",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Bauhaus\""
+  }
+ },
+ {
+  "id": "wiki-biryani",
+  "kind": "text",
+  "title": "Biryani",
+  "text": "texts/wiki-biryani.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Biryani&oldid=1381497587",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Biryani\""
+  }
+ },
+ {
+  "id": "wiki-bonsai",
+  "kind": "text",
+  "title": "Bonsai",
+  "text": "texts/wiki-bonsai.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Bonsai&oldid=1378836817",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Bonsai\""
+  }
+ },
+ {
+  "id": "wiki-brutalist-architecture",
+  "kind": "text",
+  "title": "Brutalist architecture",
+  "text": "texts/wiki-brutalist-architecture.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Brutalist_architecture&oldid=1382373167",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Brutalist architecture\""
+  }
+ },
+ {
+  "id": "wiki-coral-bleaching",
+  "kind": "text",
+  "title": "Coral bleaching",
+  "text": "texts/wiki-coral-bleaching.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Coral_bleaching&oldid=1383697419",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Coral bleaching\""
+  }
+ },
+ {
+  "id": "wiki-crispr",
+  "kind": "text",
+  "title": "CRISPR",
+  "text": "texts/wiki-crispr.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=CRISPR&oldid=1376493355",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"CRISPR\""
+  }
+ },
+ {
+  "id": "wiki-dal",
+  "kind": "text",
+  "title": "Dal",
+  "text": "texts/wiki-dal.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Dal&oldid=1381624517",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Dal\""
+  }
+ },
+ {
+  "id": "wiki-espresso",
+  "kind": "text",
+  "title": "Espresso",
+  "text": "texts/wiki-espresso.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Espresso&oldid=1381363121",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Espresso\""
+  }
+ },
+ {
+  "id": "wiki-fibonacci-sequence",
+  "kind": "text",
+  "title": "Fibonacci sequence",
+  "text": "texts/wiki-fibonacci-sequence.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Fibonacci_sequence&oldid=1384908426",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Fibonacci sequence\""
+  }
+ },
+ {
+  "id": "wiki-helvetica",
+  "kind": "text",
+  "title": "Helvetica",
+  "text": "texts/wiki-helvetica.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Helvetica&oldid=1383743561",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Helvetica\""
+  }
+ },
+ {
+  "id": "wiki-hi-dal",
+  "kind": "text",
+  "title": "दाल",
+  "text": "texts/wiki-hi-dal.txt",
+  "tags": [],
+  "language": "hi",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://hi.wikipedia.org/w/index.php?title=%E0%A4%A6%E0%A4%BE%E0%A4%B2&oldid=6512682",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"दाल\""
+  }
+ },
+ {
+  "id": "wiki-hi-jaipur",
+  "kind": "text",
+  "title": "जयपुर",
+  "text": "texts/wiki-hi-jaipur.txt",
+  "tags": [],
+  "language": "hi",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://hi.wikipedia.org/w/index.php?title=%E0%A4%9C%E0%A4%AF%E0%A4%AA%E0%A5%81%E0%A4%B0&oldid=6631479",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"जयपुर\""
+  }
+ },
+ {
+  "id": "wiki-hi-masala-chai",
+  "kind": "text",
+  "title": "मसाला चाय",
+  "text": "texts/wiki-hi-masala-chai.txt",
+  "tags": [],
+  "language": "hi",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://hi.wikipedia.org/w/index.php?title=%E0%A4%AE%E0%A4%B8%E0%A4%BE%E0%A4%B2%E0%A4%BE_%E0%A4%9A%E0%A4%BE%E0%A4%AF&oldid=6549026",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"मसाला चाय\""
+  }
+ },
+ {
+  "id": "wiki-himalayas",
+  "kind": "text",
+  "title": "Himalayas",
+  "text": "texts/wiki-himalayas.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Himalayas&oldid=1384977021",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Himalayas\""
+  }
+ },
+ {
+  "id": "wiki-honey-bee",
+  "kind": "text",
+  "title": "Honey bee",
+  "text": "texts/wiki-honey-bee.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Honey_bee&oldid=1382596485",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Honey bee\""
+  }
+ },
+ {
+  "id": "wiki-iceland",
+  "kind": "text",
+  "title": "Iceland",
+  "text": "texts/wiki-iceland.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Iceland&oldid=1384754016",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Iceland\""
+  }
+ },
+ {
+  "id": "wiki-jaipur",
+  "kind": "text",
+  "title": "Jaipur",
+  "text": "texts/wiki-jaipur.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Jaipur&oldid=1383486025",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Jaipur\""
+  }
+ },
+ {
+  "id": "wiki-kombucha",
+  "kind": "text",
+  "title": "Kombucha",
+  "text": "texts/wiki-kombucha.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Kombucha&oldid=1384914116",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Kombucha\""
+  }
+ },
+ {
+  "id": "wiki-marathon",
+  "kind": "text",
+  "title": "Marathon",
+  "text": "texts/wiki-marathon.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Marathon&oldid=1384623796",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Marathon\""
+  }
+ },
+ {
+  "id": "wiki-marie-curie",
+  "kind": "text",
+  "title": "Marie Curie",
+  "text": "texts/wiki-marie-curie.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Marie_Curie&oldid=1384840538",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Marie Curie\""
+  }
+ },
+ {
+  "id": "wiki-masala-chai",
+  "kind": "text",
+  "title": "Masala chai",
+  "text": "texts/wiki-masala-chai.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Masala_chai&oldid=1385013609",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Masala chai\""
+  }
+ },
+ {
+  "id": "wiki-monsoon",
+  "kind": "text",
+  "title": "Monsoon",
+  "text": "texts/wiki-monsoon.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Monsoon&oldid=1368846764",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Monsoon\""
+  }
+ },
+ {
+  "id": "wiki-nikola-tesla",
+  "kind": "text",
+  "title": "Nikola Tesla",
+  "text": "texts/wiki-nikola-tesla.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Nikola_Tesla&oldid=1384927900",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Nikola Tesla\""
+  }
+ },
+ {
+  "id": "wiki-octopus",
+  "kind": "text",
+  "title": "Octopus",
+  "text": "texts/wiki-octopus.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Octopus&oldid=1376790243",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Octopus\""
+  }
+ },
+ {
+  "id": "wiki-origami",
+  "kind": "text",
+  "title": "Origami",
+  "text": "texts/wiki-origami.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Origami&oldid=1384702249",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Origami\""
+  }
+ },
+ {
+  "id": "wiki-pangolin",
+  "kind": "text",
+  "title": "Pangolin",
+  "text": "texts/wiki-pangolin.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Pangolin&oldid=1384254417",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Pangolin\""
+  }
+ },
+ {
+  "id": "wiki-photosynthesis",
+  "kind": "text",
+  "title": "Photosynthesis",
+  "text": "texts/wiki-photosynthesis.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Photosynthesis&oldid=1383248806",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Photosynthesis\""
+  }
+ },
+ {
+  "id": "wiki-plate-tectonics",
+  "kind": "text",
+  "title": "Plate tectonics",
+  "text": "texts/wiki-plate-tectonics.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Plate_tectonics&oldid=1381934246",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Plate tectonics\""
+  }
+ },
+ {
+  "id": "wiki-printing-press",
+  "kind": "text",
+  "title": "Printing press",
+  "text": "texts/wiki-printing-press.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Printing_press&oldid=1384322441",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Printing press\""
+  }
+ },
+ {
+  "id": "wiki-rubik-s-cube",
+  "kind": "text",
+  "title": "Rubik's Cube",
+  "text": "texts/wiki-rubik-s-cube.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Rubik's_Cube&oldid=1384063238",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Rubik's Cube\""
+  }
+ },
+ {
+  "id": "wiki-sahara",
+  "kind": "text",
+  "title": "Sahara",
+  "text": "texts/wiki-sahara.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Sahara&oldid=1380508422",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Sahara\""
+  }
+ },
+ {
+  "id": "wiki-sourdough",
+  "kind": "text",
+  "title": "Sourdough",
+  "text": "texts/wiki-sourdough.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Sourdough&oldid=1382803423",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Sourdough\""
+  }
+ },
+ {
+  "id": "wiki-srinivasa-ramanujan",
+  "kind": "text",
+  "title": "Srinivasa Ramanujan",
+  "text": "texts/wiki-srinivasa-ramanujan.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Srinivasa_Ramanujan&oldid=1384615768",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Srinivasa Ramanujan\""
+  }
+ },
+ {
+  "id": "wiki-taj-mahal",
+  "kind": "text",
+  "title": "Taj Mahal",
+  "text": "texts/wiki-taj-mahal.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Taj_Mahal&oldid=1384869895",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Taj Mahal\""
+  }
+ },
+ {
+  "id": "wiki-transistor",
+  "kind": "text",
+  "title": "Transistor",
+  "text": "texts/wiki-transistor.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Transistor&oldid=1383498898",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Transistor\""
+  }
+ },
+ {
+  "id": "wiki-varanasi",
+  "kind": "text",
+  "title": "Varanasi",
+  "text": "texts/wiki-varanasi.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Varanasi&oldid=1381967492",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Varanasi\""
+  }
+ },
+ {
+  "id": "wiki-venice",
+  "kind": "text",
+  "title": "Venice",
+  "text": "texts/wiki-venice.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Venice&oldid=1383331373",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Venice\""
+  }
+ },
+ {
+  "id": "wiki-vincent-van-gogh",
+  "kind": "text",
+  "title": "Vincent van Gogh",
+  "text": "texts/wiki-vincent-van-gogh.txt",
+  "tags": [],
+  "language": "en",
+  "source": {
+   "type": "wikipedia",
+   "url": "https://en.wikipedia.org/w/index.php?title=Vincent_van_Gogh&oldid=1384236555",
+   "licence": "CC BY-SA 4.0",
+   "licenceUrl": "https://creativecommons.org/licenses/by-sa/4.0/",
+   "attribution": "Wikipedia contributors, \"Vincent van Gogh\""
+  }
+ }
+]

@@ -1,0 +1,186 @@
+[
+  {
+    "id": "colour-orange-cat",
+    "query": "orange cat staring at me from a couch",
+    "expect": ["img-orange-cat"],
+    "kind": "colour"
+  },
+  {
+    "id": "colour-purple-field",
+    "query": "purple flowers in rows with an old farmhouse behind",
+    "expect": ["img-lavender"],
+    "kind": "colour"
+  },
+  {
+    "id": "colour-red-car",
+    "query": "bright red old car in front of graffiti",
+    "expect": ["img-red-car"],
+    "kind": "colour"
+  },
+  {
+    "id": "colour-yellow-cab",
+    "query": "yellow cab on a city street",
+    "expect": ["img-yellow-taxi"],
+    "kind": "colour"
+  },
+  {
+    "id": "colour-purple-sidebar",
+    "query": "that dashboard screenshot with the dark purple sidebar",
+    "expect": ["shot-dashboard-purple"],
+    "kind": "colour",
+    "note": "The PLAN's own example: a colour plus a layout word."
+  },
+  {
+    "id": "text-cafe-total",
+    "query": "receipt from a cafe, total 18.40",
+    "expect": ["shot-cafe-receipt"],
+    "kind": "text in image"
+  },
+  {
+    "id": "text-wifi-password",
+    "query": "wifi password orange falcon",
+    "expect": ["shot-wifi-card"],
+    "kind": "text in image"
+  },
+  {
+    "id": "text-connection-refused",
+    "query": "screenshot of the error saying connection refused on port 5432",
+    "expect": ["shot-postgres-error"],
+    "kind": "text in image"
+  },
+  {
+    "id": "text-vegas-sign",
+    "query": "photo of the sign that says welcome to fabulous las vegas",
+    "expect": ["img-vegas-sign"],
+    "kind": "text in image"
+  },
+  {
+    "id": "text-concert-row",
+    "query": "neon harbour concert ticket row F seat 12",
+    "expect": ["shot-concert-ticket"],
+    "kind": "text in image"
+  },
+  {
+    "id": "typo-sourdough",
+    "query": "sourdogh starter and how it ferments",
+    "expect": ["wiki-sourdough"],
+    "kind": "typo"
+  },
+  {
+    "id": "typo-photosynthesis",
+    "query": "photosythesis in plants",
+    "expect": ["wiki-photosynthesis"],
+    "kind": "typo"
+  },
+  {
+    "id": "typo-antikythera",
+    "query": "antikythera mechansim greek gears",
+    "expect": ["long-antikythera-mechanism"],
+    "kind": "typo"
+  },
+  {
+    "id": "typo-ramanujan",
+    "query": "srinivasa ramanujn mathmatician",
+    "expect": ["wiki-srinivasa-ramanujan"],
+    "kind": "typo"
+  },
+  {
+    "id": "hinglish-dal-nani",
+    "query": "wo dal ki recipe jo nani banati thi",
+    "expect": ["note-dal-tadka-hinglish"],
+    "kind": "Hinglish",
+    "note": "Two Wikipedia articles about dal compete: only the personal note is right."
+  },
+  {
+    "id": "hinglish-flat-baner",
+    "query": "baner mein flat dekhne wala note, kitna budget tha",
+    "expect": ["note-flat-hunting-hinglish"],
+    "kind": "Hinglish"
+  },
+  {
+    "id": "hinglish-dinner-chat",
+    "query": "dinner ka plan wali chat jisme paneer tikka tha",
+    "expect": ["shot-chat-hinglish"],
+    "kind": "Hinglish"
+  },
+  {
+    "id": "hinglish-trek-cost",
+    "query": "kedarkantha trek ka kharcha kitna tha",
+    "expect": ["note-kedarkantha-trek-hinglish"],
+    "kind": "Hinglish"
+  },
+  {
+    "id": "date-flight-april",
+    "query": "flight on the 9th of April from Delhi to Bengaluru",
+    "expect": ["shot-boarding-pass"],
+    "kind": "date"
+  },
+  {
+    "id": "date-passport-may",
+    "query": "passport appointment on 3 May",
+    "expect": ["note-passport-renewal"],
+    "kind": "date"
+  },
+  {
+    "id": "date-meeting-june",
+    "query": "the meeting on 20 June about planning",
+    "expect": ["shot-calendar-invite", "note-q2-planning-meeting"],
+    "kind": "date",
+    "note": "A screenshot of the invite and a note both carry the date: either is right."
+  },
+  {
+    "id": "looks-paris-night",
+    "query": "tall tower lit up at night next to a river with light trails",
+    "expect": ["img-eiffel"],
+    "kind": "looks like"
+  },
+  {
+    "id": "looks-fuji-blossom",
+    "query": "snowy volcano behind pink blossom branches",
+    "expect": ["img-sakura"],
+    "kind": "looks like"
+  },
+  {
+    "id": "looks-green-sky",
+    "query": "glowing green ribbons in the night sky over snow",
+    "expect": ["img-aurora"],
+    "kind": "looks like"
+  },
+  {
+    "id": "looks-old-map",
+    "query": "antique map of the world drawn as two circles",
+    "expect": ["img-old-map"],
+    "kind": "looks like"
+  },
+  {
+    "id": "passage-voynich-letter",
+    "query": "the strange undeciphered book that a Prague owner sent samples of to a Jesuit scholar in Rome",
+    "expect": ["long-voynich-manuscript"],
+    "kind": "passage",
+    "note": "Deep in a long Memory: the 1639 letter is about 23,000 characters in."
+  },
+  {
+    "id": "passage-rosetta-cartouche",
+    "query": "who first guessed that the hieroglyphs inside the oval rings were royal names",
+    "expect": ["long-rosetta-stone"],
+    "kind": "passage"
+  },
+  {
+    "id": "passage-chess-en-passant",
+    "query": "the rule where a pawn can capture a pawn that jumped two squares",
+    "expect": ["long-history-of-chess"],
+    "kind": "passage"
+  },
+  {
+    "id": "passage-tardigrade-tun",
+    "query": "tiny animal dries out into a little barrel and stops its metabolism",
+    "expect": ["long-tardigrade"],
+    "kind": "passage"
+  },
+  {
+    "id": "passage-red-headed-clerk",
+    "query": "the story where a man with fiery red hair is paid to copy out an encyclopaedia",
+    "expect": ["book-red-headed-league"],
+    "kind": "passage"
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "extends": "@spark/config/tsconfig.base.json",
+  // The assemble script runs a browser page, so the DOM lib types it.
+  "compilerOptions": { "lib": ["ES2023", "DOM"], "types": ["node"] },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}
