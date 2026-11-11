@@ -1,5 +1,5 @@
 {
-  "id": "9aece403-ef1f-4c72-bcee-2dd658cfb3cd",
+  "id": "74a84822-507e-47be-8a39-f32107207681",
   "prevId": "657a3ccd-8b60-43cb-ab7e-9309b939d864",
   "version": "7",
   "dialect": "postgresql",
@@ -182,6 +182,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "estimated": {
+          "name": "estimated",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "at": {
           "name": "at",
           "type": "timestamp with time zone",
@@ -327,7 +334,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'fresh'"
+          "default": "'background'"
         },
         "index_fresh_day": {
           "name": "index_fresh_day",

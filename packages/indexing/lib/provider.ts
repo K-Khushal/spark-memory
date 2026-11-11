@@ -26,7 +26,11 @@ export type Provider = {
  * Every kind moves on to the next provider; only the message's kind is kept.
  */
 export class ProviderError extends Error {
-  constructor(readonly kind: "overflow" | "unsupported" | "failed") {
+  constructor(
+    readonly kind: "overflow" | "unsupported" | "failed",
+    /** What a call that may still be billed probably used (it timed out). */
+    readonly estimate?: Usage
+  ) {
     super(`provider ${kind}`);
     this.name = "ProviderError";
   }

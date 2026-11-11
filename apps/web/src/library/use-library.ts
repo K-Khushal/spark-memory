@@ -171,6 +171,7 @@ export function useLibrary() {
       setMemories,
       transport: indexingTransport,
       notify: toast,
+      isPending: actions.isPending,
     })
   );
   // While anything is Indexing, ask after it: every 2 s, backing off to 30 s

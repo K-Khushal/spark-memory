@@ -80,6 +80,8 @@ export type AiCall = {
   model: string;
   usage: Usage;
   costMicros: number;
+  /** A guess: the call timed out, so no usage came back. */
+  estimated?: boolean;
 };
 
 export type IndexOutcome =
@@ -169,7 +171,23 @@ export function createIndexer({
     // AI opt-out switched on (or an edit, or Retry) since loading: stop here.
     if (!(await store.isCurrent(work.memoryId, work.run)))
       throw new Superseded();
-    const reply = await provider.extract(request);
+    let reply;
+    try {
+      reply = await provider.extract(request);
+    } catch (error) {
+      if (error instanceof ProviderError && error.estimate) {
+        await store.recordCall({
+          userId: work.userId,
+          memoryId: work.memoryId,
+          provider: provider.name,
+          model: provider.model,
+          usage: error.estimate,
+          costMicros: costMicros(provider.model, error.estimate),
+          estimated: true,
+        });
+      }
+      throw error;
+    }
     await store.recordCall({
       userId: work.userId,
       memoryId: work.memoryId,

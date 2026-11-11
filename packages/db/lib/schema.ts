@@ -156,10 +156,14 @@ export const memory = pgTable(
     indexLeaseUntil: timestamp("index_lease_until", { withTimezone: true }),
     /** The run the lease is for: a new run is never blocked by an old lease. */
     indexLeaseRun: integer("index_lease_run"),
-    /** Which queue the current run belongs on (the hourly sweep re-sends it there). */
+    /**
+     * Which queue the current run belongs on (the hourly sweep re-sends it
+     * there). Every Capture sets fresh; the default is background, so rows
+     * left Indexing from before the queues existed never crowd fresh work.
+     */
     indexPriority: text("index_priority")
       .$type<"fresh" | "background">()
-      .default("fresh")
+      .default("background")
       .notNull(),
     /** The UTC day a Retry or opt-in last went first in line (once a day). */
     indexFreshDay: date("index_fresh_day"),
@@ -283,6 +287,8 @@ export const aiCall = pgTable(
     inputTokens: integer("input_tokens").notNull(),
     outputTokens: integer("output_tokens").notNull(),
     costMicros: bigint("cost_micros", { mode: "number" }).notNull(),
+    /** True when the cost is a guess: the call timed out, so no usage came back. */
+    estimated: boolean("estimated").default(false).notNull(),
     at: instant("at"),
   },
   (t) => [

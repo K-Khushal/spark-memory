@@ -25,15 +25,19 @@ const TOO_LARGE = /\b(3006|413)\b|too large/i;
 const JSON_MODE = /json mode/i;
 
 /** The binding takes no signal: a call that outlives `ms` is given up on. */
+class TimedOut extends Error {}
+
 function withTimeout<T>(ms: number, call: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     call,
     new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("timed out")), ms);
+      timer = setTimeout(() => reject(new TimedOut()), ms);
     }),
   ]).finally(() => clearTimeout(timer));
 }
+
+const MAX_OUTPUT_TOKENS = 4096;
 
 /**
  * Gemma 4 on Workers AI (ADR-0005): first in the chain, zero data
@@ -84,12 +88,21 @@ export function workersAi(
                 strict: true,
               },
             },
-            max_completion_tokens: 4096,
+            max_completion_tokens: MAX_OUTPUT_TOKENS,
             // Thinking is on by default and billed as output: Extraction needs none.
             chat_template_kwargs: { enable_thinking: false },
           })
         )) as Reply;
       } catch (error) {
+        // The call runs on, and is billed, after we stop waiting: estimate
+        // it at its most (every output token) so the budget counts it.
+        if (error instanceof TimedOut) {
+          throw new ProviderError("failed", {
+            inputTokens:
+              guessTokens(system.length + user.length) + (image ? 1000 : 0),
+            outputTokens: MAX_OUTPUT_TOKENS,
+          });
+        }
         const message = error instanceof Error ? error.message : "";
         // "JSON Mode couldn't be met" is invalid output: the chain corrects it.
         if (JSON_MODE.test(message)) {

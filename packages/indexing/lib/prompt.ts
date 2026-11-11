@@ -42,6 +42,9 @@ const CLOSING =
 function clean(s: string, max: number) {
   let text = s
     .normalize("NFKC")
+    // Invisible format characters (zero-width spaces and joiners, BOM)
+    // could split a delimiter that a model still reads as one.
+    .replace(/\p{Cf}/gu, "")
     .replace(CONTROL, "")
     .replace(OPENING, "<")
     .replace(CLOSING, ">");

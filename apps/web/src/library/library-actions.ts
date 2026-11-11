@@ -549,6 +549,8 @@ export function libraryActions({
     capture,
     captureImages,
     retryUpload: images.retry,
+    /** A request for this Memory (Capture, Try Again, edit, delete) is still out. */
+    isPending: (id: string) => queues.has(id),
     refresh,
     editText,
     saveEdit,

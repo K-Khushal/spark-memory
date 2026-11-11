@@ -26,7 +26,11 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   ...over,
 });
 
-function setup(transport: Partial<IndexingTransport>, initial: WallMemory[]) {
+function setup(
+  transport: Partial<IndexingTransport>,
+  initial: WallMemory[],
+  isPending: (id: string) => boolean = () => false
+) {
   let wall = initial;
   const notify = vi.fn();
   const actions = indexingActions({
@@ -35,6 +39,7 @@ function setup(transport: Partial<IndexingTransport>, initial: WallMemory[]) {
     },
     transport: transport as IndexingTransport,
     notify: notify as never,
+    isPending,
   });
   return { actions, wall: () => wall, notify };
 }
@@ -160,7 +165,46 @@ describe("Index state on the wall", () => {
     const poll = vi.fn(async () => [kept]);
     const { actions } = setup({ poll }, [kept, deleted]);
     expect(actions.pollable([kept, deleted])).toEqual([kept.id, deleted.id]);
+    // One miss can be a race; two in a row is gone.
+    await actions.poll([kept.id, deleted.id]);
+    expect(actions.pollable([kept, deleted])).toEqual([kept.id, deleted.id]);
     await actions.poll([kept.id, deleted.id]);
     expect(actions.pollable([kept, deleted])).toEqual([kept.id]);
+  });
+
+  it("keeps asking after a Capture polled before the server saved it", async () => {
+    const m = memory();
+    let pending = true;
+    let saved = false;
+    const poll = vi.fn(async () =>
+      saved ? [{ ...m, indexState: "searchable" as const }] : []
+    );
+    const { actions, wall } = setup({ poll }, [m], () => pending);
+    // A slow create (or Try Again of it): misses while it is out never count.
+    for (let i = 0; i < 3; i++) await actions.poll([m.id]);
+    expect(actions.pollable(wall())).toEqual([m.id]);
+    pending = false;
+    // Saved now, but the first poll after can still race it.
+    await actions.poll([m.id]);
+    expect(actions.pollable(wall())).toEqual([m.id]);
+    saved = true;
+    await actions.poll([m.id]);
+    expect(wall()[0]!.indexState).toBe("searchable");
+  });
+
+  it("asks again about a Memory once it is sent again (Try Again)", async () => {
+    const m = memory();
+    let pending = false;
+    const poll = vi.fn(async (): Promise<Memory[]> => []);
+    const { actions, wall } = setup({ poll }, [m], () => pending);
+    await actions.poll([m.id]);
+    await actions.poll([m.id]);
+    expect(actions.pollable(wall())).toEqual([]);
+    pending = true;
+    expect(actions.pollable(wall())).toEqual([m.id]);
+    pending = false;
+    // Its misses start over: one more is not enough to drop it.
+    await actions.poll([m.id]);
+    expect(actions.pollable(wall())).toEqual([m.id]);
   });
 });

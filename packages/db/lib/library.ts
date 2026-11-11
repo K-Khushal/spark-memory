@@ -213,7 +213,15 @@ export function openLibrary(db: Database, userId: string) {
       const { id, body, title, captureNote } = TextCapture.parse(input);
       const [row] = await db
         .insert(memory)
-        .values({ id, userId, kind: "text", body, title, captureNote })
+        .values({
+          id,
+          userId,
+          kind: "text",
+          body,
+          title,
+          captureNote,
+          indexPriority: "fresh",
+        })
         .onConflictDoNothing({ target: memory.id })
         .returning(columns);
       if (row) return { created: true, memory: row };
@@ -292,6 +300,7 @@ export function openLibrary(db: Database, userId: string) {
           kind: "image",
           contentHash: capture.contentHash,
           indexState: "indexing",
+          indexPriority: "fresh",
         });
         const uploads: FileUpload[] = [
           {
@@ -453,7 +462,9 @@ export function openLibrary(db: Database, userId: string) {
           indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
           indexRun: sql`${memory.indexRun} + (${reindex})::int`,
           indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
-          indexPriority: sql`case when ${reindex} then 'background' else ${memory.indexPriority} end`,
+          // A fix to a Capture still on its first, fresh run stays first in
+          // line; any later edit is background work.
+          indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
         })
         .where(
           and(

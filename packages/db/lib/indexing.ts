@@ -187,6 +187,8 @@ export function indexingStore(db: Database) {
       model: string;
       usage: { inputTokens: number; outputTokens: number };
       costMicros: number;
+      /** A guess (the call timed out with no usage), kept apart in reports. */
+      estimated?: boolean;
     }) {
       await db.transaction(async (tx) => {
         await tx.insert(aiCall).values({
@@ -198,6 +200,7 @@ export function indexingStore(db: Database) {
           inputTokens: call.usage.inputTokens,
           outputTokens: call.usage.outputTokens,
           costMicros: call.costMicros,
+          estimated: call.estimated ?? false,
         });
         await tx
           .insert(spendDay)

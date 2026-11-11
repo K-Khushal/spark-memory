@@ -39,10 +39,13 @@ export function indexingActions({
   setMemories,
   transport,
   notify,
+  isPending,
 }: {
   setMemories: Dispatch<SetStateAction<WallMemory[]>>;
   transport: IndexingTransport;
   notify: typeof toast;
+  /** A request for this Memory (its Capture, Try Again) has not finished. */
+  isPending: (id: string) => boolean;
 }) {
   const merge = (fresh: Memory[]) => {
     const byId = new Map(fresh.map((m) => [m.id, m]));
@@ -58,8 +61,13 @@ export function indexingActions({
       all.map((m) => (m.id === id ? { ...m, ...fields } : m))
     );
 
-  /** Memories the server no longer has (deleted elsewhere): never asked after again. */
-  const gone = new Set<string>();
+  /**
+   * Polls in a row each Memory has been missing from. A poll can overtake
+   * a slow Capture, so a miss counts only once nothing is pending for it,
+   * and only GONE_AFTER misses in a row (deleted elsewhere) stop the asking.
+   */
+  const misses = new Map<string, number>();
+  const GONE_AFTER = 2;
   /**
    * AI opt-out switches in flight, one request per Memory at a time:
    * `want` is the latest switch not yet sent, `before` the wall's state
@@ -94,13 +102,22 @@ export function indexingActions({
     async poll(ids: string[]) {
       const fresh = await transport.poll(ids);
       const found = new Set(fresh.map((m) => m.id));
-      for (const id of ids) if (!found.has(id)) gone.add(id);
+      for (const id of ids) {
+        if (found.has(id) || isPending(id)) misses.delete(id);
+        else misses.set(id, (misses.get(id) ?? 0) + 1);
+      }
       merge(fresh);
     },
 
     /** The ids worth asking after: Indexing on the wall, and still on the server. */
     pollable: (memories: WallMemory[]) =>
-      indexingIds(memories.filter((m) => !gone.has(m.id))),
+      indexingIds(
+        memories.filter((m) => {
+          // Sent again (Try Again): its misses start over.
+          if (isPending(m.id)) misses.delete(m.id);
+          return (misses.get(m.id) ?? 0) < GONE_AFTER;
+        })
+      ),
 
     async retryIndexing(memory: Memory) {
       patch(memory.id, { indexState: "indexing", indexError: null });

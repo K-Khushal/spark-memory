@@ -122,6 +122,11 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
       )[0]!.p;
     const memory = await capture("Priorities");
     expect(await priority(memory.id)).toBe("fresh");
+    // Fixing a typo before the first run finished keeps it first in line.
+    await library().edit(memory.id, { body: "Priorities, fixed" });
+    expect(await priority(memory.id)).toBe("fresh");
+    await store().complete(memory.id, 2, extraction());
+    // Once Searchable, editing is background work.
     await library().edit(memory.id, { body: "Priorities, edited" });
     expect(await priority(memory.id)).toBe("background");
     for (const expected of ["fresh", "background"]) {
@@ -276,6 +281,50 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
         aiOptOut: false,
       });
     });
+  });
+
+  it("treats rows from before Indexing as background, and every Capture as fresh", async () => {
+    const id = crypto.randomUUID();
+    await db.insert(schema.memory).values({ id, userId: ana, kind: "text" });
+    const image = await library().captureImage({
+      id: crypto.randomUUID(),
+      mime: "image/png",
+      bytes: 10,
+      width: 1,
+      height: 1,
+      contentHash: "ab".repeat(32),
+      thumbhash: "1QcSHQRnh493V4dIh4eXh1h4kJUI",
+      thumbnail: { mime: "image/webp", bytes: 5 },
+    });
+    const text = await capture("Fresh");
+    const rows = await db
+      .select({ id: schema.memory.id, p: schema.memory.indexPriority })
+      .from(schema.memory)
+      .where(
+        sql`${schema.memory.id} in (${id}, ${"memory" in image ? image.memory.id : ""}, ${text.id})`
+      );
+    const of = (x: string) => rows.find((r) => r.id === x)!.p;
+    expect(of(id)).toBe("background");
+    expect(of("memory" in image ? image.memory.id : "")).toBe("fresh");
+    expect(of(text.id)).toBe("fresh");
+  });
+
+  it("keeps an estimated call apart from a measured one", async () => {
+    const memory = await capture("Timed out");
+    await store().recordCall({
+      userId: ana,
+      memoryId: memory.id,
+      provider: "workers-ai",
+      model: "m",
+      usage: { inputTokens: 100, outputTokens: 4096 },
+      costMicros: 3,
+      estimated: true,
+    });
+    const [row] = await db
+      .select({ estimated: schema.aiCall.estimated })
+      .from(schema.aiCall)
+      .where(eq(schema.aiCall.memoryId, memory.id));
+    expect(row!.estimated).toBe(true);
   });
 
   it("adds up AI spend per day atomically, and keeps each call per Memory", async () => {
