@@ -243,7 +243,7 @@ export async function sweepAccounts(env: Bindings, calls?: CronCalls) {
     }
     // Bounded per run: what is left goes on the next hourly run.
     const expired = await jobs.sweepExports((keys) => env.FILES.delete(keys), {
-      allowCall: calls ? () => calls.take("accounts") : undefined,
+      allowCall: calls ? () => calls.take("cleanup") : undefined,
     });
     if (sent || expired) {
       console.log(`account: sweep sent ${sent}, expired ${expired}`);

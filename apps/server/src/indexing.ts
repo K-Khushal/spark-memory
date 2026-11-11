@@ -198,9 +198,9 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
     const spent =
       (await store.spentTodayMicros()) >= (await store.dailyBudgetMicros());
     const room = calls?.remaining("indexing");
-    const stalled = (await store.stalled(60, room ?? 500)).filter(
-      (m) => !spent || m.priority === "fresh"
-    );
+    // Past the budget, the limit applies to fresh work only. Filtering after
+    // the limit would drop a fresh Memory sitting behind background rows.
+    const stalled = await store.stalled(60, room ?? 500, spent);
     let sent = 0;
     for (const { id, run, priority } of stalled) {
       if (calls && !calls.take("indexing")) break;

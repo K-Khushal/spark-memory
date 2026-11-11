@@ -24,12 +24,13 @@ export async function sweep(
 ) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
-    const total = await withUploadLease(db, deadline, async () => {
+    const total = await withUploadLease(db, deadline, async (token) => {
       let removed = 0;
       for (;;) {
         const swept = await sweepAbandonedUploads(db, {
           // The lease above covers every pass of this invocation.
           hold: false,
+          leaseToken: token,
           allowCall: calls ? () => calls.take("uploads") : undefined,
           // Exact keys captured under the lock. Aborting stops the next call;
           // a call in flight can only delete keys from that set.

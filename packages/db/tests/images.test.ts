@@ -900,4 +900,171 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     expect(await library(owner).get(input.id)).toBeUndefined();
     await removeUser(db, owner);
   });
+
+  it("stops the next statement when the time left is gone, and keeps the rows", async () => {
+    await db.execute(sql`
+      delete from memory where id in (
+        select memory_id from memory_file
+        where stored_at is null
+          and created_at <= now() - interval '24 hours')`);
+    const owner = await newUser(db);
+    const input = image();
+    await library(owner).captureImage(input);
+    await age(input.id);
+    const { rows } = await db.execute<{ key: string }>(
+      sql`select r2_key as key from memory_file where memory_id = ${input.id} limit 1`
+    );
+    const fileKey = rows[0]!.key;
+    await db.execute(
+      sql`insert into object_removal (key) values (${fileKey}) on conflict do nothing`
+    );
+    let releaseRemoval!: () => void;
+    const removalGate = new Promise<void>((resolve) => {
+      releaseRemoval = resolve;
+    });
+    let releaseMemory!: () => void;
+    const memoryGate = new Promise<void>((resolve) => {
+      releaseMemory = resolve;
+    });
+    let removalLocked!: () => void;
+    const removalHeld = new Promise<void>((resolve) => {
+      removalLocked = resolve;
+    });
+    let memoryLocked!: () => void;
+    const memoryHeld = new Promise<void>((resolve) => {
+      memoryLocked = resolve;
+    });
+    let locksHeld!: () => void;
+    const locks = new Promise<void>((resolve) => {
+      locksHeld = resolve;
+    });
+    const lockRemoval = db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select key from object_removal where key = ${fileKey} for update`
+      );
+      removalLocked();
+      await removalGate;
+    });
+    const lockMemory = db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select id from memory where id = ${input.id} for update`
+      );
+      memoryLocked();
+      await memoryGate;
+    });
+    const sweep = sweepAbandonedUploads(db, {
+      deadline: Date.now() + 3_000,
+      removeObjects: async () => {
+        await Promise.all([removalHeld, memoryHeld]);
+        locksHeld();
+      },
+    });
+    const outcome = Promise.race([
+      sweep.then(() => "done" as const),
+      locks.then(
+        () =>
+          new Promise<"slow">((resolve) =>
+            setTimeout(() => resolve("slow"), 3_600)
+          )
+      ),
+    ]);
+    try {
+      await locks;
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      releaseRemoval();
+      await lockRemoval;
+      expect(await outcome).toBe("done");
+      expect(await library(owner).get(input.id)).toBeDefined();
+    } finally {
+      releaseRemoval();
+      releaseMemory();
+      await lockRemoval.catch(() => {});
+      await lockMemory.catch(() => {});
+      await sweep.catch(() => {});
+      await db.execute(sql`delete from object_removal where key = ${fileKey}`);
+      await removeUser(db, owner);
+    }
+  });
+
+  it("does not overwrite the cursor once another sweep holds the lease", async () => {
+    await db.execute(sql`
+      delete from memory where id in (
+        select memory_id from memory_file
+        where stored_at is null
+          and created_at <= now() - interval '24 hours')`);
+    await db.execute(sql`
+      insert into app_setting (key, value, updated_by)
+      values (${SWEEP_CURSOR_KEY}, 'keeper', 'sweep')
+      on conflict (key) do update set value = 'keeper', updated_at = now()
+    `);
+    const owner = await newUser(db);
+    const input = image();
+    await library(owner).captureImage(input);
+    await age(input.id);
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let opened!: () => void;
+    const started = new Promise<void>((resolve) => {
+      opened = resolve;
+    });
+    const sweep = sweepAbandonedUploads(db, {
+      removeObjects: () => {
+        opened();
+        return gate;
+      },
+    });
+    try {
+      await started;
+      await db.execute(sql`
+        update app_setting
+        set value = 'taken-over', updated_at = now()
+        where key = ${SWEEP_LEASE_KEY}
+      `);
+      release();
+      await sweep;
+      const { rows } = await db.execute<{ value: string }>(
+        sql`select value from app_setting where key = ${SWEEP_CURSOR_KEY}`
+      );
+      expect(rows[0]?.value).toBe("keeper");
+    } finally {
+      release();
+      await sweep.catch(() => {});
+      await db.execute(
+        sql`delete from app_setting where key in (${SWEEP_CURSOR_KEY}, ${SWEEP_LEASE_KEY})`
+      );
+      await removeUser(db, owner);
+    }
+  });
+
+  it("does not put the cursor back on a person being deleted", async () => {
+    await db.execute(sql`
+      delete from memory where id in (
+        select memory_id from memory_file
+        where stored_at is null
+          and created_at <= now() - interval '24 hours')`);
+    await db.execute(sql`
+      insert into app_setting (key, value, updated_by)
+      values (${SWEEP_CURSOR_KEY}, 'keeper', 'sweep')
+      on conflict (key) do update set value = 'keeper', updated_at = now()
+    `);
+    const owner = await newUser(db);
+    const input = image();
+    await library(owner).captureImage(input);
+    await age(input.id);
+    await openAccount(db, owner).requestDeletion();
+    await sweepAbandonedUploads(db, {
+      deadline: Date.now() + 250,
+      removeObjects: () => new Promise((resolve) => setTimeout(resolve, 800)),
+    });
+    const { rows } = await db.execute<{ value: string }>(
+      sql`select value from app_setting where key = ${SWEEP_CURSOR_KEY}`
+    );
+    expect(rows[0]?.value).toBe("keeper");
+    await db.execute(
+      sql`delete from app_setting where key in (${SWEEP_CURSOR_KEY}, ${SWEEP_LEASE_KEY})`
+    );
+    await removeUser(db, owner);
+  });
 });

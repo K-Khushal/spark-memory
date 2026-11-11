@@ -1,4 +1,14 @@
-import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  lt,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { Database } from "./client";
 import { SWEEP_CURSOR_KEY } from "./library";
 import { ANONYMISED_USER, lockOwner, ownerPrefix } from "./owner";
@@ -191,6 +201,9 @@ export type Account = ReturnType<typeof openAccount>;
 /** Rows of Memories deleted per statement, so no one statement runs long. */
 const DELETE_BATCH = 500;
 
+/** Where the deletion sweep stopped, so the next hour continues with the next person. */
+const DELETION_CURSOR_KEY = "sweep_deletion_cursor";
+
 /**
  * The account job's side of the database (not scoped to one person: it
  * acts on queue messages and the hourly sweep). Every step is idempotent,
@@ -198,15 +211,67 @@ const DELETE_BATCH = 500;
  */
 export function accountJobs(db: Database) {
   return {
-    /** People whose deletion has not finished. */
-    deletionsPending: async (limit = 50): Promise<string[]> =>
-      (
-        await db
-          .select({ userId: accountDeletion.userId })
-          .from(accountDeletion)
-          .orderBy(accountDeletion.requestedAt)
-          .limit(limit)
-      ).map((r) => r.userId),
+    /**
+     * People whose deletion has not finished, oldest first. Continues after
+     * the last batch this sweep handed out, and skips ids already attempted
+     * in this run, so a stuck one cannot take every place. Wraps once the
+     * rest of the queue is empty.
+     */
+    deletionsPending: async (
+      limit = 50,
+      skip: readonly string[] = []
+    ): Promise<string[]> =>
+      db.transaction(async (tx) => {
+        const [cursor] = await tx
+          .select({ value: appSetting.value })
+          .from(appSetting)
+          .where(eq(appSetting.key, DELETION_CURSOR_KEY));
+        const page = (after: string | undefined, exclude: readonly string[]) =>
+          tx
+            .select({ userId: accountDeletion.userId })
+            .from(accountDeletion)
+            .where(
+              and(
+                exclude.length
+                  ? notInArray(accountDeletion.userId, [...exclude])
+                  : undefined,
+                after
+                  ? sql`(${accountDeletion.requestedAt}, ${accountDeletion.userId}) > (
+                      select requested_at, user_id from account_deletion
+                      where user_id = ${after}
+                    )`
+                  : undefined
+              )
+            )
+            .orderBy(
+              asc(accountDeletion.requestedAt),
+              asc(accountDeletion.userId)
+            )
+            .limit(limit);
+        let rows = await page(cursor?.value, skip);
+        if (rows.length < limit) {
+          const rest = await page(undefined, [
+            ...skip,
+            ...rows.map((row) => row.userId),
+          ]);
+          rows = [...rows, ...rest].slice(0, limit);
+        }
+        const last = rows.at(-1)?.userId;
+        if (last) {
+          await tx
+            .insert(appSetting)
+            .values({
+              key: DELETION_CURSOR_KEY,
+              value: last,
+              updatedBy: "sweep",
+            })
+            .onConflictDoUpdate({
+              target: appSetting.key,
+              set: { value: last, updatedAt: sql`now()` },
+            });
+        }
+        return rows.map((row) => row.userId);
+      }),
 
     /**
      * Deletion, step two: every object under the owner's prefix (Memory

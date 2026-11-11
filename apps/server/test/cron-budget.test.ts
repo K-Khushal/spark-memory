@@ -11,7 +11,8 @@ describe("the hourly cron's call budget", () => {
     expect(calls.take("uploads")).toBe(false);
     expect(calls.remaining("uploads")).toBe(0);
     expect(calls.take("indexing")).toBe(true);
-    expect(calls.remaining("accounts")).toBe(10);
+    expect(calls.remaining("accounts")).toBe(6);
+    expect(calls.remaining("cleanup")).toBe(4);
     expect(calls.remaining("exports")).toBe(10);
   });
 });
