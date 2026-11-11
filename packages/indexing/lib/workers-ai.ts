@@ -39,6 +39,8 @@ function withTimeout<T>(ms: number, call: Promise<T>): Promise<T> {
 }
 
 const MAX_OUTPUT_TOKENS = 4096;
+/** What an image is guessed to cost when the reply does not say. */
+const IMAGE_TOKENS = 1000;
 
 /**
  * Gemma 4 on Workers AI (ADR-0005): first in the chain, zero data
@@ -102,7 +104,7 @@ export function workersAi(
           throw new ProviderError(
             "failed",
             lostCall(request, {
-              imageTokens: 1000,
+              imageTokens: IMAGE_TOKENS,
               maxOutputTokens: MAX_OUTPUT_TOKENS,
             })
           );
@@ -124,7 +126,8 @@ export function workersAi(
         usage: {
           inputTokens:
             reply.usage?.prompt_tokens ??
-            guessTokens(system.length + user.length) + (image ? 1000 : 0),
+            guessTokens(system.length + user.length) +
+              (image ? IMAGE_TOKENS : 0),
           outputTokens:
             reply.usage?.completion_tokens ?? guessTokens(text.length),
         },

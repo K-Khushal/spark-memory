@@ -30,11 +30,11 @@ const DELIMITER =
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
 
 // Brackets a model could read as < and > (NFKC already folds the fullwidth
-// and small-form ones).
+// and small-form ones), and ≮ ≯, which NFKC makes of < and > with U+0338.
 const OPENING =
-  /[\u2039\u2329\u27e8\u3008\u300a\u276e\u2770\u276c\u27ea\u29fc]/g;
+  /[\u2039\u2329\u27e8\u3008\u300a\u276e\u2770\u276c\u27ea\u29fc\u226e]/g;
 const CLOSING =
-  /[\u203a\u232a\u27e9\u3009\u300b\u276f\u2771\u276d\u27eb\u29fd]/g;
+  /[\u203a\u232a\u27e9\u3009\u300b\u276f\u2771\u276d\u27eb\u29fd\u226f]/g;
 
 /**
  * Content with nothing left that reads as a delimiter: look-alike brackets
