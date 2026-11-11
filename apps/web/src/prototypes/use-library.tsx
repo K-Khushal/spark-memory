@@ -8,11 +8,8 @@ import {
 import { motion } from "motion/react";
 import { toast } from "@spark/ui";
 import { EASING } from "@spark/ui/tokens";
+import { type DataSet } from "./data-sets";
 import { LIBRARY, type FakeMemory } from "./fake-library";
-
-/** The fake Library states break-ui needs: worst case, empty, 1,000 Memories. */
-export const DATA_SETS = ["library", "empty", "huge"] as const;
-export type DataSet = (typeof DATA_SETS)[number];
 
 function seed(data: DataSet): LiveMemory[] {
   if (data === "empty") return [];

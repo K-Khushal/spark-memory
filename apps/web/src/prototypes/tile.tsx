@@ -31,7 +31,7 @@ export function Tile({
   return (
     <figure className="group h-full cursor-pointer">
       <div
-        className="relative overflow-hidden rounded-tile transition-transform duration-[120ms] ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]"
+        className="relative overflow-hidden rounded-tile transition-transform duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]"
         style={{ height }}
       >
         <Arrival fresh={memory.fresh}>

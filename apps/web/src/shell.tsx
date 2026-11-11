@@ -22,7 +22,7 @@ export function DeskNavLink({
       aria-current={current ? "page" : undefined}
       onClick={onClick}
       className={cn(
-        "flex h-8 items-center gap-2 rounded-control px-2 text-sm transition-[color] duration-[120ms] ease-out [&_svg]:size-4",
+        "flex h-8 items-center gap-2 rounded-control px-2 text-sm transition-[color] duration-(--duration-press) ease-out [&_svg]:size-4",
         current
           ? "bg-surface font-medium text-ink shadow-raised"
           : "text-ink-muted hover:text-ink"
