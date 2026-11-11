@@ -1,8 +1,9 @@
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { captcha, emailOTP } from "better-auth/plugins";
 import { DEFAULT_PLAN } from "@spark/core";
-import { schema, type Database } from "@spark/db";
+import { isDeletionRequested, schema, type Database } from "@spark/db";
 import { allowlist } from "./allowlist";
 import { redactingLogger } from "./logger";
 
@@ -79,6 +80,22 @@ export function createAuth({
       },
     },
     session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
+    databaseHooks: {
+      session: {
+        create: {
+          // Every way in (email code or a social provider) makes a session:
+          // none for an account being deleted.
+          before: async (session) => {
+            if (await isDeletionRequested(db, session.userId)) {
+              throw new APIError("FORBIDDEN", {
+                code: "ACCOUNT_DELETING",
+                message: "Account is being deleted",
+              });
+            }
+          },
+        },
+      },
+    },
     // Per IP, in Postgres so every Worker isolate shares the counters.
     rateLimit: {
       enabled: true,

@@ -57,6 +57,10 @@ export type MemoryEditRequest = z.input<typeof MemoryEditRequest>;
 export const AiOptOut = z.object({ aiOptOut: z.boolean() });
 export type AiOptOut = z.infer<typeof AiOptOut>;
 
+/** Account deletion is confirmed by typing the account's email address. */
+export const AccountDeletion = z.object({ email: z.string().max(320) });
+export type AccountDeletion = z.infer<typeof AccountDeletion>;
+
 /**
  * Image types Spark keeps as the Preserved copy. HEIC and HEIF are converted
  * to JPEG in the browser, so they never reach the server.

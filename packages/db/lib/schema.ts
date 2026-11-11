@@ -307,3 +307,37 @@ export const spendDay = pgTable(
   },
   (t) => [primaryKey({ columns: [t.day, t.provider] })]
 );
+
+/**
+ * A person who asked for their account to be deleted. While this row exists
+ * nobody can sign in as them, and the account job removes their files and
+ * rows; deleting the user row at the end removes this one with it.
+ */
+export const accountDeletion = pgTable("account_deletion", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  requestedAt: instant("requested_at"),
+});
+
+export type ExportState = "building" | "ready" | "failed";
+
+/**
+ * A person's latest Library export (one at a time): a ZIP in object storage
+ * at `users/<id>/exports/<id>.zip`, built by the account job, downloadable
+ * through a signed URL until it expires.
+ */
+export const libraryExport = pgTable("library_export", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  id: uuid("id").notNull(),
+  state: text("state").$type<ExportState>().default("building").notNull(),
+  /** Builds started; the job gives up after a few. */
+  attempts: integer("attempts").default(0).notNull(),
+  /** Set while one job builds it, so a duplicate message skips. */
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  bytes: bigint("bytes", { mode: "number" }),
+  requestedAt: instant("requested_at"),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+});

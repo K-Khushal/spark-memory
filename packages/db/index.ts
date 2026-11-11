@@ -12,6 +12,7 @@ export {
   UPLOAD_WINDOW_HOURS,
   type CaptureResult,
   type EditResult,
+  type ExportedMemory,
   type FileCheck,
   type FileUpload,
   type ImageCaptureResult,
@@ -23,5 +24,19 @@ export {
   type Page,
   type SearchResult,
 } from "./lib/library";
+export {
+  accountJobs,
+  DELETION_GRACE_MINUTES,
+  EXPORT_COOLDOWN_MINUTES,
+  EXPORT_TTL_HOURS,
+  exportKey,
+  isDeletionRequested,
+  openAccount,
+  type Account,
+  type AccountJobs,
+  type ExportRequest,
+  type LibraryExport,
+  type SessionInfo,
+} from "./lib/account";
 export { indexingStore, type IndexingStore } from "./lib/indexing";
 export * as schema from "./lib/schema";

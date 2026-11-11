@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { checkDatabase } from "@spark/db";
 import type { AppEnv } from "./env";
+import { account } from "./account";
 import { memories } from "./memories";
 import { FILE_CACHE_CONTROL, usesLocalFiles, verifyLocalUrl } from "./files";
 import {
@@ -61,6 +62,10 @@ export const routes = new Hono<AppEnv>()
       "content-type": object.httpMetadata?.contentType ?? "",
       "cache-control": FILE_CACHE_CONTROL,
       "x-content-type-options": "nosniff",
+      ...(object.httpMetadata?.contentDisposition && {
+        "content-disposition": object.httpMetadata.contentDisposition,
+      }),
     });
   })
-  .route("/", memories);
+  .route("/", memories)
+  .route("/", account);

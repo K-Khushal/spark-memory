@@ -49,6 +49,7 @@
     "producers": [
       { "binding": "INDEX_QUEUE", "queue": "spark-index-local" },
       { "binding": "REINDEX_QUEUE", "queue": "spark-reindex-local" },
+      { "binding": "ACCOUNT_QUEUE", "queue": "spark-account-local" },
     ],
     "consumers": [
       {
@@ -67,6 +68,12 @@
         "dead_letter_queue": "spark-index-failed-local",
       },
       { "queue": "spark-index-failed-local", "max_batch_size": 10 },
+      // Exports and account deletion (src/account-jobs.ts), one message per invocation.
+      {
+        "queue": "spark-account-local",
+        "max_batch_size": 1,
+        "max_retries": 5,
+      },
     ],
   },
 
@@ -98,6 +105,7 @@
         "producers": [
           { "binding": "INDEX_QUEUE", "queue": "spark-index-dev" },
           { "binding": "REINDEX_QUEUE", "queue": "spark-reindex-dev" },
+          { "binding": "ACCOUNT_QUEUE", "queue": "spark-account-dev" },
         ],
         "consumers": [
           {
@@ -116,6 +124,12 @@
             "dead_letter_queue": "spark-index-failed-dev",
           },
           { "queue": "spark-index-failed-dev", "max_batch_size": 10 },
+          // Exports and account deletion (src/account-jobs.ts), one message per invocation.
+          {
+            "queue": "spark-account-dev",
+            "max_batch_size": 1,
+            "max_retries": 5,
+          },
         ],
       },
     },
@@ -140,6 +154,7 @@
         "producers": [
           { "binding": "INDEX_QUEUE", "queue": "spark-index-prod" },
           { "binding": "REINDEX_QUEUE", "queue": "spark-reindex-prod" },
+          { "binding": "ACCOUNT_QUEUE", "queue": "spark-account-prod" },
         ],
         "consumers": [
           {
@@ -158,6 +173,12 @@
             "dead_letter_queue": "spark-index-failed-prod",
           },
           { "queue": "spark-index-failed-prod", "max_batch_size": 10 },
+          // Exports and account deletion (src/account-jobs.ts), one message per invocation.
+          {
+            "queue": "spark-account-prod",
+            "max_batch_size": 1,
+            "max_retries": 5,
+          },
         ],
       },
     },

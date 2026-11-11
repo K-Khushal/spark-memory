@@ -32,13 +32,13 @@ const withFiles = createMiddleware<
 });
 
 /** Answers carry one person's Memories and signed URLs: never cached anywhere. */
-const noStore = createMiddleware<AppEnv>(async (c, next) => {
+export const noStore = createMiddleware<AppEnv>(async (c, next) => {
   await next();
   c.header("Cache-Control", "private, no-store");
 });
 
 /** JSON validated by a @spark/core schema; 400 with no detail otherwise. */
-const json = <T>(schema: {
+export const json = <T>(schema: {
   safeParse: (
     value: unknown
   ) => { success: true; data: T } | { success: false };

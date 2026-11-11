@@ -105,7 +105,11 @@ export const withAuth = createMiddleware<AppEnv & { Variables: AuthVariables }>(
   }
 );
 
-export type UserVariables = AuthVariables & { user: SignedInUser };
+export type UserVariables = AuthVariables & {
+  user: SignedInUser;
+  /** This request's session (never its token). */
+  sessionId: string;
+};
 
 /** Rejects anonymous requests with 401; otherwise sets `user`. */
 export const requireUser = createMiddleware<
@@ -119,5 +123,6 @@ export const requireUser = createMiddleware<
   }
   const { id, email, name, image, plan } = session.user;
   c.set("user", { id, email, name, image, plan: plan as Plan });
+  c.set("sessionId", session.session.id);
   await next();
 });
