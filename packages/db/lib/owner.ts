@@ -15,6 +15,21 @@ export const lockOwner = (tx: Pick<Database, "execute">, userId: string) =>
     sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${OWNER_LOCK}))`
   );
 
+/**
+ * Takes the owner lock only when it is free. The sweep uses this so a confirm
+ * or a deletion already in progress cannot hold the sweep past its budget.
+ * The lock, once taken, lasts until the transaction ends.
+ */
+export async function tryLockOwner(
+  tx: Pick<Database, "execute">,
+  userId: string
+): Promise<boolean> {
+  const { rows } = await tx.execute<{ locked: boolean }>(
+    sql`select pg_try_advisory_xact_lock(hashtextextended(${userId}, ${OWNER_LOCK})) as locked`
+  );
+  return rows[0]?.locked === true;
+}
+
 /** Who an AI call belonged to once its owner is being deleted: the cost stays, the owner goes. */
 export const ANONYMISED_USER = "deleted";
 

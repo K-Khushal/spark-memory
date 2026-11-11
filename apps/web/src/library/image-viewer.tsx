@@ -82,6 +82,9 @@ export function ImageViewer({
 
   const tall =
     !!memory?.image && memory.image.width / memory.image.height < TALL;
+  // A stranded upload has no file to show. The ThumbHash stands in; an
+  // image would 404 and refresh the Library once a minute.
+  const stranded = memory?.upload?.step === "stranded";
 
   return (
     <MotionConfig reducedMotion="user">
@@ -124,7 +127,12 @@ export function ImageViewer({
                   tall ? "items-start overflow-y-auto" : "items-center"
                 )}
               >
-                <Picture memory={memory} tall={tall} onBroken={onBroken} />
+                <Picture
+                  memory={memory}
+                  tall={tall}
+                  stranded={stranded}
+                  onBroken={onBroken}
+                />
               </motion.div>
             </AnimatePresence>
             {memory.upload ? (
@@ -143,24 +151,26 @@ export function ImageViewer({
                 className="absolute top-5.5 left-3"
               />
             )}
-            <div className="absolute top-3 right-16 flex items-center gap-3">
-              <MoreLikeThis
-                memory={memory}
-                onSelect={onMoreLikeThis}
-                compact
-                className="h-11"
-              />
-              <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
-              <Button
-                variant="quiet"
-                size="icon"
-                aria-label="Delete"
-                className="size-11"
-                onClick={() => remove(memory)}
-              >
-                <Trash2Icon aria-hidden />
-              </Button>
-            </div>
+            {!stranded && (
+              <div className="absolute top-3 right-16 flex items-center gap-3">
+                <MoreLikeThis
+                  memory={memory}
+                  onSelect={onMoreLikeThis}
+                  compact
+                  className="h-11"
+                />
+                <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
+                <Button
+                  variant="quiet"
+                  size="icon"
+                  aria-label="Delete"
+                  className="size-11"
+                  onClick={() => remove(memory)}
+                >
+                  <Trash2Icon aria-hidden />
+                </Button>
+              </div>
+            )}
             <Step side="left" disabled={index <= 0} onClick={() => go(-1)} />
             <Step
               side="right"
@@ -200,10 +210,13 @@ function edgeElastic(index: number, count: number) {
 function Picture({
   memory,
   tall,
+  stranded,
   onBroken,
 }: {
   memory: WallMemory;
   tall: boolean;
+  /** No stored file: the ThumbHash only, so nothing 404s and refetches. */
+  stranded: boolean;
   onBroken: (id: string) => void;
 }) {
   const image = memory.image!;
@@ -224,21 +237,25 @@ function Picture({
         backgroundImage: placeholder ? `url(${placeholder})` : undefined,
       }}
     >
-      <img
-        src={image.thumbnailUrl}
-        alt=""
-        draggable={false}
-        className="absolute inset-0 h-full w-full object-contain"
-      />
-      <img
-        src={image.url}
-        alt={memoryName(memory)}
-        draggable={false}
-        onLoad={() => setLoaded(true)}
-        onError={() => onBroken(memory.id)}
-        className="absolute inset-0 h-full w-full object-contain transition-opacity duration-(--duration-small) ease-out"
-        style={{ opacity: loaded ? 1 : 0 }}
-      />
+      {!stranded && (
+        <>
+          <img
+            src={image.thumbnailUrl}
+            alt=""
+            draggable={false}
+            className="absolute inset-0 h-full w-full object-contain"
+          />
+          <img
+            src={image.url}
+            alt={memoryName(memory)}
+            draggable={false}
+            onLoad={() => setLoaded(true)}
+            onError={() => onBroken(memory.id)}
+            className="absolute inset-0 h-full w-full object-contain transition-opacity duration-(--duration-small) ease-out"
+            style={{ opacity: loaded ? 1 : 0 }}
+          />
+        </>
+      )}
     </div>
   );
 }

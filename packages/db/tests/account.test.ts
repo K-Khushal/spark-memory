@@ -380,6 +380,41 @@ describe.skipIf(!databaseUrl)("an account", () => {
       expect(await jobs.continueDeletion(ana, async () => {})).toBe("done");
       expect(await count("user", "id", ana)).toBe(0);
     });
+
+    it("walks pending deletions oldest first, skipping ones already attempted", async () => {
+      const ana = await person();
+      const ben = await person();
+      const cara = await person();
+      const jobs = accountJobs(db);
+      await openAccount(db, ana).requestDeletion();
+      await openAccount(db, ben).requestDeletion();
+      await openAccount(db, cara).requestDeletion();
+      await db.execute(sql`
+        delete from account_deletion
+        where requested_at < now() - interval '20 days'
+      `);
+      await db
+        .update(schema.accountDeletion)
+        .set({ requestedAt: sql`now() - interval '3 days'` })
+        .where(eq(schema.accountDeletion.userId, ana));
+      await db
+        .update(schema.accountDeletion)
+        .set({ requestedAt: sql`now() - interval '2 days'` })
+        .where(eq(schema.accountDeletion.userId, ben));
+      await db
+        .update(schema.accountDeletion)
+        .set({ requestedAt: sql`now() - interval '1 day'` })
+        .where(eq(schema.accountDeletion.userId, cara));
+      await db.execute(
+        sql`delete from app_setting where key = 'sweep_deletion_cursor'`
+      );
+      expect(await jobs.deletionsPending(1)).toEqual([ana]);
+      expect(await jobs.deletionsPending(1)).toEqual([ben]);
+      expect(await jobs.deletionsPending(1, [ben])).toEqual([cara]);
+      await db.execute(
+        sql`delete from app_setting where key = 'sweep_deletion_cursor'`
+      );
+    });
   });
 
   describe("export", () => {
@@ -637,6 +672,67 @@ describe.skipIf(!databaseUrl)("an account", () => {
       });
     });
 
+    it("returns only as many stalled exports as the sweep can send", async () => {
+      const first = await claimed();
+      const second = await claimed();
+      await db
+        .update(schema.libraryExport)
+        .set({ leaseUntil: sql`now() - interval '1 minute'` })
+        .where(eq(schema.libraryExport.userId, first.ana));
+      await db
+        .update(schema.libraryExport)
+        .set({ leaseUntil: sql`now() - interval '1 minute'` })
+        .where(eq(schema.libraryExport.userId, second.ana));
+      const capped = await accountJobs(db).stalledExports(1);
+      expect(capped).toHaveLength(1);
+      const all = await accountJobs(db).stalledExports();
+      expect(all.length).toBeGreaterThan(1);
+      expect(all).toEqual(expect.arrayContaining([first.id, second.id]));
+    });
+
+    it("stops removing objects once its share of calls is spent", async () => {
+      const jobs = accountJobs(db);
+      const keys = [crypto.randomUUID(), crypto.randomUUID()].map(
+        (id) => `users/budget/${id}/exports/one.zip`
+      );
+      await db
+        .insert(schema.objectRemoval)
+        .values(
+          keys.map((key) => ({ key, dueAt: sql`now() - interval '1 minute'` }))
+        );
+      let left = 1;
+      let calls = 0;
+      try {
+        await jobs.sweepExports(
+          async () => {
+            calls += 1;
+          },
+          {
+            batch: 1,
+            allowCall: () => {
+              if (left <= 0) return false;
+              left -= 1;
+              return true;
+            },
+          }
+        );
+        expect(calls).toBe(1);
+        const staying = (
+          await Promise.all(
+            keys.map((key) => count("object_removal", "key", key))
+          )
+        ).reduce((sum, n) => sum + n, 0);
+        expect(staying).toBeGreaterThan(0);
+      } finally {
+        await db
+          .delete(schema.objectRemoval)
+          .where(eq(schema.objectRemoval.key, keys[0]!));
+        await db
+          .delete(schema.objectRemoval)
+          .where(eq(schema.objectRemoval.key, keys[1]!));
+      }
+    });
+
     it("never builds for a person being deleted", async () => {
       const ana = await person();
       const request = await openAccount(db, ana).requestExport();
@@ -666,7 +762,12 @@ describe.skipIf(!databaseUrl)("an account", () => {
       });
       expect(all.find((m) => m.id === img)).toMatchObject({
         index: null,
-        original: { key: `users/${ana}/${img}/original`, mime: "image/png" },
+        original: {
+          key: expect.stringMatching(
+            new RegExp(`^users/${ana}/${img}/[0-9a-f-]{36}/original$`)
+          ),
+          mime: "image/png",
+        },
       });
     });
   });
