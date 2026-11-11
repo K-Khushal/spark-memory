@@ -13,8 +13,7 @@ import { redirectIfSignedIn, requireSession } from "./auth";
 import { AdminPage } from "./admin/admin-page";
 import { LibraryPage } from "./library/library-page";
 import { SignInPage } from "./sign-in/sign-in-page";
-import { LibraryPage as PrototypeLibraryPage } from "./prototypes/library";
-import { DATA_SETS, type DataSet } from "./prototypes/use-library";
+import { DATA_SETS, type DataSet } from "./prototypes/data-sets";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -69,11 +68,7 @@ const prototypesRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { data: DataSet } => ({
     data: DATA_SETS.find((d) => d === search.data) ?? "library",
   }),
-  component: function PrototypesPage() {
-    const { data } = prototypesRoute.useSearch();
-    return <PrototypeLibraryPage key={data} data={data} />;
-  },
-});
+}).lazy(() => import("./prototypes/route").then((m) => m.Route));
 
 export const router = createRouter({
   defaultErrorComponent: ({ error, reset }) => (

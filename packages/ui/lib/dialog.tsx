@@ -61,7 +61,7 @@ export function DialogContent({
         {children}
         <DialogPrimitive.Close
           className={cn(
-            "absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-[120ms] ease-out hover:bg-sunken hover:text-ink active:scale-[0.97]",
+            "absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97]",
             closeClassName
           )}
           aria-label={closeLabel}

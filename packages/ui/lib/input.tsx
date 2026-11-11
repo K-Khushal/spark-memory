@@ -8,7 +8,7 @@ export function Input({ className, ...props }: ComponentProps<"input">) {
     <input
       data-slot="input"
       className={cn(
-        "h-11 w-full min-w-0 rounded-control border border-line-strong bg-surface px-3 text-[1rem] text-ink transition-[border-color] duration-[120ms] ease-out placeholder:text-ink-muted disabled:opacity-50 aria-invalid:border-danger",
+        "h-11 w-full min-w-0 rounded-control border border-line-strong bg-surface px-3 text-[1rem] text-ink transition-[border-color] duration-(--duration-press) ease-out placeholder:text-ink-muted disabled:opacity-50 aria-invalid:border-danger",
         className
       )}
       {...props}
