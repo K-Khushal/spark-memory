@@ -4,6 +4,13 @@ import { api } from "../api";
 import { drafts } from "./drafts";
 import { Refused, type Upload } from "./image-capture";
 import {
+  indexingActions,
+  indexingIds,
+  nextPollDelay,
+  POLL,
+  type IndexingTransport,
+} from "./indexing-actions";
+import {
   libraryActions,
   newestFirst,
   type Memory,
@@ -66,6 +73,24 @@ const transport: Transport = {
     putFile(upload, body, onProgress, signal),
   confirm: async (id) =>
     (await (await ok(byId.stored.$post({ param: { id } }))).json()) as Memory,
+};
+
+const indexingTransport: IndexingTransport = {
+  poll: async (ids) => {
+    const res = await ok(
+      api.api.memories.$get({ query: { ids: ids.join(",") } })
+    );
+    return (await res.json()).memories as Memory[];
+  },
+  retryIndexing: async (id) =>
+    (await (await ok(byId.reindex.$post({ param: { id } }))).json()) as Memory,
+  setAiOptOut: async (id, on) => {
+    const res = byId["ai-opt-out"].$put({
+      param: { id },
+      json: { aiOptOut: on },
+    });
+    return (await (await ok(res)).json()) as Memory;
+  },
 };
 
 /** PUTs a file to its presigned URL; XHR, because fetch cannot report upload progress. */
@@ -142,6 +167,38 @@ export function useLibrary() {
     };
   }, [attempt]);
 
+  const [indexing] = useState(() =>
+    indexingActions({
+      setMemories,
+      transport: indexingTransport,
+      notify: toast,
+    })
+  );
+  // While anything is Indexing, ask after it: every 2 s, backing off to 30 s
+  // while nothing changes, starting over when something does; never while
+  // the page is hidden; not at all once nothing is Indexing.
+  const pollKey = indexingIds(memories).join(",");
+  useEffect(() => {
+    if (!pollKey) return;
+    const ids = pollKey.split(",");
+    let delay = POLL.first;
+    let timer: ReturnType<typeof setTimeout>;
+    let stopped = false;
+    const tick = async () => {
+      if (document.visibilityState === "visible") {
+        await indexing.poll(ids).catch(() => {});
+      }
+      if (stopped) return;
+      delay = nextPollDelay(delay);
+      timer = setTimeout(tick, delay);
+    };
+    timer = setTimeout(tick, delay);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [pollKey, indexing]);
+
   useEffect(() => {
     const flush = actions.sendPending;
     window.addEventListener("pagehide", flush);
@@ -160,6 +217,8 @@ export function useLibrary() {
       setAttempt((n) => n + 1);
     },
     ...actions,
+    retryIndexing: indexing.retryIndexing,
+    setAiOptOut: indexing.setAiOptOut,
     /** The same functions as one stable object, for effects that depend on it. */
     edits: actions,
   };

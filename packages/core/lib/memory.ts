@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { FREE_ALLOWANCE } from "./allowance";
+import { Palette } from "./indexing";
 
 /** What kind of thing a Memory is. See GLOSSARY.md → Memory. */
 export const MEMORY_KINDS = [
@@ -52,6 +53,10 @@ export const MemoryEditRequest = MemoryEdit.extend({
 });
 export type MemoryEditRequest = z.input<typeof MemoryEditRequest>;
 
+/** Switches AI opt-out (GLOSSARY.md) on or off for one Memory. */
+export const AiOptOut = z.object({ aiOptOut: z.boolean() });
+export type AiOptOut = z.infer<typeof AiOptOut>;
+
 /**
  * Image types Spark keeps as the Preserved copy. HEIC and HEIF are converted
  * to JPEG in the browser, so they never reach the server.
@@ -88,6 +93,8 @@ export const ImageCapture = z.object({
   contentHash: z.string().regex(/^[\da-f]{64}$/),
   /** ThumbHash (base64): the blurred placeholder shown while a tile loads. */
   thumbhash: z.string().regex(/^[A-Za-z0-9+/]{4,64}={0,2}$/),
+  /** Dominant colours, worked out in the browser while it decodes the image. */
+  palette: Palette.optional(),
   thumbnail: z.object({
     mime: z.enum(THUMBNAIL_TYPES),
     bytes: z.number().int().positive().max(THUMBNAIL_MAX_BYTES),

@@ -68,6 +68,18 @@ pnpm dev        # Docker Postgres + pgvector, db:migrate, db:seed, Worker on :87
 
    Then Dashboard → R2 → Manage API tokens → Create API token, _Object Read & Write_, limited to that environment's bucket: its Access Key ID and Secret Access Key become the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` Worker secrets below. Presigned URLs only work on the S3 endpoint (`<account id>.r2.cloudflarestorage.com`), never on a custom domain. Keep the buckets private (no public access, no r2.dev URL).
 
+   **Queues and Workers AI (Indexing).** Create each environment's three queues (the names in `wrangler.jsonc`); Workers AI needs nothing but the `ai` binding already there:
+
+   ```sh
+   for env in dev prod; do
+     npx wrangler queues create spark-index-$env
+     npx wrangler queues create spark-reindex-$env
+     npx wrangler queues create spark-index-failed-$env
+   done
+   ```
+
+   **Gemini (optional, paid tier only).** Create the API key in a Google Cloud project with an active billing account, never a free-tier one (ADR-0005: free-tier content is used for training and read by reviewers, and the API cannot tell the tiers apart). Put it in `GEMINI_API_KEY`, then set `GEMINI_PAID_TIER` to `"true"` in that environment's vars. Until both are set, Gemini stays out of the chain and only Gemma 4 indexes.
+
 3. **Cloudflare API token.** Dashboard → My Profile → API Tokens → Create Token → _Edit Cloudflare Workers_ template, limited to your account. Add Hyperdrive _Read_ if a deploy reports it cannot read the Hyperdrive config.
 4. **Sentry.** Create two projects, one for the Worker (platform _Cloudflare Workers_) and one for the dashboard (_React_). Each project's DSN is under Settings → Client Keys (DSN).
 5. **GitHub environments.** Repo → Settings → Environments. Create `dev` and `production`. On `production`, turn on **Required reviewers** (yourself) and, under **Deployment branches and tags**, allow branch `main` and tags `v*`.
@@ -103,6 +115,7 @@ Set each with `cd apps/server && npx wrangler secret put <NAME> --env dev`, then
 | `R2_ACCOUNT_ID`        | yes      | Cloudflare dashboard → R2 → Account ID (the same as `CLOUDFLARE_ACCOUNT_ID`)                                                                       |
 | `R2_ACCESS_KEY_ID`     | yes      | the R2 API token from step 2, for this environment's bucket                                                                                        |
 | `R2_SECRET_ACCESS_KEY` | yes      | the same R2 API token                                                                                                                              |
+| `GEMINI_API_KEY`       | no       | Google AI Studio → API keys, in a Cloud project with billing on (step 2, Gemini); used only with `GEMINI_PAID_TIER` set to `"true"`                |
 
 A social provider turns on only when both its client id and secret are set; otherwise its button is hidden.
 
@@ -113,7 +126,7 @@ Image files live in R2 (ADR-0003), one bucket per environment, under `users/<use
 - **Upload**: `POST /api/memories/images` creates the Memory within the Free allowance (25 MB a file, 1 GB in all, checked again here under a per-person lock) and answers with a PUT URL per file, valid 15 minutes, signed for that key, its exact `content-type`, `content-length` and `cache-control`. `POST /api/memories/:id/stored` then checks each object's size and type with the bucket binding before the Memory shows; an object that does not match is deleted.
 - **Download**: every Memory answer carries GET URLs signed at the start of the hour for two hours, so the same URL repeats within the hour and the browser caches the file (`private`, never in a shared cache). API answers themselves are `Cache-Control: private, no-store`.
 - **Delete**: deleting a Memory (after its Undo window) deletes its objects, then its row. Account deletion (#28) must do the same for every Memory.
-- **Unfinished uploads**: a Memory whose files never arrived stays off the wall, counts against storage for 24 hours, and is then removed with any objects by the daily cron (`triggers` in `wrangler.jsonc`, `src/sweep.ts`).
+- **Unfinished uploads**: a Memory whose files never arrived stays off the wall, counts against storage for 24 hours, and is then removed with any objects by the hourly cron (`triggers` in `wrangler.jsonc`, `src/sweep.ts`).
 - **What is kept**: the original file byte for byte, metadata included, since only its owner can read it. HEIC is converted to JPEG in the browser, which keeps no EXIF. The browser also stores the SHA-256 of the kept file (for duplicate detection later; the server does not recompute it) and a ThumbHash placeholder.
 
 Locally, without R2 credentials, Miniflare simulates the bucket in `.wrangler/state` and the presigned URLs point at `/api/local-files/*` on the local Worker, HMAC-signed the same way (method, key, expiry, type and size). That route exists only when `SPARK_ENV` is `local`, on a local host, without R2 credentials. Log lines carry counts only: never keys, file names or content.
@@ -126,8 +139,20 @@ Plain vars in `wrangler.jsonc`, per environment:
 | `TURNSTILE_SITE_KEY` | the Turnstile widget's site key (public), in place of `PLACEHOLDER_DEV_TURNSTILE_SITE_KEY` / `PLACEHOLDER_PROD_TURNSTILE_SITE_KEY`; deploys fail until set                                                                                                                                     |
 | `EMAIL_FROM`         | `Spark <onboarding@resend.dev>` until a domain is verified in Resend (it then only delivers to the Resend account's own address); then `Spark <sign-in@<domain>>`                                                                                                                              |
 | `BETTER_AUTH_URL`    | the public https origin, e.g. `https://spark-dev.<subdomain>.workers.dev`, in place of `PLACEHOLDER_DEV_BETTER_AUTH_URL` / `PLACEHOLDER_PROD_BETTER_AUTH_URL`. Required: outside local, auth refuses to start without an https origin, and cookies are always `Secure`. Deploys fail until set |
+| `GEMINI_PAID_TIER`   | `"false"` until `GEMINI_API_KEY` belongs to a Cloud project with active billing, then `"true"`; Gemini is never called otherwise (ADR-0005)                                                                                                                                                    |
 
 Locally, `wrangler.jsonc`'s top level carries a throwaway `BETTER_AUTH_SECRET` and Cloudflare's always-pass [Turnstile test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/). Without `RESEND_API_KEY`, sign-in codes are not emailed: the local Worker keeps the latest code per address and returns it from `GET /api/dev/sign-in-code?email=…`. That route exists only when `SPARK_ENV` is `local` and Resend is not configured.
+
+## Indexing
+
+After Capture (text on create, an image once its files are stored) the Worker sends the Memory to a queue; its own consumer Indexes it (`apps/server/src/indexing.ts`, `@spark/indexing`):
+
+- **Queues.** Cloudflare Queues has no priorities, so `spark-index-*` takes fresh Captures, Retry and AI opt-out switched off, and `spark-reindex-*` takes edited text, one consumer at a time. A failed attempt retries the message after 30 s, then 60 s; the third failure sets the Memory Failed (`unavailable`). Messages the platform gives up on land in `spark-index-failed-*`, whose consumer sets Failed too. The hourly cron re-sends Memories stuck Indexing for over an hour. Every message is idempotent: the Memory's `index_run` is read before the AI call and every write requires it unchanged, so duplicates and late messages write nothing.
+- **Providers.** Gemma 4 on Workers AI, then Gemini Flash-Lite on the paid tier (model ids, prices and order in `packages/core/lib/indexing.ts`). Images go to the model as bytes read through the R2 binding, never as URLs.
+- **AI opt-out.** No provider call, ever: the consumer checks it after loading, and switching it on drops any run in flight and deletes what Indexing found.
+- **Budget.** Every call's tokens and cost go to `ai_call` (per Memory and person) and `spend_day` (per UTC day and provider, added to atomically). Past `INDEXING.dailyBudgetMicros`, background messages are re-sent with a delay to the next UTC day; fresh Captures still index. In-flight calls can overshoot the limit by a few calls.
+- **Locally**, Miniflare runs the queues and `INDEXING_PROVIDER: "fake"` Indexes without keys or network. Content containing `fake:fail` gets output that is never valid, so it shows Failed at once.
+- **Logs** carry outcomes only, never content, prompts or model output.
 
 ## Sign-in
 

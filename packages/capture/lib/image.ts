@@ -1,4 +1,5 @@
 import { rgbaToThumbHash } from "thumbhash";
+import { dominantColours } from "./palette";
 import {
   FREE_ALLOWANCE,
   IMAGE_TYPES,
@@ -24,6 +25,8 @@ export type PreparedImage = {
   contentHash: string;
   /** ThumbHash, base64. */
   thumbhash: string;
+  /** Dominant colours (hex), most of the image first. */
+  palette: string[];
   thumbnail: Blob;
   thumbnailMime: "image/webp" | "image/jpeg";
 };
@@ -117,7 +120,7 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
       width: bitmap.width,
       height: bitmap.height,
       contentHash: await sha256(kept),
-      thumbhash: thumbhashOf(bitmap),
+      ...summaryOf(bitmap),
       thumbnail,
       // Safari cannot write WebP and falls back to PNG: use JPEG there.
       thumbnailMime:
@@ -168,12 +171,16 @@ async function encode(
   return blob;
 }
 
-function thumbhashOf(bitmap: ImageBitmap) {
+/** The ThumbHash and dominant colours, both from one small copy of the image. */
+function summaryOf(bitmap: ImageBitmap) {
   const scale = THUMBHASH_SIZE / Math.max(bitmap.width, bitmap.height);
   const { canvas, context } = canvasOf(bitmap, Math.min(1, scale));
   const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
   const hash = rgbaToThumbHash(canvas.width, canvas.height, data);
-  return btoa(String.fromCharCode(...hash));
+  return {
+    thumbhash: btoa(String.fromCharCode(...hash)),
+    palette: dominantColours(data),
+  };
 }
 
 async function sha256(blob: Blob) {

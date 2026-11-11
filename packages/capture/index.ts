@@ -6,4 +6,5 @@ export {
   type ImageRefusal,
   type PreparedImage,
 } from "./lib/image";
+export { dominantColours } from "./lib/palette";
 export { placeholderUrl } from "./lib/placeholder";

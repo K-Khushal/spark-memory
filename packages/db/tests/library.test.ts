@@ -37,7 +37,7 @@ describe.skipIf(!databaseUrl)("a Library", () => {
   };
 
   describe("Capture", () => {
-    it("saves pasted text as a searchable text Memory, newest first", async () => {
+    it("saves pasted text as a text Memory waiting for Indexing, newest first", async () => {
       const first = await save(ana, { body: "First paste" });
       const second = await save(ana, {
         body: "Second paste",
@@ -48,7 +48,7 @@ describe.skipIf(!databaseUrl)("a Library", () => {
         title: null,
         body: "Second paste",
         captureNote: "for the trip",
-        indexState: "searchable",
+        indexState: "indexing",
         preservation: "preserved",
       });
       const { memories } = await list(ana);

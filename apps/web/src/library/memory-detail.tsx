@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Trash2Icon } from "lucide-react";
+import { RotateCwIcon, Trash2Icon } from "lucide-react";
 import { FREE_ALLOWANCE } from "@spark/core";
 import {
   Button,
@@ -8,7 +8,9 @@ import {
   DialogTitle,
   Textarea,
 } from "@spark/ui";
+import { AiOptOutSwitch } from "./ai-opt-out";
 import type { Draft } from "./drafts";
+import { INDEX_FAILURE_LABEL } from "./memory-tile";
 import { textOf, type libraryActions } from "./library-actions";
 import type { Memory } from "./use-library";
 
@@ -33,17 +35,25 @@ export type Edits = Pick<
  * "Restore Your Edit" (inside the dialog, so the keyboard reaches it) puts
  * the refused text back; typing over the server copy leaves the offer up.
  */
+/** Index state controls, for Memory detail and the image viewer. */
+export type IndexingProps = {
+  onRetryIndexing: (memory: Memory) => void;
+  onAiOptOut: (memory: Memory, on: boolean) => void;
+};
+
 export function MemoryDetail({
   memory,
   edits,
   onClose,
   onDelete,
+  onRetryIndexing,
+  onAiOptOut,
 }: {
   memory: Memory | undefined;
   edits: Edits;
   onClose: () => void;
   onDelete: (memory: Memory) => void;
-}) {
+} & IndexingProps) {
   return (
     <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
       {memory && (
@@ -53,6 +63,8 @@ export function MemoryDetail({
           edits={edits}
           onClose={onClose}
           onDelete={onDelete}
+          onRetryIndexing={onRetryIndexing}
+          onAiOptOut={onAiOptOut}
         />
       )}
     </Dialog>
@@ -64,12 +76,14 @@ function Fields({
   edits,
   onClose,
   onDelete,
+  onRetryIndexing,
+  onAiOptOut,
 }: {
   memory: Memory;
   edits: Edits;
   onClose: () => void;
   onDelete: (memory: Memory) => void;
-}) {
+} & IndexingProps) {
   const id = memory.id;
   const [opening] = useState(memory);
   const [edit, setEdit] = useState(() => edits.previewEdit(memory));
@@ -148,18 +162,35 @@ function Fields({
         dir="auto"
         className="h-10 min-w-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
       />
-      <div className="flex justify-between gap-2 pt-1">
-        <Button
-          variant="quiet"
-          size="sm"
-          onClick={() => {
-            onDelete(memory);
-            onClose();
-          }}
-        >
-          <Trash2Icon aria-hidden /> Delete
-        </Button>
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="quiet"
+            size="sm"
+            onClick={() => {
+              onDelete(memory);
+              onClose();
+            }}
+          >
+            <Trash2Icon aria-hidden /> Delete
+          </Button>
+          <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {memory.indexState === "failed" && (
+            <>
+              <span role="status" className="text-sm text-danger">
+                {INDEX_FAILURE_LABEL[memory.indexError ?? "unavailable"]}
+              </span>
+              <Button
+                variant="quiet"
+                size="sm"
+                onClick={() => onRetryIndexing(memory)}
+              >
+                <RotateCwIcon aria-hidden /> Retry
+              </Button>
+            </>
+          )}
           {edit?.refused && (
             <Button
               variant="quiet"

@@ -245,6 +245,9 @@ importers:
       '@spark/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@spark/indexing':
+        specifier: workspace:*
+        version: link:../../packages/indexing
       aws4fetch:
         specifier: 1.0.20
         version: 1.0.20
@@ -420,6 +423,10 @@ importers:
         version: 4.23.15
 
   packages/indexing:
+    dependencies:
+      '@spark/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       '@spark/config':
         specifier: workspace:*

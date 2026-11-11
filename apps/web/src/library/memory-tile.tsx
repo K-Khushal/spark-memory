@@ -79,16 +79,31 @@ const day = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
  */
 export function memoryName(memory: WallMemory) {
   if (memory.kind === "image") {
-    return memory.title || `Image, ${day.format(new Date(memory.capturedAt))}`;
+    return (
+      memory.title ||
+      memory.indexTitle ||
+      `Image, ${day.format(new Date(memory.capturedAt))}`
+    );
   }
   return memory.title || memory.body?.split("\n")[0]?.slice(0, 120) || "";
 }
 
-/** A tile's accessible name: its Memory's, and its upload while it lasts. */
+/** Why Indexing failed, as the Retry control and Memory detail say it. */
+export const INDEX_FAILURE_LABEL: Record<string, string> = {
+  unavailable: "Indexing Unavailable",
+  invalid_output: "Could Not Be Described",
+  unreadable: "Image Could Not Be Read",
+};
+
+/** A tile's accessible name: its Memory's, then its upload or Index state while they last. */
 export function tileLabel(memory: WallMemory) {
   const name = memoryName(memory);
-  if (!memory.upload) return name;
-  return `${name}, ${memory.upload.step === "sending" ? "Uploading" : "Failed"}`;
+  if (memory.upload) {
+    return `${name}, ${memory.upload.step === "sending" ? "Uploading" : "Failed"}`;
+  }
+  if (memory.indexState === "indexing") return `${name}, Indexing`;
+  if (memory.indexState === "failed") return `${name}, Failed`;
+  return name;
 }
 
 /** One Memory on the wall, landing with DESIGN.md's Capture motion. */
@@ -99,17 +114,83 @@ export function MemoryTile(props: {
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onDelete: (memory: WallMemory) => void;
+  onRetryIndexing: (memory: WallMemory) => void;
 }) {
+  const { memory } = props;
   return (
     <motion.div
-      className="h-full w-full"
+      className="relative h-full w-full"
       // DESIGN.md → Motion: a new Capture fades and grows into place.
-      initial={props.memory.fresh ? { opacity: 0, scale: 0.96 } : false}
+      initial={memory.fresh ? { opacity: 0, scale: 0.96 } : false}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: DURATION.panel / 1000, ease: EASING.out }}
     >
-      {props.memory.image ? <ImageTile {...props} /> : <TextTile {...props} />}
+      {memory.image ? <ImageTile {...props} /> : <TextTile {...props} />}
+      {!memory.upload && (
+        <IndexBadge
+          memory={memory}
+          onRetry={() => props.onRetryIndexing(memory)}
+          // One tab stop per wall: the keyboard retries from Memory detail.
+          focusable={false}
+          className="absolute right-2 bottom-2"
+        />
+      )}
     </motion.div>
+  );
+}
+
+/**
+ * Index state while it is not Searchable (DESIGN.md → Colour): Indexing, or
+ * Failed with Retry, whose label carries the reason. No badge once Searchable.
+ */
+export function IndexBadge({
+  memory,
+  onRetry,
+  focusable = true,
+  className,
+}: {
+  memory: WallMemory;
+  onRetry: () => void;
+  focusable?: boolean;
+  className?: string;
+}) {
+  if (memory.indexState === "searchable") return null;
+  const failed = memory.indexState === "failed";
+  const reason = INDEX_FAILURE_LABEL[memory.indexError ?? "unavailable"];
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-chip bg-surface px-2 text-xs font-medium shadow-raised",
+        failed ? "pr-1 text-danger" : "text-indexing",
+        className
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "size-1.5 rounded-[2px]",
+          failed ? "bg-danger" : "bg-indexing"
+        )}
+      />
+      {failed ? "Failed" : "Indexing"}
+      {failed && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRetry();
+          }}
+          // Keep Enter and Space from also opening the Memory.
+          onKeyDown={(e) => e.stopPropagation()}
+          aria-label={`Retry, ${reason}`}
+          title={reason}
+          tabIndex={focusable ? undefined : -1}
+          className="relative grid size-5 place-items-center rounded-[4px] text-ink hover:bg-sunken before:absolute before:-inset-2.5"
+        >
+          <RotateCwIcon className="size-3.5" aria-hidden />
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -261,6 +342,10 @@ function TextTile({
   width: number;
 }) {
   const layout = tileLayout(memory, width);
+  // While a badge shows, the last line makes room for it; the height stays,
+  // so nothing on the wall moves when Indexing finishes.
+  const badged = !memory.upload && memory.indexState !== "searchable";
+  const bodyLines = badged && layout.body > 1 ? layout.body - 1 : layout.body;
   return (
     <figure className="group h-full cursor-pointer">
       <div
@@ -283,7 +368,7 @@ function TextTile({
             "overflow-hidden text-sm break-words whitespace-pre-line [display:-webkit-box] [-webkit-box-orient:vertical]",
             memory.title ? "text-ink-muted" : "text-ink"
           )}
-          style={{ WebkitLineClamp: layout.body }}
+          style={{ WebkitLineClamp: bodyLines }}
           dir="auto"
         >
           <Highlighted

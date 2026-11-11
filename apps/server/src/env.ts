@@ -35,6 +35,27 @@ export type Bindings = {
   R2_ACCOUNT_ID?: string;
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
+
+  /** Queues (wrangler.jsonc): fresh Captures and Retry, and background re-indexing. */
+  INDEX_QUEUE: IndexQueue;
+  REINDEX_QUEUE: IndexQueue;
+  /** Workers AI (Gemma 4), first in the Indexing chain. Absent locally. */
+  AI?: { run(model: string, input: Record<string, unknown>): Promise<unknown> };
+  /** Secret: a key from a Cloud project with active billing (ADR-0005). */
+  GEMINI_API_KEY?: string;
+  /** Var: "true" only once that project's billing is confirmed; Gemini stays out otherwise. */
+  GEMINI_PAID_TIER?: string;
+  /** Var: "fake" (honoured only when SPARK_ENV is local) Indexes with the fake provider. */
+  INDEXING_PROVIDER?: string;
+};
+
+/** What a queue message carries: which Memory, and how urgent. */
+export type IndexMessage = {
+  memoryId: string;
+  priority: "fresh" | "background";
+};
+export type IndexQueue = {
+  send(body: IndexMessage, options?: { delaySeconds?: number }): Promise<void>;
 };
 
 /** The parts of an R2 bucket binding the API uses. */

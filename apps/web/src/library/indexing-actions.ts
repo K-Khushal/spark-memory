@@ -1,0 +1,90 @@
+import type { Dispatch, SetStateAction } from "react";
+import type { toast } from "@spark/ui";
+import type { Memory, WallMemory } from "./library-actions";
+
+/** What Indexing on the wall needs from the server. Each call rejects when it fails. */
+export type IndexingTransport = {
+  /** The owner's Memories among `ids` (at most 100). */
+  poll: (ids: string[]) => Promise<Memory[]>;
+  retryIndexing: (id: string) => Promise<Memory>;
+  setAiOptOut: (id: string, on: boolean) => Promise<Memory>;
+};
+
+/** The fields Indexing changes; everything else on the wall stays as the wall has it. */
+const indexFields = ({
+  indexState,
+  indexError,
+  indexTitle,
+  aiOptOut,
+}: Memory) => ({ indexState, indexError, indexTitle, aiOptOut });
+
+/** Poll every 2 s, then back off by half each time nothing changed, up to 30 s. */
+export const POLL = { first: 2000, factor: 1.5, max: 30_000, batch: 100 };
+export const nextPollDelay = (delay: number) =>
+  Math.min(POLL.max, Math.round(delay * POLL.factor));
+
+/** Memories the wall shows Indexing, once their upload (if any) is done. */
+export const indexingIds = (memories: WallMemory[]) =>
+  memories
+    .filter((m) => m.indexState === "indexing" && !m.upload)
+    .map((m) => m.id)
+    .slice(0, POLL.batch);
+
+/**
+ * Index state on the wall: live updates while Indexing, Retry on Failed and
+ * the AI opt-out switch, each optimistic and rolled back with a message if
+ * the server says no.
+ */
+export function indexingActions({
+  setMemories,
+  transport,
+  notify,
+}: {
+  setMemories: Dispatch<SetStateAction<WallMemory[]>>;
+  transport: IndexingTransport;
+  notify: typeof toast;
+}) {
+  const merge = (fresh: Memory[]) => {
+    const byId = new Map(fresh.map((m) => [m.id, m]));
+    setMemories((all) =>
+      all.map((m) => {
+        const now = byId.get(m.id);
+        return now ? { ...m, ...indexFields(now) } : m;
+      })
+    );
+  };
+  const patch = (id: string, fields: Partial<Memory>) =>
+    setMemories((all) =>
+      all.map((m) => (m.id === id ? { ...m, ...fields } : m))
+    );
+
+  return {
+    /** Asks after `ids` and puts their Index state on the wall. */
+    poll: async (ids: string[]) => merge(await transport.poll(ids)),
+
+    async retryIndexing(memory: Memory) {
+      patch(memory.id, { indexState: "indexing", indexError: null });
+      try {
+        merge([await transport.retryIndexing(memory.id)]);
+      } catch {
+        patch(memory.id, indexFields(memory));
+        notify("Retry Did Not Finish");
+      }
+    },
+
+    async setAiOptOut(memory: Memory, on: boolean) {
+      patch(memory.id, {
+        aiOptOut: on,
+        ...(on
+          ? { indexState: "searchable", indexError: null, indexTitle: null }
+          : { indexState: "indexing" }),
+      });
+      try {
+        merge([await transport.setAiOptOut(memory.id, on)]);
+      } catch {
+        patch(memory.id, indexFields(memory));
+        notify("AI Opt-Out Did Not Change");
+      }
+    },
+  };
+}
