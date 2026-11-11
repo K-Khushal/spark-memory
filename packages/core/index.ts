@@ -10,6 +10,8 @@ export {
   MemoryEdit,
   MemoryEditRequest,
   AiOptOut,
+  AccountDeletion,
+  confirmsDeletion,
   IMAGE_TYPES,
   ImageType,
   THUMBNAIL_TYPES,

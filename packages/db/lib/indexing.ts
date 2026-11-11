@@ -7,7 +7,16 @@ import type {
 } from "@spark/core";
 import { readDailyBudgetMicros } from "./admin";
 import type { Database } from "./client";
-import { aiCall, memory, memoryFile, memoryIndex, spendDay } from "./schema";
+import { ANONYMISED_USER, lockOwner } from "./owner";
+import {
+  accountDeletion,
+  aiCall,
+  memory,
+  memoryFile,
+  memoryIndex,
+  spendDay,
+  user,
+} from "./schema";
 
 /** Today in UTC, by the database's clock: the day the budget counts. */
 const today = sql`(now() at time zone 'utc')::date`;
@@ -228,7 +237,12 @@ export function indexingStore(db: Database) {
       };
     },
 
-    /** One AI call: its own row, and today's total, added to atomically. */
+    /**
+     * One AI call: its own row, and today's total, added to atomically. The
+     * row names its owner only while they exist and are not being deleted
+     * (a call can finish after its Memory, or its owner, is gone), checked
+     * under the owner's lock, which the deletion's final step holds too.
+     */
     async recordCall(call: {
       userId: string;
       memoryId: string;
@@ -240,8 +254,9 @@ export function indexingStore(db: Database) {
       estimated?: boolean;
     }) {
       await db.transaction(async (tx) => {
+        await lockOwner(tx, call.userId);
         await tx.insert(aiCall).values({
-          userId: call.userId,
+          userId: sql`case when exists (select 1 from ${user} where ${user.id} = ${call.userId}) and not exists (select 1 from ${accountDeletion} where ${accountDeletion.userId} = ${call.userId}) then ${call.userId} else ${ANONYMISED_USER} end`,
           memoryId: call.memoryId,
           day: today,
           provider: call.provider,

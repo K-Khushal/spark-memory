@@ -13,6 +13,7 @@ import { openLibrary, type Library } from "@spark/db";
 import type { AppEnv } from "./env";
 import { requireUser, withAuth, type UserVariables } from "./auth";
 import { fileStore, forClient, type FileStore } from "./files";
+import { sameOrigin } from "./origin";
 import { enqueue } from "./indexing";
 
 /** The signed-in person's Library, for every route below. */
@@ -32,13 +33,13 @@ const withFiles = createMiddleware<
 });
 
 /** Answers carry one person's Memories and signed URLs: never cached anywhere. */
-const noStore = createMiddleware<AppEnv>(async (c, next) => {
+export const noStore = createMiddleware<AppEnv>(async (c, next) => {
   await next();
   c.header("Cache-Control", "private, no-store");
 });
 
 /** JSON validated by a @spark/core schema; 400 with no detail otherwise. */
-const json = <T>(schema: {
+export const json = <T>(schema: {
   safeParse: (
     value: unknown
   ) => { success: true; data: T } | { success: false };
@@ -82,6 +83,7 @@ const filesOf = async (library: Library, id: string) =>
   UUID.test(id) ? library.files(id) : undefined;
 
 const signedIn = [
+  sameOrigin,
   withAuth,
   requireUser,
   withLibrary,

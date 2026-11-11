@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
-import { LogOutIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import {
+  LogOutIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+  XIcon,
+} from "lucide-react";
 import {
   Button,
   CommandDialog,
@@ -330,6 +336,12 @@ export function LibraryPage({
                   onSelect={openPasteBox}
                 >
                   Capture
+                </Action>
+                <Action
+                  icon={<SettingsIcon />}
+                  onSelect={() => void navigate({ to: "/settings" })}
+                >
+                  Settings
                 </Action>
                 <Action icon={<LogOutIcon />} onSelect={() => void signOut()}>
                   Sign Out

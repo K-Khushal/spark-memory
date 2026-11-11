@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { isVerifiedAdmin, publicAnalytics } from "@spark/core";
 import { checkDatabase } from "@spark/db";
 import type { AppEnv } from "./env";
+import { account } from "./account";
 import { admin } from "./admin";
 import { memories } from "./memories";
 import { FILE_CACHE_CONTROL, usesLocalFiles, verifyLocalUrl } from "./files";
@@ -84,6 +85,10 @@ export const routes = new Hono<AppEnv>()
       "content-type": object.httpMetadata?.contentType ?? "",
       "cache-control": FILE_CACHE_CONTROL,
       "x-content-type-options": "nosniff",
+      ...(object.httpMetadata?.contentDisposition && {
+        "content-disposition": object.httpMetadata.contentDisposition,
+      }),
     });
   })
-  .route("/", memories);
+  .route("/", memories)
+  .route("/", account);

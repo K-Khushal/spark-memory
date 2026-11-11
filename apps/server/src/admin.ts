@@ -3,6 +3,7 @@ import { ADMIN_USERS_LIMIT, openAdmin } from "@spark/db";
 import { parseDailyBudgetMicros } from "@spark/core";
 import type { AppEnv } from "./env";
 import { requireAdmin, withAuth, type UserVariables } from "./auth";
+import { sameOrigin } from "./origin";
 
 /** Page size for the per-person list. Omitted query params use the defaults. */
 function pageOf(limitRaw?: string, offsetRaw?: string) {
@@ -19,7 +20,7 @@ function pageOf(limitRaw?: string, offsetRaw?: string) {
 
 /** Costs, usage and the daily budget. Every route is admin-only. */
 export const admin = new Hono<AppEnv & { Variables: UserVariables }>()
-  .use(withAuth, requireAdmin)
+  .use(sameOrigin, withAuth, requireAdmin)
   .use(async (c, next) => {
     await next();
     c.header("Cache-Control", "private, no-store");

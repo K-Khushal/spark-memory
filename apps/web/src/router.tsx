@@ -12,6 +12,7 @@ import { api } from "./api";
 import { redirectIfSignedIn, requireSession } from "./auth";
 import { AdminPage } from "./admin/admin-page";
 import { LibraryPage } from "./library/library-page";
+import { SettingsPage } from "./settings/settings-page";
 import { SignInPage } from "./sign-in/sign-in-page";
 import { DATA_SETS, type DataSet } from "./prototypes/data-sets";
 
@@ -38,6 +39,16 @@ const adminRoute = createRoute({
   component: function Admin() {
     const { session } = adminRoute.useRouteContext();
     return <AdminPage session={session} />;
+  },
+});
+
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  beforeLoad: () => requireSession(),
+  component: function Settings() {
+    const { session, admin } = settingsRoute.useRouteContext();
+    return <SettingsPage session={session} admin={admin} />;
   },
 });
 
@@ -100,6 +111,7 @@ export const router = createRouter({
   routeTree: rootRoute.addChildren([
     libraryRoute,
     adminRoute,
+    settingsRoute,
     signInRoute,
     prototypesRoute,
   ]),

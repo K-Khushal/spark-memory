@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, vi } from "vitest";
 import worker from "../src/index";
 import type {
+  AccountMessage,
+  AccountQueue,
   Bindings,
   FileBucket,
   IndexMessage,
@@ -21,7 +23,11 @@ export const ctx = {
 type Stored = {
   body: ArrayBuffer;
   size: number;
-  httpMetadata: { contentType: string; cacheControl: string };
+  httpMetadata: {
+    contentType?: string;
+    cacheControl?: string;
+    contentDisposition?: string;
+  };
 };
 
 /** An in-memory stand-in for the R2 bucket binding (the other faked boundary). */
@@ -38,6 +44,41 @@ export function memoryBucket() {
     },
     delete: async (keys) => {
       for (const key of [keys].flat()) objects.delete(key);
+    },
+    list: async ({ prefix, limit = 1000 }) => {
+      const keys = [...objects.keys()].filter((k) => k.startsWith(prefix));
+      return {
+        objects: keys.slice(0, limit).map((key) => ({ key })),
+        truncated: keys.length > limit,
+      };
+    },
+    // As R2: every part but the last the same size; nothing shows until complete.
+    createMultipartUpload: async (key, { httpMetadata }) => {
+      const parts = new Map<number, Uint8Array>();
+      return {
+        uploadPart: async (partNumber, value) => {
+          parts.set(partNumber, value.slice());
+          return { partNumber, etag: `etag-${partNumber}` };
+        },
+        complete: async (done) => {
+          const sizes = done.map((p) => parts.get(p.partNumber)!.length);
+          if (sizes.slice(0, -1).some((n) => n !== sizes[0])) {
+            throw new Error("parts must be the same size but the last");
+          }
+          const body = new Uint8Array(sizes.reduce((a, b) => a + b, 0));
+          let at = 0;
+          for (const p of done) {
+            body.set(parts.get(p.partNumber)!, at);
+            at += parts.get(p.partNumber)!.length;
+          }
+          objects.set(key, {
+            body: body.buffer,
+            size: body.length,
+            httpMetadata,
+          });
+        },
+        abort: async () => parts.clear(),
+      };
     },
   };
   return Object.assign(bucket, { objects });
@@ -60,6 +101,39 @@ export const queues = {
   fresh: recordingQueue("spark-index-local"),
   background: recordingQueue("spark-reindex-local"),
 };
+
+/** The account queue, kept for a test to deliver. */
+export const accountQueue = Object.assign(
+  {
+    send: async (body: AccountMessage, options?: { delaySeconds?: number }) => {
+      accountQueue.sent.push({ body, delaySeconds: options?.delaySeconds });
+    },
+  } satisfies AccountQueue,
+  { sent: [] as { body: AccountMessage; delaySeconds?: number }[] }
+);
+
+/** Delivers (once each) the account messages sent so far that match `which`. */
+export async function deliverAccount(
+  which: (body: AccountMessage) => boolean,
+  bindings = env()
+) {
+  const mine = accountQueue.sent.filter((m) => which(m.body));
+  accountQueue.sent = accountQueue.sent.filter((m) => !mine.includes(m));
+  const messages = mine.map(({ body }) => ({
+    body,
+    attempts: 1,
+    ack: vi.fn(),
+    retry: vi.fn(),
+  }));
+  await worker.queue(
+    {
+      queue: "spark-account-local",
+      messages,
+    } as unknown as MessageBatch<AccountMessage>,
+    bindings
+  );
+  return messages;
+}
 
 /** One delivery of `body` to the consumer, as Cloudflare Queues would make it. */
 export async function deliver(
@@ -99,6 +173,7 @@ export function env(overrides: Partial<Bindings> = {}): Bindings {
     FILES: files,
     INDEX_QUEUE: queues.fresh,
     REINDEX_QUEUE: queues.background,
+    ACCOUNT_QUEUE: accountQueue,
     INDEXING_PROVIDER: "fake",
     SPARK_ENV: "local",
     BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-0123",

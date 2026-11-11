@@ -339,3 +339,52 @@ export const settingChange = pgTable("setting_change", {
   changedBy: text("changed_by").notNull(),
   changedAt: instant("changed_at"),
 });
+
+/**
+ * A person who asked for their account to be deleted. While this row exists
+ * nobody can sign in as them, and the account job removes their files and
+ * rows; deleting the user row at the end removes this one with it.
+ */
+export const accountDeletion = pgTable("account_deletion", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  requestedAt: instant("requested_at"),
+});
+
+export type ExportState = "building" | "ready" | "failed";
+
+/**
+ * A person's latest Library export (one at a time): a ZIP in object storage
+ * built by the account job, downloadable through a signed URL until it
+ * expires. Every build attempt writes its own object
+ * (`users/<id>/exports/<export id>/<attempt>.zip`), so removing an
+ * abandoned attempt can never touch the one that finished; `key` is that one.
+ */
+export const libraryExport = pgTable("library_export", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  id: uuid("id").notNull(),
+  state: text("state").$type<ExportState>().default("building").notNull(),
+  /** Builds started; the job gives up after a few. */
+  attempts: integer("attempts").default(0).notNull(),
+  /** Set while one job builds it, so a duplicate message skips. */
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  bytes: bigint("bytes", { mode: "number" }),
+  /** The finished attempt's ZIP; set once Ready. */
+  key: text("r2_key"),
+  requestedAt: instant("requested_at"),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+});
+
+/**
+ * Objects to remove from storage once `dueAt` has passed: a replaced or
+ * expired export's ZIP. Written in the same transaction that lets go of the
+ * object, and removed only after storage confirms, so a crash in between
+ * never leaves an object nobody points at (the hourly sweep drains it).
+ */
+export const objectRemoval = pgTable("object_removal", {
+  key: text("key").primaryKey(),
+  dueAt: instant("due_at"),
+});

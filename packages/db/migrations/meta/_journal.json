@@ -78,6 +78,13 @@
       "when": 1794397833061,
       "tag": "0010_first_searchable",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794416220760,
+      "tag": "0011_account",
+      "breakpoints": true
     }
   ]
 }
