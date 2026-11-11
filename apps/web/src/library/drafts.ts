@@ -4,35 +4,23 @@ export type Draft = { title: string; body: string; captureNote: string };
 /**
  * A Memory's pending edit as kept in this browser: the person's unsaved
  * text (`fields`, written on `baseRevision`), text the server refused
- * (`refused`), and which page wrote it, so another tab only ever offers it.
+ * (`refused`, newest first, at most three), and which page wrote it, so
+ * another tab only ever offers it.
  */
 export type StoredEdit = {
   fields?: Draft;
   baseRevision: number;
-  refused?: Draft;
+  refused?: Draft[];
   page: string;
 };
 
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem" | "removeItem">;
 
 const key = (id: string) => `spark-draft:${id}`;
-const PAGE_KEY = "spark-page";
+export const REFUSED_MAX = 3;
 
 export const sameText = (a: Draft, b: Draft) =>
   a.title === b.title && a.body === b.body && a.captureNote === b.captureNote;
-
-/** Survives a reload of this tab; a new tab gets its own id. */
-function thisPage(): string {
-  try {
-    const existing = sessionStorage.getItem(PAGE_KEY);
-    if (existing) return existing;
-    const id = crypto.randomUUID();
-    sessionStorage.setItem(PAGE_KEY, id);
-    return id;
-  } catch {
-    return crypto.randomUUID();
-  }
-}
 
 const isDraft = (x: unknown): x is Draft =>
   typeof x === "object" &&
@@ -47,13 +35,40 @@ const draftOf = ({ title, body, captureNote }: Draft): Draft => ({
   captureNote,
 });
 
+/** Newest first, de-duplicated, at most `REFUSED_MAX`. Accepts a legacy single Draft. */
+export function refusedList(value: unknown): Draft[] {
+  const items = Array.isArray(value) ? value : value != null ? [value] : [];
+  const out: Draft[] = [];
+  for (const item of items) {
+    if (!isDraft(item)) continue;
+    const next = draftOf(item);
+    if (!out.some((d) => sameText(d, next))) out.push(next);
+    if (out.length === REFUSED_MAX) break;
+  }
+  return out;
+}
+
+/** Puts `next` at the front of a refused list, de-duplicated, capped. */
+export function withRefused(
+  list: Draft[] | undefined,
+  next: Draft | undefined
+): Draft[] | undefined {
+  if (!next) return list?.length ? list : undefined;
+  const rest = (list ?? []).filter((d) => !sameText(d, next));
+  const out = [next, ...rest].slice(0, REFUSED_MAX);
+  return out.length ? out : undefined;
+}
+
 /**
  * Pending edits kept in this browser until the server has them, so a page
  * that closes mid-edit loses nothing. Storage can be blocked or full; then
- * this is simply off. `page` tags this tab so a reload can resume its own
- * draft and another tab only ever offers one.
+ * this is simply off. `page` is this live JS realm: drafts it writes are
+ * tagged with it, and a new load (or another tab) only ever offers them.
  */
-export function draftStore(storage: Storage | undefined, page = thisPage()) {
+export function draftStore(
+  storage: Storage | undefined,
+  page: string = crypto.randomUUID()
+) {
   return {
     page,
     read(id: string): StoredEdit | undefined {
@@ -63,9 +78,14 @@ export function draftStore(storage: Storage | undefined, page = thisPage()) {
         if (!v || !Number.isInteger(v.baseRevision)) return undefined;
         if (typeof v.page !== "string") return undefined;
         const fields = isDraft(v.fields) ? draftOf(v.fields) : undefined;
-        const refused = isDraft(v.refused) ? draftOf(v.refused) : undefined;
-        if (!fields && !refused) return undefined;
-        return { fields, refused, baseRevision: v.baseRevision!, page: v.page };
+        const refused = refusedList(v.refused);
+        if (!fields && !refused.length) return undefined;
+        return {
+          fields,
+          refused: refused.length ? refused : undefined,
+          baseRevision: v.baseRevision!,
+          page: v.page,
+        };
       } catch {
         return undefined;
       }

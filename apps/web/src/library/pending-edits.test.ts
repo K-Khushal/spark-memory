@@ -229,7 +229,7 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     expect(t.server.patch).toHaveBeenCalledTimes(1);
     expect(t.actions.pendingEdit("m1")).toMatchObject({
       status: "idle",
-      refused: { title: "Mine 2" },
+      refused: [{ title: "Mine 2" }],
     });
     expect(t.onWall()?.title).toBe("Other tab");
 
@@ -246,7 +246,7 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     expect(t.actions.pendingEdit("m1")).toMatchObject({
       status: "dirty",
       fields: { title: "Other tabx" },
-      refused: { title: "Mine" },
+      refused: [{ title: "Mine" }],
     });
     expect(t.actions.restoreEdit("m1")?.title).toBe("Mine");
     await settle();
@@ -258,7 +258,7 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     t.actions.closeEdit("m1");
     await settle();
     expect(t.server.patch).toHaveBeenCalledTimes(1);
-    expect(t.drafts.read("m1")?.refused?.title).toBe("Mine");
+    expect(t.drafts.read("m1")?.refused?.[0]?.title).toBe("Mine");
   });
 
   it("keeps new typing after the refusal, even when closed before it saves", async () => {
@@ -269,13 +269,15 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     expect(t.drafts.read("m1")).toMatchObject({
       fields: { title: "Typed after" },
       baseRevision: 2,
-      refused: { title: "Mine" },
+      refused: [{ title: "Mine" }],
     });
     t.server.resume();
     await settle();
     expect(t.server.row().title).toBe("Typed after");
     // The refused text is still on offer; the typing is saved.
-    expect(t.drafts.read("m1")).toMatchObject({ refused: { title: "Mine" } });
+    expect(t.drafts.read("m1")).toMatchObject({
+      refused: [{ title: "Mine" }],
+    });
     expect(t.drafts.read("m1")?.fields).toBeUndefined();
   });
 
@@ -293,7 +295,7 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     await settle();
     expect(t.actions.pendingEdit("m1")).toMatchObject({
       status: "idle",
-      refused: { title: "Mine" },
+      refused: [{ title: "Mine" }],
     });
     expect(t.onWall()?.title).toBe("Other tab");
     t.actions.restoreEdit("m1");
@@ -327,7 +329,7 @@ describe("a draft left by another page", () => {
     });
     expect(t.actions.openEdit(start)).toMatchObject({
       status: "idle",
-      refused: { title: "Old draft" },
+      refused: [{ title: "Old draft" }],
     });
     t.actions.closeEdit("m1");
     await settle();
@@ -359,7 +361,7 @@ describe("a draft left by another page", () => {
     const tabB = setup({ server, drafts: draftStore(store) });
     expect(tabB.actions.openEdit(start)).toMatchObject({
       status: "idle",
-      refused: { title: "Half typed" },
+      refused: [{ title: "Half typed" }],
     });
     await settle();
     expect(server.patch).not.toHaveBeenCalled();
@@ -427,6 +429,38 @@ describe("deleting a Memory with an unsaved edit", () => {
     await settle();
     expect(t.onWall()?.title).toBe("Start");
   });
+
+  it("replaces the shown snapshot with the fetched server copy", async () => {
+    const t = setup();
+    t.actions.editText(start, text("Unsaved"));
+    t.server.failNextRemove();
+    t.server.pauseGet();
+    t.actions.remove(t.onWall()!);
+    t.toast("Deleted")!.onAutoClose();
+    await settle();
+    expect(t.onWall()?.title).toBe("Start");
+    t.server.editElsewhere("Server now");
+    t.server.resumeGet();
+    await settle();
+    expect(t.onWall()?.title).toBe("Server now");
+  });
+
+  it("does not resurrect a Memory a later delete already removed", async () => {
+    const t = setup();
+    t.actions.editText(start, text("Unsaved"));
+    t.server.failNextRemove();
+    t.server.pauseGet();
+    t.actions.remove(t.onWall()!);
+    t.toast("Deleted")!.onAutoClose();
+    await settle();
+    t.toast("Delete Did Not Finish")!.action.onClick();
+    t.toast("Deleted")!.onAutoClose();
+    await settle();
+    expect(t.onWall()).toBeUndefined();
+    t.server.resumeGet();
+    await settle();
+    expect(t.onWall()).toBeUndefined();
+  });
 });
 
 describe("another tab's draft", () => {
@@ -439,7 +473,7 @@ describe("another tab's draft", () => {
     const tabB = setup({ server, drafts: draftStore(store) });
     expect(tabB.actions.openEdit(start)).toMatchObject({
       status: "idle",
-      refused: { title: "Half typed" },
+      refused: [{ title: "Half typed" }],
       fromStorage: true,
     });
     tabB.actions.closeEdit("m1");
@@ -448,23 +482,23 @@ describe("another tab's draft", () => {
 });
 
 describe("a draft after reload", () => {
-  it("resumes this page's unsent edit when the revision still matches", async () => {
+  it("never sends a stored draft, even when this tab reused the page id", async () => {
     const store = storage();
-    const drafts = draftStore(store, "same-page");
     const server = fakeServer();
-    const t = setup({ server, drafts });
-    t.actions.editText(start, text("Unsent"));
-    const reloaded = setup({
+    const tabA = setup({ server, drafts: draftStore(store, "same-page") });
+    tabA.actions.editText(start, text("Half typed"));
+    const copy = setup({
       server,
       drafts: draftStore(store, "same-page"),
     });
-    expect(reloaded.actions.openEdit(start)).toMatchObject({
-      fields: { title: "Unsent" },
-      fromStorage: false,
+    expect(copy.actions.openEdit(start)).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Half typed" }],
+      fromStorage: true,
     });
-    reloaded.actions.closeEdit("m1");
     await settle();
-    expect(server.row().title).toBe("Unsent");
+    expect(server.patch).not.toHaveBeenCalled();
+    expect(server.row().title).toBe("Start");
   });
 
   it("keeps the unsent edit when Done is pressed without Restore", async () => {
@@ -477,7 +511,7 @@ describe("a draft after reload", () => {
     });
     expect(reloaded.actions.openEdit(start)).toMatchObject({
       status: "idle",
-      refused: { title: "Unsent" },
+      refused: [{ title: "Unsent" }],
       fromStorage: true,
     });
     reloaded.actions.closeEdit("m1");
@@ -485,6 +519,30 @@ describe("a draft after reload", () => {
     expect(reloaded.drafts.read("m1")).toMatchObject({
       fields: { title: "Unsent" },
     });
+  });
+
+  it("keeps this page's own draft on Done after reload if the revision has moved", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const t = setup({ server, drafts: draftStore(store, "same-page") });
+    t.actions.editText(start, text("Unsent"));
+    server.editElsewhere("Other tab");
+    const reloaded = setup({
+      server,
+      drafts: draftStore(store, "same-page"),
+    });
+    expect(reloaded.actions.openEdit(server.row())).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Unsent" }],
+      fromStorage: true,
+    });
+    reloaded.actions.closeEdit("m1");
+    await settle();
+    expect(reloaded.drafts.read("m1")).toMatchObject({
+      fields: { title: "Unsent" },
+      page: "same-page",
+    });
+    expect(server.patch).not.toHaveBeenCalled();
   });
 });
 
@@ -495,18 +553,18 @@ describe("Restore Your Edit", () => {
     expect(t.actions.restoreEdit("m1")?.title).toBe("Mine");
     expect(t.actions.pendingEdit("m1")).toMatchObject({
       fields: { title: "Mine" },
-      refused: { title: "New typing" },
+      refused: [{ title: "New typing" }],
     });
     await settle();
     expect(t.server.row().title).toBe("Mine");
     expect(t.actions.pendingEdit("m1")).toMatchObject({
-      refused: { title: "New typing" },
+      refused: [{ title: "New typing" }],
     });
   });
 });
 
 describe("a second 409", () => {
-  it("keeps the older refused text when the new fields differ", async () => {
+  it("keeps up to 3 refused versions, newest first; Restore takes the newest", async () => {
     const t = await refused();
     t.actions.editText(t.onWall()!, text("Typed over"));
     t.server.editElsewhere("Third");
@@ -514,8 +572,15 @@ describe("a second 409", () => {
     await settle();
     expect(t.actions.pendingEdit("m1")).toMatchObject({
       status: "idle",
-      refused: { title: "Mine" },
+      refused: [text("Typed over"), text("Mine")],
     });
     expect(t.onWall()?.title).toBe("Third");
+    expect(t.actions.restoreEdit("m1")?.title).toBe("Typed over");
+    await settle();
+    expect(t.server.row().title).toBe("Typed over");
+    expect(t.actions.pendingEdit("m1")).toMatchObject({
+      refused: [text("Mine")],
+    });
+    expect(t.actions.pendingEdit("m1")?.fields).toBeUndefined();
   });
 });
