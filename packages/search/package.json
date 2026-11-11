@@ -10,7 +10,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@spark/core": "workspace:*",
+    "@spark/indexing": "workspace:*"
+  },
   "devDependencies": {
     "@spark/config": "workspace:*"
   }

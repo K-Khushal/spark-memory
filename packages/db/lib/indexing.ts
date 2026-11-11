@@ -1,9 +1,11 @@
 import { and, eq, lt, sql } from "drizzle-orm";
-import type {
-  IndexFailure,
-  IndexingOutput,
-  MemoryKind,
-  ProviderName,
+import {
+  EMBEDDING,
+  embeddingSpace,
+  type IndexFailure,
+  type IndexingOutput,
+  type MemoryKind,
+  type ProviderName,
 } from "@spark/core";
 import { readDailyBudgetMicros } from "./admin";
 import type { Database } from "./client";
@@ -14,9 +16,58 @@ import {
   memory,
   memoryFile,
   memoryIndex,
+  memoryVector,
   spendDay,
   user,
+  type PassageAnchor,
+  type VectorKind,
 } from "./schema";
+
+/** A Memory's vectors as one model made them from one revision of its text. */
+export type Embedding = {
+  model: string;
+  dimensions: number;
+  revision: number;
+  vectors: { kind: VectorKind; anchor?: PassageAnchor; embedding: number[] }[];
+};
+
+type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/** Replaces a Memory's vectors and notes what they were made from. */
+async function replaceVectors(
+  tx: Tx,
+  id: string,
+  userId: string,
+  { model, dimensions, revision, vectors }: Embedding
+) {
+  await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
+  if (vectors.length) {
+    await tx.insert(memoryVector).values(
+      vectors.map((v) => ({
+        memoryId: id,
+        userId,
+        kind: v.kind,
+        anchor: v.anchor ?? null,
+        model,
+        dimensions,
+        embedding: v.embedding,
+      }))
+    );
+  }
+  await tx
+    .update(memory)
+    .set({
+      vectorsSpace: embeddingSpace(model, dimensions),
+      vectorsRevision: revision,
+    })
+    .where(eq(memory.id, id));
+}
+
+/** Searchable, AI allowed, and Indexing found something to embed. */
+const embeddable = sql`${memory.indexState} = 'searchable' and not ${memory.aiOptOut} and exists (select 1 from memory_index i where i.memory_id = ${memory.id})`;
+/** Vectors missing, from another model or size, or from an older revision. */
+const staleIn = (space: string) =>
+  sql`(${memory.vectorsSpace} is distinct from ${space} or ${memory.vectorsRevision} is distinct from ${memory.revision})`;
 
 /** Today in UTC, by the database's clock: the day the budget counts. */
 const today = sql`(now() at time zone 'utc')::date`;
@@ -47,6 +98,29 @@ export function indexingStore(db: Database) {
       eq(memory.indexState, "indexing")
     );
 
+  /** An image Memory's original and thumbnail keys, for a model to read. */
+  async function imageOf(id: string) {
+    const files = await db
+      .select({
+        role: memoryFile.role,
+        key: memoryFile.key,
+        mime: memoryFile.mime,
+        bytes: memoryFile.bytes,
+      })
+      .from(memoryFile)
+      .where(eq(memoryFile.memoryId, id));
+    const original = files.find((f) => f.role === "original");
+    const thumbnail = files.find((f) => f.role === "thumbnail");
+    if (!original || !thumbnail) return undefined;
+    return {
+      key: original.key,
+      mime: original.mime,
+      bytes: original.bytes,
+      thumbnailKey: thumbnail.key,
+      thumbnailMime: thumbnail.mime,
+    };
+  }
+
   return {
     /**
      * Takes a Memory waiting for Indexing (at `run`, when given) and leases
@@ -70,42 +144,27 @@ export function indexingStore(db: Database) {
           userId: memory.userId,
           kind: memory.kind,
           run: memory.indexRun,
+          revision: memory.revision,
           title: memory.title,
           body: memory.body,
           captureNote: memory.captureNote,
           aiOptOut: memory.aiOptOut,
         });
-      if (!row) return undefined;
-      if (row.kind !== "image") return row;
-      const files = await db
-        .select({
-          role: memoryFile.role,
-          key: memoryFile.key,
-          mime: memoryFile.mime,
-          bytes: memoryFile.bytes,
-        })
-        .from(memoryFile)
-        .where(eq(memoryFile.memoryId, id));
-      const original = files.find((f) => f.role === "original");
-      const thumbnail = files.find((f) => f.role === "thumbnail");
-      if (!original || !thumbnail) return row;
-      return {
-        ...row,
-        image: {
-          key: original.key,
-          mime: original.mime,
-          bytes: original.bytes,
-          thumbnailKey: thumbnail.key,
-          thumbnailMime: thumbnail.mime,
-        },
-      };
+      if (!row || row.kind !== "image") return row;
+      const image = await imageOf(id);
+      return image ? { ...row, image } : row;
     },
 
-    /** Searchable, with what was found (null: AI opt-out, nothing was sent). */
+    /**
+     * Searchable, with what was found (null: AI opt-out, nothing was sent)
+     * and its vectors, kept only if the text they were made from has not
+     * been edited since (else the hourly sweep makes them again).
+     */
     async complete(
       id: string,
       run: number,
-      extraction: { output: IndexingOutput; model: string } | null
+      extraction: { output: IndexingOutput; model: string } | null,
+      embedding?: Embedding
     ): Promise<boolean> {
       return db.transaction(async (tx) => {
         const [row] = await tx
@@ -123,7 +182,11 @@ export function indexingStore(db: Database) {
               extraction ? eq(memory.aiOptOut, false) : undefined
             )
           )
-          .returning({ id: memory.id });
+          .returning({
+            id: memory.id,
+            userId: memory.userId,
+            revision: memory.revision,
+          });
         if (!row || !extraction) return !!row;
         const { language: _, ...found } = extraction.output;
         const values = {
@@ -135,8 +198,98 @@ export function indexingStore(db: Database) {
           .insert(memoryIndex)
           .values({ memoryId: id, ...values })
           .onConflictDoUpdate({ target: memoryIndex.memoryId, set: values });
+        if (embedding && embedding.revision === row.revision) {
+          await replaceVectors(tx, id, row.userId, embedding);
+        }
         return true;
       });
+    },
+
+    /**
+     * Takes a Searchable Memory whose vectors in `space` are stale, with
+     * what Indexing found, under the same lease as `load`. Undefined when it
+     * is gone, has AI opt-out, is not stale, or is taken.
+     */
+    async loadForEmbedding(id: string, space: string) {
+      const [row] = await db
+        .update(memory)
+        .set({ ...lease(), indexLeaseRun: sql`${memory.indexRun}` })
+        .where(and(eq(memory.id, id), embeddable, staleIn(space), unleased))
+        .returning({
+          userId: memory.userId,
+          kind: memory.kind,
+          run: memory.indexRun,
+          revision: memory.revision,
+          title: memory.title,
+          body: memory.body,
+          captureNote: memory.captureNote,
+        });
+      if (!row) return undefined;
+      const [found] = await db
+        .select({
+          title: memoryIndex.title,
+          description: memoryIndex.description,
+          ocrText: memoryIndex.ocrText,
+          tags: memoryIndex.tags,
+          entities: memoryIndex.entities,
+        })
+        .from(memoryIndex)
+        .where(eq(memoryIndex.memoryId, id));
+      if (!found) return undefined;
+      const image = row.kind === "image" ? await imageOf(id) : undefined;
+      return { ...row, found, ...(image && { image }) };
+    },
+
+    /**
+     * Whether the Memory is still Searchable at `run` and `revision`,
+     * without AI opt-out: asked right before the embedding call. Renews
+     * the lease.
+     */
+    async stillEmbeddable(id: string, run: number, revision: number) {
+      const [row] = await db
+        .update(memory)
+        .set(lease())
+        .where(
+          and(
+            eq(memory.id, id),
+            eq(memory.indexRun, run),
+            eq(memory.revision, revision),
+            embeddable
+          )
+        )
+        .returning({ id: memory.id });
+      return !!row;
+    },
+
+    /** New vectors for a Searchable Memory, if nothing changed since loading. */
+    async writeVectors(id: string, run: number, embedding: Embedding) {
+      return db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(memory)
+          .set({ indexLeaseUntil: null })
+          .where(
+            and(
+              eq(memory.id, id),
+              eq(memory.indexRun, run),
+              eq(memory.revision, embedding.revision),
+              embeddable
+            )
+          )
+          .returning({ userId: memory.userId });
+        if (!row) return false;
+        await replaceVectors(tx, id, row.userId, embedding);
+        return true;
+      });
+    },
+
+    /** Memories whose vectors in `space` are missing or stale, oldest first. */
+    async staleVectors(space: string, limit: number = EMBEDDING.sweepBatch) {
+      return db
+        .select({ id: memory.id })
+        .from(memory)
+        .where(and(embeddable, staleIn(space), unleased))
+        .orderBy(memory.updatedAt)
+        .limit(limit);
     },
 
     /**
@@ -165,7 +318,7 @@ export function indexingStore(db: Database) {
       await db
         .update(memory)
         .set({ indexLeaseUntil: null })
-        .where(atRun(id, run));
+        .where(and(eq(memory.id, id), eq(memory.indexRun, run)));
     },
 
     /**
@@ -245,7 +398,8 @@ export function indexingStore(db: Database) {
      */
     async recordCall(call: {
       userId: string;
-      memoryId: string;
+      /** Null for a search query's embedding. */
+      memoryId: string | null;
       provider: ProviderName;
       model: string;
       usage: { inputTokens: number; outputTokens: number };

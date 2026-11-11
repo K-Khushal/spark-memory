@@ -20,9 +20,12 @@ export {
   type MemoryImage,
   type Library,
   type MatchedBy,
+  type MatchedPart,
   type Memory,
   type Page,
+  type SearchOptions,
   type SearchResult,
+  type VectorProbe,
 } from "./lib/library";
 export {
   accountJobs,
@@ -42,7 +45,11 @@ export {
   deletionRequested as isDeletionRequested,
   endSessionIfDeleting,
 } from "./lib/owner";
-export { indexingStore, type IndexingStore } from "./lib/indexing";
+export {
+  indexingStore,
+  type Embedding,
+  type IndexingStore,
+} from "./lib/indexing";
 export {
   ADMIN_USERS_LIMIT,
   openAdmin,

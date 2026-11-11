@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { INDEXING } from "@spark/core";
+import { EMBEDDING, INDEXING } from "@spark/core";
 import { FAKE_WORD } from "@spark/indexing";
 import worker from "../src/index";
 import type { Bindings } from "../src/env";
@@ -63,7 +63,16 @@ function geminiApi(...replies: (string | number)[]) {
     if (!url.includes("generativelanguage.googleapis.com")) {
       return realFetch(input, init);
     }
-    calls.push({ body: JSON.parse(String(init?.body)) });
+    const body = JSON.parse(String(init?.body));
+    // Gemini Embedding: a unit vector per input (test/search.test.ts covers it).
+    if (url.includes(":batchEmbedContents")) {
+      return Response.json({
+        embeddings: body.requests.map(() => ({
+          values: [1, ...new Array(EMBEDDING.dimensions - 1).fill(0)],
+        })),
+      });
+    }
+    calls.push({ body });
     const next = replies.shift() ?? 503;
     if (typeof next === "number") return new Response("", { status: next });
     return Response.json({

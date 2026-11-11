@@ -16,7 +16,8 @@ const indexFields = ({
   indexError,
   indexTitle,
   aiOptOut,
-}: Memory) => ({ indexState, indexError, indexTitle, aiOptOut });
+  hasVectors,
+}: Memory) => ({ indexState, indexError, indexTitle, aiOptOut, hasVectors });
 
 /** Poll every 2 s, then back off by half each time nothing changed, up to 30 s. */
 export const POLL = { first: 2000, factor: 1.5, max: 30_000, batch: 100 };
@@ -40,12 +41,18 @@ export function indexingActions({
   transport,
   notify,
   isPending,
+  onChanged = () => {},
 }: {
   setMemories: Dispatch<SetStateAction<WallMemory[]>>;
   transport: IndexingTransport;
   notify: typeof toast;
   /** A request for this Memory (its Capture, Try Again) has not finished. */
   isPending: (id: string) => boolean;
+  /**
+   * What search finds has changed: Indexing finished (or failed) for a
+   * Memory, or the server took an AI opt-out switch. Open searches run again.
+   */
+  onChanged?: () => void;
 }) {
   const merge = (fresh: Memory[]) => {
     const byId = new Map(fresh.map((m) => [m.id, m]));
@@ -86,7 +93,10 @@ export function indexingActions({
       try {
         const now = await transport.setAiOptOut(id, on);
         // A later switch is waiting: its answer is the one to show.
-        if (entry.want === undefined) merge([now]);
+        if (entry.want === undefined) {
+          merge([now]);
+          onChanged();
+        }
       } catch {
         if (entry.want === undefined) {
           patch(id, entry.before);
@@ -107,6 +117,8 @@ export function indexingActions({
         else misses.set(id, (misses.get(id) ?? 0) + 1);
       }
       merge(fresh);
+      // Only Memories still Indexing are polled: any other state is news.
+      if (fresh.some((m) => m.indexState !== "indexing")) onChanged();
     },
 
     /** The ids worth asking after: Indexing on the wall, and still on the server. */

@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import {
+  EMBEDDING,
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
@@ -9,7 +10,14 @@ import {
 } from "@spark/core";
 import type { Database } from "./client";
 import { deletionRequested, lockOwner, ownerPrefix } from "./owner";
-import { memory, memoryFile, memoryIndex, type FileRole } from "./schema";
+import {
+  memory,
+  memoryFile,
+  memoryIndex,
+  memoryVector,
+  type FileRole,
+  type PassageAnchor,
+} from "./schema";
 
 /** An image Memory's files: what the wall needs, and the keys to sign. */
 export type MemoryImage = {
@@ -37,7 +45,7 @@ const indexTitle = sql<string | null>`(
   select i.title from ${memoryIndex} i
   where i.memory_id = ${memory.id} and not ${memory.aiOptOut})`;
 
-const columns = {
+const baseColumns = {
   id: memory.id,
   kind: memory.kind,
   title: memory.title,
@@ -60,8 +68,16 @@ const columns = {
 /** A Memory as the API reads it; routes turn `image` keys into signed URLs. */
 export type Memory = Pick<
   typeof memory.$inferSelect,
-  Exclude<keyof typeof columns, "image" | "indexTitle">
-> & { image: MemoryImage | null; indexTitle: string | null };
+  Exclude<keyof typeof baseColumns, "image" | "indexTitle">
+> & {
+  image: MemoryImage | null;
+  indexTitle: string | null;
+  /**
+   * It has vectors in the space search uses now, so More Like This can
+   * find something; false without an embedder (no paid tier).
+   */
+  hasVectors: boolean;
+};
 
 /** A Memory shows once every file it has is stored. */
 const allStored = sql`not exists (select 1 from memory_file f where f.memory_id = ${memory.id} and f.stored_at is null)`;
@@ -121,8 +137,33 @@ const restartIndexing = {
 } as const;
 
 /** Which search legs found a Memory (ADR-0004). */
-export type MatchedBy = "keyword" | "typo";
-export type SearchResult = Memory & { matched: MatchedBy[] };
+export type MatchedBy = "keyword" | "typo" | "vector";
+/** What matched in the leg that ranked a Memory highest (migrations/0013). */
+export type MatchedPart =
+  | {
+      kind: "field";
+      field?: "title" | "note" | "tags" | "text" | "ocr" | "description";
+    }
+  | ({ kind: "passage" } & PassageAnchor)
+  | { kind: "overview" | "visual" };
+export type SearchResult = Memory & {
+  matched: MatchedBy[];
+  /** Cosine distance of its closest vector; null when the vector leg did not find it. */
+  distance: number | null;
+  part: MatchedPart;
+};
+
+/** The query's side of the vector leg: its vector, or a Memory's own (More Like This). */
+export type VectorProbe = { model: string; dimensions: number } & (
+  { vector: number[] } | { like: string }
+);
+
+export type SearchOptions = {
+  limit?: number;
+  probe?: VectorProbe;
+  maxDistance?: number;
+  kinds?: Memory["kind"][];
+};
 
 export type EditResult = Memory | { stale: true } | undefined;
 
@@ -179,8 +220,20 @@ function parseCursor(cursor: string) {
  * One user's Library (GLOSSARY.md). The only way to reach the memory table:
  * every query is scoped to `userId` here, so no route can forget to.
  * Inputs are validated against the Free allowance (@spark/core).
+ * `vectorsSpace` is the embedding space (`model@dimensions`) this
+ * environment searches with; without one no Memory has usable vectors.
  */
-export function openLibrary(db: Database, userId: string) {
+export function openLibrary(
+  db: Database,
+  userId: string,
+  { vectorsSpace }: { vectorsSpace?: string } = {}
+) {
+  const columns = {
+    ...baseColumns,
+    hasVectors: vectorsSpace
+      ? sql<boolean>`coalesce(${memory.vectorsSpace} = ${vectorsSpace} and not ${memory.aiOptOut}, false)`
+      : sql<boolean>`false`,
+  };
   const owned = (id: string) =>
     and(eq(memory.userId, userId), eq(memory.id, id));
 
@@ -475,27 +528,40 @@ export function openLibrary(db: Database, userId: string) {
         changes.body === undefined
           ? sql`false`
           : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut}`;
-      const [row] = await db
-        .update(memory)
-        .set({
-          ...changes,
-          revision: sql`${memory.revision} + 1`,
-          indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
-          indexRun: sql`${memory.indexRun} + (${reindex})::int`,
-          indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
-          // A fix to a Capture still on its first, fresh run stays first in
-          // line; any later edit is background work.
-          indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
-        })
-        .where(
-          and(
-            owned(id),
-            // Only a text Memory has text to edit.
-            changes.body === undefined ? undefined : eq(memory.kind, "text"),
-            revision === undefined ? undefined : eq(memory.revision, revision)
+      // One transaction: new text and the end of the old text's vectors
+      // (they would match it, and point into the new text) land together.
+      const row = await db.transaction(async (tx) => {
+        const [edited] = await tx
+          .update(memory)
+          .set({
+            ...changes,
+            revision: sql`${memory.revision} + 1`,
+            indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
+            indexRun: sql`${memory.indexRun} + (${reindex})::int`,
+            indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
+            // A fix to a Capture still on its first, fresh run stays first in
+            // line; any later edit is background work.
+            indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
+            vectorsSpace: sql`case when ${reindex} then null else ${memory.vectorsSpace} end`,
+            vectorsRevision: sql`case when ${reindex} then null else ${memory.vectorsRevision} end`,
+          })
+          .where(
+            and(
+              owned(id),
+              // Only a text Memory has text to edit.
+              changes.body === undefined ? undefined : eq(memory.kind, "text"),
+              revision === undefined ? undefined : eq(memory.revision, revision)
+            )
           )
-        )
-        .returning(columns);
+          .returning({ ...columns, vectorsSpace: memory.vectorsSpace });
+        if (!edited) return undefined;
+        const { vectorsSpace, ...shown } = edited;
+        // Vectors always come with their space: none means none are kept.
+        if (vectorsSpace === null) {
+          await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
+        }
+        return shown;
+      });
       if (row) return row;
       const now = revision === undefined ? undefined : await get(id);
       return now && (changes.body === undefined || now.kind === "text")
@@ -548,6 +614,11 @@ export function openLibrary(db: Database, userId: string) {
           .returning({ id: memory.id });
         if (row && on) {
           await tx.delete(memoryIndex).where(eq(memoryIndex.memoryId, id));
+          await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
+          await tx
+            .update(memory)
+            .set({ vectorsSpace: null, vectorsRevision: null })
+            .where(eq(memory.id, id));
         }
       });
       return get(id);
@@ -599,25 +670,51 @@ export function openLibrary(db: Database, userId: string) {
         .orderBy(asc(memory.id))
         .limit(limit),
 
-    /** Instant search: keyword and typo matching, no AI (PLAN.md §6.2). */
-    async search(query: string, limit = 40): Promise<SearchResult[]> {
-      if (!query.trim()) return [];
+    /**
+     * Hybrid search (ADR-0004), best first: keyword and typo matching, and
+     * with a `probe` the vector leg too. Without one it is instant search
+     * (PLAN.md §6.2). A `like` probe is More Like This for one of the
+     * owner's Memories, which is left out.
+     */
+    async search(
+      query: string,
+      {
+        limit = 40,
+        probe,
+        maxDistance = EMBEDDING.maxDistance,
+        kinds,
+      }: SearchOptions = {}
+    ): Promise<SearchResult[]> {
+      if (!query.trim() && !probe) return [];
+      const vector =
+        probe && "vector" in probe ? `[${probe.vector.join(",")}]` : null;
+      const like = probe && "like" in probe ? probe.like : null;
+      if (like && !UUID.test(like)) return [];
       const hits = db.$with("hits").as(
         db
           .select({
             id: sql<string>`id`.as("hit_id"),
             score: sql<number>`score`.as("score"),
             matched: sql<MatchedBy[]>`matched`.as("matched"),
+            distance: sql<number | null>`distance`.as("distance"),
+            part: sql<MatchedPart>`part`.as("part"),
           })
-          .from(sql`search_memories(${userId}, ${query}, ${limit})`)
+          .from(
+            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[])`
+          )
       );
       return db
         .with(hits)
-        .select({ ...columns, matched: hits.matched })
+        .select({
+          ...columns,
+          matched: hits.matched,
+          distance: hits.distance,
+          part: hits.part,
+        })
         .from(hits)
         .innerJoin(memory, eq(memory.id, hits.id))
         .where(and(eq(memory.userId, userId), allStored))
-        .orderBy(desc(hits.score));
+        .orderBy(desc(hits.score), asc(hits.id));
     },
   };
 }

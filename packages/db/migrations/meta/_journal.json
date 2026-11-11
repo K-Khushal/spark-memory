@@ -85,6 +85,20 @@
       "when": 1794416220760,
       "tag": "0011_account",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794417243319,
+      "tag": "0012_vectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794417244067,
+      "tag": "0013_hybrid_search",
+      "breakpoints": true
     }
   ]
 }

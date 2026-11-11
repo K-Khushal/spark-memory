@@ -4,25 +4,53 @@ import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
 import {
   AiOptOut,
+  EMBEDDING,
+  embeddingSpace,
   FREE_ALLOWANCE,
   ImageCapture,
   MemoryEditRequest,
   TextCapture,
 } from "@spark/core";
-import { openLibrary, type Library } from "@spark/db";
+import { indexingStore, openLibrary, type Library } from "@spark/db";
+import { embedderFor } from "@spark/indexing";
+import { createSearch } from "@spark/search";
 import type { AppEnv } from "./env";
 import { requireUser, withAuth, type UserVariables } from "./auth";
 import { fileStore, forClient, type FileStore } from "./files";
 import { sameOrigin } from "./origin";
-import { enqueue } from "./indexing";
+import { enqueue, enqueueEmbed, providers } from "./indexing";
 
 /** The signed-in person's Library, for every route below. */
 const withLibrary = createMiddleware<
   AppEnv & { Variables: UserVariables & { library: Library } }
 >(async (c, next) => {
-  c.set("library", openLibrary(c.var.db, c.var.user.id));
+  const embedder = embedderFor(providers(c.env));
+  c.set(
+    "library",
+    openLibrary(c.var.db, c.var.user.id, {
+      ...(embedder && {
+        vectorsSpace: embeddingSpace(embedder.model, embedder.dimensions),
+      }),
+    })
+  );
   await next();
 });
+
+/** The person's search: instant, full (with their query embedded) and More Like This. */
+const searchFor = (
+  env: AppEnv["Bindings"],
+  db: Parameters<typeof indexingStore>[0],
+  userId: string,
+  library: Library
+) => {
+  const embedder = embedderFor(providers(env));
+  return createSearch({
+    userId,
+    find: library.search,
+    ...(embedder && { embedder }),
+    spend: indexingStore(db),
+  });
+};
 
 /** Memory files in storage, signed for this request. */
 const withFiles = createMiddleware<
@@ -227,6 +255,13 @@ export const memories = new Hono<AppEnv>()
     // New text is Indexed again, behind fresh Captures.
     if (changes.body !== undefined && result.indexState === "indexing") {
       await enqueue(c.env, result);
+    } else if (
+      (changes.title !== undefined || changes.captureNote !== undefined) &&
+      result.indexState === "searchable" &&
+      !result.aiOptOut
+    ) {
+      // Its vectors read the title and note: made again once typing stops.
+      await enqueueEmbed(c.env, result.id, EMBEDDING.editDelaySeconds);
     }
     return c.json(await forClient(c.var.files, result));
   })
@@ -239,9 +274,40 @@ export const memories = new Hono<AppEnv>()
     const removed = await c.var.library.remove(id);
     return removed ? c.body(null, 204) : c.json(notFound, 404);
   })
+  /**
+   * `mode=full` (after a pause in typing) embeds the query for the vector
+   * leg; instant (per keystroke) is keyword and typo only. Each result says
+   * whether it is a Direct or Related Match and which part matched.
+   */
   .get("/search", async (c) => {
     const q = (c.req.query("q") ?? "").slice(0, MAX_QUERY_CHARS);
-    const results = await c.var.library.search(q);
+    const mode = c.req.query("mode") === "full" ? "full" : "instant";
+    const results = await searchFor(
+      c.env,
+      c.var.db,
+      c.var.user.id,
+      c.var.library
+    ).search(q, mode);
+    return c.json({
+      // "instant" when full mode fell back (no embedder, budget, provider).
+      mode: results.mode,
+      results: await Promise.all(
+        results.results.map((m) => forClient(c.var.files, m))
+      ),
+    });
+  })
+  /** More Like This: Memories near this one's own vectors, leaving it out. */
+  .get("/memories/:id/similar", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID.test(id) || !(await c.var.library.get(id))) {
+      return c.json(notFound, 404);
+    }
+    const results = await searchFor(
+      c.env,
+      c.var.db,
+      c.var.user.id,
+      c.var.library
+    ).similar(id);
     return c.json({
       results: await Promise.all(results.map((m) => forClient(c.var.files, m))),
     });

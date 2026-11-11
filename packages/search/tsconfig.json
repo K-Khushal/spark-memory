@@ -1,5 +1,7 @@
 {
   "extends": "@spark/config/tsconfig.base.json",
+  // Workers run Web APIs (fetch, btoa): the DOM lib types them.
+  "compilerOptions": { "lib": ["ES2023", "DOM"] },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules"]
 }

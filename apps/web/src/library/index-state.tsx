@@ -97,7 +97,10 @@ export function AiOptOutSwitch({
         checked={memory.aiOptOut}
         onCheckedChange={(on) => onChange(memory, on)}
       />
-      <label htmlFor={id} className="text-sm text-ink select-none">
+      <label
+        htmlFor={id}
+        className="text-sm whitespace-nowrap text-ink select-none"
+      >
         AI Opt-Out
       </label>
     </div>

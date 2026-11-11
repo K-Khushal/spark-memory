@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
 import {
@@ -21,17 +21,19 @@ import {
   cn,
   toast,
 } from "@spark/ui";
-import { startAnalytics, stopAnalytics, track } from "../analytics";
-import { authClient, clearAdminCache, type AppSession } from "../auth";
+import { startAnalytics, track } from "../analytics";
+import { authClient, endSession, type AppSession } from "../auth";
 import { DeskSidebar } from "../shell";
 import { productMetrics } from "./product-metrics";
 import { MemoryDetail } from "./memory-detail";
 import { MemoryTile, memoryName, tileHeight, tileLabel } from "./memory-tile";
 import { PasteBox } from "./paste-box";
 import { ImageViewer } from "./image-viewer";
+import { useFlip } from "./flip";
 import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
-import { useInstantSearch, type Results } from "./use-search";
+import { useSearch, type Found, type Results } from "./use-search";
+import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
 
 /**
  * The Library: sidebar (a top bar on phones) beside the masonry wall of
@@ -54,12 +56,38 @@ export function LibraryPage({
   const [pasteOpen, setPasteOpen] = useState(false);
   const [openId, setOpenId] = useState<string>();
   const [imageId, setImageId] = useState<string>();
-  const instant = useInstantSearch(draft, library.memories, library.version);
-  const results = useInstantSearch(query, library.memories, library.version);
+  /** The Memory the wall shows More Like This of, instead of a query. */
+  const [like, setLike] = useState<Memory>();
+  // ⌘K: instant per keystroke, full once typing pauses.
+  const instant = useSearch(
+    { query: draft },
+    library.memories,
+    library.version,
+    {
+      userId: session.user.id,
+    }
+  );
+  // The wall: instant and full at once (often straight from the cache the
+  // menu filled), and the last results stay up until new ones land.
+  const results = useSearch(
+    like ? { like: like.id } : { query },
+    library.memories,
+    library.version,
+    { userId: session.user.id, pauseMs: 0, keepPrevious: true }
+  );
+  const searching = !!like || !!query;
+  const listRef = useRef<HTMLDivElement>(null);
+  useFlip(
+    listRef,
+    instant && instant !== "failed"
+      ? [...instant.direct, ...instant.related].map((m) => m.id).join()
+      : "",
+    draft.trim()
+  );
   const opened = library.memories.find((m) => m.id === openId);
   // The viewer steps through the images of the wall on screen.
   const images = useMemo(() => {
-    if (!query || !results || results === "failed") {
+    if (!searching || !results || results === "failed") {
       return library.memories.filter((m) => m.image);
     }
     const live = new Map(library.memories.map((m) => [m.id, m]));
@@ -67,7 +95,7 @@ export function LibraryPage({
       const now = live.get(m.id);
       return now?.image ? [now] : [];
     });
-  }, [query, results, library.memories]);
+  }, [searching, results, library.memories]);
 
   useEffect(() => {
     startAnalytics(session.user.id);
@@ -120,8 +148,20 @@ export function LibraryPage({
       });
     }
     setQuery(trimmed);
+    setLike(undefined);
     setSearchOpen(false);
     window.scrollTo({ top: 0 });
+  };
+  const moreLikeThis = (memory: Memory) => {
+    setOpenId(undefined);
+    setImageId(undefined);
+    setQuery("");
+    setLike(memory);
+    window.scrollTo({ top: 0 });
+  };
+  const clearSearch = () => {
+    setQuery("");
+    setLike(undefined);
   };
 
   useLibraryShortcuts({
@@ -144,8 +184,7 @@ export function LibraryPage({
       });
       return;
     }
-    stopAnalytics();
-    clearAdminCache();
+    endSession();
     await navigate({ to: "/sign-in" });
   };
 
@@ -158,21 +197,21 @@ export function LibraryPage({
       >
         <SearchIcon className="size-4 shrink-0" aria-hidden />
         <span
-          className={cn("min-w-0 flex-1 truncate", query && "text-ink")}
+          className={cn("min-w-0 flex-1 truncate", searching && "text-ink")}
           dir="auto"
         >
-          {query || "Search"}
+          {like ? "More Like This" : query || "Search"}
         </span>
-        {!query && <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>}
+        {!searching && <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>}
       </button>
-      {query && (
+      {searching && (
         <Button
           variant="quiet"
           size="icon-sm"
           aria-label="Clear Search"
           onClick={() => {
             metrics.cleared();
-            setQuery("");
+            clearSearch();
           }}
         >
           <XIcon aria-hidden />
@@ -191,7 +230,7 @@ export function LibraryPage({
           onSignOut={() => void signOut()}
           onLibrary={() => {
             metrics.cleared();
-            setQuery("");
+            clearSearch();
           }}
           headerAction={
             <Button
@@ -253,7 +292,8 @@ export function LibraryPage({
             </Centred>
           ) : (
             <div className="p-4 md:p-6">
-              {query ? (
+              {/* Until a search's first answer lands, the wall stays as it was. */}
+              {searching && results ? (
                 <SearchResults
                   results={results}
                   query={query}
@@ -288,7 +328,7 @@ export function LibraryPage({
             placeholder="Search…"
             className="text-[1rem] md:text-md"
           />
-          <CommandList>
+          <CommandList ref={listRef}>
             {draft.trim() ? (
               instant === "failed" ? (
                 <ListNote>Search Is Unreachable</ListNote>
@@ -367,6 +407,7 @@ export function LibraryPage({
           onBroken={library.refresh}
           onRetryIndexing={library.retryIndexing}
           onAiOptOut={library.setAiOptOut}
+          onMoreLikeThis={moreLikeThis}
         />
         {dropping && (
           <div
@@ -385,6 +426,7 @@ export function LibraryPage({
           onDelete={library.remove}
           onRetryIndexing={library.retryIndexing}
           onAiOptOut={library.setAiOptOut}
+          onMoreLikeThis={moreLikeThis}
         />
         <Toaster />
       </div>
@@ -455,6 +497,63 @@ function Wall({
   );
 }
 
+/**
+ * Results on the wall: each tile with its why-chip under it, every tile
+ * the same caption height so a chip arriving never moves anything, and
+ * tiles that change place when the full answer lands glide there.
+ */
+function ResultWall({
+  label,
+  found,
+  direct,
+  glideKey,
+  query,
+  onOpen,
+  tiles,
+}: {
+  label: string;
+  found: Found[];
+  /** The search these answer: reordering within it glides (Masonry). */
+  glideKey: string;
+  /** Direct or Related; undefined for More Like This, which needs no why-chip. */
+  direct?: boolean;
+  query: string;
+  onOpen: (memory: Memory) => void;
+  tiles: TileActions;
+}) {
+  const open = (i: number) => found[i] && onOpen(found[i]);
+  return (
+    <Masonry
+      label={label}
+      items={found}
+      getKey={(m) => m.id}
+      getHeight={tileHeight}
+      getCaption={() => (direct === undefined ? 0 : WHY_HEIGHT)}
+      getLabel={(m) =>
+        [tileLabel(m), direct !== undefined && whyLabel(m)]
+          .filter(Boolean)
+          .join(", ")
+      }
+      onOpen={open}
+      onPreview={open}
+      glideKey={glideKey}
+      renderItem={(m, tile) => (
+        <div className="flex h-full flex-col items-start">
+          <div className="w-full" style={{ height: tile.height }}>
+            <MemoryTile
+              memory={m}
+              query={query}
+              width={tile.width}
+              {...tiles}
+            />
+          </div>
+          {direct !== undefined && <WhyChip found={m} direct={direct} />}
+        </div>
+      )}
+    />
+  );
+}
+
 /** Direct Matches first, Related Matches apart (DESIGN.md → Interaction baseline). */
 function SearchResults({
   results,
@@ -475,16 +574,44 @@ function SearchResults({
       </h2>
     );
   }
+  // More Like This: one wall, nearest first, no headings or chips. Read
+  // from the answer itself, so a previous search's results keep their own
+  // layout until the new answer lands.
+  if (results.key.startsWith("like:")) {
+    const found = [...results.direct, ...results.related];
+    return (
+      <div data-search={results.mode}>
+        <Landing
+          key={results.key}
+          className={cn(
+            found.length ? "sr-only" : "text-sm font-medium text-ink-muted"
+          )}
+        >
+          {found.length ? "More Like This" : "Nothing Like This"}
+        </Landing>
+        <ResultWall
+          label="More Like This"
+          found={found}
+          glideKey={results.key}
+          query=""
+          onOpen={onOpen}
+          tiles={tiles}
+        />
+      </div>
+    );
+  }
   return (
-    <>
+    <div data-search={results.mode}>
       <section>
         <h2 className="mb-3 text-sm font-medium text-ink-muted">
           {results.direct.length ? "Direct Matches" : "No Direct Matches"}
         </h2>
         {results.direct.length > 0 && (
-          <Wall
+          <ResultWall
             label="Direct Matches"
-            memories={results.direct}
+            found={results.direct}
+            direct
+            glideKey={results.key}
             query={query}
             onOpen={onOpen}
             tiles={tiles}
@@ -496,16 +623,38 @@ function SearchResults({
           <h2 className="mb-3 text-sm font-medium text-ink-muted">
             Related Matches
           </h2>
-          <Wall
+          <ResultWall
             label="Related Matches"
-            memories={results.related}
+            found={results.related}
+            direct={false}
+            glideKey={results.key}
             query={query}
             onOpen={onOpen}
             tiles={tiles}
           />
         </section>
       )}
-    </>
+    </div>
+  );
+}
+
+/**
+ * A heading that takes focus when it appears: More Like This replaces the
+ * tile that had focus, so focus lands on what replaced it, not on nothing.
+ */
+function Landing({
+  className,
+  children,
+}: {
+  className: string;
+  children: string;
+}) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useEffect(() => ref.current?.focus({ preventScroll: true }), []);
+  return (
+    <h2 ref={ref} tabIndex={-1} className={cn("outline-none", className)}>
+      {children}
+    </h2>
   );
 }
 
@@ -525,6 +674,7 @@ function ResultGroup({
         <CommandItem
           key={memory.id}
           value={memory.id}
+          data-flip={memory.id}
           onSelect={() => onOpen(memory)}
         >
           <span className="min-w-0 flex-1 truncate" dir="auto">

@@ -27,6 +27,8 @@ export {
 } from "./lib/allowance";
 export {
   INDEXING,
+  EMBEDDING,
+  embeddingSpace,
   INDEX_FAILURES,
   INDEXING_OUTPUT_JSON_SCHEMA,
   IndexingOutput,

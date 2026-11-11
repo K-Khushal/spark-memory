@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "@spark/ui";
 import { api } from "../api";
+import { endSession } from "../auth";
 
 export type DeviceSession = {
   handle: string;
@@ -115,8 +116,10 @@ export function useAccount() {
     setPending(undefined);
     if (!res?.ok) {
       didNotFinish("Sign Out Did Not Finish", () => void signOutEverywhere());
+      return false;
     }
-    return !!res?.ok;
+    endSession();
+    return true;
   }
 
   async function startExport() {
@@ -142,8 +145,12 @@ export function useAccount() {
     const res = await account
       .$delete({ json: { email } })
       .catch(() => undefined);
-    if (!res?.ok) toast("Delete Did Not Finish");
-    return !!res?.ok;
+    if (!res?.ok) {
+      toast("Delete Did Not Finish");
+      return false;
+    }
+    endSession();
+    return true;
   }
 
   return {
