@@ -4,6 +4,7 @@ export {
   createSearch,
   forgetQueryVectors,
   queryVectorsCached,
+  searchesTracked,
   type Hit,
   type Mode,
   type Probe,

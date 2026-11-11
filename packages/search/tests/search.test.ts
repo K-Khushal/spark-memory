@@ -5,6 +5,7 @@ import {
   createSearch,
   forgetQueryVectors,
   queryVectorsCached,
+  searchesTracked,
   type Probe,
 } from "../index";
 
@@ -286,5 +287,38 @@ describe("search", () => {
     finish();
     await pending;
     expect(queryVectorsCached("race-ana")).toBe(0);
+  });
+
+  it("tracks only people with a search in flight, however many are forgotten", async () => {
+    for (let i = 0; i < 1000; i++) forgetQueryVectors(`gone-${i}`);
+    expect(searchesTracked()).toBe(0);
+    let finish!: () => void;
+    const slow = embedder();
+    slow.embed = vi.fn(
+      () =>
+        new Promise<{
+          vectors: number[][];
+          usage: { textTokens: number; imageTokens: number };
+        }>(
+          (resolve) =>
+            (finish = () =>
+              resolve({
+                vectors: [[0, 1, 0]],
+                usage: { textTokens: 1, imageTokens: 0 },
+              }))
+        )
+    );
+    const pending = createSearch({
+      userId: "tracked-ana",
+      find: library().find,
+      embedder: slow,
+      spend: spend(),
+    }).search("purple", "full");
+    await vi.waitFor(() => expect(slow.embed).toHaveBeenCalled());
+    expect(searchesTracked()).toBe(1);
+    finish();
+    await pending;
+    expect(searchesTracked()).toBe(0);
+    expect(queryVectorsCached("tracked-ana")).toBe(1);
   });
 });

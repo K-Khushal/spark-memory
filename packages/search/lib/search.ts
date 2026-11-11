@@ -25,8 +25,15 @@ export type Ranked<R> = R & { match: "direct" | "related" };
  * (`userId\0model\0dimensions\0query`), so one person's can be forgotten.
  */
 const cache = new Map<string, { vector: number[]; at: number }>();
-/** How many times each person's query vectors were forgotten in this isolate. */
-const purges = new Map<string, number>();
+/**
+ * People with a query embedding in flight: how many, and how often their
+ * vectors were forgotten meanwhile. An entry lives only while a search
+ * runs, so this never grows with the people ever forgotten.
+ */
+const inFlight = new Map<string, { searches: number; purges: number }>();
+
+/** How many people this isolate is tracking a search for (tests). */
+export const searchesTracked = () => inFlight.size;
 const ownKeys = (userId: string) =>
   [...cache.keys()].filter((key) => key.startsWith(`${userId}\0`));
 
@@ -37,7 +44,8 @@ const ownKeys = (userId: string) =>
 export function forgetQueryVectors(userId: string) {
   for (const key of ownKeys(userId)) cache.delete(key);
   // A query embedding still in flight must not put one back.
-  purges.set(userId, (purges.get(userId) ?? 0) + 1);
+  const running = inFlight.get(userId);
+  if (running) running.purges++;
 }
 
 /** How many of a person's query vectors this isolate holds (tests, admin). */
@@ -111,9 +119,25 @@ export function createSearch<R extends Hit>({
   async function embedQuery(query: string): Promise<number[] | undefined> {
     if (!embedder) return undefined;
     const key = [userId, embedder.model, embedder.dimensions, query].join("\0");
-    const epoch = purges.get(userId) ?? 0;
     const hit = cached(key, now());
     if (hit) return hit;
+    const tracked = inFlight.get(userId) ?? { searches: 0, purges: 0 };
+    inFlight.set(userId, tracked);
+    tracked.searches++;
+    try {
+      return await embedFresh(query, key, tracked, tracked.purges);
+    } finally {
+      if (--tracked.searches === 0) inFlight.delete(userId);
+    }
+  }
+
+  async function embedFresh(
+    query: string,
+    key: string,
+    tracked: { purges: number },
+    purgesAtStart: number
+  ): Promise<number[] | undefined> {
+    if (!embedder) return undefined;
     const [spent, limit] = await Promise.all([
       spend.spentTodayMicros(),
       spend.dailyBudgetMicros(),
@@ -143,7 +167,7 @@ export function createSearch<R extends Hit>({
       );
       await record(usage.textTokens);
       // Forgotten meanwhile (account deletion): used once, never kept.
-      if ((purges.get(userId) ?? 0) === epoch) {
+      if (tracked.purges === purgesAtStart) {
         remember(key, vectors[0]!, now());
       }
       return vectors[0];
