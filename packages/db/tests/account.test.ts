@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import type { ImageCapture } from "@spark/core";
 import {
   accountJobs,
+  ANONYMISED_USER,
   exportKey,
   isDeletionRequested,
   openAccount,
@@ -141,6 +142,11 @@ describe.skipIf(!databaseUrl)("an account", () => {
       expect(await openLibrary(db, ana).captureImage(image())).toEqual({
         conflict: true,
       });
+      // A sign-in that slipped past the check just before the request: the
+      // next pass ends it too.
+      await signIn(ana);
+      await accountJobs(db).continueDeletion(ana, async () => {});
+      expect(await sessionsOf(ana)).toEqual([]);
     });
 
     it("removes everything of the person and nothing of anyone else", async () => {
@@ -195,7 +201,7 @@ describe.skipIf(!databaseUrl)("an account", () => {
 
       // The money spent stays in the totals, without its owner.
       const { rows } = await db.execute<{ n: number }>(
-        sql`select count(*)::int as n from ai_call where user_id = 'deleted' and cost_micros = 7`
+        sql`select count(*)::int as n from ai_call where user_id = ${ANONYMISED_USER} and cost_micros = 7`
       );
       expect(rows[0]!.n).toBeGreaterThan(0);
 

@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import type { Database } from "./client";
-import { deletionRequested, lockOwner, ownerPrefix } from "./owner";
+import { lockOwner, ownerPrefix } from "./owner";
 import {
   accountDeletion,
   aiCall,
@@ -64,7 +64,7 @@ const exportColumns = {
 const exportExpired = sql`${libraryExport.state} = 'ready' and ${libraryExport.readyAt} < now() - make_interval(hours => ${EXPORT_TTL_HOURS})`;
 
 /**
- * One person's account (GLOSSARY.md: their Library and how they sign in):
+ * One person's sign-in and the things around their Library:
  * sessions, exports and deletion. Every query is scoped to `userId`.
  */
 export function openAccount(db: Database, userId: string) {
@@ -169,9 +169,8 @@ export function openAccount(db: Database, userId: string) {
 
 export type Account = ReturnType<typeof openAccount>;
 
-/** Whether the person asked for their account to be deleted (sign-in is refused). */
-export const isDeletionRequested = (db: Database, userId: string) =>
-  deletionRequested(db, userId);
+/** Who an AI call belonged to once its owner is deleted: the cost stays, the owner goes. */
+export const ANONYMISED_USER = "deleted";
 
 /** Rows of Memories deleted per statement, so no one statement runs long. */
 const DELETE_BATCH = 500;
@@ -228,10 +227,15 @@ export function accountJobs(db: Database) {
           .returning({ id: memory.id });
         if (gone.length < DELETE_BATCH) break;
       }
-      await db
-        .update(aiCall)
-        .set({ userId: "deleted" })
-        .where(eq(aiCall.userId, userId));
+      const anonymise = (tx: Pick<Database, "update">) =>
+        tx
+          .update(aiCall)
+          .set({ userId: ANONYMISED_USER })
+          .where(eq(aiCall.userId, userId));
+      await anonymise(db);
+      // A sign-in that passed the hook just before the request committed
+      // may have made a session after it: every pass ends them again.
+      await db.delete(session).where(eq(session.userId, userId));
       if (!request.final) return "waiting";
       await db.transaction(async (tx) => {
         await lockOwner(tx, userId);
@@ -243,6 +247,7 @@ export function accountJobs(db: Database) {
             sql`right(${verification.identifier}, ${suffix.length}) = ${suffix}`
           );
         await tx.delete(user).where(eq(user.id, userId));
+        await anonymise(tx);
       });
       return "done";
     },
@@ -313,7 +318,7 @@ export function accountJobs(db: Database) {
      * again.
      */
     async stalledExports(): Promise<string[]> {
-      const idle = sql`(${libraryExport.leaseUntil} is null and ${libraryExport.requestedAt} < now() - interval '15 minutes') or ${libraryExport.leaseUntil} < now()`;
+      const idle = sql`(${libraryExport.leaseUntil} is null and ${libraryExport.requestedAt} < now() - make_interval(mins => ${EXPORT_LEASE_MINUTES})) or ${libraryExport.leaseUntil} < now()`;
       await db
         .update(libraryExport)
         .set({ state: "failed", leaseUntil: null })

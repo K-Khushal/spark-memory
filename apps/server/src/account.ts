@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
-import { AccountDeletion } from "@spark/core";
+import { AccountDeletion, confirmsDeletion } from "@spark/core";
 import {
   EXPORT_TTL_HOURS,
   exportKey,
@@ -125,8 +125,7 @@ export const account = new Hono<AppEnv>()
    * removes the rest (src/account-jobs.ts).
    */
   .delete("/account", json(AccountDeletion), async (c) => {
-    const typed = c.req.valid("json").email.trim().toLowerCase();
-    if (typed !== c.var.user.email.toLowerCase()) {
+    if (!confirmsDeletion(c.req.valid("json").email, c.var.user.email)) {
       return c.json({ ok: false, error: "invalid" } as const, 400);
     }
     await signOutHere(c);

@@ -30,7 +30,7 @@ export {
   EXPORT_COOLDOWN_MINUTES,
   EXPORT_TTL_HOURS,
   exportKey,
-  isDeletionRequested,
+  ANONYMISED_USER,
   openAccount,
   type Account,
   type AccountJobs,
@@ -38,5 +38,6 @@ export {
   type LibraryExport,
   type SessionInfo,
 } from "./lib/account";
+export { deletionRequested as isDeletionRequested } from "./lib/owner";
 export { indexingStore, type IndexingStore } from "./lib/indexing";
 export * as schema from "./lib/schema";

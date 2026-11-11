@@ -61,6 +61,10 @@ export type AiOptOut = z.infer<typeof AiOptOut>;
 export const AccountDeletion = z.object({ email: z.string().max(320) });
 export type AccountDeletion = z.infer<typeof AccountDeletion>;
 
+/** Whether `typed` confirms deleting the account of `email` (spaces and case aside). */
+export const confirmsDeletion = (typed: string, email: string) =>
+  typed.trim().toLowerCase() === email.toLowerCase();
+
 /**
  * Image types Spark keeps as the Preserved copy. HEIC and HEIF are converted
  * to JPEG in the browser, so they never reach the server.

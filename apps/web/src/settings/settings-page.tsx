@@ -16,6 +16,7 @@ import {
   Input,
   Toaster,
 } from "@spark/ui";
+import { confirmsDeletion } from "@spark/core";
 import type { Session } from "../auth";
 import { SidebarFooter, SidebarLink, Wordmark, useSignOut } from "../shell";
 import {
@@ -201,7 +202,9 @@ function Sessions({ account }: { account: Account }) {
           <Button
             variant="outline"
             aria-disabled={account.pending === "everywhere"}
-            onClick={() => account.pending || void everywhere()}
+            onClick={() =>
+              account.pending === "everywhere" || void everywhere()
+            }
           >
             {account.pending === "everywhere" && <Spinner />}
             Sign Out Everywhere
@@ -310,7 +313,7 @@ function DeleteAccount({
   const [typed, setTyped] = useState("");
   const [pending, setPending] = useState(false);
   const field = useId();
-  const matches = typed.trim().toLowerCase() === email.toLowerCase();
+  const matches = confirmsDeletion(typed, email);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();

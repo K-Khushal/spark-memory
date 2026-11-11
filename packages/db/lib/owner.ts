@@ -18,7 +18,7 @@ export const lockOwner = (tx: Pick<Database, "execute">, userId: string) =>
 /** Every object of one owner starts with this (keys are the server's). */
 export const ownerPrefix = (userId: string) => `users/${userId}/`;
 
-/** Whether the owner asked for their account to be deleted (account.ts). */
+/** Whether the owner asked for their account to be deleted (account.ts); sign-in is refused meanwhile. */
 export async function deletionRequested(
   tx: Pick<Database, "select">,
   userId: string
