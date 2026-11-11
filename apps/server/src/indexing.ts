@@ -26,12 +26,22 @@ import type { Bindings, IndexMessage } from "./env";
  */
 export async function enqueue(
   env: Bindings,
-  memory: { id: string; indexRun: number; indexPriority: Priority }
+  memory: {
+    id: string;
+    indexRun: number;
+    indexGeneration: string;
+    indexPriority: Priority;
+  }
 ) {
   const priority = memory.indexPriority;
   const queue = priority === "fresh" ? env.INDEX_QUEUE : env.REINDEX_QUEUE;
   try {
-    await queue.send({ memoryId: memory.id, run: memory.indexRun, priority });
+    await queue.send({
+      memoryId: memory.id,
+      run: memory.indexRun,
+      generation: memory.indexGeneration,
+      priority,
+    });
   } catch {
     console.error("indexing: enqueue failed");
   }
@@ -52,12 +62,17 @@ export const providers = (env: Bindings): ChainOptions => ({
  */
 export async function enqueueEmbed(
   env: Bindings,
-  memoryId: string,
+  memory: { id: string; indexGeneration: string },
   delaySeconds?: number
 ) {
   try {
     await env.REINDEX_QUEUE.send(
-      { memoryId, priority: "background", task: "embed" },
+      {
+        memoryId: memory.id,
+        generation: memory.indexGeneration,
+        priority: "background",
+        task: "embed",
+      },
       delaySeconds ? { delaySeconds } : undefined
     );
   } catch {
@@ -94,9 +109,9 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     const store = indexingStore(db);
     if (isDeadLetter(batch.queue)) {
       for (const message of batch.messages) {
-        const { memoryId, run, task } = message.body;
+        const { memoryId, run, generation, task } = message.body;
         // A lost embed job leaves the Memory Searchable; the sweep tries again.
-        if (task !== "embed") await store.fail(memoryId, run, "unavailable");
+        if (task !== "embed") await store.giveUp({ memoryId, run, generation });
         message.ack();
       }
       return;
@@ -116,12 +131,13 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     });
     await Promise.all(
       batch.messages.map(async (message) => {
-        const { memoryId, run, priority, task } = message.body;
+        const { memoryId, run, generation, priority, task } = message.body;
         let outcome: IndexOutcome;
         try {
           outcome = await index({
             memoryId,
             run,
+            generation,
             priority,
             task,
             attempt: message.attempts,
@@ -151,7 +167,7 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
           // the dashboard is closed. The Capture stored whether Do Not
           // Track was off, and only the first Searchable run is counted.
           const timing = await store
-            .claimFirstSearchable(memoryId)
+            .claimFirstSearchable(memoryId, generation)
             .catch(() => undefined);
           if (timing) {
             pending.push({
@@ -199,8 +215,13 @@ export async function requeueStalled(env: Bindings) {
     const stalled = (await store.stalled()).filter(
       (m) => !spent || m.priority === "fresh"
     );
-    for (const { id, run, priority } of stalled) {
-      await enqueue(env, { id, indexRun: run, indexPriority: priority });
+    for (const { id, run, generation, priority } of stalled) {
+      await enqueue(env, {
+        id,
+        indexRun: run,
+        indexGeneration: generation,
+        indexPriority: priority,
+      });
     }
     if (stalled.length) console.log(`indexing: re-enqueued ${stalled.length}`);
     // Vectors missing (an embedding that failed) or stale (a new model or
@@ -211,7 +232,9 @@ export async function requeueStalled(env: Bindings) {
       embeddingSpace(embedder.model, embedder.dimensions),
       EMBEDDING.sweepBatch
     );
-    for (const { id } of stale) await enqueueEmbed(env, id);
+    for (const { id, generation } of stale) {
+      await enqueueEmbed(env, { id, indexGeneration: generation });
+    }
     if (stale.length) console.log(`indexing: re-embedding ${stale.length}`);
   } finally {
     await close();

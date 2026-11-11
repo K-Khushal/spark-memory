@@ -21,8 +21,10 @@ export type MemoryContent = {
   body: string | null;
 };
 
-// Anything that could close or open a delimiter is taken out of the content.
-const DELIMITER = /<\s*\/?\s*(memory|title|capture-note|text)\b[^>]*>?/gi;
+// Anything that could close or open a delimiter is taken out of the content,
+// with spaces or combining marks (which a model reads past) after < or /.
+const DELIMITER =
+  /<[\s\p{Mn}]*\/?[\s\p{Mn}]*(memory|title|capture-note|text)\b[^>]*>?/giu;
 // Control characters other than tab and newline.
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
@@ -42,9 +44,10 @@ const CLOSING =
 function clean(s: string, max: number) {
   let text = s
     .normalize("NFKC")
-    // Invisible format characters (zero-width spaces and joiners, BOM)
-    // could split a delimiter that a model still reads as one.
-    .replace(/\p{Cf}/gu, "")
+    // Invisible format characters (zero-width spaces and joiners, BOM) and
+    // the combining grapheme joiner (a mark, so not among them) could split
+    // a delimiter that a model still reads as one.
+    .replace(/[\p{Cf}\u034f]/gu, "")
     .replace(CONTROL, "")
     .replace(OPENING, "<")
     .replace(CLOSING, ">");

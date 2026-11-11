@@ -3,9 +3,14 @@ import {
   base64,
   CORRECTION,
   guessTokens,
+  lostCall,
   ProviderError,
   type Provider,
 } from "./provider";
+
+const MAX_OUTPUT_TOKENS = 4096;
+/** An image at Gemini 3's default (high) media resolution (docs/research/enrichment.md). */
+const IMAGE_TOKENS = 1120;
 
 export type GeminiOptions = {
   apiKey: string;
@@ -47,7 +52,19 @@ export function gemini({
   return {
     name: "gemini",
     model,
-    async extract({ system, user, image, correction }) {
+    async extract(request) {
+      const { system, user, image, correction } = request;
+      // Lost after sending (timed out, the connection dropped, the reply
+      // cut off): Google may still bill it, so the budget counts it at its
+      // most, like a Workers AI timeout.
+      const lost = () =>
+        new ProviderError(
+          "failed",
+          lostCall(request, {
+            imageTokens: IMAGE_TOKENS,
+            maxOutputTokens: MAX_OUTPUT_TOKENS,
+          })
+        );
       const parts: unknown[] = [{ text: user }];
       if (image) {
         parts.push({
@@ -76,20 +93,26 @@ export function gemini({
             generationConfig: {
               responseMimeType: "application/json",
               responseJsonSchema: INDEXING_OUTPUT_JSON_SCHEMA,
-              maxOutputTokens: 4096,
+              maxOutputTokens: MAX_OUTPUT_TOKENS,
               thinkingConfig: { thinkingLevel: "MINIMAL" },
             },
           }),
         });
       } catch {
-        throw new ProviderError("failed");
+        throw lost();
       }
+      // An error status is an answer: nothing was generated or billed.
       if (res.status === 429) throw new ProviderError("overflow");
       if (res.status === 400 || res.status === 413) {
         throw new ProviderError(image ? "unsupported" : "failed");
       }
       if (!res.ok) throw new ProviderError("failed");
-      const reply = (await res.json()) as Reply;
+      let reply: Reply;
+      try {
+        reply = (await res.json()) as Reply;
+      } catch {
+        throw lost();
+      }
       const text = (reply.candidates?.[0]?.content?.parts ?? [])
         .map((p) => p.text ?? "")
         .join("");

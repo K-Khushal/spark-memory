@@ -72,8 +72,7 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     const { id } = result.memory;
     const loaded = (await store().load(id))!;
     await store().complete(
-      id,
-      loaded.run,
+      { ...loaded, memoryId: id },
       { output: extraction, model: "fake" },
       { model, dimensions: DIMS, revision: loaded.revision, vectors }
     );
@@ -246,10 +245,16 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       const { id } = captured.memory;
       await library().markStored(id);
       const loaded = (await store().load(id))!;
-      await store().complete(id, loaded.run, {
-        output: found({ ocrText: "bilby sale", description: "A bilby poster" }),
-        model: "fake",
-      });
+      await store().complete(
+        { ...loaded, memoryId: id },
+        {
+          output: found({
+            ocrText: "bilby sale",
+            description: "A bilby poster",
+          }),
+          model: "fake",
+        }
+      );
       expect(await field("sale")).toEqual({ kind: "field", field: "ocr" });
       expect(await field("poster")).toEqual({
         kind: "field",
@@ -351,8 +356,7 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       const loaded = (await store().load(id))!;
       await library().edit(id, { title: "Renamed while Indexing" });
       await store().complete(
-        id,
-        loaded.run,
+        { ...loaded, memoryId: id },
         { output: found(), model: "fake" },
         embedding(loaded.revision)
       );
@@ -365,11 +369,14 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       const job = (await store().loadForEmbedding(id, spaceName))!;
       expect(await store().loadForEmbedding(id, spaceName)).toBeUndefined();
       expect(job.found).toBeDefined();
-      expect(await store().stillEmbeddable(id, job.run, job.revision)).toBe(
-        true
-      );
       expect(
-        await store().writeVectors(id, job.run, embedding(job.revision))
+        await store().stillEmbeddable({ ...job, memoryId: id }, job.revision)
+      ).toBe(true);
+      expect(
+        await store().writeVectors(
+          { ...job, memoryId: id },
+          embedding(job.revision)
+        )
       ).toBe(true);
       expect(await stale()).not.toContain(id);
       expect((await search("x", mix({ 70: 1 })))[0]?.id).toBe(id);
@@ -388,11 +395,14 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       await library().edit(id, { title: "Statement" });
       const job = (await store().loadForEmbedding(id, spaceName))!;
       await library().edit(id, { title: "Edited again" });
-      expect(await store().stillEmbeddable(id, job.run, job.revision)).toBe(
-        false
-      );
       expect(
-        await store().writeVectors(id, job.run, embedding(job.revision))
+        await store().stillEmbeddable({ ...job, memoryId: id }, job.revision)
+      ).toBe(false);
+      expect(
+        await store().writeVectors(
+          { ...job, memoryId: id },
+          embedding(job.revision)
+        )
       ).toBe(false);
 
       expect((await search("x", mix({ 71: 1 })))[0]?.id).toBe(id);
@@ -477,8 +487,7 @@ describe.skipIf(!databaseUrl)("fusion fixture set", () => {
       const { id } = result.memory;
       const loaded = (await store.load(id))!;
       await store.complete(
-        id,
-        loaded.run,
+        { ...loaded, memoryId: id },
         { output: found(), model: "fake" },
         {
           ...space,

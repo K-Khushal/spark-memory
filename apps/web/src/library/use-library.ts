@@ -188,6 +188,8 @@ export function useLibrary() {
   // while nothing changes, starting over when something does; never while
   // the page is hidden; not at all once nothing is Indexing.
   const pollKey = indexing.pollable(memories).join(",");
+  // After every render: anything sent again since starts its misses over.
+  useEffect(() => indexing.restartMisses(memories));
   useEffect(() => {
     if (!pollKey) return;
     const ids = pollKey.split(",");

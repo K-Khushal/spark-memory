@@ -11,6 +11,12 @@ export type ExtractRequest = {
 };
 
 export type Usage = { inputTokens: number; outputTokens: number };
+/**
+ * What a call that may still be billed probably used. `imageTokens`, when
+ * set, is the part of `inputTokens` that was images (an embedding prices
+ * them apart).
+ */
+export type Estimate = Usage & { imageTokens?: number };
 export type ProviderReply = { text: string; usage: Usage };
 
 /** An AI provider behind the chain's seam; adapters live next to this file. */
@@ -28,8 +34,8 @@ export type Provider = {
 export class ProviderError extends Error {
   constructor(
     readonly kind: "overflow" | "unsupported" | "failed",
-    /** What a call that may still be billed probably used (it timed out). */
-    readonly estimate?: Usage
+    /** What a call lost after sending (timed out, cut off) may still be billed for. */
+    readonly estimate?: Estimate
   ) {
     super(`provider ${kind}`);
     this.name = "ProviderError";
@@ -49,3 +55,27 @@ export const guessTokens = (chars: number) => Math.ceil(chars / 4);
 
 export const CORRECTION = (errors: string) =>
   `That answer did not match the schema (${errors}). Answer again with only the JSON object.`;
+
+/**
+ * The most an Extraction call lost after it was sent may be billed: its
+ * input guessed from characters (the correction included) plus what the
+ * image costs, and every output token it was allowed.
+ */
+export function lostCall(
+  { system, user, image, correction }: ExtractRequest,
+  {
+    imageTokens,
+    maxOutputTokens,
+  }: { imageTokens: number; maxOutputTokens: number }
+): Usage {
+  const chars =
+    system.length +
+    user.length +
+    (correction
+      ? correction.previous.length + CORRECTION(correction.errors).length
+      : 0);
+  return {
+    inputTokens: guessTokens(chars) + (image ? imageTokens : 0),
+    outputTokens: maxOutputTokens,
+  };
+}

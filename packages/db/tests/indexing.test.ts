@@ -44,6 +44,18 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     if (!("memory" in result)) throw new Error("conflict");
     return result.memory;
   };
+  /** The Claim on a Memory as its row is now, at `run` (else its current run). */
+  const claimOf = async (memoryId: string, run?: number) => {
+    const [row] = await db
+      .select({
+        userId: schema.memory.userId,
+        generation: schema.memory.indexGeneration,
+        run: schema.memory.indexRun,
+      })
+      .from(schema.memory)
+      .where(eq(schema.memory.id, memoryId));
+    return { memoryId, ...row!, ...(run !== undefined && { run }) };
+  };
   const runOf = async (id: string) =>
     (
       await db
@@ -77,12 +89,12 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     ]);
     expect([first, second].filter(Boolean)).toHaveLength(1);
     expect(await store().load(memory.id)).toBeUndefined();
-    await store().release(memory.id, 1);
+    await store().release(await claimOf(memory.id, 1));
     expect(await store().load(memory.id, 2)).toBeUndefined();
     expect(await store().load(memory.id, 1)).toMatchObject({ run: 1 });
-    expect(await store().isCurrent(memory.id, 1)).toBe(true);
+    expect(await store().isCurrent(await claimOf(memory.id, 1))).toBe(true);
     await library().setAiOptOut(memory.id, true);
-    expect(await store().isCurrent(memory.id, 1)).toBe(false);
+    expect(await store().isCurrent(await claimOf(memory.id, 1))).toBe(false);
   });
 
   it("never lets a lease on an old run hold up a new one", async () => {
@@ -107,7 +119,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
       .set({ indexLeaseUntil: sql`now() + interval '1 second'` })
       .where(eq(schema.memory.id, memory.id));
     // Each provider call checks the run, and extends the lease.
-    expect(await store().isCurrent(memory.id, 1)).toBe(true);
+    expect(await store().isCurrent(await claimOf(memory.id, 1))).toBe(true);
     await new Promise((done) => setTimeout(done, 1100));
     expect(await store().load(memory.id, 1)).toBeUndefined();
   });
@@ -125,12 +137,12 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     // Fixing a typo before the first run finished keeps it first in line.
     await library().edit(memory.id, { body: "Priorities, fixed" });
     expect(await priority(memory.id)).toBe("fresh");
-    await store().complete(memory.id, 2, extraction());
+    await store().complete(await claimOf(memory.id, 2), extraction());
     // Once Searchable, editing is background work.
     await library().edit(memory.id, { body: "Priorities, edited" });
     expect(await priority(memory.id)).toBe("background");
     for (const expected of ["fresh", "background"]) {
-      await store().fail(memory.id, undefined, "unavailable");
+      await store().giveUp({ memoryId: memory.id });
       await library().retryIndexing(memory.id);
       expect(await priority(memory.id)).toBe(expected);
     }
@@ -142,7 +154,9 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
   it("makes what Indexing found searchable, by keyword and typo, and names an image", async () => {
     const memory = await capture("Lemon tart with a short crust");
     expect(await ids("zesty")).not.toContain(memory.id);
-    expect(await store().complete(memory.id, 1, extraction())).toBe(true);
+    expect(
+      await store().complete(await claimOf(memory.id, 1), extraction())
+    ).toBe(true);
     for (const query of [
       "zesty",
       "Ottolenghi",
@@ -163,8 +177,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
   it("indexes in the detected language and still matches words as written", async () => {
     const memory = await capture("Les maisons anciennes de Lyon");
     await store().complete(
-      memory.id,
-      1,
+      await claimOf(memory.id, 1),
       extraction({ description: "Photographies de maisons", language: "fr" })
     );
     const [row] = await db
@@ -196,11 +209,21 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
   it("writes nothing for a run that has moved on, or twice", async () => {
     const memory = await capture("Run one");
     await library().edit(memory.id, { body: "Run two" });
-    expect(await store().complete(memory.id, 1, extraction())).toBe(false);
-    expect(await store().fail(memory.id, 1, "unavailable")).toBe(false);
-    expect(await store().complete(memory.id, 2, extraction())).toBe(true);
-    expect(await store().complete(memory.id, 2, extraction())).toBe(false);
-    expect(await store().fail(memory.id, 2, "unavailable")).toBe(false);
+    expect(
+      await store().complete(await claimOf(memory.id, 1), extraction())
+    ).toBe(false);
+    expect(await store().fail(await claimOf(memory.id, 1), "unavailable")).toBe(
+      false
+    );
+    expect(
+      await store().complete(await claimOf(memory.id, 2), extraction())
+    ).toBe(true);
+    expect(
+      await store().complete(await claimOf(memory.id, 2), extraction())
+    ).toBe(false);
+    expect(await store().fail(await claimOf(memory.id, 2), "unavailable")).toBe(
+      false
+    );
     expect(await library().get(memory.id)).toMatchObject({
       indexState: "searchable",
     });
@@ -208,7 +231,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
 
   it("restarts Indexing when the text changes, not for a title or the same text", async () => {
     const memory = await capture("Original text");
-    await store().complete(memory.id, 1, extraction());
+    await store().complete(await claimOf(memory.id, 1), extraction());
     const titled = await library().edit(memory.id, { title: "Named" });
     expect(titled).toMatchObject({ indexState: "searchable" });
     const same = await library().edit(memory.id, { body: "Original text" });
@@ -220,7 +243,9 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
 
   it("fails with a reason, and Retry starts a new run", async () => {
     const memory = await capture("Will fail");
-    expect(await store().fail(memory.id, 1, "unavailable")).toBe(true);
+    expect(await store().fail(await claimOf(memory.id, 1), "unavailable")).toBe(
+      true
+    );
     expect(await library().get(memory.id)).toMatchObject({
       indexState: "failed",
       indexError: "unavailable",
@@ -238,7 +263,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
   describe("AI opt-out", () => {
     it("forgets what Indexing found, keeps its own words, and is Searchable at once", async () => {
       const memory = await capture("Private bank statement");
-      await store().complete(memory.id, 1, extraction());
+      await store().complete(await claimOf(memory.id, 1), extraction());
       const opted = await library().setAiOptOut(memory.id, true);
       expect(opted).toMatchObject({
         aiOptOut: true,
@@ -263,9 +288,12 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
       const memory = await capture("Flip me");
       const loaded = await store().load(memory.id);
       await library().setAiOptOut(memory.id, true);
-      expect(await store().complete(memory.id, loaded!.run, extraction())).toBe(
-        false
-      );
+      expect(
+        await store().complete(
+          { ...loaded!, memoryId: memory.id },
+          extraction()
+        )
+      ).toBe(false);
       expect(await ids("zesty")).not.toContain(memory.id);
     });
 
@@ -363,6 +391,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(await store().stalled()).toContainEqual({
       id: memory.id,
       run: 1,
+      generation: memory.indexGeneration,
       priority: "fresh",
     });
   });

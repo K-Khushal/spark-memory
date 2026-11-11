@@ -56,6 +56,7 @@ const baseColumns = {
   revision: memory.revision,
   /** For queue messages only; routes leave these out of answers. */
   indexRun: memory.indexRun,
+  indexGeneration: memory.indexGeneration,
   indexPriority: memory.indexPriority,
   aiOptOut: memory.aiOptOut,
   indexError: memory.indexError,

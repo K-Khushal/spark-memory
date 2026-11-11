@@ -99,6 +99,13 @@
       "when": 1794417244067,
       "tag": "0013_hybrid_search",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794420612134,
+      "tag": "0014_index_generation",
+      "breakpoints": true
     }
   ]
 }

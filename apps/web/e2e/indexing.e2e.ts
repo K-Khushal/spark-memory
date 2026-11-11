@@ -97,3 +97,40 @@ test("a Memory that fails Indexing says why and offers Retry", async ({
     timeout: 15_000,
   });
 });
+
+test("a Memory deleted and saved again with its id is Indexed as the new one", async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page);
+  // Captures choose their id: delete one while its Indexing message is
+  // out, save new text under the same id, and only the new text is Indexed.
+  const id = crypto.randomUUID();
+  const headers = { origin: baseURL! };
+  const save = (body: string) =>
+    page.request.post("/api/memories", { headers, data: { id, body } });
+  expect((await save("Juniper gin notes")).status()).toBe(201);
+  expect(
+    (await page.request.delete(`/api/memories/${id}`, { headers })).status()
+  ).toBeLessThan(300);
+  expect((await save("Cardamom bun recipe")).status()).toBe(201);
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get(`/api/memories/${id}`)).json())
+          .indexState,
+      { timeout: 15_000 }
+    )
+    .toBe("searchable");
+  await page.reload();
+  await expect(
+    page
+      .getByRole("list", { name: "All Memories" })
+      .getByRole("listitem", { name: "Cardamom bun recipe" })
+  ).toBeVisible();
+  const results = await search(page, FAKE_WORD);
+  await expect(
+    results.getByRole("option", { name: /Cardamom bun/ })
+  ).toBeVisible();
+  await expect(results.getByRole("option", { name: /Juniper/ })).toHaveCount(0);
+});

@@ -3,6 +3,7 @@ import {
   base64,
   CORRECTION,
   guessTokens,
+  lostCall,
   ProviderError,
   type Provider,
 } from "./provider";
@@ -52,7 +53,8 @@ export function workersAi(
   return {
     name: "workers-ai",
     model,
-    async extract({ system, user, image, correction }) {
+    async extract(request) {
+      const { system, user, image, correction } = request;
       const content = image
         ? [
             { type: "text", text: user },
@@ -97,11 +99,13 @@ export function workersAi(
         // The call runs on, and is billed, after we stop waiting: estimate
         // it at its most (every output token) so the budget counts it.
         if (error instanceof TimedOut) {
-          throw new ProviderError("failed", {
-            inputTokens:
-              guessTokens(system.length + user.length) + (image ? 1000 : 0),
-            outputTokens: MAX_OUTPUT_TOKENS,
-          });
+          throw new ProviderError(
+            "failed",
+            lostCall(request, {
+              imageTokens: 1000,
+              maxOutputTokens: MAX_OUTPUT_TOKENS,
+            })
+          );
         }
         const message = error instanceof Error ? error.message : "";
         // "JSON Mode couldn't be met" is invalid output: the chain corrects it.

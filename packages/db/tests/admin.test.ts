@@ -216,7 +216,15 @@ describe.skipIf(!databaseUrl)("admin costs, usage and the budget", () => {
       productAnalytics: false,
     });
     if (!("memory" in quiet)) throw new Error("capture conflict");
-    await indexingStore(db).complete(quiet.memory.id, 1, null);
+    await indexingStore(db).complete(
+      {
+        memoryId: quiet.memory.id,
+        userId: ada,
+        generation: quiet.memory.indexGeneration,
+        run: 1,
+      },
+      null
+    );
     expect(
       await indexingStore(db).claimFirstSearchable(quiet.memory.id)
     ).toBeUndefined();
@@ -237,7 +245,15 @@ describe.skipIf(!databaseUrl)("admin costs, usage and the budget", () => {
       set captured_at = now() - interval '30 days'
       where id = ${captured.memory.id}
     `);
-    await indexingStore(db).complete(captured.memory.id, 1, null);
+    await indexingStore(db).complete(
+      {
+        memoryId: captured.memory.id,
+        userId: ada,
+        generation: captured.memory.indexGeneration,
+        run: 1,
+      },
+      null
+    );
     const timing = await indexingStore(db).claimFirstSearchable(
       captured.memory.id
     );
