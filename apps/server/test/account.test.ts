@@ -461,8 +461,14 @@ describe.skipIf(!databaseUrl)("account", () => {
       const { call } = await signInAs(address);
       const phone = await signInAs(address, SAFARI_IPHONE);
       const id = await userId(call);
-      await captureText(call, "Cardamom buns");
+      const textId = await captureText(call, "Cardamom buns");
       await captureImage(call);
+      const generation = crypto.randomUUID();
+      await db.query(
+        `insert into ai_call (user_id, memory_id, memory_generation, day, provider, model, input_tokens, output_tokens, cost_micros)
+         values ($1, $2, $3, '2026-11-11', 'gemini', $4, 1, 1, 11)`,
+        [id, textId, generation, `account-deletion-${id}`]
+      );
       await call("/api/account/export", { method: "POST" });
       await deliverAccount((m) => m.kind === "export");
       // An upload that landed without ever being confirmed.
@@ -521,6 +527,20 @@ describe.skipIf(!databaseUrl)("account", () => {
         );
         expect(rows[0]!.n, `${table_name}.${column_name}`).toBe(0);
       }
+      // Anonymised AI calls keep their cost and drop the Memory they named.
+      const { rows: named } = await db.query<{ n: number }>(
+        `select count(*)::int as n from ai_call
+         where memory_id = $1 or memory_generation = $2`,
+        [textId, generation]
+      );
+      expect(named[0]!.n).toBe(0);
+      const { rows: kept } = await db.query<{
+        user_id: string;
+        memory_id: string | null;
+      }>(`select user_id, memory_id from ai_call where model = $1`, [
+        `account-deletion-${id}`,
+      ]);
+      expect(kept).toEqual([{ user_id: "deleted", memory_id: null }]);
       expect(mine()).toEqual([]);
 
       // Ben is untouched.

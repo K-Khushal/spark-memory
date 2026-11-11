@@ -447,9 +447,10 @@ export function indexingStore(db: Database) {
 
     /**
      * One AI call: its own row, and today's total, added to atomically. The
-     * row names its owner only while they exist and are not being deleted
-     * (a call can finish after its Memory, or its owner, is gone), checked
-     * under the owner's lock, which the deletion's final step holds too.
+     * row names its owner and its Memory only while they exist and the owner
+     * is not being deleted (a call can finish after its Memory, or its
+     * owner, is gone), checked under the owner's lock, which the deletion's
+     * final step holds too.
      */
     async recordCall(call: {
       userId: string;
@@ -466,10 +467,11 @@ export function indexingStore(db: Database) {
     }) {
       await db.transaction(async (tx) => {
         await lockOwner(tx, call.userId);
+        const ownerNamed = sql`exists (select 1 from ${user} where ${user.id} = ${call.userId}) and not exists (select 1 from ${accountDeletion} where ${accountDeletion.userId} = ${call.userId})`;
         await tx.insert(aiCall).values({
-          userId: sql`case when exists (select 1 from ${user} where ${user.id} = ${call.userId}) and not exists (select 1 from ${accountDeletion} where ${accountDeletion.userId} = ${call.userId}) then ${call.userId} else ${ANONYMISED_USER} end`,
-          memoryId: call.memoryId,
-          memoryGeneration: call.memoryGeneration ?? null,
+          userId: sql`case when ${ownerNamed} then ${call.userId} else ${ANONYMISED_USER} end`,
+          memoryId: sql`case when ${ownerNamed} then ${call.memoryId}::uuid else null end`,
+          memoryGeneration: sql`case when ${ownerNamed} then ${call.memoryGeneration ?? null}::uuid else null end`,
           day: today,
           provider: call.provider,
           model: call.model,

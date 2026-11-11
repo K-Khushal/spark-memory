@@ -18,7 +18,7 @@ import {
 } from "@spark/ui";
 import { confirmsDeletion } from "@spark/core";
 import type { Session } from "../auth";
-import { DeskSidebar, useSignOut } from "../shell";
+import { DeskSidebar, useLibraryDesk, useSignOut } from "../shell";
 import {
   EXPORT_DOWNLOAD_URL,
   useAccount,
@@ -34,6 +34,7 @@ export function SettingsPage({
   admin: boolean;
 }) {
   const signOut = useSignOut();
+  const desk = useLibraryDesk();
   const account = useAccount();
   const { email } = session.user;
   const loading =
@@ -47,6 +48,8 @@ export function SettingsPage({
         current="settings"
         admin={admin}
         onSignOut={() => void signOut()}
+        onCapture={desk.onCapture}
+        onSearch={desk.onSearch}
       />
 
       <main className="min-w-0 flex-1">

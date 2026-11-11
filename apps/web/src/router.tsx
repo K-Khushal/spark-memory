@@ -18,6 +18,12 @@ const rootRoute = createRootRoute({ component: () => <Outlet /> });
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { desk?: "capture" | "search" } =>
+    search.desk === "capture" || search.desk === "search"
+      ? { desk: search.desk }
+      : {},
   beforeLoad: () => requireSession(),
   component: function Library() {
     const { session, admin } = libraryRoute.useRouteContext();

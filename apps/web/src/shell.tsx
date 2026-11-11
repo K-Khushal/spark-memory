@@ -1,8 +1,15 @@
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { LogOutIcon, SettingsIcon } from "lucide-react";
-import { Button, cn, toast } from "@spark/ui";
+import {
+  LogOutIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+  XIcon,
+} from "lucide-react";
+import { Button, cn, Kbd, toast } from "@spark/ui";
 import { authClient, endSession } from "./auth";
+import { MOD } from "./library/shortcuts";
 
 /** A sidebar destination. The current one is the raised surface. */
 export function DeskNavLink({
@@ -34,8 +41,54 @@ export function DeskNavLink({
 }
 
 /**
- * The desk sidebar (DESIGN.md → Pick): wordmark, the page's own tools,
- * Library navigation, and the person. Hidden below md; each page draws its
+ * Search as the desk draws it (DESIGN.md → Pick): the same control on every
+ * page, so All Memories sits at one height. The Library passes the live query.
+ */
+export function DeskSearchField({
+  label,
+  active,
+  onSearch,
+  onClear,
+}: {
+  label: string;
+  active?: boolean;
+  onSearch: () => void;
+  onClear?: () => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <button
+        type="button"
+        onClick={onSearch}
+        className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-[transform,color] duration-(--duration-press) ease-out hover:text-ink active:scale-[0.97]"
+      >
+        <SearchIcon className="size-4 shrink-0" aria-hidden />
+        <span
+          className={cn("min-w-0 flex-1 truncate", active && "text-ink")}
+          dir="auto"
+        >
+          {label}
+        </span>
+        {!active && <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>}
+      </button>
+      {onClear && (
+        <Button
+          variant="quiet"
+          size="icon-sm"
+          aria-label="Clear Search"
+          onClick={onClear}
+        >
+          <XIcon aria-hidden />
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The desk sidebar (DESIGN.md → Pick): wordmark, Capture, Search, Library
+ * navigation, and the person. Capture and Search are always in the head, so
+ * All Memories lines up on every page. Hidden below md; each page draws its
  * own phone bar.
  */
 export function DeskSidebar({
@@ -44,24 +97,43 @@ export function DeskSidebar({
   admin,
   onSignOut,
   onLibrary,
-  headerAction,
-  children,
+  onCapture,
+  onSearch,
+  searchLabel = "Search",
+  searchActive = false,
+  onClearSearch,
 }: {
   email: string;
   current: "library" | "admin" | "settings";
   admin: boolean;
   onSignOut: () => void;
   onLibrary?: () => void;
-  headerAction?: ReactNode;
-  children?: ReactNode;
+  onCapture: () => void;
+  onSearch: () => void;
+  /** What Search shows: "Search", the query, or "More Like This". */
+  searchLabel?: string;
+  searchActive?: boolean;
+  onClearSearch?: () => void;
 }) {
   return (
     <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 border-r border-line bg-sunken p-3 md:flex">
       <div className="flex h-8 items-center justify-between pl-2">
         <span className="font-display text-md font-semibold">Spark</span>
-        {headerAction}
+        <Button
+          variant="quiet"
+          size="icon-sm"
+          aria-label="Capture"
+          onClick={onCapture}
+        >
+          <PlusIcon aria-hidden />
+        </Button>
       </div>
-      {children}
+      <DeskSearchField
+        label={searchLabel}
+        active={searchActive}
+        onSearch={onSearch}
+        onClear={onClearSearch}
+      />
       <nav aria-label="Library">
         <ul className="flex flex-col gap-1">
           <li>
@@ -106,6 +178,17 @@ export function DeskSidebar({
       </div>
     </aside>
   );
+}
+
+/** Capture and Search from a desk page other than the Library: open them there. */
+export function useLibraryDesk() {
+  const navigate = useNavigate();
+  const open = (desk: "capture" | "search") =>
+    void navigate({ to: "/", search: { desk } });
+  return {
+    onCapture: () => open("capture"),
+    onSearch: () => open("search"),
+  };
 }
 
 /** Signs out here and goes to sign-in; a failure says so with Try Again. */
