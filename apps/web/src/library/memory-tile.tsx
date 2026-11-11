@@ -1,10 +1,8 @@
 import { Fragment, type ReactNode } from "react";
 import { IndexBadge } from "./index-state";
-import { motion } from "motion/react";
 import { RotateCwIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { cn } from "@spark/ui";
-import { DURATION, EASING } from "@spark/ui/tokens";
 import type { UploadState } from "./image-capture";
 import type { WallMemory } from "./use-library";
 
@@ -123,19 +121,13 @@ export function MemoryTile(props: {
     />
   );
   return (
-    <motion.div
-      className="h-full w-full"
-      // DESIGN.md → Motion: a new Capture fades and grows into place.
-      initial={memory.fresh ? { opacity: 0, scale: 0.96 } : false}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: DURATION.panel / 1000, ease: EASING.out }}
-    >
+    <div className={cn("h-full w-full", memory.fresh && "spark-capture-in")}>
       {memory.image ? (
         <ImageTile {...props} badge={badge} />
       ) : (
         <TextTile {...props} badge={badge} />
       )}
-    </motion.div>
+    </div>
   );
 }
 
