@@ -15,14 +15,21 @@
       "outputs": []
     },
     "@spark/ui#test": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/index.html"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/web/index.html",
+        "$TURBO_ROOT$/apps/web/src/**"
+      ],
       "outputs": []
     },
     "@spark/db#test": {
-      "cache": false
+      "cache": false,
+      "env": ["DATABASE_URL"]
     },
     "@spark/server#test": {
-      "cache": false
+      "cache": false,
+      "dependsOn": ["@spark/db#test"],
+      "env": ["DATABASE_URL"]
     },
     "dev": {
       "cache": false,

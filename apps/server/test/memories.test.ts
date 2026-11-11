@@ -142,7 +142,7 @@ describe.skipIf(!databaseUrl)("the Memory API", () => {
     const list = await (await ben.call("/api/memories")).json();
     expect(list).toEqual({ memories: [], unfinished: [] });
     const search = await (await ben.call("/api/search?q=locker")).json();
-    expect(search).toEqual({ results: [] });
+    expect(search).toEqual({ mode: "instant", results: [] });
 
     expect(await (await ana.call(path)).json()).toMatchObject({
       body: "Ana's locker code is under the plant",

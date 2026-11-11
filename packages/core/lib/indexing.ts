@@ -42,6 +42,60 @@ export const INDEXING = {
 
 export type ProviderName = keyof typeof INDEXING.models;
 
+/**
+ * Embedding (ADR-0004): Overview, Visual and Passage vectors in one
+ * text-and-image space. Gemini Embedding 2 runs on the paid tier only
+ * (ADR-0005); its 768-dimension output comes back normalised. Sources in
+ * docs/research/embeddings.md. Changing `model` or `dimensions` makes every
+ * stored vector stale: the hourly sweep re-embeds them in the background.
+ */
+export const EMBEDDING = {
+  model: "gemini-embedding-2",
+  dimensions: 768,
+  /** Micro-dollars per million input tokens, standard (not Batch) tier. */
+  pricesMicrosPerMTokens: {
+    "gemini-embedding-2": { text: 200_000, image: 450_000 },
+    "fake-embedding": { text: 0, image: 0 },
+  } as Record<string, { text: number; image: number }>,
+  /** Model input types for a Visual vector. */
+  imageTypes: ["image/png", "image/jpeg"] as const,
+  /**
+   * About 500 tokens a Passage at ~4 characters a token: long enough to
+   * hold one idea, short enough that one idea is not blurred into the rest
+   * (ADR-0004's ~400 tokens, rounded to whole paragraphs), and far inside
+   * the model's 8,192-token limit, past which it truncates silently.
+   */
+  passageChars: 2_000,
+  /** Passages overlap so an idea cut at a boundary is whole in one of them. */
+  passageOverlapChars: 200,
+  /** Passages per Memory; the rest of a very long text is not embedded. */
+  maxPassages: 30,
+  /** One call for a Memory's vectors. */
+  timeoutMs: 30_000,
+  /** A query waits this long, then full search goes on without vectors. */
+  queryTimeoutMs: 2_500,
+  /**
+   * Cosine distances, guesses until the search test set tunes them (evals/,
+   * #11): a Memory joins the vector leg within `maxDistance` of the query,
+   * and its vector alone makes it a Direct Match within `directDistance`.
+   */
+  maxDistance: 0.6,
+  directDistance: 0.35,
+  /** A person's repeated query reuses its vector this long (per Worker isolate). */
+  queryCacheMs: 5 * 60_000,
+  queryCacheSize: 500,
+  /** An edited title waits this long, so a burst of autosaves embeds once. */
+  editDelaySeconds: 60,
+  /** Stale or missing vectors re-embedded per hourly sweep. */
+  sweepBatch: 200,
+} as const;
+
+/** How stored vectors name what made them: model and dimensions. */
+export const embeddingSpace = (
+  model: string = EMBEDDING.model,
+  dimensions: number = EMBEDDING.dimensions
+) => `${model}@${dimensions}`;
+
 /** Why Indexing failed, as stored in `memory.index_error` and shown with Retry. */
 export const INDEX_FAILURES = [
   "unavailable",

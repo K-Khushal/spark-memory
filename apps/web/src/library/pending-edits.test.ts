@@ -23,6 +23,7 @@ const start: Memory = {
   indexError: null,
   indexTitle: null,
   aiOptOut: false,
+  hasVectors: false,
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
   updatedAt: "2026-11-10T10:00:00.000Z",

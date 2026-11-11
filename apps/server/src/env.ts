@@ -41,24 +41,55 @@ export type Bindings = {
   /** Queues (wrangler.jsonc): fresh Captures and Retry, and background re-indexing. */
   INDEX_QUEUE: IndexQueue;
   REINDEX_QUEUE: IndexQueue;
+  /** Queue (wrangler.jsonc): Library exports and account deletion (src/account-jobs.ts). */
+  ACCOUNT_QUEUE: AccountQueue;
   /** Workers AI (Gemma 4), first in the Indexing chain. Absent locally. */
   AI?: { run(model: string, input: Record<string, unknown>): Promise<unknown> };
   /** Secret: a key from a Cloud project with active billing (ADR-0005). */
   GEMINI_API_KEY?: string;
+  /**
+   * Secret. Comma-separated owner addresses. Grants the admin role.
+   * Unset means nobody is an admin. Never writable through the API.
+   */
+  ADMIN_EMAILS?: string;
+  /** Secret. PostHog project key. Unset means product events are not sent. */
+  POSTHOG_KEY?: string;
+  /** Var. Capture host, https only. Defaults to https://us.i.posthog.com. */
+  POSTHOG_HOST?: string;
   /** Var: "true" only once that project's billing is confirmed; Gemini stays out otherwise. */
   GEMINI_PAID_TIER?: string;
   /** Var: "fake" (honoured only when SPARK_ENV is local) Indexes with the fake provider. */
   INDEXING_PROVIDER?: string;
 };
 
-/** What a queue message carries: which Memory, at which run, and how urgent. */
+/**
+ * What a queue message carries: which Memory, at which run, and how urgent.
+ * `task: "embed"` makes only its vectors again (always background).
+ */
 export type IndexMessage = {
   memoryId: string;
   run?: number;
   priority: Priority;
+  task?: "embed";
 };
 export type IndexQueue = {
   send(body: IndexMessage, options?: { delaySeconds?: number }): Promise<void>;
+};
+
+/** What an account queue message asks for. */
+export type AccountMessage =
+  { kind: "export"; exportId: string } | { kind: "delete"; userId: string };
+export type AccountQueue = {
+  send(
+    body: AccountMessage,
+    options?: { delaySeconds?: number }
+  ): Promise<void>;
+};
+
+type HttpMetadata = {
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
 };
 
 /** The parts of an R2 bucket binding the API uses. */
@@ -71,10 +102,23 @@ export type FileBucket = {
     options: { httpMetadata: { contentType: string; cacheControl: string } }
   ): Promise<unknown>;
   delete(keys: string | string[]): Promise<void>;
+  list(options: {
+    prefix: string;
+    limit?: number;
+  }): Promise<{ objects: { key: string }[]; truncated: boolean }>;
+  createMultipartUpload(
+    key: string,
+    options: { httpMetadata: HttpMetadata }
+  ): Promise<MultipartUpload>;
 };
-type StoredObject = {
-  size: number;
-  httpMetadata?: { contentType?: string; cacheControl?: string };
+export type MultipartUpload = {
+  uploadPart(
+    partNumber: number,
+    value: Uint8Array
+  ): Promise<{ partNumber: number; etag: string }>;
+  complete(parts: { partNumber: number; etag: string }[]): Promise<unknown>;
+  abort(): Promise<void>;
 };
+type StoredObject = { size: number; httpMetadata?: HttpMetadata };
 
 export type AppEnv = { Bindings: Bindings };

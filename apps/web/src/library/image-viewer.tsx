@@ -5,6 +5,7 @@ import { placeholderUrl } from "@spark/capture";
 import { Button, Dialog, DialogContent, DialogTitle, cn } from "@spark/ui";
 import { DURATION, EASING, SPRING } from "@spark/ui/tokens";
 import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
+import { MoreLikeThis } from "./why";
 import { memoryName, UploadBadge } from "./memory-tile";
 import type { WallMemory } from "./use-library";
 
@@ -30,6 +31,7 @@ export function ImageViewer({
   onBroken,
   onRetryIndexing,
   onAiOptOut,
+  onMoreLikeThis,
 }: {
   /** The image Memories in wall order. */
   memories: WallMemory[];
@@ -39,6 +41,7 @@ export function ImageViewer({
   onDelete: (memory: WallMemory) => void;
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
+  onMoreLikeThis: (memory: WallMemory) => void;
 } & IndexingProps) {
   const index = memories.findIndex((m) => m.id === openId);
   const memory = memories[index];
@@ -131,6 +134,12 @@ export function ImageViewer({
             />
           )}
           <div className="absolute top-3 right-16 flex items-center gap-3">
+            <MoreLikeThis
+              memory={memory}
+              onSelect={onMoreLikeThis}
+              compact
+              className="h-11"
+            />
             <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
             <Button
               variant="quiet"
@@ -216,7 +225,7 @@ function Picture({
         draggable={false}
         onLoad={() => setLoaded(true)}
         onError={() => onBroken(memory.id)}
-        className="absolute inset-0 h-full w-full object-contain transition-opacity duration-[180ms] ease-out"
+        className="absolute inset-0 h-full w-full object-contain transition-opacity duration-(--duration-small) ease-out"
         style={{ opacity: loaded ? 1 : 0 }}
       />
     </div>

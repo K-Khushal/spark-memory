@@ -6,8 +6,8 @@ import {
   type Auth,
   type AuthConfig,
 } from "@spark/auth";
-import { openDatabase, type Database } from "@spark/db";
-import type { Plan } from "@spark/core";
+import { isDeletionRequested, openDatabase, type Database } from "@spark/db";
+import { isVerifiedAdmin, type Plan } from "@spark/core";
 import type { AppEnv, Bindings } from "./env";
 
 export type SignedInUser = {
@@ -16,6 +16,8 @@ export type SignedInUser = {
   name: string;
   image?: string | null;
   plan: Plan;
+  /** Proved by the sign-in method. Admin requires this to be true. */
+  emailVerified: boolean;
 };
 
 export function authConfig(env: Bindings): AuthConfig {
@@ -105,19 +107,69 @@ export const withAuth = createMiddleware<AppEnv & { Variables: AuthVariables }>(
   }
 );
 
-export type UserVariables = AuthVariables & { user: SignedInUser };
+export type UserVariables = AuthVariables & {
+  user: SignedInUser;
+  /** This request's session (never its token). */
+  sessionId: string;
+};
 
-/** Rejects anonymous requests with 401; otherwise sets `user`. */
+/**
+ * Rejects anonymous requests with 401, and an account being deleted too
+ * (a session made in a race with the request is useless at once);
+ * otherwise sets `user`.
+ */
 export const requireUser = createMiddleware<
   AppEnv & { Variables: UserVariables }
 >(async (c, next) => {
   const session = await c.var.auth.api.getSession({
     headers: c.req.raw.headers,
   });
-  if (!session) {
+  if (!session || (await isDeletionRequested(c.var.db, session.user.id))) {
     return c.json({ ok: false, error: "unauthorized" } as const, 401);
   }
   const { id, email, name, image, plan } = session.user;
-  c.set("user", { id, email, name, image, plan: plan as Plan });
+  c.set("user", {
+    id,
+    email,
+    name,
+    image,
+    plan: plan as Plan,
+    emailVerified: session.user.emailVerified === true,
+  });
+  c.set("sessionId", session.session.id);
+  await next();
+});
+
+/**
+ * Admin routes. 401 when there is no session, 403 unless the address is
+ * verified and in ADMIN_EMAILS. The role is that list: nothing in the
+ * database grants it, and no route can change it.
+ */
+export const requireAdmin = createMiddleware<
+  AppEnv & { Variables: UserVariables }
+>(async (c, next) => {
+  const session = await c.var.auth.api.getSession({
+    headers: c.req.raw.headers,
+  });
+  if (!session || (await isDeletionRequested(c.var.db, session.user.id))) {
+    return c.json({ ok: false, error: "unauthorized" } as const, 401);
+  }
+  const user = {
+    email: session.user.email,
+    emailVerified: session.user.emailVerified === true,
+  };
+  if (!isVerifiedAdmin(user, c.env.ADMIN_EMAILS)) {
+    return c.json({ ok: false, error: "forbidden" } as const, 403);
+  }
+  const { id, email, name, image, plan } = session.user;
+  c.set("user", {
+    id,
+    email,
+    name,
+    image,
+    plan: plan as Plan,
+    emailVerified: user.emailVerified,
+  });
+  c.set("sessionId", session.session.id);
   await next();
 });

@@ -1,8 +1,10 @@
 import { expect, type Page } from "@playwright/test";
 
-/** Signs a new person in with an email code from the local dev outbox. */
-export async function signIn(page: Page) {
-  const email = `smoke-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
+/** Signs a person in with an email code from the local dev outbox; returns their address. */
+export async function signIn(page: Page, address?: string): Promise<string> {
+  const email =
+    address ??
+    `smoke-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
   // Each test signs in from its own address, so the per-IP limit on sending
   // codes (3 a minute) never trips when tests run side by side.
   const octet = () => Math.floor(Math.random() * 254) + 1;
@@ -29,8 +31,13 @@ export async function signIn(page: Page) {
   const { code } = (await res.json()) as { code: string };
   await page.getByRole("textbox", { name: "Code" }).fill(code);
   await expect(page).toHaveURL(/\/$/);
-  // The Library has loaded (its shortcuts are listening) for a new person.
+  // LibraryPage has mounted (its shortcuts are listening). The empty
+  // heading or the wall, not the sidebar link, is what it renders. A
+  // known address may already have Memories from an earlier run.
   await expect(
-    page.getByRole("heading", { name: "No Memories Yet" })
+    page
+      .getByRole("heading", { name: "No Memories Yet" })
+      .or(page.getByRole("list", { name: "All Memories" }))
   ).toBeVisible();
+  return email;
 }

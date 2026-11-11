@@ -78,6 +78,22 @@ _Avoid_: exact match, top result
 A search result that is similar in meaning or appearance but not a confident match, always shown apart from Direct matches.
 _Avoid_: suggestion, recommendation
 
+**Overview, Visual and Passage vectors**:
+Where a Memory sits in the search space: one Overview (its title, description, Tags and Capture note), a Visual for its image, and a Passage for each stretch of its text or of the text in its image. Search scores a Memory by whichever of them is closest.
+_Avoid_: embeddings (in UI copy), chunks
+
+**Instant search / full search**:
+Instant search matches words as they are typed; full search, once typing pauses, also matches by meaning. Full results reorder the instant ones rather than replace them.
+_Avoid_: quick search, deep search, semantic search (in UI copy)
+
+**Why-chip**:
+The few words under a search result that say what matched: a field, the passage, or the image.
+_Avoid_: reason, explanation, score
+
+**More Like This**:
+Search with a Memory itself as the query, for the Memories nearest it in meaning and look.
+_Avoid_: similar items, recommendations
+
 **Connected assistant**:
 An external AI tool (such as Claude or Codex) that the user has allowed to search and read their Library.
 _Avoid_: integration, bot, agent

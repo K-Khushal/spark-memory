@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "@spark/ui";
 import { api } from "../api";
+import { track } from "../analytics";
 import { drafts } from "./drafts";
 import { Refused, type Upload } from "./image-capture";
 import {
@@ -16,6 +17,7 @@ import {
   type Transport,
   type WallMemory,
 } from "./library-actions";
+import { libraryVersion } from "./search-session";
 
 export type { Memory, WallMemory } from "./library-actions";
 
@@ -126,7 +128,12 @@ export function useLibrary() {
   const [memories, setMemories] = useState<WallMemory[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [attempt, setAttempt] = useState(0);
-  const [version, setVersion] = useState(0);
+  // This mount's own versions (libraryVersion), so the search cache never
+  // serves it an answer from an earlier visit.
+  const [versionOf] = useState(libraryVersion);
+  const [changes, setChanges] = useState(0);
+  const version = versionOf(changes);
+  const setVersion = setChanges;
   // Stable for the page's life, so dialogs can depend on them.
   const [actions] = useState(() =>
     libraryActions({
@@ -135,6 +142,8 @@ export function useLibrary() {
       drafts,
       notify: toast,
       onSaved: () => setVersion((n) => n + 1),
+      onCaptured: (kind) =>
+        track({ event: "save_success", properties: { kind } }),
     })
   );
 
@@ -172,6 +181,7 @@ export function useLibrary() {
       transport: indexingTransport,
       notify: toast,
       isPending: actions.isPending,
+      onChanged: () => setVersion((n) => n + 1),
     })
   );
   // While anything is Indexing, ask after it: every 2 s, backing off to 30 s

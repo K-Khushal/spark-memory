@@ -91,6 +91,10 @@
     0 12px 24px -6px rgb(var(--shadow-rgb) / 0.12),
     0 32px 64px -16px rgb(var(--shadow-rgb) / 0.18);
 
+  --duration-press: 120ms;
+  --duration-small: 180ms;
+  --duration-panel: 260ms;
+
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);

@@ -10,6 +10,8 @@ export {
   MemoryEdit,
   MemoryEditRequest,
   AiOptOut,
+  AccountDeletion,
+  confirmsDeletion,
   IMAGE_TYPES,
   ImageType,
   THUMBNAIL_TYPES,
@@ -25,6 +27,8 @@ export {
 } from "./lib/allowance";
 export {
   INDEXING,
+  EMBEDDING,
+  embeddingSpace,
   INDEX_FAILURES,
   INDEXING_OUTPUT_JSON_SCHEMA,
   IndexingOutput,
@@ -32,3 +36,28 @@ export {
   type IndexFailure,
   type ProviderName,
 } from "./lib/indexing";
+export {
+  ROLES,
+  adminEmails,
+  isAdmin,
+  isVerifiedAdmin,
+  rolesFor,
+  type Role,
+} from "./lib/role";
+export {
+  DAILY_BUDGET_KEY,
+  DAILY_BUDGET_MAX_MICROS,
+  budgetPaused,
+  effectiveDailyBudgetMicros,
+  parseDailyBudgetMicros,
+} from "./lib/budget";
+export {
+  PRODUCT_EVENTS,
+  allowOutgoingProductEvent,
+  productAnalyticsEnabled,
+  productPayload,
+  publicAnalytics,
+  sendProductEvent,
+  type ProductEvent,
+  type ProductPayload,
+} from "./lib/product-events";

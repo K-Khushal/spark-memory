@@ -45,6 +45,7 @@ function scripted(
 const textMemory = (over: Partial<PendingMemory> = {}): PendingMemory => ({
   userId: "u1",
   run: 1,
+  revision: 1,
   kind: "text",
   title: null,
   captureNote: null,
@@ -54,13 +55,18 @@ const textMemory = (over: Partial<PendingMemory> = {}): PendingMemory => ({
 });
 
 /** An in-memory store: one Memory, with the writes and calls it saw. */
-function memoryStore(memory: PendingMemory | undefined, spent = 0) {
+function memoryStore(
+  memory: PendingMemory | undefined,
+  spent = 0,
+  budget: number = INDEXING.dailyBudgetMicros
+) {
   const store = {
     memory,
     completed: [] as unknown[],
     failed: [] as string[],
     calls: [] as { provider: string; costMicros: number }[],
     spent,
+    budget,
     released: 0,
     load: async (_id: string, run?: number) =>
       run === undefined || run === store.memory?.run ? store.memory : undefined,
@@ -79,7 +85,11 @@ function memoryStore(memory: PendingMemory | undefined, spent = 0) {
       store.failed.push(reason);
       return true;
     }),
+    loadForEmbedding: async () => undefined,
+    stillEmbeddable: async () => false,
+    writeVectors: async () => false,
     spentTodayMicros: async () => store.spent,
+    dailyBudgetMicros: async () => store.budget,
     recordCall: async (call: { provider: string; costMicros: number }) => {
       store.calls.push(call);
       store.spent += call.costMicros;
@@ -305,6 +315,28 @@ describe("index(job)", () => {
     expect(gemma.extract).not.toHaveBeenCalled();
     const fresh = createIndexer({
       store: memoryStore(textMemory(), over),
+      providers: [gemma],
+      readFile: noFiles,
+    });
+    expect(await fresh.index(job())).toEqual({ result: "searchable" });
+  });
+
+  it("pauses at the budget the store reports, including one below the default", async () => {
+    const gemma = scripted("workers-ai", json());
+    const at = new Date("2026-11-11T12:00:00Z");
+    const background = createIndexer({
+      store: memoryStore(textMemory(), 10, 10),
+      providers: [gemma],
+      readFile: noFiles,
+      now: () => at,
+    });
+    expect(await background.index(job({ priority: "background" }))).toEqual({
+      result: "paused",
+      delaySeconds: 12 * 3600,
+    });
+    expect(gemma.extract).not.toHaveBeenCalled();
+    const fresh = createIndexer({
+      store: memoryStore(textMemory(), 10, 10),
       providers: [gemma],
       readFile: noFiles,
     });

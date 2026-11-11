@@ -40,6 +40,11 @@ export const TextCapture = z.object({
   body: z.string().trim().min(1).max(FREE_ALLOWANCE.textMaxChars),
   title: optionalText(FREE_ALLOWANCE.titleMaxChars),
   captureNote: optionalText(FREE_ALLOWANCE.captureNoteMaxChars),
+  /**
+   * True only when this browser allows product events (Do Not Track is off).
+   * Omitted or false: Indexing does not report time to Searchable.
+   */
+  productAnalytics: z.boolean().optional(),
 });
 export type TextCapture = z.input<typeof TextCapture>;
 
@@ -56,6 +61,14 @@ export type MemoryEditRequest = z.input<typeof MemoryEditRequest>;
 /** Switches AI opt-out (GLOSSARY.md) on or off for one Memory. */
 export const AiOptOut = z.object({ aiOptOut: z.boolean() });
 export type AiOptOut = z.infer<typeof AiOptOut>;
+
+/** Account deletion is confirmed by typing the account's email address. */
+export const AccountDeletion = z.object({ email: z.string().max(320) });
+export type AccountDeletion = z.infer<typeof AccountDeletion>;
+
+/** Whether `typed` confirms deleting the account of `email` (spaces and case aside). */
+export const confirmsDeletion = (typed: string, email: string) =>
+  typed.trim().toLowerCase() === email.toLowerCase();
 
 /**
  * Image types Spark keeps as the Preserved copy. HEIC and HEIF are converted
@@ -99,5 +112,7 @@ export const ImageCapture = z.object({
     mime: z.enum(THUMBNAIL_TYPES),
     bytes: z.number().int().positive().max(THUMBNAIL_MAX_BYTES),
   }),
+  /** Same choice as a text Capture: time to Searchable is sent only when true. */
+  productAnalytics: z.boolean().optional(),
 });
 export type ImageCapture = z.input<typeof ImageCapture>;

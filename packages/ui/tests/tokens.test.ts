@@ -1,8 +1,11 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   contrastRatio,
+  DURATION,
   EASING,
+  FILTER_COLOURS,
   NEUTRAL_TOKENS,
   oklch,
   RADIUS,
@@ -75,6 +78,13 @@ describe("shape and motion tokens", () => {
     }
   );
 
+  it.each(Object.entries(DURATION))(
+    "duration %s matches --duration-%s",
+    (name, ms) => {
+      expect(themeValue(`--duration-${name}`)).toBe(`${ms}ms`);
+    }
+  );
+
   it.each(Object.entries(EASING))(
     "easing %s matches its CSS curve",
     (name, curve) => {
@@ -94,7 +104,7 @@ describe("shape and motion tokens", () => {
     }
   );
 
-  it("declares no radius, easing or type step the tokens lack", () => {
+  it("declares no radius, duration, easing or type step the tokens lack", () => {
     const theme = block("@theme");
     const names = (prefix: string) =>
       [
@@ -105,10 +115,31 @@ describe("shape and motion tokens", () => {
         .map((m) => m[1]!)
         .filter((n) => n !== "*" && n !== "full");
     expect(new Set(names("radius"))).toEqual(new Set(Object.keys(RADIUS)));
+    expect(new Set(names("duration"))).toEqual(new Set(Object.keys(DURATION)));
     expect(new Set(names("text"))).toEqual(new Set(Object.keys(TYPE_SCALE)));
     expect(new Set(names("ease"))).toEqual(
       new Set(Object.keys(EASING).map(kebab))
     );
+  });
+});
+
+/** `.tsx` files under `dir` that use a Tailwind `duration-[…ms]` literal. */
+function durationLiterals(dir: URL): string[] {
+  return readdirSync(fileURLToPath(dir), { recursive: true, encoding: "utf8" })
+    .filter((file) => file.endsWith(".tsx"))
+    .filter((file) =>
+      /duration-\[\d+m?s\]/.test(readFileSync(new URL(file, dir), "utf8"))
+    );
+}
+
+describe("components", () => {
+  // Call sites say `duration-(--duration-press)`, so a duration changes in
+  // one place. Tailwind's own steps (`duration-150`) and literals do not.
+  it("use the --duration-* tokens, never a duration literal", () => {
+    expect(durationLiterals(new URL("../lib/", import.meta.url))).toEqual([]);
+    expect(
+      durationLiterals(new URL("../../../apps/web/src/", import.meta.url))
+    ).toEqual([]);
   });
 });
 
@@ -118,6 +149,31 @@ describe("oklch", () => {
     const blue = oklch("#2f6fe0");
     expect(blue.h).toBeGreaterThan(250);
     expect(blue.h).toBeLessThan(270);
+  });
+});
+
+// The colour filters that stand in for neutrals are held to the same rule as
+// the neutral tokens. White is a cool white, so it still shows on the canvas.
+describe("filter greys", () => {
+  it.each(["White", "Grey", "Black"])(
+    "%s is a true or cool neutral",
+    (name) => {
+      const hex = FILTER_COLOURS.find((c) => c.name === name)!.hex;
+      const { c, h } = oklch(hex);
+      expect(c, `${name} ${hex} chroma`).toBeLessThanOrEqual(0.012);
+      // True greys sit near c = 0 with a noisy hue. Any real tint (the old
+      // warm White was #F7F7F5 at ~0.0026) must be cool.
+      if (c > 0.001) {
+        expect(h, `${name} ${hex} hue`).toBeGreaterThanOrEqual(200);
+        expect(h, `${name} ${hex} hue`).toBeLessThanOrEqual(290);
+      }
+    }
+  );
+
+  it("White is the cool swatch, still visible on the canvas", () => {
+    const white = FILTER_COLOURS.find((c) => c.name === "White")!.hex;
+    expect(white).toBe("#F5F6F8");
+    expect(white).not.toBe(THEMES.light.canvas);
   });
 });
 

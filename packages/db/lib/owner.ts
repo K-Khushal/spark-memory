@@ -1,0 +1,53 @@
+import { eq, sql } from "drizzle-orm";
+import type { Database } from "./client";
+import { accountDeletion, session } from "./schema";
+
+/** Seeds the per-owner advisory lock (its own lock space). */
+const OWNER_LOCK = 6;
+
+/**
+ * One owner's uploads change one at a time: storage checks, retries,
+ * confirmations, the sweep and account deletion all take this lock, until
+ * the transaction ends.
+ */
+export const lockOwner = (tx: Pick<Database, "execute">, userId: string) =>
+  tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${OWNER_LOCK}))`
+  );
+
+/** Who an AI call belonged to once its owner is being deleted: the cost stays, the owner goes. */
+export const ANONYMISED_USER = "deleted";
+
+/** Every object of one owner starts with this (keys are the server's). */
+export const ownerPrefix = (userId: string) => `users/${userId}/`;
+
+/** Whether the owner asked for their account to be deleted (account.ts); sign-in is refused meanwhile. */
+export async function deletionRequested(
+  tx: Pick<Database, "select">,
+  userId: string
+): Promise<boolean> {
+  const rows = await tx
+    .select({ userId: accountDeletion.userId })
+    .from(accountDeletion)
+    .where(eq(accountDeletion.userId, userId));
+  return rows.length > 0;
+}
+
+/**
+ * Ends a just-made session if its owner is being deleted. Under the owner's
+ * lock, so it orders with the deletion request: either it runs first and
+ * the request's session wipe sees the session, or it runs after and sees
+ * the request. Called once a session exists (the auth hook), it closes the
+ * gap between checking and inserting. True when it ended the session.
+ */
+export const endSessionIfDeleting = (
+  db: Database,
+  userId: string,
+  sessionId: string
+): Promise<boolean> =>
+  db.transaction(async (tx) => {
+    await lockOwner(tx, userId);
+    if (!(await deletionRequested(tx, userId))) return false;
+    await tx.delete(session).where(eq(session.id, sessionId));
+    return true;
+  });

@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
-import { INDEXING } from "@spark/core";
+import { DAILY_BUDGET_MAX_MICROS } from "@spark/core";
 import { requeueStalled } from "../src/indexing";
 import {
   databaseUrl,
   deliver,
+  drain,
   env,
   fakeTurnstile,
   queues,
@@ -30,7 +31,7 @@ describe.skipIf(!databaseUrl)("past the daily AI budget", () => {
       `insert into spend_day (day, provider, cost_micros)
        values ((now() at time zone 'utc')::date, $1, $2)
        on conflict (day, provider) do update set cost_micros = excluded.cost_micros`,
-      [PROVIDER, INDEXING.dailyBudgetMicros * 10]
+      [PROVIDER, DAILY_BUDGET_MAX_MICROS]
     );
   });
   afterAll(async () => {
@@ -77,6 +78,36 @@ describe.skipIf(!databaseUrl)("past the daily AI budget", () => {
     );
     expect(message.ack).toHaveBeenCalled();
     expect(message.retry).not.toHaveBeenCalled();
+  });
+
+  it("still embeds a fresh Capture, but searches by keyword only and re-embeds nothing in the background", async () => {
+    const { call } = await signedIn();
+    const res = await call("/api/memories", {
+      method: "POST",
+      json: { body: "Sunset over the dock" },
+    });
+    const { id } = (await res.json()) as { id: string };
+    await drain(id);
+    const vectors = await sql.query(
+      "select 1 from memory_vector where memory_id = $1",
+      [id]
+    );
+    expect(vectors.rowCount).toBeGreaterThan(0);
+    const full = async (q: string) =>
+      (
+        (await (await call(`/api/search?q=${q}&mode=full`)).json()) as {
+          results: { id: string }[];
+        }
+      ).results.map((r) => r.id);
+    expect(await full("sunset")).toEqual([id]);
+    // Its vectors would match; the query is not embedded past the budget.
+    expect(await full("twilight")).toEqual([]);
+    await sql.query("update memory set vectors_space = null where id = $1", [
+      id,
+    ]);
+    queues.background.sent.length = 0;
+    await requeueStalled(env());
+    expect(sentFor(id)).toEqual([]);
   });
 
   it("sends Retry first in line once a day, then to the background", async () => {

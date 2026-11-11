@@ -8,6 +8,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   text,
@@ -173,7 +174,25 @@ export const memory = pgTable(
     aiOptOut: boolean("ai_opt_out").default(false).notNull(),
     /** BCP-47 tag Indexing detected; picks the keyword index's language. */
     language: text("language"),
+    /**
+     * What the Memory's vectors were made from: the embedding space
+     * (`model@dimensions`) and the revision of its text. Either differing
+     * from now makes them stale, and the hourly sweep makes them again.
+     */
+    vectorsSpace: text("vectors_space"),
+    vectorsRevision: integer("vectors_revision"),
     capturedAt: instant("captured_at"),
+    /**
+     * The first time Indexing makes this Memory Searchable. Later runs
+     * (an edit, Retry, opt-out off) do not move it, so time to Searchable
+     * is measured once.
+     */
+    firstSearchableAt: timestamp("first_searchable_at", { withTimezone: true }),
+    /**
+     * The person's choice at Capture. Product events for this Memory are
+     * sent only when this is true (Do Not Track was off).
+     */
+    productAnalytics: boolean("product_analytics").default(false).notNull(),
     updatedAt: instant("updated_at").$onUpdate(() => new Date()),
     /**
      * Keyword index (ADR-0004), weighted and language-aware. Written by a
@@ -269,6 +288,46 @@ export const memoryIndex = pgTable("memory_index", {
   indexedAt: instant("indexed_at"),
 });
 
+const halfvec = customType<{ data: number[]; driverData: string }>({
+  // Any dimension: each row says its own, so a new size is a re-embed, not a migration.
+  dataType: () => "halfvec",
+  toDriver: (v) => `[${v.join(",")}]`,
+  fromDriver: (v) => JSON.parse(v) as number[],
+});
+
+export type VectorKind = "overview" | "visual" | "passage";
+/** Where a Passage sits: character offsets into the Memory's text or the text in its image. */
+export type PassageAnchor = {
+  field: "body" | "ocr";
+  start: number;
+  end: number;
+};
+
+/**
+ * A Memory's vectors (ADR-0004): one Overview, a Visual for an image, and a
+ * Passage per stretch of text, each with the model and dimensions that made
+ * it. Replaced whole by each embedding; gone with AI opt-out (ADR-0011).
+ * Search scans one owner's rows exactly, so `user_id` leads the index.
+ */
+export const memoryVector = pgTable(
+  "memory_vector",
+  {
+    memoryId: uuid("memory_id")
+      .notNull()
+      .references(() => memory.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    kind: text("kind").$type<VectorKind>().notNull(),
+    anchor: jsonb("anchor").$type<PassageAnchor>(),
+    model: text("model").notNull(),
+    dimensions: integer("dimensions").notNull(),
+    embedding: halfvec("embedding").notNull(),
+  },
+  (t) => [
+    index("memory_vector_user_idx").on(t.userId, t.model),
+    index("memory_vector_memory_idx").on(t.memoryId),
+  ]
+);
+
 /**
  * Every AI call Indexing made, with its cost, for the admin page (#32): per
  * Memory and per person. Kept when the Memory is deleted (no foreign key),
@@ -279,7 +338,8 @@ export const aiCall = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id").notNull(),
-    memoryId: uuid("memory_id").notNull(),
+    /** Null for a search query's embedding. */
+    memoryId: uuid("memory_id"),
     /** The UTC day, as the budget counts it. */
     day: date("day").notNull(),
     provider: text("provider").$type<ProviderName>().notNull(),
@@ -307,3 +367,73 @@ export const spendDay = pgTable(
   },
   (t) => [primaryKey({ columns: [t.day, t.provider] })]
 );
+
+/**
+ * A setting an admin changed (the daily budget). The config default applies
+ * when the row is absent. `updatedBy` is a user id, never an email.
+ */
+export const appSetting = pgTable("app_setting", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: instant("updated_at"),
+});
+
+/** One change to a setting: who (user id) and when. Kept if the person is deleted. */
+export const settingChange = pgTable("setting_change", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").notNull(),
+  previousValue: text("previous_value"),
+  value: text("value").notNull(),
+  changedBy: text("changed_by").notNull(),
+  changedAt: instant("changed_at"),
+});
+
+/**
+ * A person who asked for their account to be deleted. While this row exists
+ * nobody can sign in as them, and the account job removes their files and
+ * rows; deleting the user row at the end removes this one with it.
+ */
+export const accountDeletion = pgTable("account_deletion", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  requestedAt: instant("requested_at"),
+});
+
+export type ExportState = "building" | "ready" | "failed";
+
+/**
+ * A person's latest Library export (one at a time): a ZIP in object storage
+ * built by the account job, downloadable through a signed URL until it
+ * expires. Every build attempt writes its own object
+ * (`users/<id>/exports/<export id>/<attempt>.zip`), so removing an
+ * abandoned attempt can never touch the one that finished; `key` is that one.
+ */
+export const libraryExport = pgTable("library_export", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  id: uuid("id").notNull(),
+  state: text("state").$type<ExportState>().default("building").notNull(),
+  /** Builds started; the job gives up after a few. */
+  attempts: integer("attempts").default(0).notNull(),
+  /** Set while one job builds it, so a duplicate message skips. */
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  bytes: bigint("bytes", { mode: "number" }),
+  /** The finished attempt's ZIP; set once Ready. */
+  key: text("r2_key"),
+  requestedAt: instant("requested_at"),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+});
+
+/**
+ * Objects to remove from storage once `dueAt` has passed: a replaced or
+ * expired export's ZIP. Written in the same transaction that lets go of the
+ * object, and removed only after storage confirms, so a crash in between
+ * never leaves an object nobody points at (the hourly sweep drains it).
+ */
+export const objectRemoval = pgTable("object_removal", {
+  key: text("key").primaryKey(),
+  dueAt: instant("due_at"),
+});

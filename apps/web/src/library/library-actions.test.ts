@@ -20,6 +20,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   indexError: null,
   indexTitle: null,
   aiOptOut: false,
+  hasVectors: false,
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
   updatedAt: "2026-11-10T10:00:00.000Z",
@@ -33,6 +34,7 @@ function setup(transport: Partial<Transport>, initial: WallMemory[] = []) {
   let wall = initial;
   const notify = vi.fn();
   const onSaved = vi.fn();
+  const onCaptured = vi.fn();
   const actions = libraryActions({
     setMemories: (update) => {
       wall = typeof update === "function" ? update(wall) : update;
@@ -47,8 +49,9 @@ function setup(transport: Partial<Transport>, initial: WallMemory[] = []) {
     drafts: draftStore(undefined),
     notify: notify as never,
     onSaved,
+    onCaptured,
   });
-  return { actions, wall: () => wall, notify, onSaved };
+  return { actions, wall: () => wall, notify, onSaved, onCaptured };
 }
 
 /** The action a toast offered, by its label. */
@@ -103,7 +106,7 @@ describe("Undo of a Capture", () => {
 describe("search freshness", () => {
   it("is told after every Capture, edit and delete that reaches the server", async () => {
     const m = memory();
-    const { actions, onSaved, notify } = setup(
+    const { actions, onSaved, onCaptured, notify } = setup(
       {
         create: vi.fn().mockImplementation(async (input) => memory(input)),
         patch: vi.fn().mockResolvedValue({ ...m, title: "New", revision: 2 }),
@@ -114,10 +117,13 @@ describe("search freshness", () => {
     actions.capture("Fresh text");
     await settle();
     expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(onCaptured).toHaveBeenCalledTimes(1);
+    expect(onCaptured).toHaveBeenCalledWith("text");
     actions.editText(m, { title: "New", body: "Some text", captureNote: "" });
     actions.saveEdit(m.id);
     await settle();
     expect(onSaved).toHaveBeenCalledTimes(2);
+    expect(onCaptured).toHaveBeenCalledTimes(1);
     actions.remove(m);
     const deleted = notify.mock.calls.find(([title]) => title === "Deleted");
     deleted![1].onAutoClose();

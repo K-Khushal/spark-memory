@@ -9,6 +9,7 @@ import {
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { columnCount, neighbour, tabStop } from "./layout";
 import { cn } from "./cn";
+import { DURATION, EASING } from "./tokens";
 
 type MasonryTile = {
   index: number;
@@ -32,6 +33,13 @@ type MasonryProps<T> = {
   gap?: number;
   label: string;
   className?: string;
+  /**
+   * When `items` change but `glideKey` stays the same (the full answer
+   * reordering the instant one for one search), items that change place
+   * glide there (DURATION.small, ease-out), so a reordered result reads as
+   * a move, not a swap. A resize, a new key or reduced motion never glides.
+   */
+  glideKey?: string;
   onOpen?: (index: number) => void;
   onPreview?: (index: number) => void;
   renderItem: (item: T, tile: MasonryTile) => ReactNode;
@@ -54,6 +62,7 @@ export function Masonry<T>({
   gap = 12,
   label,
   className,
+  glideKey,
   onOpen,
   onPreview,
   renderItem,
@@ -119,6 +128,44 @@ export function Masonry<T>({
     rendered.map((v) => v.index)
   );
 
+  // Where each rendered item stood, for the glide (FLIP on the transform).
+  // Positions can settle a render after `items` change (measuring), so a
+  // change keeps the glide open briefly.
+  const placed = useRef({
+    items,
+    glideKey,
+    openUntil: 0,
+    at: new Map<string, string>(),
+  });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const before = placed.current;
+    const now = performance.now();
+    const same = glideKey !== undefined && before.glideKey === glideKey;
+    const openUntil =
+      same && before.items !== items ? now + 100 : before.openUntil;
+    const glide =
+      same &&
+      now < openUntil &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const at = new Map<string, string>();
+    for (const tile of el.querySelectorAll<HTMLElement>(
+      ":scope > [data-key]"
+    )) {
+      const to = tile.style.transform;
+      at.set(tile.dataset.key!, to);
+      const from = before.at.get(tile.dataset.key!);
+      if (glide && from && from !== to) {
+        tile.animate([{ transform: from }, { transform: to }], {
+          duration: DURATION.small,
+          easing: `cubic-bezier(${EASING.out.join(",")})`,
+        });
+      }
+    }
+    placed.current = { items, glideKey, openUntil: same ? openUntil : 0, at };
+  });
+
   const onKeyDown = (event: KeyboardEvent) => {
     if (current === undefined) return;
     const target = neighbour(virtualizer.measurementsCache, current, event.key);
@@ -154,6 +201,7 @@ export function Masonry<T>({
             aria-label={getLabel(item)}
             onFocus={() => setActive(v.index)}
             onClick={() => onOpen?.(v.index)}
+            data-key={v.key}
             className="absolute top-0 left-0 rounded-tile outline-offset-2"
             style={{
               width: colWidth,
