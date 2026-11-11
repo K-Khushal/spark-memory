@@ -341,3 +341,14 @@ export const libraryExport = pgTable("library_export", {
   requestedAt: instant("requested_at"),
   readyAt: timestamp("ready_at", { withTimezone: true }),
 });
+
+/**
+ * Objects to remove from storage once `dueAt` has passed: a replaced or
+ * expired export's ZIP. Written in the same transaction that lets go of the
+ * object, and removed only after storage confirms, so a crash in between
+ * never leaves an object nobody points at (the hourly sweep drains it).
+ */
+export const objectRemoval = pgTable("object_removal", {
+  key: text("key").primaryKey(),
+  dueAt: instant("due_at"),
+});

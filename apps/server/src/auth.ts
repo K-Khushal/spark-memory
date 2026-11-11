@@ -6,7 +6,7 @@ import {
   type Auth,
   type AuthConfig,
 } from "@spark/auth";
-import { openDatabase, type Database } from "@spark/db";
+import { isDeletionRequested, openDatabase, type Database } from "@spark/db";
 import type { Plan } from "@spark/core";
 import type { AppEnv, Bindings } from "./env";
 
@@ -111,14 +111,18 @@ export type UserVariables = AuthVariables & {
   sessionId: string;
 };
 
-/** Rejects anonymous requests with 401; otherwise sets `user`. */
+/**
+ * Rejects anonymous requests with 401, and an account being deleted too
+ * (a session made in a race with the request is useless at once);
+ * otherwise sets `user`.
+ */
 export const requireUser = createMiddleware<
   AppEnv & { Variables: UserVariables }
 >(async (c, next) => {
   const session = await c.var.auth.api.getSession({
     headers: c.req.raw.headers,
   });
-  if (!session) {
+  if (!session || (await isDeletionRequested(c.var.db, session.user.id))) {
     return c.json({ ok: false, error: "unauthorized" } as const, 401);
   }
   const { id, email, name, image, plan } = session.user;

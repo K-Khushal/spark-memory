@@ -71,6 +71,13 @@
       "when": 1794395398249,
       "tag": "0009_account",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794398843132,
+      "tag": "0010_object_removal",
+      "breakpoints": true
     }
   ]
 }

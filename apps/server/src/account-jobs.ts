@@ -197,9 +197,10 @@ export async function buildExport(
       bytes += part.length;
     }
     await upload.complete(parts);
-    // Replaced or its owner deleted meanwhile: the ZIP is not wanted.
+    // Replaced or its owner deleted meanwhile: the ZIP is not wanted, and
+    // the sweep removes it (a record, so a crash here cannot orphan it).
     if (!(await jobs.finishExport(exportId, bytes))) {
-      await bucket.delete(claim.key);
+      await jobs.discardExport(claim.key);
       return "skipped";
     }
     return "ready";
@@ -211,7 +212,8 @@ export async function buildExport(
 
 /**
  * Hourly (with the upload sweep): deletions still pending and exports whose
- * message was lost go back on the queue; expired exports are removed.
+ * message was lost go back on the queue; expired and replaced exports'
+ * ZIPs are removed.
  */
 export async function sweepAccounts(env: Bindings) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
@@ -230,9 +232,8 @@ export async function sweepAccounts(env: Bindings) {
         console.error("account: sweep send failed")
       );
     }
-    const expired = await jobs.removeExpiredExports((key) =>
-      env.FILES.delete(key)
-    );
+    // Bounded per run: what is left goes on the next hourly run.
+    const expired = await jobs.sweepExports((keys) => env.FILES.delete(keys));
     if (sends.length || expired) {
       console.log(`account: sweep sent ${sends.length}, expired ${expired}`);
     }

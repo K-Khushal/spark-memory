@@ -140,6 +140,8 @@ const dayAndTime = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
+const until = (at: string) => dayAndTime.format(new Date(at));
+
 /** "Today", "Yesterday" or a date, for when a device was last active. */
 function lastActive(at: string) {
   const days = Math.round(
@@ -270,16 +272,16 @@ function Export({ account }: { account: Account }) {
       }}
     >
       {current?.state === "ready" ? (
-        <>
-          <Button variant="primary" asChild>
-            <a href={EXPORT_DOWNLOAD_URL}>
-              <DownloadIcon aria-hidden /> Download
-            </a>
-          </Button>
-          <span className="text-sm text-ink-muted tabular">
-            Until {dayAndTime.format(new Date(current.expiresAt))}
-          </span>
-        </>
+        <Button variant="primary" asChild>
+          {/* When it expires is in its name and tooltip, not a caption. */}
+          <a
+            href={EXPORT_DOWNLOAD_URL}
+            aria-label={`Download, Until ${until(current.expiresAt)}`}
+            title={`Until ${until(current.expiresAt)}`}
+          >
+            <DownloadIcon aria-hidden /> Download
+          </a>
+        </Button>
       ) : (
         <Button
           variant="outline"

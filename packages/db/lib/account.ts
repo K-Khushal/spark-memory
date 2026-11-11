@@ -1,11 +1,12 @@
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import type { Database } from "./client";
-import { lockOwner, ownerPrefix } from "./owner";
+import { ANONYMISED_USER, lockOwner, ownerPrefix } from "./owner";
 import {
   accountDeletion,
   aiCall,
   libraryExport,
   memory,
+  objectRemoval,
   session,
   user,
   verification,
@@ -27,6 +28,13 @@ export const EXPORT_COOLDOWN_MINUTES = 60;
 /** Longer than one build may run (a queue consumer's 15-minute wall time). */
 const EXPORT_LEASE_MINUTES = 16;
 const EXPORT_ATTEMPTS = 3;
+/** Every kind of email code Better Auth's email OTP plugin keys by address. */
+const OTP_TYPES = [
+  "sign-in",
+  "email-verification",
+  "forget-password",
+  "change-email",
+] as const;
 
 /** Where an export's ZIP lives: under its owner, so deletion takes it too. */
 export const exportKey = (userId: string, id: string) =>
@@ -49,8 +57,7 @@ export type LibraryExport = {
 };
 
 export type ExportRequest =
-  | { started: LibraryExport; replaced?: string }
-  | { refused: "busy" | "too_soon" };
+  { started: LibraryExport } | { refused: "busy" | "too_soon" };
 
 const exportColumns = {
   id: libraryExport.id,
@@ -128,7 +135,8 @@ export function openAccount(db: Database, userId: string) {
     /**
      * Starts a new export, unless one is being built or the last was asked
      * for within the cooldown (a failed one can be tried again at once).
-     * `replaced` is the key of a previous ZIP for the caller to remove.
+     * The previous ZIP is recorded for removal in the same transaction, due
+     * once a builder still writing it must have stopped (sweepExports).
      */
     requestExport: (): Promise<ExportRequest> =>
       db.transaction(async (tx) => {
@@ -159,18 +167,21 @@ export function openAccount(db: Database, userId: string) {
           .values({ userId, ...fresh })
           .onConflictDoUpdate({ target: libraryExport.userId, set: fresh })
           .returning(exportColumns);
-        return {
-          started: started!,
-          ...(last && { replaced: exportKey(userId, last.id) }),
-        };
+        if (last) {
+          await tx
+            .insert(objectRemoval)
+            .values({
+              key: exportKey(userId, last.id),
+              dueAt: sql`now() + make_interval(mins => ${EXPORT_LEASE_MINUTES})`,
+            })
+            .onConflictDoNothing();
+        }
+        return { started: started! };
       }),
   };
 }
 
 export type Account = ReturnType<typeof openAccount>;
-
-/** Who an AI call belonged to once its owner is deleted: the cost stays, the owner goes. */
-export const ANONYMISED_USER = "deleted";
 
 /** Rows of Memories deleted per statement, so no one statement runs long. */
 const DELETE_BATCH = 500;
@@ -239,12 +250,18 @@ export function accountJobs(db: Database) {
       if (!request.final) return "waiting";
       await db.transaction(async (tx) => {
         await lockOwner(tx, userId);
-        // Email codes are keyed by address, not by user (`<type>-otp-<email>`).
-        const suffix = `-otp-${request.email}`;
+        // Email codes are keyed by address, not by user: exactly these.
+        await tx.delete(verification).where(
+          inArray(
+            verification.identifier,
+            OTP_TYPES.map((type) => `${type}-otp-${request.email}`)
+          )
+        );
+        // Its objects went with the prefix: nothing left to remove.
         await tx
-          .delete(verification)
+          .delete(objectRemoval)
           .where(
-            sql`right(${verification.identifier}, ${suffix.length}) = ${suffix}`
+            sql`starts_with(${objectRemoval.key}, ${ownerPrefix(userId)})`
           );
         await tx.delete(user).where(eq(user.id, userId));
         await anonymise(tx);
@@ -337,24 +354,46 @@ export function accountJobs(db: Database) {
     },
 
     /**
-     * Removes exports past their time: the object first, then the row (a
-     * failed removal leaves the row for the next sweep). Returns how many.
+     * A ZIP nobody points at (its build was replaced meanwhile): recorded
+     * for the sweep to remove, never deleted outright and forgotten.
      */
-    async removeExpiredExports(
-      removeObject: (key: string) => Promise<void>
+    discardExport: async (key: string) => {
+      await db.insert(objectRemoval).values({ key }).onConflictDoNothing();
+    },
+
+    /**
+     * Exports past their time let go of their ZIP (row deleted, removal
+     * recorded, in one statement); then due removals are drained a batch at
+     * a time: storage first, then the records, so a failure keeps them for
+     * the next sweep. Stops after the batch that passes `deadline` (epoch
+     * ms) and goes on next time. Returns how many objects went.
+     */
+    async sweepExports(
+      removeObjects: (keys: string[]) => Promise<void>,
+      { batch = 100, deadline = Date.now() + 20_000 } = {}
     ): Promise<number> {
-      const expired = await db
-        .select({ userId: libraryExport.userId, id: libraryExport.id })
-        .from(libraryExport)
-        .where(exportExpired)
-        .limit(100);
-      for (const { userId, id } of expired) {
-        await removeObject(exportKey(userId, id));
-        await db
-          .delete(libraryExport)
-          .where(and(eq(libraryExport.id, id), exportExpired));
+      await db.execute(sql`
+        with expired as (
+          delete from ${libraryExport} where ${exportExpired}
+          returning ${libraryExport.userId} as user_id, ${libraryExport.id} as id)
+        insert into ${objectRemoval} (key)
+        select 'users/' || user_id || '/exports/' || id || '.zip' from expired
+        on conflict do nothing`);
+      let removed = 0;
+      for (;;) {
+        const due = await db
+          .select({ key: objectRemoval.key })
+          .from(objectRemoval)
+          .where(sql`${objectRemoval.dueAt} <= now()`)
+          .orderBy(objectRemoval.dueAt)
+          .limit(batch);
+        if (!due.length) return removed;
+        const keys = due.map((d) => d.key);
+        await removeObjects(keys);
+        await db.delete(objectRemoval).where(inArray(objectRemoval.key, keys));
+        removed += keys.length;
+        if (due.length < batch || Date.now() >= deadline) return removed;
       }
-      return expired.length;
     },
   };
 }

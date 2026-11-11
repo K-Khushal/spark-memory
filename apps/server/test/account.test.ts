@@ -54,6 +54,24 @@ async function signInAs(address: string, userAgent = CHROME_MAC) {
 }
 
 const me = async (call: Call) => (await call("/api/me")).status;
+
+/** The signed-in person's id, from their session cookie (when the API would refuse them). */
+async function userIdFromDb(call: Call) {
+  const client = new Client({ connectionString: databaseUrl });
+  await client.connect();
+  try {
+    const token = decodeURIComponent(
+      call.cookie().match(/session_token=([^;.]+)/)![1]!
+    );
+    const { rows } = await client.query<{ user_id: string }>(
+      `select user_id from session where token = $1`,
+      [token]
+    );
+    return rows[0]!.user_id;
+  } finally {
+    await client.end();
+  }
+}
 const userId = async (call: Call) =>
   ((await (await call("/api/me")).json()) as { id: string }).id;
 const sessions = async (call: Call) =>
@@ -300,6 +318,35 @@ describe.skipIf(!databaseUrl)("account", () => {
       expect(again.status).toBe(202);
     });
 
+    it("removes a replaced export's ZIP on the sweep, even if nothing removed it at the time", async () => {
+      const { call } = await signInAs(email());
+      await call("/api/account/export", { method: "POST" });
+      await deliverAccount((m) => m.kind === "export");
+      const id = await userId(call);
+      const zips = () =>
+        [...files.objects.keys()].filter((k) =>
+          k.startsWith(`users/${id}/exports/`)
+        );
+      const [first] = zips();
+      await db.query(
+        `update library_export set requested_at = now() - interval '2 hours' where user_id = $1`,
+        [id]
+      );
+      expect(
+        (await call("/api/account/export", { method: "POST" })).status
+      ).toBe(202);
+      await deliverAccount((m) => m.kind === "export");
+      expect(zips()).toHaveLength(2);
+      // Due once a builder of the old export must have stopped.
+      await db.query(
+        `update object_removal set due_at = now() where key = $1`,
+        [first]
+      );
+      await sweepAccounts(env());
+      expect(zips()).toHaveLength(1);
+      expect(zips()).not.toContain(first);
+    });
+
     it("removes an export once it expires", async () => {
       const { call } = await signInAs(email());
       await call("/api/account/export", { method: "POST" });
@@ -322,6 +369,61 @@ describe.skipIf(!databaseUrl)("account", () => {
   });
 
   describe("deletion", () => {
+    it("makes every session of an account being deleted useless at once", async () => {
+      // A session that slipped past the sign-in check: the request is
+      // recorded, the session row still exists.
+      const { call } = await signInAs(email());
+      await captureText(call, "Before");
+      await db.query(`insert into account_deletion (user_id) values ($1)`, [
+        await userIdFromDb(call),
+      ]);
+      for (const [method, path] of [
+        ["GET", "/api/me"],
+        ["GET", "/api/memories"],
+        ["POST", "/api/memories"],
+        ["GET", "/api/account/sessions"],
+        ["POST", "/api/account/export"],
+      ] as const) {
+        const res = await call(path, {
+          method,
+          json: method === "POST" ? { body: "After" } : undefined,
+        });
+        expect(res.status, path).toBe(401);
+      }
+    });
+
+    it("ends a session whose sign-in raced the request, and refuses that sign-in", async () => {
+      const address = email();
+      const first = await signInAs(address);
+      const id = await userId(first.call);
+      // The request commits between the sign-in's check and its insert: a
+      // trigger records it just as the session row goes in.
+      await db.query(`
+        create or replace function t28_race() returns trigger as $$
+        begin
+          insert into account_deletion (user_id) values (new.user_id) on conflict do nothing;
+          return new;
+        end $$ language plpgsql;
+        create trigger t28_race before insert on session
+          for each row when (new.user_id = '${id}') execute function t28_race();`);
+      try {
+        const racing = await signInAs(address);
+        expect(racing.status).toBe(403);
+        expect(await me(racing.call)).toBe(401);
+        const { rows } = await db.query(
+          `select 1 from session where user_id = $1`,
+          [id]
+        );
+        // The first session is still there (no request wiped it here), but
+        // the racing one is gone.
+        expect(rows).toHaveLength(1);
+      } finally {
+        await db.query(
+          `drop trigger t28_race on session; drop function t28_race();`
+        );
+      }
+    });
+
     it("needs the account's address typed to confirm", async () => {
       const { call } = await signInAs(email());
       for (const json of [{ email: "someone@example.com" }, {}]) {
@@ -410,6 +512,63 @@ describe.skipIf(!databaseUrl)("account", () => {
       expect(await userId(fresh.call)).not.toBe(id);
       const list = await (await fresh.call("/api/memories")).json();
       expect(list).toMatchObject({ memories: [] });
+    });
+  });
+
+  describe("cross-site requests", () => {
+    const from = (
+      call: Call,
+      path: string,
+      method: string,
+      origin?: string
+    ) => {
+      const headers = new Headers({
+        cookie: call.cookie(),
+        "content-type": "application/json",
+        "cf-connecting-ip": "10.1.2.3",
+      });
+      if (origin) headers.set("origin", origin);
+      return worker.fetch(
+        new Request<unknown, IncomingRequestCfProperties>(`${ORIGIN}${path}`, {
+          method,
+          headers,
+          body:
+            method === "GET"
+              ? undefined
+              : JSON.stringify({ body: "x", email: "x" }),
+        }),
+        env(),
+        ctx
+      );
+    };
+
+    it("refuses every state change from another origin, or with none, and still serves reads", async () => {
+      const { call } = await signInAs(email());
+      const changes = [
+        ["POST", "/api/account/export"],
+        ["POST", "/api/account/sign-out-everywhere"],
+        ["DELETE", "/api/account/sessions/0123456789abcdef"],
+        ["DELETE", "/api/account"],
+        ["POST", "/api/memories"],
+        ["DELETE", `/api/memories/${crypto.randomUUID()}`],
+      ] as const;
+      for (const origin of [
+        "https://evil.example",
+        "http://localhost:8787.evil.example",
+        undefined,
+      ]) {
+        for (const [method, path] of changes) {
+          const res = await from(call, path, method, origin);
+          expect(res.status, `${method} ${path} from ${origin}`).toBe(403);
+        }
+      }
+      expect(await me(call)).toBe(200);
+      expect((await from(call, "/api/account/sessions", "GET")).status).toBe(
+        200
+      );
+      expect(
+        (await from(call, "/api/account/export", "POST", ORIGIN)).status
+      ).toBe(202);
     });
   });
 });

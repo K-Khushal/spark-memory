@@ -3,7 +3,12 @@ import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { captcha, emailOTP } from "better-auth/plugins";
 import { DEFAULT_PLAN } from "@spark/core";
-import { isDeletionRequested, schema, type Database } from "@spark/db";
+import {
+  endSessionIfDeleting,
+  isDeletionRequested,
+  schema,
+  type Database,
+} from "@spark/db";
 import { allowlist } from "./allowlist";
 import { redactingLogger } from "./logger";
 
@@ -33,6 +38,12 @@ export function enabledSocialProviders(config: AuthConfig): SocialProvider[] {
 }
 
 const BASE_PATH = "/api/auth";
+
+const deleting = () =>
+  new APIError("FORBIDDEN", {
+    code: "ACCOUNT_DELETING",
+    message: "Account is being deleted",
+  });
 
 /** Paths Turnstile guards: every way a code is sent or a user created. */
 const TURNSTILE_PATHS = ["/email-otp/send-verification-otp", "/sign-in/social"];
@@ -86,11 +97,14 @@ export function createAuth({
           // Every way in (email code or a social provider) makes a session:
           // none for an account being deleted.
           before: async (session) => {
-            if (await isDeletionRequested(db, session.userId)) {
-              throw new APIError("FORBIDDEN", {
-                code: "ACCOUNT_DELETING",
-                message: "Account is being deleted",
-              });
+            if (await isDeletionRequested(db, session.userId)) throw deleting();
+          },
+          // The check above and the insert are two steps: a deletion
+          // request can commit in between. Checked again, under the
+          // owner's lock, now that the session exists.
+          after: async (session) => {
+            if (await endSessionIfDeleting(db, session.userId, session.id)) {
+              throw deleting();
             }
           },
         },

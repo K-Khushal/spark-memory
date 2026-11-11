@@ -15,7 +15,7 @@ test("see this device, export the Library, delete the account", async ({
   // The export builds in the background (the local account queue), then
   // downloads as a ZIP.
   await page.getByRole("button", { name: "Export Library" }).click();
-  const download = page.getByRole("link", { name: "Download" });
+  const download = page.getByRole("link", { name: /^Download, Until / });
   await expect(download).toBeVisible({ timeout: 15_000 });
   const res = await page.request.get((await download.getAttribute("href"))!);
   expect(res.status()).toBe(200);

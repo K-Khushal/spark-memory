@@ -13,6 +13,7 @@ import { requireUser, withAuth, type UserVariables } from "./auth";
 import { deviceName } from "./devices";
 import { fileStore } from "./files";
 import { json, noStore } from "./memories";
+import { sameOrigin } from "./origin";
 
 /** The signed-in person's account, for every route below. */
 const withAccount = createMiddleware<
@@ -55,8 +56,8 @@ async function signOutHere(c: {
 
 /** Account settings (sessions, export, deletion), signed in only. */
 export const account = new Hono<AppEnv>()
-  .use("/account", withAuth, requireUser, withAccount, noStore)
-  .use("/account/*", withAuth, requireUser, withAccount, noStore)
+  .use("/account", sameOrigin, withAuth, requireUser, withAccount, noStore)
+  .use("/account/*", sameOrigin, withAuth, requireUser, withAccount, noStore)
   .get("/account/sessions", async (c) => {
     // This device first, then the most recently active.
     const sessions = (await c.var.account.sessions()).sort(
@@ -112,7 +113,6 @@ export const account = new Hono<AppEnv>()
     if ("refused" in result) {
       return c.json({ ok: false, error: result.refused } as const, 409);
     }
-    if (result.replaced) await c.env.FILES.delete(result.replaced);
     await c.env.ACCOUNT_QUEUE.send({
       kind: "export",
       exportId: result.started.id,

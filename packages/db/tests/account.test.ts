@@ -4,7 +4,9 @@ import type { ImageCapture } from "@spark/core";
 import {
   accountJobs,
   ANONYMISED_USER,
+  endSessionIfDeleting,
   exportKey,
+  indexingStore,
   isDeletionRequested,
   openAccount,
   openDatabase,
@@ -93,6 +95,52 @@ describe.skipIf(!databaseUrl)("an account", () => {
     await signIn(userId);
     return { text: text.memory.id, image: img.memory.id };
   }
+
+  /** Holds `userId`'s owner lock in its own connection until `release` runs, as a deletion's transaction does. */
+  async function holdOwnerLock(
+    userId: string,
+    work: (tx: Database) => Promise<void>
+  ) {
+    let release!: () => void;
+    const released = new Promise<void>((done) => (release = done));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((done) => (locked = done));
+    const finished = db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 6))`
+      );
+      await work(tx as unknown as Database);
+      locked();
+      await released;
+    });
+    await isLocked;
+    return { release, finished };
+  }
+
+  /** Whether `promise` is still waiting after a moment (blocked on a lock). */
+  const stillWaiting = async (promise: Promise<unknown>) =>
+    (await Promise.race([
+      promise.then(() => "done"),
+      new Promise((done) => setTimeout(() => done("waiting"), 300)),
+    ])) === "waiting";
+
+  const aiCallOwners = async (memoryId: string) =>
+    (
+      await db
+        .select({ userId: schema.aiCall.userId })
+        .from(schema.aiCall)
+        .where(eq(schema.aiCall.memoryId, memoryId))
+    ).map((r) => r.userId);
+
+  const recordCall = (userId: string, memoryId: string) =>
+    indexingStore(db).recordCall({
+      userId,
+      memoryId,
+      provider: "gemini",
+      model: "fake",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      costMicros: 3,
+    });
 
   const count = async (table: string, column: string, value: string) => {
     const { rows } = await db.execute<{ n: number }>(
@@ -212,6 +260,81 @@ describe.skipIf(!databaseUrl)("an account", () => {
       expect(await sessionsOf(ben)).toHaveLength(1);
     });
 
+    it("ends a session a racing sign-in made, once the request commits", async () => {
+      const ana = await person();
+      // The sign-in passed the check and inserted its session while the
+      // deletion request was still open.
+      const racing = await signIn(ana);
+      const { release, finished } = await holdOwnerLock(ana, async (tx) => {
+        await tx.insert(schema.accountDeletion).values({ userId: ana });
+      });
+      const check = endSessionIfDeleting(db, ana, racing);
+      expect(await stillWaiting(check)).toBe(true);
+      release();
+      await finished;
+      expect(await check).toBe(true);
+      expect(await sessionsOf(ana)).toEqual([]);
+
+      const ben = await person();
+      const kept = await signIn(ben);
+      expect(await endSessionIfDeleting(db, ben, kept)).toBe(false);
+      expect(await sessionsOf(ben)).toEqual([kept]);
+    });
+
+    it("records an AI call that finishes after deletion without its owner", async () => {
+      const ana = await person();
+      const memoryId = crypto.randomUUID();
+      await recordCall(ana, memoryId);
+      expect(await aiCallOwners(memoryId)).toEqual([ana]);
+
+      // Being deleted: no new row names them.
+      await openAccount(db, ana).requestDeletion();
+      const during = crypto.randomUUID();
+      await recordCall(ana, during);
+      expect(await aiCallOwners(during)).toEqual([ANONYMISED_USER]);
+
+      // The provider answers while the final step holds the owner's lock:
+      // the call waits, then finds the person gone.
+      const late = crypto.randomUUID();
+      const { release, finished } = await holdOwnerLock(ana, async (tx) => {
+        await tx.delete(schema.user).where(eq(schema.user.id, ana));
+      });
+      const call = recordCall(ana, late);
+      expect(await stillWaiting(call)).toBe(true);
+      release();
+      await finished;
+      await call;
+      expect(await aiCallOwners(late)).toEqual([ANONYMISED_USER]);
+      expect(await count("ai_call", "user_id", ana)).toBe(1);
+    });
+
+    it("keeps other people's email codes, even one whose address ends like the person's", async () => {
+      const ana = await person();
+      const anaEmail = `library-${ana}@example.com`;
+      const codes = {
+        own: `sign-in-otp-${anaEmail}`,
+        verify: `email-verification-otp-${anaEmail}`,
+        victim: `sign-in-otp-x-otp-${anaEmail}`,
+      };
+      for (const identifier of Object.values(codes)) {
+        await db.insert(schema.verification).values({
+          id: crypto.randomUUID(),
+          identifier,
+          value: "hashed",
+          expiresAt: new Date(Date.now() + 60_000),
+        });
+      }
+      await openAccount(db, ana).requestDeletion();
+      await age(ana);
+      await accountJobs(db).continueDeletion(ana, async () => {});
+      expect(await count("verification", "identifier", codes.own)).toBe(0);
+      expect(await count("verification", "identifier", codes.verify)).toBe(0);
+      expect(await count("verification", "identifier", codes.victim)).toBe(1);
+      await db
+        .delete(schema.verification)
+        .where(eq(schema.verification.identifier, codes.victim));
+    });
+
     it("is idempotent if the job dies and runs again", async () => {
       const ana = await person();
       await fill(ana);
@@ -237,7 +360,6 @@ describe.skipIf(!databaseUrl)("an account", () => {
       const first = await account.requestExport();
       if (!("started" in first)) throw new Error("refused");
       expect(first.started).toMatchObject({ state: "building" });
-      expect(first.replaced).toBeUndefined();
       expect(await account.requestExport()).toEqual({ refused: "busy" });
 
       expect(await jobs.claimExport(first.started.id)).toEqual({
@@ -258,10 +380,42 @@ describe.skipIf(!databaseUrl)("an account", () => {
         .set({ requestedAt: sql`now() - interval '2 hours'` })
         .where(eq(schema.libraryExport.userId, ana));
       const second = await account.requestExport();
-      expect(second).toMatchObject({
-        started: { state: "building" },
-        replaced: exportKey(ana, first.started.id),
-      });
+      expect(second).toMatchObject({ started: { state: "building" } });
+    });
+
+    it("never loses a replaced export's ZIP: its removal is recorded with the replacement", async () => {
+      const ana = await person();
+      const account = openAccount(db, ana);
+      const jobs = accountJobs(db);
+      const first = await account.requestExport();
+      if (!("started" in first)) throw new Error("refused");
+      await jobs.claimExport(first.started.id);
+      await jobs.finishExport(first.started.id, 10);
+      await db
+        .update(schema.libraryExport)
+        .set({ requestedAt: sql`now() - interval '2 hours'` })
+        .where(eq(schema.libraryExport.userId, ana));
+      // The replacement commits; the Worker dies before removing anything.
+      await account.requestExport();
+      const old = exportKey(ana, first.started.id);
+      const removed: string[] = [];
+      const remove = async (keys: string[]) => void removed.push(...keys);
+
+      // Not at once: a builder of the old export may still be writing it.
+      await jobs.sweepExports(remove);
+      expect(removed).not.toContain(old);
+      await db.execute(
+        sql`update object_removal set due_at = now() - interval '1 minute' where key = ${old}`
+      );
+      // Storage fails: the record stays for the next sweep.
+      await expect(
+        jobs.sweepExports(async () => {
+          throw new Error("storage down");
+        })
+      ).rejects.toThrow();
+      await jobs.sweepExports(remove);
+      expect(removed).toContain(old);
+      expect(await count("object_removal", "key", old)).toBe(0);
     });
 
     it("retries a failed build a few times, then fails for good, and can be asked again", async () => {
@@ -304,9 +458,36 @@ describe.skipIf(!databaseUrl)("an account", () => {
         .where(eq(schema.libraryExport.id, id));
       expect(await account.export()).toBeUndefined();
       const removed: string[] = [];
-      await jobs.removeExpiredExports(async (key) => void removed.push(key));
+      await jobs.sweepExports(async (keys) => void removed.push(...keys));
       expect(removed).toContain(exportKey(ana, id));
       expect(await count("library_export", "user_id", ana)).toBe(0);
+    });
+
+    it("drains every expired export in batches, and stops at its deadline to go on next time", async () => {
+      const jobs = accountJobs(db);
+      const owners = await Promise.all(
+        Array.from({ length: 5 }, () => person())
+      );
+      const keys = owners.map((userId) =>
+        exportKey(userId, crypto.randomUUID())
+      );
+      await db
+        .insert(schema.objectRemoval)
+        .values(
+          keys.map((key) => ({ key, dueAt: sql`now() - interval '1 minute'` }))
+        );
+      const calls: string[][] = [];
+      const remove = async (batch: string[]) => void calls.push(batch);
+      // Past its deadline: one batch, then it stops.
+      await jobs.sweepExports(remove, { batch: 2, deadline: 0 });
+      expect(calls).toHaveLength(1);
+      // The next run drains the rest, a batch at a time.
+      await jobs.sweepExports(remove, { batch: 2 });
+      const mine = calls.flat().filter((k) => keys.includes(k));
+      expect(mine.sort()).toEqual([...keys].sort());
+      for (const key of keys) {
+        expect(await count("object_removal", "key", key)).toBe(0);
+      }
     });
 
     it("never builds for a person being deleted", async () => {

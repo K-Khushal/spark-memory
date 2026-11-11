@@ -13,6 +13,7 @@ import { openLibrary, type Library } from "@spark/db";
 import type { AppEnv } from "./env";
 import { requireUser, withAuth, type UserVariables } from "./auth";
 import { fileStore, forClient, type FileStore } from "./files";
+import { sameOrigin } from "./origin";
 import { enqueue } from "./indexing";
 
 /** The signed-in person's Library, for every route below. */
@@ -82,6 +83,7 @@ const filesOf = async (library: Library, id: string) =>
   UUID.test(id) ? library.files(id) : undefined;
 
 const signedIn = [
+  sameOrigin,
   withAuth,
   requireUser,
   withLibrary,
