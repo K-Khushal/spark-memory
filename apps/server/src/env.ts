@@ -26,6 +26,31 @@ export type Bindings = {
   GOOGLE_CLIENT_SECRET?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
+
+  /** R2 bucket of Memory files (wrangler.jsonc); locally, Miniflare's simulation. */
+  FILES: FileBucket;
+  /** Var: the same bucket's name, for presigned URLs on R2's S3 endpoint. */
+  R2_BUCKET?: string;
+  /** Secrets. Without them, only a local Worker can sign uploads (to itself). */
+  R2_ACCOUNT_ID?: string;
+  R2_ACCESS_KEY_ID?: string;
+  R2_SECRET_ACCESS_KEY?: string;
+};
+
+/** The parts of an R2 bucket binding the API uses. */
+export type FileBucket = {
+  head(key: string): Promise<StoredObject | null>;
+  get(key: string): Promise<(StoredObject & { body: ReadableStream }) | null>;
+  put(
+    key: string,
+    value: ArrayBuffer,
+    options: { httpMetadata: { contentType: string; cacheControl: string } }
+  ): Promise<unknown>;
+  delete(keys: string | string[]): Promise<void>;
+};
+type StoredObject = {
+  size: number;
+  httpMetadata?: { contentType?: string; cacheControl?: string };
 };
 
 export type AppEnv = { Bindings: Bindings };

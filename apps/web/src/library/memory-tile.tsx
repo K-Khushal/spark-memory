@@ -1,7 +1,10 @@
 import { Fragment } from "react";
 import { motion } from "motion/react";
+import { RotateCwIcon, Trash2Icon } from "lucide-react";
+import { placeholderUrl } from "@spark/capture";
 import { cn } from "@spark/ui";
 import { DURATION, EASING } from "@spark/ui/tokens";
+import type { UploadState } from "./image-capture";
 import type { WallMemory } from "./use-library";
 
 // Masonry places tiles before they render, so a tile's height is worked out
@@ -58,13 +61,197 @@ export function tileLayout(memory: WallMemory, width: number) {
   return { title, body, height };
 }
 
-/** The name a Memory goes by: its title, else the start of its text. */
+/** Very tall or wide images are cropped on the wall, never in the viewer. */
+const ASPECT = { min: 0.4, max: 2.5 };
+
+/** A tile's height at `width`: an image keeps its shape, text fits its lines. */
+export function tileHeight(memory: WallMemory, width: number) {
+  if (!memory.image) return tileLayout(memory, width).height;
+  const { width: w, height: h } = memory.image;
+  return width * Math.min(ASPECT.max, Math.max(ASPECT.min, h / w));
+}
+
+const day = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+
+/**
+ * The name a Memory goes by: its title, else the start of its text, else
+ * (an image before Indexing names it) "Image" and its Capture day.
+ */
 export function memoryName(memory: WallMemory) {
+  if (memory.kind === "image") {
+    return memory.title || `Image, ${day.format(new Date(memory.capturedAt))}`;
+  }
   return memory.title || memory.body?.split("\n")[0]?.slice(0, 120) || "";
 }
 
-/** One text Memory on the wall: its title over its text, search words marked. */
-export function MemoryTile({
+/** A tile's accessible name: its Memory's, and its upload while it lasts. */
+export function tileLabel(memory: WallMemory) {
+  const name = memoryName(memory);
+  if (!memory.upload) return name;
+  return `${name}, ${memory.upload.step === "sending" ? "Uploading" : "Failed"}`;
+}
+
+/** One Memory on the wall, landing with DESIGN.md's Capture motion. */
+export function MemoryTile(props: {
+  memory: WallMemory;
+  query: string;
+  width: number;
+  onRetry: (id: string) => void;
+  onBroken: (id: string) => void;
+  onDelete: (memory: WallMemory) => void;
+}) {
+  return (
+    <motion.div
+      className="h-full w-full"
+      // DESIGN.md → Motion: a new Capture fades and grows into place.
+      initial={props.memory.fresh ? { opacity: 0, scale: 0.96 } : false}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: DURATION.panel / 1000, ease: EASING.out }}
+    >
+      {props.memory.image ? <ImageTile {...props} /> : <TextTile {...props} />}
+    </motion.div>
+  );
+}
+
+const tileFrame =
+  "relative h-full overflow-hidden rounded-tile transition-[transform,background-color] duration-[120ms] ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]";
+
+/** An image Memory: its thumbnail over its ThumbHash, and its upload while it lasts. */
+function ImageTile({
+  memory,
+  onRetry,
+  onBroken,
+  onDelete,
+}: {
+  memory: WallMemory;
+  onRetry: (id: string) => void;
+  onBroken: (id: string) => void;
+  onDelete: (memory: WallMemory) => void;
+}) {
+  const image = memory.image!;
+  const placeholder = placeholderUrl(image.thumbhash);
+  // A stranded upload may have no thumbnail stored: its ThumbHash stands in.
+  const stranded = memory.upload?.step === "stranded";
+  return (
+    <figure className="group h-full cursor-pointer">
+      <div
+        className={cn(tileFrame, "bg-sunken bg-cover bg-center")}
+        style={placeholder ? { backgroundImage: `url(${placeholder})` } : {}}
+      >
+        {!stranded && (
+          <img
+            src={image.thumbnailUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            onError={() => onBroken(memory.id)}
+            className={cn(
+              "h-full w-full object-cover",
+              // Screenshots read top down: crop the bottom.
+              image.height / image.width > ASPECT.max && "object-top"
+            )}
+          />
+        )}
+        {memory.upload && (
+          <UploadBadge
+            upload={memory.upload}
+            onRetry={() => onRetry(memory.id)}
+            onDelete={() => onDelete(memory)}
+            // One tab stop per wall: the keyboard retries from the viewer.
+            focusable={false}
+            className="absolute right-2 bottom-2"
+          />
+        )}
+      </div>
+    </figure>
+  );
+}
+
+/**
+ * Preservation while it is not yet Preserved: upload progress, or Failed
+ * with Try Again (or Delete, when the file is no longer in hand, after a
+ * reload). A fixed ink plate in both themes, since the image under it
+ * ignores the theme (DESIGN.md → Colour): the dark theme's tokens.
+ */
+export function UploadBadge({
+  upload,
+  onRetry,
+  onDelete,
+  focusable = true,
+  className,
+}: {
+  upload: UploadState;
+  onRetry: () => void;
+  onDelete: () => void;
+  focusable?: boolean;
+  className?: string;
+}) {
+  const plate =
+    "inline-flex h-7 items-center gap-1.5 rounded-chip bg-canvas/80 px-2 text-xs font-medium text-ink tabular";
+  if (upload.step !== "sending") {
+    const stranded = upload.step === "stranded";
+    const Icon = stranded ? Trash2Icon : RotateCwIcon;
+    return (
+      <span data-theme="dark" className={cn(plate, "pr-1", className)}>
+        Failed
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (stranded) onDelete();
+            else onRetry();
+          }}
+          // Keep Enter and Space from also opening the Memory.
+          onKeyDown={(e) => e.stopPropagation()}
+          aria-label={stranded ? "Delete" : "Try Again"}
+          tabIndex={focusable ? undefined : -1}
+          className="relative grid size-5 place-items-center rounded-[4px] hover:bg-surface before:absolute before:-inset-2.5"
+        >
+          <Icon className="size-3.5" aria-hidden />
+        </button>
+      </span>
+    );
+  }
+  const percent = Math.round(upload.progress * 100);
+  return (
+    <span
+      data-theme="dark"
+      role="progressbar"
+      aria-label="Uploading"
+      aria-valuenow={percent}
+      className={cn(plate, "w-7 justify-center px-0", className)}
+    >
+      <svg viewBox="0 0 16 16" className="size-3.5 -rotate-90" aria-hidden>
+        <circle
+          cx="8"
+          cy="8"
+          r="6"
+          fill="none"
+          stroke="currentColor"
+          strokeOpacity="0.3"
+          strokeWidth="2"
+        />
+        <circle
+          cx="8"
+          cy="8"
+          r="6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          pathLength={100}
+          strokeDasharray="100"
+          strokeDashoffset={100 - Math.max(4, percent)}
+          className="transition-[stroke-dashoffset] duration-[180ms] ease-out"
+        />
+      </svg>
+    </span>
+  );
+}
+
+/** A text Memory: its title over its text, search words marked. */
+function TextTile({
   memory,
   query,
   width,
@@ -75,40 +262,37 @@ export function MemoryTile({
 }) {
   const layout = tileLayout(memory, width);
   return (
-    <motion.div
-      className="h-full w-full"
-      // DESIGN.md → Motion: a new Capture fades and grows into place.
-      initial={memory.fresh ? { opacity: 0, scale: 0.96 } : false}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: DURATION.panel / 1000, ease: EASING.out }}
-    >
-      <figure className="group h-full cursor-pointer">
-        <div className="relative flex h-full flex-col gap-2 overflow-hidden rounded-tile bg-sunken p-4 transition-[transform,background-color] duration-[120ms] ease-out hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)] group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]">
-          {memory.title && (
-            <p
-              className="shrink-0 overflow-hidden font-display text-md leading-[26px] font-medium break-words text-ink [display:-webkit-box] [-webkit-box-orient:vertical]"
-              style={{ WebkitLineClamp: layout.title }}
-              dir="auto"
-            >
-              <Highlighted text={memory.title} query={query} />
-            </p>
-          )}
+    <figure className="group h-full cursor-pointer">
+      <div
+        className={cn(
+          tileFrame,
+          "flex flex-col gap-2 bg-sunken p-4 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
+        )}
+      >
+        {memory.title && (
           <p
-            className={cn(
-              "overflow-hidden text-sm break-words whitespace-pre-line [display:-webkit-box] [-webkit-box-orient:vertical]",
-              memory.title ? "text-ink-muted" : "text-ink"
-            )}
-            style={{ WebkitLineClamp: layout.body }}
+            className="shrink-0 overflow-hidden font-display text-md leading-[26px] font-medium break-words text-ink [display:-webkit-box] [-webkit-box-orient:vertical]"
+            style={{ WebkitLineClamp: layout.title }}
             dir="auto"
           >
-            <Highlighted
-              text={tileText(memory.body).slice(0, 800)}
-              query={query}
-            />
+            <Highlighted text={memory.title} query={query} />
           </p>
-        </div>
-      </figure>
-    </motion.div>
+        )}
+        <p
+          className={cn(
+            "overflow-hidden text-sm break-words whitespace-pre-line [display:-webkit-box] [-webkit-box-orient:vertical]",
+            memory.title ? "text-ink-muted" : "text-ink"
+          )}
+          style={{ WebkitLineClamp: layout.body }}
+          dir="auto"
+        >
+          <Highlighted
+            text={tileText(memory.body).slice(0, 800)}
+            query={query}
+          />
+        </p>
+      </div>
+    </figure>
   );
 }
 

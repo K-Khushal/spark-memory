@@ -80,6 +80,8 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 | Quick preview                     | Opacity 150ms, no scale or slide (keyboard-driven and frequent)   |
 | Results and filters updating      | None. Results swap in place                                       |
 | A new Capture landing on the wall | Fades and scales from 0.96, 260ms `ease-out`; neighbours stay put |
+| Image viewer, next or previous    | Slides 30% on `SPRING.settle` with a 180ms fade; swipes track 1:1 |
+| Upload progress ring              | `stroke-dashoffset`, 180ms `ease-out`                             |
 | Toasts                            | Sonner's defaults                                                 |
 
 - Never `ease-in`, never `transition: all`, nothing over 300ms. Animate `transform` and `opacity` only. No staggered or scroll-triggered entrances.
@@ -91,6 +93,8 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 - **⌘V / Ctrl V** outside a text field Captures the clipboard. The Capture button does the same for pointer and touch.
 - **Optimistic Capture**: the Memory lands first on the wall as Indexing, and a toast says "Captured" with **Undo**. Failed shows on the tile with a Retry.
 - Text Memories land Searchable, not Indexing, until Indexing exists: their keyword index is written with the Memory.
+- **Preservation on image tiles** shows only while an image is not yet Preserved: a progress ring while it uploads, Failed with Try Again (or Delete, after a reload cut the upload short). A stored image shows no badge, because every stored image is Preserved.
+- **Images open in `ImageViewer`** for now (← →, swipe, Escape), not Quick preview; it folds into Quick preview when that lands.
 - **Arrow keys** move spatially on the wall (`neighbour` in `@spark/ui/layout`). Enter and Space open Quick preview. Escape closes the top layer.
 - One tab stop per wall (roving `tabindex`). Focus is always visible.
 - Results always show Direct Matches first and Related Matches apart. With no Direct match the heading says "No Direct Matches".
@@ -107,7 +111,7 @@ Chosen by hand against `pick-ui-library`'s criteria (that skill is user-invoked;
 | Toasts              | Sonner via shadcn `Toaster`                                   | Undo action, swipe, pauses when the tab is hidden                       |
 | Motion              | Motion (`motion/react`) in `apps/web`                         | Springs and reduced-motion support                                      |
 | Virtualised masonry | `Masonry` on TanStack Virtual (`useWindowVirtualizer`, lanes) | Window scroll, 10k Memories, heights known up front, spatial arrow keys |
-| Lightbox            | Quick preview on shadcn `Dialog`                              | Memories are not only images; one viewer covers every kind              |
+| Lightbox            | `ImageViewer` on shadcn `Dialog`, dark in both themes         | ← → and swipe between images; folds into Quick preview when it lands    |
 | Icons               | lucide-react                                                  | One stroke, tree-shaken                                                 |
 
 ## Copy

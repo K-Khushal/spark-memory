@@ -9,6 +9,11 @@ export {
   TextCapture,
   MemoryEdit,
   MemoryEditRequest,
+  IMAGE_TYPES,
+  ImageType,
+  THUMBNAIL_TYPES,
+  THUMBNAIL_MAX_BYTES,
+  ImageCapture,
 } from "./lib/memory";
 export {
   FREE_ALLOWANCE,

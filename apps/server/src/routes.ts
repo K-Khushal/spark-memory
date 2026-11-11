@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { checkDatabase } from "@spark/db";
 import type { AppEnv } from "./env";
 import { memories } from "./memories";
+import { FILE_CACHE_CONTROL, usesLocalFiles, verifyLocalUrl } from "./files";
 import {
   readDevOutbox,
   requireUser,
@@ -35,5 +36,31 @@ export const routes = new Hono<AppEnv>()
       usesDevOutbox(c.env, c.req.url) &&
       readDevOutbox(c.req.query("email") ?? "");
     return code ? c.json({ code }) : c.notFound();
+  })
+  // Local development only: stands in for R2's presigned URLs (files.ts).
+  .on(["GET", "PUT"], "/local-files/*", async (c) => {
+    if (!usesLocalFiles(c.env, c.req.url)) return c.notFound();
+    const key = await verifyLocalUrl(c.env.BETTER_AUTH_SECRET, c.req.raw);
+    if (!key) return c.json({ ok: false, error: "forbidden" } as const, 403);
+    if (c.req.method === "PUT") {
+      const body = await c.req.arrayBuffer();
+      if (body.byteLength !== Number(c.req.header("content-length"))) {
+        return c.json({ ok: false, error: "invalid" } as const, 400);
+      }
+      await c.env.FILES.put(key, body, {
+        httpMetadata: {
+          contentType: c.req.header("content-type") ?? "",
+          cacheControl: FILE_CACHE_CONTROL,
+        },
+      });
+      return c.body(null, 200);
+    }
+    const object = await c.env.FILES.get(key);
+    if (!object) return c.notFound();
+    return c.body(object.body, 200, {
+      "content-type": object.httpMetadata?.contentType ?? "",
+      "cache-control": FILE_CACHE_CONTROL,
+      "x-content-type-options": "nosniff",
+    });
   })
   .route("/", memories);

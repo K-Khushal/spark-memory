@@ -9,16 +9,24 @@ import {
   type DraftStore,
   type StoredEdit,
 } from "./drafts";
+import {
+  imageCapture,
+  type ImageTransport,
+  type UploadState,
+} from "./image-capture";
 
 export type Memory = InferResponseType<
   (typeof api.api.memories)[":id"]["$get"],
   200
 >;
-/** A Memory on the wall; `fresh` marks a Capture that has just landed. */
-export type WallMemory = Memory & { fresh?: boolean };
+/**
+ * A Memory on the wall; `fresh` marks a Capture that has just landed, and
+ * `upload` an image whose files are still on their way (image-capture.ts).
+ */
+export type WallMemory = Memory & { fresh?: boolean; upload?: UploadState };
 
 /** What the actions need from the server. Each call rejects when it fails. */
-export type Transport = {
+export type Transport = ImageTransport & {
   create: (input: {
     id: string;
     body: string;
@@ -30,6 +38,7 @@ export type Transport = {
     json: MemoryEditRequest,
     init: { keepalive: boolean }
   ) => Promise<Memory | "stale">;
+  /** Resolves when the Memory is gone, including when it never existed. */
   remove: (id: string, init: { keepalive: boolean }) => Promise<void>;
   get: (id: string) => Promise<Memory | undefined>;
 };
@@ -184,9 +193,43 @@ export function libraryActions({
       revision: 1,
       capturedAt: now,
       updatedAt: now,
+      image: null,
       fresh: true,
     });
     return true;
+  }
+
+  const images = imageCapture({
+    setMemories,
+    transport,
+    notify,
+    onSaved,
+    inOrder,
+  });
+
+  /** Deletes Memories now, no Undo window; Try Again resends the deletes. */
+  function removeNow(ids: string[]) {
+    for (const id of ids) {
+      if (!images.cancel(id)) removeLocal(id);
+      inOrder(id, () => transport.remove(id, { keepalive: true })).then(
+        onSaved,
+        () =>
+          notify("Delete Did Not Finish", {
+            id: `remove-${id}`,
+            action: { label: "Try Again", onClick: () => removeNow([id]) },
+          })
+      );
+    }
+  }
+
+  /** Captures image files: each lands and uploads on its own; Undo takes the batch back. */
+  async function captureImages(files: File[]) {
+    const ids = await images.capture(files);
+    if (!ids.length) return;
+    notify("Captured", {
+      duration: UNDO_MS,
+      action: { label: "Undo", onClick: () => removeNow(ids) },
+    });
   }
 
   /** Puts `memory` on the wall and sends it; Try Again resends the same one (same id). */
@@ -439,6 +482,12 @@ export function libraryActions({
    */
   function remove(memory: Memory) {
     const id = memory.id;
+    // Nothing is stored yet, so nothing to Undo: the upload stops, and goes.
+    if (images.isUploading(id)) {
+      removeNow([id]);
+      notify("Deleted");
+      return;
+    }
     removeLocal(id);
     let done = false;
     const send = (keepalive = false) => {
@@ -476,8 +525,28 @@ export function libraryActions({
     });
   }
 
+  /** Refreshes a Memory's signed URLs (they last two hours), once a minute at most. */
+  const refreshed = new Map<string, number>();
+  function refresh(id: string) {
+    const last = refreshed.get(id) ?? 0;
+    if (images.isUploading(id) || Date.now() - last < 60_000) return;
+    refreshed.set(id, Date.now());
+    void transport.get(id).then(
+      // Fresh URLs only: whatever the wall knows of its upload stays.
+      (fresh) =>
+        fresh &&
+        setMemories((all) =>
+          all.map((m) => (m.id === id ? { ...fresh, upload: m.upload } : m))
+        ),
+      () => {}
+    );
+  }
+
   return {
     capture,
+    captureImages,
+    retryUpload: images.retry,
+    refresh,
     editText,
     saveEdit,
     restoreEdit,

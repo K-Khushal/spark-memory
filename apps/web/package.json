@@ -16,6 +16,7 @@
     "@sentry/react": "11.11.0",
     "@spark/api-client": "workspace:*",
     "@spark/auth": "workspace:*",
+    "@spark/capture": "workspace:*",
     "@spark/core": "workspace:*",
     "@spark/ui": "workspace:*",
     "@tanstack/react-router": "^1.170.46",

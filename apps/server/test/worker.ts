@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, vi } from "vitest";
 import worker from "../src/index";
-import type { Bindings } from "../src/env";
+import type { Bindings, FileBucket } from "../src/env";
 
 // Integration test through the Worker's HTTP interface, against real Postgres
 // with migrations applied. Turnstile's siteverify is the one faked boundary.
@@ -13,9 +13,37 @@ export const ctx = {
   props: {},
 } as unknown as ExecutionContext;
 
+type Stored = {
+  body: ArrayBuffer;
+  size: number;
+  httpMetadata: { contentType: string; cacheControl: string };
+};
+
+/** An in-memory stand-in for the R2 bucket binding (the other faked boundary). */
+export function memoryBucket() {
+  const objects = new Map<string, Stored>();
+  const bucket: FileBucket = {
+    head: async (key) => objects.get(key) ?? null,
+    get: async (key) => {
+      const o = objects.get(key);
+      return o ? { ...o, body: new Response(o.body).body! } : null;
+    },
+    put: async (key, body, { httpMetadata }) => {
+      objects.set(key, { body, size: body.byteLength, httpMetadata });
+    },
+    delete: async (keys) => {
+      for (const key of [keys].flat()) objects.delete(key);
+    },
+  };
+  return Object.assign(bucket, { objects });
+}
+
+export const files = memoryBucket();
+
 export function env(overrides: Partial<Bindings> = {}): Bindings {
   return {
     HYPERDRIVE: { connectionString: databaseUrl! },
+    FILES: files,
     SPARK_ENV: "local",
     BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-0123",
     BETTER_AUTH_URL: ORIGIN,

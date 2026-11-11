@@ -1,7 +1,34 @@
-import { and, desc, eq, lt, or, sql } from "drizzle-orm";
-import { MemoryEdit, TextCapture } from "@spark/core";
+import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
+import {
+  FREE_ALLOWANCE,
+  ImageCapture,
+  isFileWithinAllowance,
+  MemoryEdit,
+  TextCapture,
+} from "@spark/core";
 import type { Database } from "./client";
-import { memory } from "./schema";
+import { memory, memoryFile, type FileRole } from "./schema";
+
+/** An image Memory's files: what the wall needs, and the keys to sign. */
+export type MemoryImage = {
+  mime: string;
+  bytes: number;
+  width: number;
+  height: number;
+  thumbhash: string;
+  key: string;
+  thumbnailKey: string;
+  thumbnailMime: string;
+};
+
+const image = sql<MemoryImage | null>`(
+  select json_build_object(
+    'mime', o.mime, 'bytes', o.bytes, 'width', o.width, 'height', o.height,
+    'thumbhash', o.thumbhash, 'key', o.r2_key,
+    'thumbnailKey', t.r2_key, 'thumbnailMime', t.mime)
+  from memory_file o join memory_file t
+    on t.memory_id = o.memory_id and t.role = 'thumbnail'
+  where o.memory_id = ${memory.id} and o.role = 'original')`;
 
 const columns = {
   id: memory.id,
@@ -14,10 +41,68 @@ const columns = {
   revision: memory.revision,
   capturedAt: memory.capturedAt,
   updatedAt: memory.updatedAt,
+  image,
 };
 
-/** A Memory as clients see it. */
-export type Memory = Pick<typeof memory.$inferSelect, keyof typeof columns>;
+/** A Memory as the API reads it; routes turn `image` keys into signed URLs. */
+export type Memory = Pick<
+  typeof memory.$inferSelect,
+  Exclude<keyof typeof columns, "image">
+> & { image: MemoryImage | null };
+
+/** A Memory shows once every file it has is stored. */
+const allStored = sql`not exists (select 1 from memory_file f where f.memory_id = ${memory.id} and f.stored_at is null)`;
+
+/** A file the browser still has to upload, to `key`, with exactly this type and size. */
+export type FileUpload = {
+  role: FileRole;
+  key: string;
+  mime: string;
+  bytes: number;
+};
+
+export type MemoryFileInfo = FileUpload & { stored: boolean };
+
+/** What storage says of a file: there as described, absent, or not as described. */
+export type FileCheck = "stored" | "missing" | "mismatch";
+
+export type ImageCaptureResult =
+  | { created: boolean; memory: Memory; uploads: FileUpload[] }
+  | { conflict: true }
+  | { refused: "file_too_large" | "storage_full" };
+
+/**
+ * Uploads that have not finished count towards storage for this long (so
+ * parallel Captures cannot overfill it), and are swept after it.
+ */
+export const UPLOAD_WINDOW_HOURS = 24;
+
+/** A file whose upload did not finish within the window. */
+const expiredUpload = sql`${memoryFile.storedAt} is null and ${memoryFile.createdAt} <= now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})`;
+
+/** Seeds the per-owner advisory lock around storage checks (its own lock space). */
+const STORAGE_LOCK = 6;
+
+/**
+ * One owner's uploads change one at a time: storage checks, retries,
+ * confirmations and the sweep all take this lock, until the transaction ends.
+ */
+const lockOwner = (tx: Pick<Database, "execute">, userId: string) =>
+  tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${STORAGE_LOCK}))`
+  );
+
+/** Object keys are the server's: the owner's id, the Memory's id, the role. */
+const keyFor = (userId: string, memoryId: string, role: FileRole) =>
+  `users/${userId}/${memoryId}/${role}`;
+
+const fileColumns = {
+  role: memoryFile.role,
+  key: memoryFile.key,
+  mime: memoryFile.mime,
+  bytes: memoryFile.bytes,
+  stored: sql<boolean>`${memoryFile.storedAt} is not null`,
+};
 
 /** Which search legs found a Memory (ADR-0004). */
 export type MatchedBy = "keyword" | "typo";
@@ -62,6 +147,25 @@ export function openLibrary(db: Database, userId: string) {
     return row;
   }
 
+  /** Storage in use, counting uploads still in their window; optionally not one Memory's. */
+  async function usedStorage(
+    tx: Pick<Database, "select">,
+    except?: string
+  ): Promise<number> {
+    const [row] = await tx
+      .select({ bytes: sql<string>`coalesce(sum(${memoryFile.bytes}), 0)` })
+      .from(memoryFile)
+      .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
+      .where(
+        and(
+          eq(memory.userId, userId),
+          except === undefined ? undefined : ne(memory.id, except),
+          sql`(${memoryFile.storedAt} is not null or ${memoryFile.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
+        )
+      );
+    return Number(row?.bytes ?? 0);
+  }
+
   return {
     get,
 
@@ -93,6 +197,173 @@ export function openLibrary(db: Database, userId: string) {
     },
 
     /**
+     * Creates an image Memory before its files are uploaded, within the Free
+     * allowance, and says which files to upload where. A retry with the same
+     * `id` returns the same Memory and only the uploads still missing.
+     * Storage is checked under a per-owner lock, so parallel Captures queue.
+     */
+    async captureImage(input: ImageCapture): Promise<ImageCaptureResult> {
+      const capture = ImageCapture.parse(input);
+      const { id } = capture;
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        const [taken] = await tx
+          .select({ userId: memory.userId })
+          .from(memory)
+          .where(eq(memory.id, id));
+        if (taken && taken.userId !== userId) return { conflict: true };
+        if (taken) {
+          // An expired upload no longer holds its storage: it must fit again.
+          const [own] = await tx
+            .select({
+              bytes: sql<string>`coalesce(sum(${memoryFile.bytes}), 0)`,
+              expired: sql<boolean>`coalesce(bool_or(${expiredUpload}), false)`,
+            })
+            .from(memoryFile)
+            .where(eq(memoryFile.memoryId, id));
+          if (
+            own?.expired &&
+            (await usedStorage(tx, id)) + Number(own.bytes) >
+              FREE_ALLOWANCE.storageBytes
+          ) {
+            return { refused: "storage_full" };
+          }
+          // A retry starts the upload window again for the files still
+          // missing, so a late Try Again is neither swept nor refused.
+          await tx
+            .update(memoryFile)
+            .set({ createdAt: sql`now()` })
+            .where(
+              and(
+                eq(memoryFile.memoryId, id),
+                sql`${memoryFile.storedAt} is null`
+              )
+            );
+          const files = await tx
+            .select(fileColumns)
+            .from(memoryFile)
+            .where(eq(memoryFile.memoryId, id))
+            .orderBy(asc(memoryFile.role));
+          const [row] = await tx.select(columns).from(memory).where(owned(id));
+          if (!row?.image) return { conflict: true };
+          const uploads = files
+            .filter((f) => !f.stored)
+            .map(({ stored: _, ...f }) => f);
+          return { created: false, memory: row, uploads };
+        }
+
+        // The thumbnail takes storage too, but only the original is the upload.
+        const allowed = isFileWithinAllowance({
+          fileBytes: capture.bytes,
+          usedStorageBytes: (await usedStorage(tx)) + capture.thumbnail.bytes,
+        });
+        if (!allowed.ok) return { refused: allowed.reason };
+
+        await tx.insert(memory).values({
+          id,
+          userId,
+          kind: "image",
+          contentHash: capture.contentHash,
+          indexState: "indexing",
+        });
+        const uploads: FileUpload[] = [
+          {
+            role: "original",
+            key: keyFor(userId, id, "original"),
+            mime: capture.mime,
+            bytes: capture.bytes,
+          },
+          {
+            role: "thumbnail",
+            key: keyFor(userId, id, "thumbnail"),
+            mime: capture.thumbnail.mime,
+            bytes: capture.thumbnail.bytes,
+          },
+        ];
+        await tx.insert(memoryFile).values([
+          {
+            memoryId: id,
+            ...uploads[0]!,
+            width: capture.width,
+            height: capture.height,
+            thumbhash: capture.thumbhash,
+          },
+          { memoryId: id, ...uploads[1]! },
+        ]);
+        const [row] = await tx.select(columns).from(memory).where(owned(id));
+        return { created: true, memory: row!, uploads };
+      });
+    },
+
+    /** A Memory's files, to check or delete them. Undefined for no such Memory. */
+    async files(id: string): Promise<MemoryFileInfo[] | undefined> {
+      if (!(await get(id))) return undefined;
+      return db
+        .select(fileColumns)
+        .from(memoryFile)
+        .where(eq(memoryFile.memoryId, id))
+        .orderBy(asc(memoryFile.role));
+    },
+
+    /**
+     * Marks a Memory's files stored once `check` (the storage side) confirms
+     * each file not yet stored, so it shows on the wall. All under the
+     * owner's lock, so the sweep can never take the objects in between.
+     * "expired" when an upload outlived its window (retry it: that starts a
+     * new one); "missing" or "mismatch" from `check`.
+     */
+    async markStored(
+      id: string,
+      check: (file: FileUpload) => Promise<FileCheck> = async () => "stored"
+    ): Promise<Memory | "expired" | Exclude<FileCheck, "stored"> | undefined> {
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        const [row] = await tx.select(columns).from(memory).where(owned(id));
+        if (!row) return undefined;
+        const late = await tx
+          .select({ role: memoryFile.role })
+          .from(memoryFile)
+          .where(and(eq(memoryFile.memoryId, id), expiredUpload));
+        if (late.length) return "expired";
+        const pending = await tx
+          .select(fileColumns)
+          .from(memoryFile)
+          .where(
+            and(
+              eq(memoryFile.memoryId, id),
+              sql`${memoryFile.storedAt} is null`
+            )
+          );
+        const checks = await Promise.all(
+          pending.map(({ stored: _, ...f }) => check(f))
+        );
+        if (checks.includes("mismatch")) return "mismatch";
+        if (checks.includes("missing")) return "missing";
+        await tx
+          .update(memoryFile)
+          .set({ storedAt: sql`coalesce(${memoryFile.storedAt}, now())` })
+          .where(eq(memoryFile.memoryId, id));
+        const [now] = await tx.select(columns).from(memory).where(owned(id));
+        return now;
+      });
+    },
+
+    /** Bytes of storage in use, counting uploads still in their window. */
+    usedStorage: () => usedStorage(db),
+
+    /**
+     * Image Memories whose upload has not finished (a page closed midway),
+     * newest first, so the wall can offer to delete them before the sweep.
+     */
+    unfinished: (limit = 100): Promise<Memory[]> =>
+      db
+        .select(columns)
+        .from(memory)
+        .where(and(eq(memory.userId, userId), sql`not ${allStored}`))
+        .orderBy(desc(memory.capturedAt), desc(memory.id))
+        .limit(limit),
+
+    /**
      * Newest first, `limit` at a time; pass `next` back as `after`.
      * Undefined for a cursor this did not make.
      */
@@ -108,6 +379,7 @@ export function openLibrary(db: Database, userId: string) {
         .where(
           and(
             eq(memory.userId, userId),
+            allStored,
             cursor &&
               or(
                 sql`${memory.capturedAt} < ${fromMicros(cursor.micros)}`,
@@ -146,12 +418,15 @@ export function openLibrary(db: Database, userId: string) {
         .where(
           and(
             owned(id),
+            // Only a text Memory has text to edit.
+            changes.body === undefined ? undefined : eq(memory.kind, "text"),
             revision === undefined ? undefined : eq(memory.revision, revision)
           )
         )
         .returning(columns);
       if (row) return row;
-      return revision !== undefined && (await get(id))
+      const now = revision === undefined ? undefined : await get(id);
+      return now && (changes.body === undefined || now.kind === "text")
         ? { stale: true }
         : undefined;
     },
@@ -182,10 +457,66 @@ export function openLibrary(db: Database, userId: string) {
         .select({ ...columns, matched: hits.matched })
         .from(hits)
         .innerJoin(memory, eq(memory.id, hits.id))
-        .where(eq(memory.userId, userId))
+        .where(and(eq(memory.userId, userId), allStored))
         .orderBy(desc(hits.score));
     },
   };
 }
 
 export type Library = ReturnType<typeof openLibrary>;
+
+/**
+ * Removes image Memories whose upload never finished within the upload
+ * window (by the database's clock), a batch of owners at a time: their
+ * objects first (an upload may have landed without being checked), then the
+ * rows. Each owner's Memories go under that owner's lock, so a Try Again or
+ * a confirmation waits and then finds the Memory gone, never stored without
+ * its objects. If removing objects fails, the rows stay for the next sweep.
+ * Returns how many Memories went.
+ */
+export async function sweepAbandonedUploads(
+  db: Database,
+  {
+    removeObjects,
+    owners = 50,
+  }: {
+    removeObjects: (keys: string[]) => Promise<void>;
+    owners?: number;
+  }
+): Promise<number> {
+  const due = await db
+    .selectDistinct({ userId: memory.userId })
+    .from(memoryFile)
+    .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
+    .where(expiredUpload)
+    .limit(owners);
+  let total = 0;
+  for (const { userId } of due) {
+    total += await db.transaction(async (tx) => {
+      await lockOwner(tx, userId);
+      // Read again under the lock: a retry may have started a new window.
+      const abandoned = tx
+        .selectDistinct({ id: memoryFile.memoryId })
+        .from(memoryFile)
+        .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
+        .where(and(eq(memory.userId, userId), expiredUpload));
+      const files = await tx
+        .select({ memoryId: memoryFile.memoryId, key: memoryFile.key })
+        .from(memoryFile)
+        .where(inArray(memoryFile.memoryId, abandoned));
+      if (!files.length) return 0;
+      // R2 deletes at most 1,000 keys a call.
+      const keys = files.map((f) => f.key);
+      for (let i = 0; i < keys.length; i += 1000) {
+        await removeObjects(keys.slice(i, i + 1000));
+      }
+      const ids = [...new Set(files.map((f) => f.memoryId))];
+      const removed = await tx
+        .delete(memory)
+        .where(inArray(memory.id, ids))
+        .returning({ id: memory.id });
+      return removed.length;
+    });
+  }
+  return total;
+}

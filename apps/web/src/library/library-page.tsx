@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
 import { LogOutIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
@@ -17,9 +17,10 @@ import {
 } from "@spark/ui";
 import { authClient, type Session } from "../auth";
 import { MemoryDetail } from "./memory-detail";
-import { MemoryTile, memoryName, tileLayout } from "./memory-tile";
+import { MemoryTile, memoryName, tileHeight, tileLabel } from "./memory-tile";
 import { PasteBox } from "./paste-box";
-import { MOD, useLibraryShortcuts } from "./shortcuts";
+import { ImageViewer } from "./image-viewer";
+import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
 import { useInstantSearch, type Results } from "./use-search";
 
@@ -36,9 +37,21 @@ export function LibraryPage({ session }: { session: Session }) {
   const [query, setQuery] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
   const [openId, setOpenId] = useState<string>();
+  const [imageId, setImageId] = useState<string>();
   const instant = useInstantSearch(draft, library.memories, library.version);
   const results = useInstantSearch(query, library.memories, library.version);
   const opened = library.memories.find((m) => m.id === openId);
+  // The viewer steps through the images of the wall on screen.
+  const images = useMemo(() => {
+    if (!query || !results || results === "failed") {
+      return library.memories.filter((m) => m.image);
+    }
+    const live = new Map(library.memories.map((m) => [m.id, m]));
+    return [...results.direct, ...results.related].flatMap((m) => {
+      const now = live.get(m.id);
+      return now?.image ? [now] : [];
+    });
+  }, [query, results, library.memories]);
 
   const openSearch = () => {
     setDraft(query);
@@ -50,7 +63,18 @@ export function LibraryPage({ session }: { session: Session }) {
   };
   const openMemory = (memory: Memory) => {
     setSearchOpen(false);
-    setOpenId(memory.id);
+    if (memory.kind === "image") setImageId(memory.id);
+    else setOpenId(memory.id);
+  };
+  const captureFiles = (files: File[]) => {
+    setPasteOpen(false);
+    void library.captureImages(files);
+  };
+  const dropping = useFileDrop(captureFiles);
+  const tiles: TileActions = {
+    onRetry: library.retryUpload,
+    onBroken: library.refresh,
+    onDelete: library.remove,
   };
   const showOnWall = (q: string) => {
     setQuery(q.trim());
@@ -61,7 +85,12 @@ export function LibraryPage({ session }: { session: Session }) {
   useLibraryShortcuts({
     onSearch: openSearch,
     onToggleSearch: () => (searchOpen ? setSearchOpen(false) : openSearch()),
-    onPaste: (data) => void library.capture(data.getData("text/plain")),
+    // Office apps put a picture of copied text beside it: text wins.
+    onPaste: (data) => {
+      const text = data.getData("text/plain");
+      if (data.files.length && !text.trim()) captureFiles([...data.files]);
+      else void library.capture(text);
+    },
   });
 
   const signOut = async () => {
@@ -200,6 +229,7 @@ export function LibraryPage({ session }: { session: Session }) {
                   results={results}
                   query={query}
                   onOpen={openMemory}
+                  tiles={tiles}
                 />
               ) : (
                 <Wall
@@ -207,6 +237,7 @@ export function LibraryPage({ session }: { session: Session }) {
                   memories={library.memories}
                   query=""
                   onOpen={openMemory}
+                  tiles={tiles}
                 />
               )}
             </div>
@@ -286,7 +317,27 @@ export function LibraryPage({ session }: { session: Session }) {
           open={pasteOpen}
           onOpenChange={setPasteOpen}
           onCapture={library.capture}
+          onImages={captureFiles}
         />
+        <ImageViewer
+          memories={images}
+          openId={imageId}
+          onOpen={setImageId}
+          onClose={() => setImageId(undefined)}
+          onDelete={library.remove}
+          onRetry={library.retryUpload}
+          onBroken={library.refresh}
+        />
+        {dropping && (
+          <div
+            aria-hidden
+            className="pointer-events-none fixed inset-2 z-[60] grid place-items-center rounded-panel bg-canvas/70 shadow-[inset_0_0_0_2px_var(--ring)]"
+          >
+            <span className="rounded-control bg-surface px-3 py-2 text-sm font-medium text-ink shadow-overlay">
+              Drop to Capture
+            </span>
+          </div>
+        )}
         <MemoryDetail
           memory={opened}
           edits={library.edits}
@@ -324,16 +375,25 @@ function Centred({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** What a tile can ask of the Library: Try Again or Delete for an upload, fresh URLs for a broken image. */
+type TileActions = {
+  onRetry: (id: string) => void;
+  onBroken: (id: string) => void;
+  onDelete: (memory: WallMemory) => void;
+};
+
 function Wall({
   label,
   memories,
   query,
   onOpen,
+  tiles,
 }: {
   label: string;
   memories: WallMemory[];
   query: string;
   onOpen: (memory: Memory) => void;
+  tiles: TileActions;
 }) {
   const open = (i: number) => memories[i] && onOpen(memories[i]);
   return (
@@ -341,12 +401,12 @@ function Wall({
       label={label}
       items={memories}
       getKey={(m) => m.id}
-      getHeight={(m, width) => tileLayout(m, width).height}
-      getLabel={memoryName}
+      getHeight={tileHeight}
+      getLabel={tileLabel}
       onOpen={open}
       onPreview={open}
       renderItem={(m, tile) => (
-        <MemoryTile memory={m} query={query} width={tile.width} />
+        <MemoryTile memory={m} query={query} width={tile.width} {...tiles} />
       )}
     />
   );
@@ -357,10 +417,12 @@ function SearchResults({
   results,
   query,
   onOpen,
+  tiles,
 }: {
   results: Results | "failed" | undefined;
   query: string;
   onOpen: (memory: Memory) => void;
+  tiles: TileActions;
 }) {
   if (!results) return null;
   if (results === "failed") {
@@ -382,6 +444,7 @@ function SearchResults({
             memories={results.direct}
             query={query}
             onOpen={onOpen}
+            tiles={tiles}
           />
         )}
       </section>
@@ -395,6 +458,7 @@ function SearchResults({
             memories={results.related}
             query={query}
             onOpen={onOpen}
+            tiles={tiles}
           />
         </section>
       )}

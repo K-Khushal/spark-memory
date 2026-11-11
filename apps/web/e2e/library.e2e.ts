@@ -118,7 +118,7 @@ test("paste a Memory, find it by a typo, delete it with Undo", async ({
     .poll(async () => (await page.request.get("/api/memories")).json(), {
       timeout: 10_000,
     })
-    .toEqual({ memories: [] });
+    .toEqual({ memories: [], unfinished: [] });
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "No Memories Yet" })

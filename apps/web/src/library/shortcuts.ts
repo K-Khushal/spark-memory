@@ -1,4 +1,65 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+
+const hasFiles = (event: DragEvent) =>
+  event.dataTransfer?.types.includes("Files") ?? false;
+
+/**
+ * Files dropped anywhere on the page are Captured. Returns whether files are
+ * being dragged over the page, for the drop highlight.
+ */
+export function useFileDrop(onDrop: (files: File[]) => void) {
+  const latest = useRef(onDrop);
+  useEffect(() => {
+    latest.current = onDrop;
+  });
+  const [over, setOver] = useState(false);
+
+  useEffect(() => {
+    // dragenter and dragleave fire for every child crossed: count them.
+    let depth = 0;
+    const enter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth++;
+      setOver(true);
+    };
+    const leave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      // Leaving the window (no relatedTarget) ends it, whatever the count.
+      depth = e.relatedTarget ? Math.max(0, depth - 1) : 0;
+      if (!depth) setOver(false);
+    };
+    const end = () => {
+      depth = 0;
+      setOver(false);
+    };
+    const overPage = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = "copy";
+    };
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setOver(false);
+      latest.current([...e.dataTransfer!.files]);
+    };
+    const events = [
+      ["dragenter", enter],
+      ["dragleave", leave],
+      ["dragover", overPage],
+      ["drop", drop],
+      ["dragend", end],
+    ] as const;
+    for (const [name, handler] of events)
+      window.addEventListener(name, handler);
+    return () => {
+      for (const [name, handler] of events)
+        window.removeEventListener(name, handler);
+    };
+  }, []);
+  return over;
+}
 
 /** The modifier key as this platform writes it: ⌘ on Apple, Ctrl elsewhere. */
 export const MOD =
@@ -16,7 +77,8 @@ const isTyping = (target: EventTarget | null) =>
 
 /**
  * The Library's global shortcuts (DESIGN.md → Interaction baseline):
- * ⌘K or Ctrl K toggles Search, `/` opens it; ⌘V outside a text field Captures.
+ * ⌘K or Ctrl K toggles Search, `/` opens it; ⌘V outside a text field
+ * Captures (text, or the images on the clipboard).
  */
 export function useLibraryShortcuts(handlers: {
   onSearch: () => void;
