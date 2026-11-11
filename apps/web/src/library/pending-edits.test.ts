@@ -58,6 +58,8 @@ function fakeServer() {
   const getGate = gate();
   let failPatches = 0;
   let failGets = 0;
+  let failRemoves = 0;
+  let snapshotGets = 0;
   const patch = vi.fn(
     async (_id: string, json: Record<string, unknown>, _init?: unknown) => {
       await patchGate.wait();
@@ -72,24 +74,34 @@ function fakeServer() {
     }
   );
   const get = vi.fn(async () => {
+    const snapshot = snapshotGets > 0 ? { ...row } : undefined;
+    if (snapshotGets > 0) snapshotGets--;
     await getGate.wait();
     if (failGets > 0) {
       failGets--;
       throw new Error("offline");
     }
-    return row;
+    return snapshot ?? row;
   });
   return {
     row: () => row,
     patch,
     get,
-    remove: vi.fn(async () => {}),
+    remove: vi.fn(async () => {
+      if (failRemoves > 0) {
+        failRemoves--;
+        throw new Error("503");
+      }
+    }),
     pause: () => patchGate.close(),
     resume: () => patchGate.open(),
     pauseGet: () => getGate.close(),
     resumeGet: () => getGate.open(),
     failNext: () => void failPatches++,
     failNextGet: () => void failGets++,
+    failNextRemove: () => void failRemoves++,
+    /** Next GET returns the row as it is when the request starts. */
+    holdNextGet: () => void snapshotGets++,
     /** Another tab edits the Memory. */
     editElsewhere(title: string) {
       row = { ...row, title, revision: row.revision + 1 };
@@ -223,7 +235,7 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     expect(t.server.patch).toHaveBeenCalledTimes(1);
     expect(t.actions.pendingEdit("m1")).toMatchObject({
       status: "idle",
-      refused: { title: "Mine 2" },
+      refused: [{ title: "Mine 2" }],
     });
     expect(t.onWall()?.title).toBe("Other tab");
 
@@ -240,7 +252,7 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     expect(t.actions.pendingEdit("m1")).toMatchObject({
       status: "dirty",
       fields: { title: "Other tabx" },
-      refused: { title: "Mine" },
+      refused: [{ title: "Mine" }],
     });
     expect(t.actions.restoreEdit("m1")?.title).toBe("Mine");
     await settle();
@@ -252,7 +264,7 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     t.actions.closeEdit("m1");
     await settle();
     expect(t.server.patch).toHaveBeenCalledTimes(1);
-    expect(t.drafts.read("m1")?.refused?.title).toBe("Mine");
+    expect(t.drafts.read("m1")?.refused?.[0]?.title).toBe("Mine");
   });
 
   it("keeps new typing after the refusal, even when closed before it saves", async () => {
@@ -263,13 +275,15 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     expect(t.drafts.read("m1")).toMatchObject({
       fields: { title: "Typed after" },
       baseRevision: 2,
-      refused: { title: "Mine" },
+      refused: [{ title: "Mine" }],
     });
     t.server.resume();
     await settle();
     expect(t.server.row().title).toBe("Typed after");
     // The refused text is still on offer; the typing is saved.
-    expect(t.drafts.read("m1")).toMatchObject({ refused: { title: "Mine" } });
+    expect(t.drafts.read("m1")).toMatchObject({
+      refused: [{ title: "Mine" }],
+    });
     expect(t.drafts.read("m1")?.fields).toBeUndefined();
   });
 
@@ -287,7 +301,7 @@ describe("an edit refused because the Memory changed elsewhere", () => {
     await settle();
     expect(t.actions.pendingEdit("m1")).toMatchObject({
       status: "idle",
-      refused: { title: "Mine" },
+      refused: [{ title: "Mine" }],
     });
     expect(t.onWall()?.title).toBe("Other tab");
     t.actions.restoreEdit("m1");
@@ -321,12 +335,15 @@ describe("a draft left by another page", () => {
     });
     expect(t.actions.openEdit(start)).toMatchObject({
       status: "idle",
-      refused: { title: "Old draft" },
+      refused: [{ title: "Old draft" }],
     });
     t.actions.closeEdit("m1");
     await settle();
     expect(t.server.patch).not.toHaveBeenCalled();
-    expect(t.drafts.read("m1")).toBeUndefined();
+    expect(t.drafts.read("m1")).toMatchObject({
+      fields: { title: "Old draft" },
+      page: "earlier",
+    });
   });
 
   it("comes back on Restore, saved on the current revision", async () => {
@@ -343,16 +360,17 @@ describe("a draft left by another page", () => {
   });
 
   it("on the current revision, is still only offered: it is another tab's typing", async () => {
-    const shared = { server: fakeServer(), drafts: draftStore(storage()) };
-    const tabA = setup(shared);
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
     tabA.actions.editText(start, text("Half typed"));
-    const tabB = setup(shared);
+    const tabB = setup({ server, drafts: draftStore(store) });
     expect(tabB.actions.openEdit(start)).toMatchObject({
       status: "idle",
-      refused: { title: "Half typed" },
+      refused: [{ title: "Half typed" }],
     });
     await settle();
-    expect(shared.server.patch).not.toHaveBeenCalled();
+    expect(server.patch).not.toHaveBeenCalled();
   });
 
   it("is dropped when the server already has its text", () => {
@@ -400,5 +418,291 @@ describe("deleting a Memory with an unsaved edit", () => {
     t.toast("Deleted")!.action.onClick();
     await settle();
     expect(t.server.row().title).toBe("In flight");
+  });
+
+  it("puts the server copy back on the wall when the delete fails", async () => {
+    const t = setup();
+    t.actions.editText(start, text("Unsaved"));
+    t.server.failNextRemove();
+    t.actions.remove(t.onWall()!);
+    t.toast("Deleted")!.onAutoClose();
+    await settle();
+    expect(t.onWall()?.title).toBe("Start");
+    expect(t.server.row().title).toBe("Start");
+    t.server.failNextRemove();
+    t.toast("Delete Did Not Finish")!.action.onClick();
+    t.toast("Deleted")!.onAutoClose();
+    await settle();
+    expect(t.onWall()?.title).toBe("Start");
+  });
+
+  it("replaces the shown snapshot with the fetched server copy", async () => {
+    const t = setup();
+    t.actions.editText(start, text("Unsaved"));
+    t.server.failNextRemove();
+    t.server.pauseGet();
+    t.actions.remove(t.onWall()!);
+    t.toast("Deleted")!.onAutoClose();
+    await settle();
+    expect(t.onWall()?.title).toBe("Start");
+    t.server.editElsewhere("Server now");
+    t.server.resumeGet();
+    await settle();
+    expect(t.onWall()?.title).toBe("Server now");
+  });
+
+  it("does not resurrect a Memory a later delete already removed", async () => {
+    const t = setup();
+    t.actions.editText(start, text("Unsaved"));
+    t.server.failNextRemove();
+    t.server.pauseGet();
+    t.actions.remove(t.onWall()!);
+    t.toast("Deleted")!.onAutoClose();
+    await settle();
+    t.toast("Delete Did Not Finish")!.action.onClick();
+    t.toast("Deleted")!.onAutoClose();
+    await settle();
+    expect(t.onWall()).toBeUndefined();
+    t.server.resumeGet();
+    await settle();
+    expect(t.onWall()).toBeUndefined();
+  });
+});
+
+describe("another tab's draft", () => {
+  it("stays in storage when this tab closes without Restore", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
+    tabA.actions.editText(start, text("Half typed"));
+    const crashCopy = tabA.drafts.read("m1");
+    const tabB = setup({ server, drafts: draftStore(store) });
+    expect(tabB.actions.openEdit(start)).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Half typed" }],
+      fromStorage: true,
+    });
+    tabB.actions.closeEdit("m1");
+    expect(tabB.drafts.read("m1")).toEqual(crashCopy);
+  });
+
+  it("a successful save does not delete another page's crash copy", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
+    const tabB = setup({ server, drafts: draftStore(store) });
+    tabA.actions.editText(start, text("A text"));
+    tabB.actions.openEdit(start);
+    tabB.actions.editText(start, text("B unsent"));
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "B unsent" },
+      page: tabB.drafts.page,
+    });
+    tabA.actions.closeEdit("m1");
+    await settle();
+    expect(server.row().title).toBe("A text");
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "B unsent" },
+      page: tabB.drafts.page,
+    });
+  });
+
+  it("prunes a stored draft that matches the server, even if another page owns it", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
+    tabA.actions.editText(start, text("Mine"));
+    const tabB = setup({ server, drafts: draftStore(store) });
+    expect(tabB.actions.openEdit(start)).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Mine" }],
+      fromStorage: true,
+    });
+    server.editElsewhere("Mine");
+    tabB.actions.refresh("m1");
+    await settle();
+    expect(tabB.actions.pendingEdit("m1")?.refused).toBeUndefined();
+    expect(tabA.drafts.read("m1")).toBeUndefined();
+    tabB.actions.closeEdit("m1");
+    server.editElsewhere("Later");
+    const again = setup({ server, drafts: draftStore(store) });
+    expect(again.actions.openEdit(server.row())).toBeUndefined();
+  });
+
+  it("does not prune another page's newer unsaved revert when a delayed GET returns older matching text", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
+    server.holdNextGet();
+    server.pauseGet();
+    tabA.actions.refresh("m1");
+    await settle();
+    server.editElsewhere("Changed");
+    const tabB = setup({ server, drafts: draftStore(store) });
+    tabB.actions.editText(server.row(), text("Start"));
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "Start" },
+      baseRevision: 2,
+      page: tabB.drafts.page,
+    });
+    server.resumeGet();
+    await settle();
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "Start" },
+      baseRevision: 2,
+      page: tabB.drafts.page,
+    });
+  });
+
+  it("does not discard another page's newer unsaved revert when opening a stale snapshot", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
+    server.holdNextGet();
+    server.pauseGet();
+    tabA.actions.refresh("m1");
+    await settle();
+    server.editElsewhere("Changed");
+    const tabB = setup({ server, drafts: draftStore(store) });
+    tabB.actions.editText(server.row(), text("Start"));
+    server.resumeGet();
+    await settle();
+    expect(tabA.onWall()).toMatchObject({ title: "Start", revision: 1 });
+    expect(tabA.actions.openEdit(tabA.onWall()!)).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Start" }],
+      fromStorage: true,
+    });
+    expect(tabB.drafts.read("m1")).toMatchObject({
+      fields: { title: "Start" },
+      baseRevision: 2,
+      page: tabB.drafts.page,
+    });
+  });
+});
+
+describe("a draft after reload", () => {
+  it("never sends a stored draft, even when this tab reused the page id", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store, "same-page") });
+    tabA.actions.editText(start, text("Half typed"));
+    const copy = setup({
+      server,
+      drafts: draftStore(store, "same-page"),
+    });
+    expect(copy.actions.openEdit(start)).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Half typed" }],
+      fromStorage: true,
+    });
+    await settle();
+    expect(server.patch).not.toHaveBeenCalled();
+    expect(server.row().title).toBe("Start");
+  });
+
+  it("keeps the unsent edit when Done is pressed without Restore", async () => {
+    const store = storage();
+    const t = setup({ drafts: draftStore(store) });
+    t.actions.editText(start, text("Unsent"));
+    const reloaded = setup({
+      server: t.server,
+      drafts: draftStore(store),
+    });
+    expect(reloaded.actions.openEdit(start)).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Unsent" }],
+      fromStorage: true,
+    });
+    reloaded.actions.closeEdit("m1");
+    await settle();
+    expect(reloaded.drafts.read("m1")).toMatchObject({
+      fields: { title: "Unsent" },
+    });
+  });
+
+  it("keeps this page's own draft on Done after reload if the revision has moved", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const t = setup({ server, drafts: draftStore(store, "same-page") });
+    t.actions.editText(start, text("Unsent"));
+    server.editElsewhere("Other tab");
+    const reloaded = setup({
+      server,
+      drafts: draftStore(store, "same-page"),
+    });
+    expect(reloaded.actions.openEdit(server.row())).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Unsent" }],
+      fromStorage: true,
+    });
+    reloaded.actions.closeEdit("m1");
+    await settle();
+    expect(reloaded.drafts.read("m1")).toMatchObject({
+      fields: { title: "Unsent" },
+      page: "same-page",
+    });
+    expect(server.patch).not.toHaveBeenCalled();
+  });
+});
+
+describe("Restore Your Edit", () => {
+  it("swaps current typing into refused, so Restore does not drop it", async () => {
+    const t = await refused();
+    t.actions.editText(t.onWall()!, text("New typing"));
+    expect(t.actions.restoreEdit("m1")?.title).toBe("Mine");
+    expect(t.actions.pendingEdit("m1")).toMatchObject({
+      fields: { title: "Mine" },
+      refused: [{ title: "New typing" }],
+    });
+    await settle();
+    expect(t.server.row().title).toBe("Mine");
+    expect(t.actions.pendingEdit("m1")).toMatchObject({
+      refused: [{ title: "New typing" }],
+    });
+  });
+});
+
+describe("a 409 against a server copy that already has an offered draft", () => {
+  it("drops refused versions whose text the server already has", async () => {
+    const t = setup();
+    t.drafts.keep("m1", {
+      fields: text("Old"),
+      baseRevision: 0,
+      page: "earlier",
+    });
+    t.actions.openEdit(start);
+    t.server.editElsewhere("Old");
+    t.actions.editText(t.onWall()!, text("New"));
+    t.actions.saveEdit("m1");
+    await settle();
+    expect(t.actions.pendingEdit("m1")).toMatchObject({
+      status: "idle",
+      refused: [text("New")],
+    });
+    expect(t.drafts.read("m1")?.refused).toEqual([text("New")]);
+    expect(t.onWall()?.title).toBe("Old");
+  });
+});
+
+describe("a second 409", () => {
+  it("keeps up to 3 refused versions, newest first; Restore takes the newest", async () => {
+    const t = await refused();
+    t.actions.editText(t.onWall()!, text("Typed over"));
+    t.server.editElsewhere("Third");
+    t.actions.saveEdit("m1");
+    await settle();
+    expect(t.actions.pendingEdit("m1")).toMatchObject({
+      status: "idle",
+      refused: [text("Typed over"), text("Mine")],
+    });
+    expect(t.onWall()?.title).toBe("Third");
+    expect(t.actions.restoreEdit("m1")?.title).toBe("Typed over");
+    await settle();
+    expect(t.server.row().title).toBe("Typed over");
+    expect(t.actions.pendingEdit("m1")).toMatchObject({
+      refused: [text("Mine")],
+    });
+    expect(t.actions.pendingEdit("m1")?.fields).toBeUndefined();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { draftStore } from "./drafts";
+import { draftStore, withRefused } from "./drafts";
 
 function memoryStorage() {
   const data = new Map<string, string>();
@@ -26,7 +26,8 @@ const fields = { title: "T", body: "Long text", captureNote: "" };
 
 describe("stored pending edits", () => {
   it("keeps an edit, with its revision and page, until discarded", () => {
-    const drafts = draftStore(memoryStorage());
+    const drafts = draftStore(memoryStorage(), "p1");
+    expect(drafts.page).toBe("p1");
     const edit = { fields, baseRevision: 3, page: "p1" };
     drafts.keep("m1", edit);
     expect(drafts.read("m1")).toEqual({ ...edit, refused: undefined });
@@ -41,6 +42,35 @@ describe("stored pending edits", () => {
     ).not.toThrow();
     expect(drafts.read("m1")).toBeUndefined();
     expect(() => drafts.discard("m1")).not.toThrow();
+  });
+
+  it("reads a legacy single refused draft as a one-item list", () => {
+    const storage = memoryStorage();
+    storage.setItem(
+      "spark-draft:m1",
+      JSON.stringify({
+        fields,
+        baseRevision: 1,
+        refused: { title: "Old", body: "B", captureNote: "" },
+        page: "p1",
+      })
+    );
+    expect(draftStore(storage).read("m1")?.refused).toEqual([
+      { title: "Old", body: "B", captureNote: "" },
+    ]);
+  });
+
+  it("keeps three refused versions, newest first, without duplicates", () => {
+    const a = { title: "A", body: "x", captureNote: "" };
+    const b = { title: "B", body: "x", captureNote: "" };
+    const c = { title: "C", body: "x", captureNote: "" };
+    const d = { title: "D", body: "x", captureNote: "" };
+    expect(withRefused(withRefused(withRefused([a], b), c), d)).toEqual([
+      d,
+      c,
+      b,
+    ]);
+    expect(withRefused([b, a], a)).toEqual([a, b]);
   });
 
   it("ignores a stored value that is not a pending edit", () => {
