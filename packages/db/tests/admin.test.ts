@@ -226,10 +226,16 @@ describe.skipIf(!databaseUrl)("admin costs, usage and the budget", () => {
       null
     );
     expect(
-      await indexingStore(db).claimFirstSearchable(quiet.memory.id)
+      await indexingStore(db).claimFirstSearchable(
+        quiet.memory.id,
+        quiet.memory.indexGeneration
+      )
     ).toBeUndefined();
     expect(
-      await indexingStore(db).claimFirstSearchable(quiet.memory.id)
+      await indexingStore(db).claimFirstSearchable(
+        quiet.memory.id,
+        quiet.memory.indexGeneration
+      )
     ).toBeUndefined();
 
     const captured = await library.capture({
@@ -238,7 +244,10 @@ describe.skipIf(!databaseUrl)("admin costs, usage and the budget", () => {
     });
     if (!("memory" in captured)) throw new Error("capture conflict");
     expect(
-      await indexingStore(db).claimFirstSearchable(captured.memory.id)
+      await indexingStore(db).claimFirstSearchable(
+        captured.memory.id,
+        captured.memory.indexGeneration
+      )
     ).toBeUndefined();
     await db.execute(sql`
       update memory
@@ -254,14 +263,25 @@ describe.skipIf(!databaseUrl)("admin costs, usage and the budget", () => {
       },
       null
     );
+    // Another Memory's generation (one deleted, with the same id) claims nothing.
+    expect(
+      await indexingStore(db).claimFirstSearchable(
+        captured.memory.id,
+        crypto.randomUUID()
+      )
+    ).toBeUndefined();
     const timing = await indexingStore(db).claimFirstSearchable(
-      captured.memory.id
+      captured.memory.id,
+      captured.memory.indexGeneration
     );
     expect(timing).toMatchObject({ userId: ada, kind: "text" });
     expect(timing?.milliseconds).toBeGreaterThan(2_147_483_647);
     expect(JSON.stringify(timing)).not.toContain("lemon");
     expect(
-      await indexingStore(db).claimFirstSearchable(captured.memory.id)
+      await indexingStore(db).claimFirstSearchable(
+        captured.memory.id,
+        captured.memory.indexGeneration
+      )
     ).toBeUndefined();
   });
 });

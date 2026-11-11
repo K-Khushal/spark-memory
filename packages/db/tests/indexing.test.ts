@@ -142,7 +142,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     await library().edit(memory.id, { body: "Priorities, edited" });
     expect(await priority(memory.id)).toBe("background");
     for (const expected of ["fresh", "background"]) {
-      await store().giveUp({ memoryId: memory.id });
+      await store().fail(await claimOf(memory.id), "unavailable");
       await library().retryIndexing(memory.id);
       expect(await priority(memory.id)).toBe(expected);
     }

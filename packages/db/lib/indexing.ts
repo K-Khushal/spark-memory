@@ -350,11 +350,13 @@ export function indexingStore(db: Database) {
 
     /**
      * Failed as unavailable: a message the queue gave up on (the
-     * dead-letter queue), for the run and Memory it was sent for. Without a
-     * run or generation (messages from before they were sent) whatever is
-     * Indexing under the id fails.
+     * dead-letter queue), for the run and Memory it was sent for. A message
+     * from before generations were sent cannot say which Memory it was for
+     * (a new one with its id restarts at run 1), so it changes nothing: the
+     * hourly sweep sends whatever is still Indexing again.
      */
     async giveUp(message: IndexMessageTarget) {
+      if (message.generation === undefined) return false;
       const rows = await db
         .update(memory)
         .set(failed("unavailable"))
@@ -407,12 +409,12 @@ export function indexingStore(db: Database) {
      * send the event again. The duration is a bigint: an int overflows after
      * about 24 days. Nothing is returned when the Capture opted out, but the
      * timestamp is still set so a later change cannot emit a skewed event.
-     * Kind and duration only: no title, text or email. With `generation`,
-     * only that Memory (not a later one with its id) is claimed.
+     * Kind and duration only: no title, text or email. Only the Memory of
+     * `generation` is claimed, never a later one with its id.
      */
     async claimFirstSearchable(
       id: string,
-      generation?: string
+      generation: string
     ): Promise<
       { userId: string; kind: MemoryKind; milliseconds: number } | undefined
     > {
@@ -425,7 +427,7 @@ export function indexingStore(db: Database) {
         update memory
         set first_searchable_at = clock_timestamp()
         where id = ${id}
-          and (${generation ?? null}::uuid is null or index_generation = ${generation ?? null}::uuid)
+          and index_generation = ${generation}
           and index_state = 'searchable'
           and first_searchable_at is null
         returning user_id, kind, product_analytics,

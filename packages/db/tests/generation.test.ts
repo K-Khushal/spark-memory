@@ -278,6 +278,11 @@ describe.skipIf(!databaseUrl)(
       ).toBeUndefined();
       // The dead-letter queue gives up on the old message: the new Memory stays.
       expect(await store().giveUp(message)).toBe(false);
+      // A message from before generations were sent cannot say which
+      // Memory it was for: it changes nothing (the hourly sweep re-sends
+      // whatever is still Indexing), even at the run the new one is at.
+      expect(await store().giveUp({ memoryId: old.id, run: 1 })).toBe(false);
+      expect(await store().giveUp({ memoryId: old.id })).toBe(false);
       expect(await row(fresh.id)).toMatchObject({ state: "indexing" });
       // Its own message still works.
       expect(

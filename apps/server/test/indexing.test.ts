@@ -281,6 +281,12 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(fresh.generation).not.toBe(old!.body.generation);
     await deliver("spark-index-failed-local", old!.body);
     expect((await read(call, memory.id)).indexState).toBe("indexing");
+    // A dead letter sent before messages carried generations is the same
+    // shape as one for the new Memory: it is acknowledged and changes nothing.
+    const legacy = { memoryId: memory.id, run: 1, priority: "fresh" as const };
+    const message = await deliver("spark-index-failed-local", legacy);
+    expect(message.ack).toHaveBeenCalled();
+    expect((await read(call, memory.id)).indexState).toBe("indexing");
     await deliver("spark-index-failed-local", fresh);
     expect((await read(call, memory.id)).indexState).toBe("failed");
   });
@@ -416,10 +422,8 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
   it("marks a Memory Failed when the queue gives up on its message", async () => {
     const { call } = await signedIn();
     const memory = await capture(call, "Dead letter");
-    const message = await deliver("spark-index-failed-local", {
-      memoryId: memory.id,
-      priority: "fresh",
-    });
+    const [sent] = sentFor(memory.id);
+    const message = await deliver("spark-index-failed-local", sent!.body);
     expect(message.ack).toHaveBeenCalled();
     expect((await read(call, memory.id)).indexState).toBe("failed");
   });

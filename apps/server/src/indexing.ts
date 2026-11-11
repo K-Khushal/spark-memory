@@ -162,7 +162,9 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
         } else {
           message.ack();
         }
-        if (outcome.result === "searchable") {
+        // A message from before generations were sent claims nothing: it
+        // cannot say which Memory with its id it was for.
+        if (outcome.result === "searchable" && generation) {
           // Sent from the Worker, not the tile: Indexing can finish after
           // the dashboard is closed. The Capture stored whether Do Not
           // Track was off, and only the first Searchable run is counted.

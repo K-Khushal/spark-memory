@@ -101,7 +101,10 @@ export function gemini({
       } catch {
         throw lost();
       }
-      // An error status is an answer: nothing was generated or billed.
+      // A gateway timeout: Google stopped waiting on its own side, and the
+      // model may have run. Any other error status is an answer: nothing
+      // was generated or billed.
+      if (res.status === 504) throw lost();
       if (res.status === 429) throw new ProviderError("overflow");
       if (res.status === 400 || res.status === 413) {
         throw new ProviderError(image ? "unsupported" : "failed");

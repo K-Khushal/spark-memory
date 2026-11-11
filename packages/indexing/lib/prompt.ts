@@ -21,29 +21,38 @@ export type MemoryContent = {
   body: string | null;
 };
 
+const TAGS = ["memory", "title", "capture-note", "text"];
+/** A tag name with combining marks anywhere between its letters (`me\u0301mory`). */
+const marked = (name: string) => [...name].join("\\p{M}*");
 // Anything that could close or open a delimiter is taken out of the content,
-// with spaces or combining marks (which a model reads past) after < or /.
-const DELIMITER =
-  /<[\s\p{Mn}]*\/?[\s\p{Mn}]*(memory|title|capture-note|text)\b[^>]*>?/giu;
+// with any spaces or combining marks (nonspacing, spacing or enclosing: a
+// model reads past them) after < or /, inside the name or after it. Marks
+// elsewhere stay: many scripts are written with them.
+const DELIMITER = new RegExp(
+  `<[\\s\\p{M}]*\\/?[\\s\\p{M}]*(?:${TAGS.map(marked).join("|")})\\p{M}*(?![\\p{L}\\p{N}_])[^>]*>?`,
+  "giu"
+);
 // Control characters other than tab and newline.
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/g;
 
-// Brackets a model could read as < and > (NFKC already folds the fullwidth
-// and small-form ones), and ≮ ≯, which NFKC makes of < and > with U+0338.
+// Brackets a model could read as < and > (NFKD already folds the fullwidth
+// and small-form ones, and takes ≮ ≯ apart into < > and U+0338).
 const OPENING =
-  /[\u2039\u2329\u27e8\u3008\u300a\u276e\u2770\u276c\u27ea\u29fc\u226e]/g;
+  /[\u2039\u2329\u27e8\u3008\u300a\u276e\u2770\u276c\u27ea\u29fc]/g;
 const CLOSING =
-  /[\u203a\u232a\u27e9\u3009\u300b\u276f\u2771\u276d\u27eb\u29fd\u226f]/g;
+  /[\u203a\u232a\u27e9\u3009\u300b\u276f\u2771\u276d\u27eb\u29fd]/g;
 
 /**
  * Content with nothing left that reads as a delimiter: look-alike brackets
  * become < and >, then delimiters are taken out until none are left, so
- * nested ones (`<</memory>/memory>`) cannot reassemble.
+ * nested ones (`<</memory>/memory>`) cannot reassemble. It works on the
+ * decomposed text, so a precomposed letter (ḿ) shows its mark, and is
+ * composed again after (NFKD then NFC is NFKC).
  */
 function clean(s: string, max: number) {
   let text = s
-    .normalize("NFKC")
+    .normalize("NFKD")
     // Invisible format characters (zero-width spaces and joiners, BOM) and
     // the combining grapheme joiner (a mark, so not among them) could split
     // a delimiter that a model still reads as one.
@@ -55,7 +64,7 @@ function clean(s: string, max: number) {
     before = text;
     text = text.replace(DELIMITER, " ");
   }
-  return text.slice(0, max);
+  return text.normalize("NFC").slice(0, max);
 }
 
 /** The Memory as delimited data, cut to INDEXING.maxInputChars in all. */
