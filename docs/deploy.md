@@ -124,7 +124,7 @@ A social provider turns on only when both its client id and secret are set; othe
 
 ## Memory files
 
-Image files live in R2 (ADR-0003), one bucket per environment, under `users/<user id>/<memory id>/original` and `/thumbnail`. Keys are chosen by the Worker; nothing a person sends becomes part of a key. Browsers upload and download directly with presigned URLs (`apps/server/src/files.ts`), so file bytes never pass through the Worker:
+Image files live in R2 (ADR-0003), one bucket per environment, under `users/<user id>/<memory id>/<generation>/original` and `/thumbnail`. `generation` is one upload attempt, minted by the Worker; Try Again mints another. Keys are chosen by the Worker; nothing a person sends becomes part of a key. A sweep or an account deletion removes every generation by prefix. Browsers upload and download directly with presigned URLs (`apps/server/src/files.ts`), so file bytes never pass through the Worker:
 
 - **Upload**: `POST /api/memories/images` creates the Memory within the Free allowance (25 MB a file, 1 GB in all, checked again here under a per-person lock) and answers with a PUT URL per file, valid 15 minutes, signed for that key, its exact `content-type`, `content-length` and `cache-control`. `POST /api/memories/:id/stored` then checks each object's size and type with the bucket binding before the Memory shows; an object that does not match is deleted.
 - **Download**: every Memory answer carries GET URLs signed at the start of the hour for two hours, so the same URL repeats within the hour and the browser caches the file (`private`, never in a shared cache). API answers themselves are `Cache-Control: private, no-store`.

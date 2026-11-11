@@ -272,9 +272,18 @@ describe.skipIf(!databaseUrl)("image Capture", () => {
       [input.id]
     );
     await db.end();
+    const current = [...files.objects.keys()].find((key) =>
+      key.includes(input.id)
+    );
+    if (!current) throw new Error("upload did not land");
+    const memoryPrefix = current.split("/").slice(0, 3).join("/") + "/";
+    const previous = `${memoryPrefix}00000000-0000-4000-8000-000000000099/original`;
+    await files.put(previous, new ArrayBuffer(4), {
+      httpMetadata: { contentType: "image/png", cacheControl: "" },
+    });
     expect(await sweep(env())).toBeGreaterThanOrEqual(1);
     expect(
-      [...files.objects.keys()].filter((k) => k.includes(input.id))
+      [...files.objects.keys()].filter((k) => k.startsWith(memoryPrefix))
     ).toEqual([]);
     expect((await call(`/api/memories/${input.id}`)).status).toBe(404);
   });

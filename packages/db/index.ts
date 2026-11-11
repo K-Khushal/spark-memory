@@ -46,6 +46,7 @@ export {
   ANONYMISED_USER,
   deletionRequested as isDeletionRequested,
   endSessionIfDeleting,
+  lockOwner,
 } from "./lib/owner";
 export {
   indexingStore,

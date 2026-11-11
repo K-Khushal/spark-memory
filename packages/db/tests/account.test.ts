@@ -666,7 +666,12 @@ describe.skipIf(!databaseUrl)("an account", () => {
       });
       expect(all.find((m) => m.id === img)).toMatchObject({
         index: null,
-        original: { key: `users/${ana}/${img}/original`, mime: "image/png" },
+        original: {
+          key: expect.stringMatching(
+            new RegExp(`^users/${ana}/${img}/[0-9a-f-]{36}/original$`)
+          ),
+          mime: "image/png",
+        },
       });
     });
   });

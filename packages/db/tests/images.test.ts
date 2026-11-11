@@ -4,6 +4,7 @@ import { FREE_ALLOWANCE, type ImageCapture } from "@spark/core";
 import {
   openAccount,
   openDatabase,
+  lockOwner,
   openLibrary,
   sweepAbandonedUploads,
   type Database,
@@ -86,6 +87,69 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     });
     expect(await late).toBeUndefined();
     expect(await library(owner).get(input.id)).toBeUndefined();
+    await removeUser(db, owner);
+  });
+
+  it("does not confirm a Memory recreated while its check was in flight", async () => {
+    const owner = await newUser(db);
+    const input = image();
+    const first = await library(owner).captureImage(input);
+    if (!("uploads" in first)) throw new Error("not created");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let opened!: () => void;
+    const started = new Promise<void>((resolve) => {
+      opened = resolve;
+    });
+    const checked: string[] = [];
+    const mark = library(owner).markStored(input.id, async (file) => {
+      checked.push(file.key);
+      opened();
+      await gate;
+      return "stored";
+    });
+    await started;
+    await age(input.id);
+    await sweepAbandonedUploads(db, { removeObjects: async () => {} });
+    const again = await library(owner).captureImage(input);
+    if (!("uploads" in again)) throw new Error("not recreated");
+    release();
+    expect(await mark).toBe("missing");
+    const files = await library(owner).files(input.id);
+    expect(files?.map((file) => file.stored)).toEqual([false, false]);
+    expect(again.uploads.map((file) => file.key).sort()).not.toEqual(
+      checked.sort()
+    );
+    await removeUser(db, owner);
+  });
+
+  it("does not confirm a file whose size changed after the check", async () => {
+    const owner = await newUser(db);
+    const input = image();
+    await library(owner).captureImage(input);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let opened!: () => void;
+    const started = new Promise<void>((resolve) => {
+      opened = resolve;
+    });
+    const mark = library(owner).markStored(input.id, async () => {
+      opened();
+      await gate;
+      return "stored";
+    });
+    await started;
+    await db.execute(
+      sql`update memory_file set bytes = bytes + 1 where memory_id = ${input.id} and role = 'original'`
+    );
+    release();
+    expect(await mark).toBe("missing");
+    const files = await library(owner).files(input.id);
+    expect(files?.every((file) => !file.stored)).toBe(true);
     await removeUser(db, owner);
   });
 
@@ -278,8 +342,7 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
       removeObjects: async (keys) => void removed.push(...keys),
     });
     expect(swept).toBeGreaterThanOrEqual(1);
-    expect(removed).toContain(`users/${owner}/${abandoned.id}/original`);
-    expect(removed).toContain(`users/${owner}/${abandoned.id}/thumbnail`);
+    expect(removed).toContain(`users/${owner}/${abandoned.id}/`);
     expect(await library(owner).get(abandoned.id)).toBeUndefined();
     expect(await library(owner).get(kept.id)).toBeDefined();
     expect(await library(owner).get(fresh.id)).toBeDefined();
@@ -327,6 +390,44 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     );
     expect(rows.map((r) => r.stored_at)).toEqual([null, null]);
     await removeUser(db, owner);
+  });
+
+  it("sweeps a later owner when earlier owners' storage deletes keep failing", async () => {
+    await db.execute(sql`
+      delete from memory where id in (
+        select memory_id from memory_file
+        where stored_at is null
+          and created_at <= now() - interval '24 hours')`);
+    const failing = "00000000-0000-4000-8000-000000000001";
+    const healthy = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    await db.execute(
+      sql`delete from "user" where id in (${failing}, ${healthy})`
+    );
+    await db.execute(sql`
+      insert into "user" (id, name, email) values
+        (${failing}, '', ${`sweep-${failing}@example.com`}),
+        (${healthy}, '', ${`sweep-${healthy}@example.com`})
+    `);
+    const left = image();
+    const gone = image();
+    await library(failing).captureImage(left);
+    await library(healthy).captureImage(gone);
+    await db.execute(
+      sql`update memory_file set created_at = now() - interval '2 days' where memory_id in (${left.id}, ${gone.id})`
+    );
+    const swept = await sweepAbandonedUploads(db, {
+      owners: 1,
+      removeObjects: async (prefixes) => {
+        if (prefixes.some((prefix) => prefix.startsWith(`users/${failing}/`))) {
+          throw new Error("storage down");
+        }
+      },
+    });
+    expect(swept).toBeGreaterThanOrEqual(1);
+    expect(await library(failing).get(left.id)).toBeDefined();
+    expect(await library(healthy).get(gone.id)).toBeUndefined();
+    await removeUser(db, failing);
+    await removeUser(db, healthy);
   });
 
   it("keeps one owner's rows when their storage delete fails, and still sweeps the next", async () => {
@@ -405,16 +506,99 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
         sql`, `
       )})`
     );
+    let calls = 0;
     const swept = await sweepAbandonedUploads(db, {
       perOwner: 1,
       deadline: 0,
-      removeObjects: async () => {},
+      removeObjects: async () => {
+        calls += 1;
+      },
     });
-    expect(swept).toBe(1);
+    expect(calls).toBe(0);
+    expect(swept).toBe(0);
     const left = (
       await Promise.all(ids.map((id) => library(owner).get(id)))
     ).filter(Boolean);
-    expect(left).toHaveLength(2);
+    expect(left).toHaveLength(3);
     await removeUser(db, owner);
+  });
+
+  it("keeps the rows when storage deletion exceeds the time left", async () => {
+    await db.execute(sql`
+      delete from memory where id in (
+        select memory_id from memory_file
+        where stored_at is null
+          and created_at <= now() - interval '24 hours')`);
+    const owner = await newUser(db);
+    const input = image();
+    await library(owner).captureImage(input);
+    await age(input.id);
+    let started = false;
+    const swept = await sweepAbandonedUploads(db, {
+      deadline: Date.now() + 200,
+      removeObjects: () => {
+        started = true;
+        return new Promise((resolve) => setTimeout(resolve, 1_000));
+      },
+    });
+    expect(started).toBe(true);
+    expect(swept).toBe(0);
+    expect(await library(owner).get(input.id)).toBeDefined();
+    await removeUser(db, owner);
+  });
+
+  it("does not wait out the budget on an owner whose lock is held", async () => {
+    await db.execute(sql`
+      delete from memory where id in (
+        select memory_id from memory_file
+        where stored_at is null
+          and created_at <= now() - interval '24 hours')`);
+    const busy = "00000000-0000-4000-8000-0000000000aa";
+    const free = "ffffffff-ffff-4fff-8fff-ffffffffffaa";
+    await db.execute(sql`delete from "user" where id in (${busy}, ${free})`);
+    await db.execute(sql`
+      insert into "user" (id, name, email) values
+        (${busy}, '', ${`lock-${busy}@example.com`}),
+        (${free}, '', ${`lock-${free}@example.com`})
+    `);
+    const kept = image();
+    const gone = image();
+    await library(busy).captureImage(kept);
+    await library(free).captureImage(gone);
+    await db.execute(
+      sql`update memory_file set created_at = now() - interval '2 days' where memory_id in (${kept.id}, ${gone.id})`
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holding!: () => void;
+    const held = new Promise<void>((resolve) => {
+      holding = resolve;
+    });
+    const lock = db.transaction(async (tx) => {
+      await lockOwner(tx, busy);
+      holding();
+      await gate;
+    });
+    await held;
+    const sweep = sweepAbandonedUploads(db, {
+      owners: 1,
+      removeObjects: async () => {},
+    });
+    const outcome = await Promise.race([
+      sweep.then((swept) => swept),
+      new Promise<string>((resolve) =>
+        setTimeout(() => resolve("blocked"), 1_000)
+      ),
+    ]);
+    release();
+    await lock;
+    await sweep;
+    expect(outcome).not.toBe("blocked");
+    expect(await library(busy).get(kept.id)).toBeDefined();
+    expect(await library(free).get(gone.id)).toBeUndefined();
+    await removeUser(db, busy);
+    await removeUser(db, free);
   });
 });

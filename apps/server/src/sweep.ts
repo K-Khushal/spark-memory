@@ -3,6 +3,7 @@ import {
   SWEEP_BUDGET_MS,
   sweepAbandonedUploads,
 } from "@spark/db";
+import { removePrefix } from "./account-jobs";
 import type { Bindings } from "./env";
 
 /**
@@ -21,7 +22,10 @@ export async function sweep(
     let total = 0;
     for (;;) {
       const swept = await sweepAbandonedUploads(db, {
-        removeObjects: (keys) => env.FILES.delete(keys),
+        // One prefix per Memory: every generation, not only the current keys.
+        removeObjects: async (prefixes) => {
+          for (const prefix of prefixes) await removePrefix(env.FILES, prefix);
+        },
         deadline,
       });
       total += swept;
