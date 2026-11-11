@@ -1,7 +1,13 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
-import { LogOutIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import {
+  LogOutIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+  XIcon,
+} from "lucide-react";
 import {
   Button,
   CommandDialog,
@@ -13,9 +19,9 @@ import {
   Masonry,
   Toaster,
   cn,
-  toast,
 } from "@spark/ui";
-import { authClient, type Session } from "../auth";
+import type { Session } from "../auth";
+import { SidebarFooter, SidebarLink, Wordmark, useSignOut } from "../shell";
 import { MemoryDetail } from "./memory-detail";
 import { MemoryTile, memoryName, tileHeight, tileLabel } from "./memory-tile";
 import { PasteBox } from "./paste-box";
@@ -94,16 +100,10 @@ export function LibraryPage({ session }: { session: Session }) {
     },
   });
 
+  const leave = useSignOut();
   const signOut = async () => {
     setSearchOpen(false);
-    const { error } = await authClient.signOut().catch(() => ({ error: true }));
-    if (error) {
-      toast("Sign Out Did Not Finish", {
-        action: { label: "Try Again", onClick: () => void signOut() },
-      });
-      return;
-    }
-    await navigate({ to: "/sign-in" });
+    await leave();
   };
 
   const search = (
@@ -154,34 +154,16 @@ export function LibraryPage({ session }: { session: Session }) {
           <nav aria-label="Library">
             <ul>
               <li>
-                <Link
-                  to="/"
-                  aria-current="page"
-                  onClick={() => setQuery("")}
-                  className="flex h-8 items-center rounded-control bg-surface px-2 text-sm font-medium text-ink shadow-raised"
-                >
+                <SidebarLink to="/" current onClick={() => setQuery("")}>
                   All Memories
-                </Link>
+                </SidebarLink>
               </li>
             </ul>
           </nav>
-          <div className="mt-auto flex items-center gap-1 pl-2">
-            <span
-              className="min-w-0 flex-1 truncate text-sm text-ink-muted"
-              title={session.user.email}
-            >
-              {session.user.email}
-            </span>
-            <Button
-              variant="quiet"
-              size="icon-sm"
-              aria-label="Sign Out"
-              title="Sign Out"
-              onClick={() => void signOut()}
-            >
-              <LogOutIcon aria-hidden />
-            </Button>
-          </div>
+          <SidebarFooter
+            email={session.user.email}
+            onSignOut={() => void signOut()}
+          />
         </aside>
 
         <main className="min-w-0 flex-1">
@@ -306,6 +288,12 @@ export function LibraryPage({ session }: { session: Session }) {
                 >
                   Capture
                 </Action>
+                <Action
+                  icon={<SettingsIcon />}
+                  onSelect={() => void navigate({ to: "/settings" })}
+                >
+                  Settings
+                </Action>
                 <Action icon={<LogOutIcon />} onSelect={() => void signOut()}>
                   Sign Out
                 </Action>
@@ -362,10 +350,6 @@ function ListNote({ children }: { children: string }) {
       {children}
     </p>
   );
-}
-
-function Wordmark() {
-  return <span className="font-display text-md font-semibold">Spark</span>;
 }
 
 /** A whole-wall message with one way forward. */

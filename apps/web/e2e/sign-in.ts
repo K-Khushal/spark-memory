@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 
-/** Signs a new person in with an email code from the local dev outbox. */
-export async function signIn(page: Page) {
+/** Signs a new person in with an email code from the local dev outbox; returns their address. */
+export async function signIn(page: Page): Promise<string> {
   const email = `smoke-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
   // Each test signs in from its own address, so the per-IP limit on sending
   // codes (3 a minute) never trips when tests run side by side.
@@ -33,4 +33,5 @@ export async function signIn(page: Page) {
   await expect(
     page.getByRole("heading", { name: "No Memories Yet" })
   ).toBeVisible();
+  return email;
 }

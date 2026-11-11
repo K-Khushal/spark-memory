@@ -68,13 +68,14 @@ pnpm dev        # Docker Postgres + pgvector, db:migrate, db:seed, Worker on :87
 
    Then Dashboard → R2 → Manage API tokens → Create API token, _Object Read & Write_, limited to that environment's bucket: its Access Key ID and Secret Access Key become the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` Worker secrets below. Presigned URLs only work on the S3 endpoint (`<account id>.r2.cloudflarestorage.com`), never on a custom domain. Keep the buckets private (no public access, no r2.dev URL).
 
-   **Queues and Workers AI (Indexing).** Create each environment's three queues (the names in `wrangler.jsonc`); Workers AI needs nothing but the `ai` binding already there:
+   **Queues and Workers AI (Indexing, accounts).** Create each environment's four queues (the names in `wrangler.jsonc`); Workers AI needs nothing but the `ai` binding already there:
 
    ```sh
    for env in dev prod; do
      npx wrangler queues create spark-index-$env
      npx wrangler queues create spark-reindex-$env
      npx wrangler queues create spark-index-failed-$env
+     npx wrangler queues create spark-account-$env
    done
    ```
 
@@ -153,6 +154,14 @@ After Capture (text on create, an image once its files are stored) the Worker se
 - **Budget.** Every call's tokens and cost go to `ai_call` (per Memory and person) and `spend_day` (per UTC day and provider, added to atomically). The daily budget is **$1** by default (`INDEXING.dailyBudgetMicros` in `packages/core/lib/indexing.ts`; change it there). Past it, background messages are re-sent with a delay (to the next UTC day, at most 12 hours at a time, though Queues allows 24); fresh Captures still index, and the hourly sweep still re-sends fresh work whose message was lost. A person's Retry or opt-in goes first in line once a Memory a day, then to the background, so it cannot bypass the budget without limit. A Workers AI call that times out is still billed, so it is recorded at an estimated cost (its prompt, and every output token it may use), marked `estimated` in `ai_call`. In-flight calls can overshoot the limit by a few calls.
 - **Locally**, Miniflare runs the queues and `INDEXING_PROVIDER: "fake"` Indexes without keys or network. Content containing `fake:fail` gets output that is never valid, so it shows Failed at once.
 - **Logs** carry outcomes only, never content, prompts or model output.
+
+## Account: sessions, export, deletion
+
+Settings (`/settings`) lists signed-in devices, exports the Library and deletes the account (`apps/server/src/account.ts`, `account-jobs.ts`; `@spark/db` → `openAccount`, `accountJobs`).
+
+- **Sessions** are read and revoked straight from the `session` table; the browser sees a device name and a short hash, never a session id or token. No Better Auth route is added to the allowlist.
+- **Export** runs on `spark-account-*`: one message builds a stored (uncompressed) ZIP, `memories.json` plus every original file, streamed from R2 into an R2 multipart upload in equal 8 MiB parts, so memory stays flat. It is leased (a duplicate message skips), retried twice, then Failed. The download is a signed URL; the ZIP is removed 24 hours after it is ready, and a new export can start an hour after the last. **On Workers Free** the 10 ms CPU limit (the CRC of every byte is computed in JavaScript) and the 1,000-calls-per-invocation limit for R2 cap exports at small Libraries; Workers Paid ($5, PLAN.md §2) lifts both (a 15-minute queue wall time and 10,000 calls).
+- **Deletion** is confirmed by typing the account's address (ADR-0007: there is no password to ask for). It ends every session and blocks sign-in at once (a Better Auth hook refuses new sessions), then the account job removes every object under `users/<id>/`, every Memory and its rows, and anonymises `ai_call` (the money was spent; admin totals stay true). It finishes 20 minutes later with a last pass and the user row (sessions, sign-in accounts, the export and the request go with it), so an upload signed before the request (its URL lives 15 minutes) cannot land after the last pass. The hourly cron re-sends unfinished deletions and lost export messages.
 
 ## Sign-in
 

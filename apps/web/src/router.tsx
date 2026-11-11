@@ -10,6 +10,7 @@ import { Button } from "@spark/ui";
 import { api } from "./api";
 import { redirectIfSignedIn, requireSession } from "./auth";
 import { LibraryPage } from "./library/library-page";
+import { SettingsPage } from "./settings/settings-page";
 import { SignInPage } from "./sign-in/sign-in-page";
 import { LibraryPage as PrototypeLibraryPage } from "./prototypes/library";
 import { DATA_SETS, type DataSet } from "./prototypes/use-library";
@@ -23,6 +24,16 @@ const libraryRoute = createRoute({
   component: function Library() {
     const { session } = libraryRoute.useRouteContext();
     return <LibraryPage session={session} />;
+  },
+});
+
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  beforeLoad: requireSession,
+  component: function Settings() {
+    const { session } = settingsRoute.useRouteContext();
+    return <SettingsPage session={session} />;
   },
 });
 
@@ -88,6 +99,7 @@ export const router = createRouter({
   ),
   routeTree: rootRoute.addChildren([
     libraryRoute,
+    settingsRoute,
     signInRoute,
     prototypesRoute,
   ]),
