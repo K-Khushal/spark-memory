@@ -16,6 +16,7 @@ import {
   tryLockOwner,
 } from "./owner";
 import {
+  appSetting,
   memory,
   memoryFile,
   memoryIndex,
@@ -369,8 +370,9 @@ export function openLibrary(
           }
           // A retry is a new upload: a new generation and new keys, so a
           // confirm that already checked the previous objects cannot accept
-          // this one. The previous keys are queued for removal; the sweep
-          // also prefix-deletes every generation if the upload is abandoned.
+          // this one. The previous keys stay until the presigned PUT can no
+          // longer land, then the object sweep removes them. An abandoned
+          // upload's sweep deletes them with the Memory, by those exact keys.
           const pending = await tx
             .select({ role: memoryFile.role, key: memoryFile.key })
             .from(memoryFile)
@@ -384,7 +386,12 @@ export function openLibrary(
             const generation = crypto.randomUUID();
             await tx
               .insert(objectRemoval)
-              .values(pending.map((file) => ({ key: file.key })))
+              .values(
+                pending.map((file) => ({
+                  key: file.key,
+                  dueAt: sql`now() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
+                }))
+              )
               .onConflictDoNothing();
             for (const file of pending) {
               await tx
@@ -831,69 +838,179 @@ export type Library = ReturnType<typeof openLibrary>;
  */
 export const SWEEP_BUDGET_MS = 20_000;
 
-/** Memories removed for one owner in one transaction, so a backlog cannot be one long lock. */
-const SWEEP_PER_OWNER = 500;
+/** R2 deletes at most this many keys in one call. A batch is one such call. */
+const R2_DELETE_KEYS = 1_000;
 
-/** Rejects when `work` is still running after `ms`, leaving `work` itself to finish later. */
-const withinBudget = <T>(work: Promise<T>, ms: number): Promise<T> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error("sweep: storage delete timed out")),
-      ms
-    );
-  });
-  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+/**
+ * Where the upload sweep stopped, so the next hourly run continues with the
+ * following owner instead of starting over at a slow one. Not an admin setting.
+ */
+export const SWEEP_CURSOR_KEY = "sweep_upload_cursor";
+
+/** Bounds SQL and lock waits in this transaction to the time the sweep has left. */
+const localTimeouts = (tx: Pick<Database, "execute">, ms: number) => {
+  const budget = `${Math.max(1, Math.floor(ms))}ms`;
+  return tx.execute(sql`
+    select set_config('statement_timeout', ${budget}, true),
+           set_config('lock_timeout', ${budget}, true)
+  `);
 };
 
 /**
+ * The abandoned Memories whose keys fit in one bulk delete, oldest id first.
+ * Keys are the current objects (including ones stored before generations)
+ * and any replaced key already queued for that Memory. The set is fixed
+ * here, under the lock: a later Try Again is a different key.
+ */
+async function abandonedBatch(
+  tx: Pick<Database, "select" | "selectDistinct">,
+  userId: string,
+  keysPerDelete: number
+): Promise<{ ids: string[]; keys: string[] } | undefined> {
+  const rows = await tx
+    .selectDistinct({ id: memory.id })
+    .from(memory)
+    .innerJoin(memoryFile, eq(memoryFile.memoryId, memory.id))
+    .where(and(eq(memory.userId, userId), expiredUpload))
+    .orderBy(asc(memory.id))
+    .limit(keysPerDelete);
+  if (!rows.length) return undefined;
+  const candidateIds = rows.map((row) => row.id);
+  const files = await tx
+    .select({ memoryId: memoryFile.memoryId, key: memoryFile.key })
+    .from(memoryFile)
+    .where(inArray(memoryFile.memoryId, candidateIds));
+  const replaced = await tx
+    .select({ key: objectRemoval.key })
+    .from(objectRemoval)
+    .where(
+      or(
+        ...candidateIds.map(
+          (id) =>
+            sql`starts_with(${objectRemoval.key}, ${memoryPrefix(userId, id)})`
+        )
+      )
+    );
+  const ids: string[] = [];
+  const keys: string[] = [];
+  for (const id of candidateIds) {
+    const prefix = memoryPrefix(userId, id);
+    const own = [
+      ...new Set([
+        ...files.filter((file) => file.memoryId === id).map((file) => file.key),
+        ...replaced
+          .filter((row) => row.key.startsWith(prefix))
+          .map((row) => row.key),
+      ]),
+    ];
+    if (ids.length && keys.length + own.length > keysPerDelete) break;
+    ids.push(id);
+    keys.push(...own);
+    if (keys.length >= keysPerDelete) break;
+  }
+  return ids.length ? { ids, keys } : undefined;
+}
+
+/** Stops waiting on `work` when `signal` aborts, so a slow delete cannot hold the lock. */
+const untilAborted = (work: Promise<void>, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const fail = () => reject(new Error("sweep: storage delete aborted"));
+    if (signal.aborted) {
+      fail();
+      return;
+    }
+    signal.addEventListener("abort", fail, { once: true });
+    work.then(
+      () => {
+        signal.removeEventListener("abort", fail);
+        if (signal.aborted) fail();
+        else resolve();
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", fail);
+        reject(
+          error instanceof Error
+            ? error
+            : new Error("sweep: storage delete failed")
+        );
+      }
+    );
+  });
+
+/**
  * Removes image Memories whose upload never finished within the upload
- * window (by the database's clock). Owners are visited in id order, a page
- * at a time, and a storage failure is skipped for the rest of this run so
- * the owners after them still get a turn. Nothing starts once `deadline`
- * (epoch ms) has passed. The owner lock is taken only if it is free, and a
- * storage delete is abandoned when the time left runs out: the transaction
- * rolls back, so the rows stay until a later run and are never removed
- * while their objects might still be there. Objects go first, by Memory
- * prefix (every generation), then the rows. Each batch is at most
- * `perOwner` Memories. Returns how many Memories went.
+ * window (by the database's clock). Owners are visited in id order. The
+ * cursor is remembered, so the next run continues after the owner this one
+ * stopped on and a slow owner cannot take every hour. A storage failure is
+ * skipped for the rest of this run. Nothing starts once `deadline` (epoch
+ * ms) has passed. Each batch is one bulk delete of at most `keysPerDelete`
+ * exact keys captured under the owner's lock. The delete is aborted when
+ * the time left runs out, the transaction rolls back, and the rows stay.
+ * Returns how many Memories went.
  */
 export async function sweepAbandonedUploads(
   db: Database,
   {
     removeObjects,
     owners = 50,
-    perOwner = SWEEP_PER_OWNER,
+    keysPerDelete = R2_DELETE_KEYS,
     deadline = Date.now() + SWEEP_BUDGET_MS,
   }: {
-    removeObjects: (prefixes: string[]) => Promise<void>;
+    removeObjects: (keys: string[], signal: AbortSignal) => Promise<void>;
     owners?: number;
-    perOwner?: number;
+    /** Keys in one bulk delete. One call, at most 1,000 (R2's limit). */
+    keysPerDelete?: number;
     deadline?: number;
   }
 ): Promise<number> {
   const skipped = new Set<string>();
   let total = 0;
-  let after: string | undefined;
+  let after = await readSweepCursor(db);
+  let wrapped = false;
   while (Date.now() < deadline) {
-    const due = await db
-      .selectDistinct({ userId: memory.userId })
-      .from(memoryFile)
-      .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
-      .where(
-        and(
-          expiredUpload,
-          after === undefined ? undefined : gt(memory.userId, after)
-        )
-      )
-      .orderBy(asc(memory.userId))
-      .limit(owners);
-    if (!due.length) break;
+    let due: { userId: string }[];
+    try {
+      due = await db.transaction(async (tx) => {
+        const left = deadline - Date.now();
+        if (left <= 0) return [];
+        await localTimeouts(tx, left);
+        return tx
+          .selectDistinct({ userId: memory.userId })
+          .from(memoryFile)
+          .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
+          .where(
+            and(
+              expiredUpload,
+              after === undefined ? undefined : gt(memory.userId, after)
+            )
+          )
+          .orderBy(asc(memory.userId))
+          .limit(owners);
+      });
+    } catch {
+      console.error("sweep: owner query stopped");
+      break;
+    }
+    if (!due.length) {
+      if (!wrapped && after !== undefined) {
+        wrapped = true;
+        after = undefined;
+        continue;
+      }
+      await clearSweepCursor(db);
+      break;
+    }
     let stop = false;
     for (const { userId } of due) {
-      after = userId;
-      if (Date.now() >= deadline) break;
-      if (skipped.has(userId)) continue;
+      if (Date.now() >= deadline) {
+        stop = true;
+        break;
+      }
+      if (skipped.has(userId)) {
+        after = userId;
+        continue;
+      }
+      let attempted = false;
       try {
         for (;;) {
           if (Date.now() >= deadline) {
@@ -901,50 +1018,88 @@ export async function sweepAbandonedUploads(
             break;
           }
           const removed = await db.transaction(async (tx) => {
+            const left = deadline - Date.now();
+            if (left <= 0) return 0;
+            await localTimeouts(tx, left);
             // Do not wait: a confirm already in this lock would run the sweep
             // past the budget. The next run tries this owner again.
             if (!(await tryLockOwner(tx, userId))) return null;
-            const left = deadline - Date.now();
-            if (left <= 0) return 0;
-            // Read again under the lock: a retry may have started a new window.
-            const abandoned = await tx
-              .selectDistinct({ id: memory.id })
-              .from(memory)
-              .innerJoin(memoryFile, eq(memoryFile.memoryId, memory.id))
-              .where(and(eq(memory.userId, userId), expiredUpload))
-              .limit(perOwner);
-            if (!abandoned.length) return 0;
-            const ids = abandoned.map((row) => row.id);
-            // The prefix covers every generation, including keys a Try Again
-            // replaced and keys written before generations existed. If this
-            // outlives the budget the transaction rolls back and the rows stay.
-            await withinBudget(
-              removeObjects(ids.map((id) => memoryPrefix(userId, id))),
-              left
-            );
+            const batch = await abandonedBatch(tx, userId, keysPerDelete);
+            if (!batch) return 0;
+            const nowLeft = deadline - Date.now();
+            if (nowLeft <= 0) return 0;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), nowLeft);
+            try {
+              for (let i = 0; i < batch.keys.length; i += R2_DELETE_KEYS) {
+                if (controller.signal.aborted || Date.now() >= deadline) {
+                  throw new Error("sweep: storage delete aborted");
+                }
+                await untilAborted(
+                  removeObjects(
+                    batch.keys.slice(i, i + R2_DELETE_KEYS),
+                    controller.signal
+                  ),
+                  controller.signal
+                );
+              }
+            } finally {
+              clearTimeout(timer);
+            }
+            if (batch.keys.length) {
+              await tx
+                .delete(objectRemoval)
+                .where(inArray(objectRemoval.key, batch.keys));
+            }
             const gone = await tx
               .delete(memory)
-              .where(inArray(memory.id, ids))
+              .where(inArray(memory.id, batch.ids))
               .returning({ id: memory.id });
             return gone.length;
           });
+          attempted = true;
           if (removed === null) break;
           total += removed;
-          if (removed < perOwner || Date.now() >= deadline) {
+          if (removed === 0 || Date.now() >= deadline) {
             stop = Date.now() >= deadline;
             break;
           }
         }
-      } catch {
-        // Their rows stay. Skip them for this run and keep going: an owner
-        // who always fails must not occupy the only page forever.
+      } catch (error) {
+        // Their rows stay. Skip them for this run. A timeout ends the run
+        // so the next hour starts at the following owner.
+        attempted = true;
         skipped.add(userId);
         console.error("sweep: one owner failed");
-        stop = Date.now() >= deadline;
+        const message = error instanceof Error ? error.message : "";
+        stop =
+          message.includes("storage delete aborted") || Date.now() >= deadline;
       }
+      after = userId;
+      if (attempted) await saveSweepCursor(db, userId);
       if (stop) break;
     }
     if (stop) break;
   }
   return total;
 }
+
+const readSweepCursor = async (db: Database): Promise<string | undefined> => {
+  const [row] = await db
+    .select({ value: appSetting.value })
+    .from(appSetting)
+    .where(eq(appSetting.key, SWEEP_CURSOR_KEY));
+  return row?.value;
+};
+
+const saveSweepCursor = (db: Database, userId: string) =>
+  db
+    .insert(appSetting)
+    .values({ key: SWEEP_CURSOR_KEY, value: userId, updatedBy: "sweep" })
+    .onConflictDoUpdate({
+      target: appSetting.key,
+      set: { value: userId, updatedAt: sql`now()` },
+    });
+
+const clearSweepCursor = (db: Database) =>
+  db.delete(appSetting).where(eq(appSetting.key, SWEEP_CURSOR_KEY));

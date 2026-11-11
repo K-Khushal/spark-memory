@@ -263,8 +263,10 @@ describe.skipIf(!databaseUrl)("image Capture", () => {
   it("sweeps an upload that never finished, with its objects", async () => {
     const { call } = await signedIn();
     const input = describe_();
-    const { body } = await create(call, input);
-    await uploadAll(body.uploads);
+    const created = await create(call, input);
+    await uploadAll(created.body.uploads);
+    const retry = await create(call, input);
+    await uploadAll(retry.body.uploads);
     const db = new Client({ connectionString: databaseUrl });
     await db.connect();
     await db.query(
@@ -272,19 +274,19 @@ describe.skipIf(!databaseUrl)("image Capture", () => {
       [input.id]
     );
     await db.end();
-    const current = [...files.objects.keys()].find((key) =>
+    const known = [...files.objects.keys()].filter((key) =>
       key.includes(input.id)
     );
-    if (!current) throw new Error("upload did not land");
-    const memoryPrefix = current.split("/").slice(0, 3).join("/") + "/";
-    const previous = `${memoryPrefix}00000000-0000-4000-8000-000000000099/original`;
-    await files.put(previous, new ArrayBuffer(4), {
+    expect(known.length).toBeGreaterThanOrEqual(2);
+    const memoryPrefix = known[0]!.split("/").slice(0, 3).join("/") + "/";
+    const stray = `${memoryPrefix}not-a-recorded-generation/original`;
+    await files.put(stray, new ArrayBuffer(4), {
       httpMetadata: { contentType: "image/png", cacheControl: "" },
     });
     expect(await sweep(env())).toBeGreaterThanOrEqual(1);
-    expect(
-      [...files.objects.keys()].filter((k) => k.startsWith(memoryPrefix))
-    ).toEqual([]);
+    for (const key of known) expect(files.objects.has(key)).toBe(false);
+    expect(files.objects.has(stray)).toBe(true);
+    await files.delete(stray);
     expect((await call(`/api/memories/${input.id}`)).status).toBe(404);
   });
 });

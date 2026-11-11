@@ -2,10 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { FREE_ALLOWANCE, type ImageCapture } from "@spark/core";
 import {
+  lockOwner,
   openAccount,
   openDatabase,
-  lockOwner,
   openLibrary,
+  SWEEP_CURSOR_KEY,
   sweepAbandonedUploads,
   type Database,
 } from "../index";
@@ -329,7 +330,8 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
   it("sweeps images whose upload never finished, objects first", async () => {
     const owner = await newUser(db);
     const abandoned = image();
-    await library(owner).captureImage(abandoned);
+    const created = await library(owner).captureImage(abandoned);
+    if (!("uploads" in created)) throw new Error("not created");
     const kept = await stored(owner);
     const fresh = image();
     await library(owner).captureImage(fresh);
@@ -342,7 +344,9 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
       removeObjects: async (keys) => void removed.push(...keys),
     });
     expect(swept).toBeGreaterThanOrEqual(1);
-    expect(removed).toContain(`users/${owner}/${abandoned.id}/`);
+    expect(removed).toEqual(
+      expect.arrayContaining(created.uploads.map((file) => file.key))
+    );
     expect(await library(owner).get(abandoned.id)).toBeUndefined();
     expect(await library(owner).get(kept.id)).toBeDefined();
     expect(await library(owner).get(fresh.id)).toBeDefined();
@@ -475,8 +479,9 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     );
     const batches: number[] = [];
     const swept = await sweepAbandonedUploads(db, {
-      perOwner: 2,
+      keysPerDelete: 4,
       removeObjects: async (keys) => {
+        expect(keys.length).toBeLessThanOrEqual(4);
         batches.push(new Set(keys.map((key) => key.split("/")[2])).size);
       },
     });
@@ -508,7 +513,6 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     );
     let calls = 0;
     const swept = await sweepAbandonedUploads(db, {
-      perOwner: 1,
       deadline: 0,
       removeObjects: async () => {
         calls += 1;
@@ -600,5 +604,143 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     expect(await library(free).get(gone.id)).toBeUndefined();
     await removeUser(db, busy);
     await removeUser(db, free);
+  });
+
+  it("does not let a timed-out delete remove a generation confirmed after the lock", async () => {
+    const owner = await newUser(db);
+    const input = image();
+    const created = await library(owner).captureImage(input);
+    if (!("uploads" in created)) throw new Error("not created");
+    const abandoned = created.uploads.map((file) => file.key);
+    await age(input.id);
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let opened!: () => void;
+    const started = new Promise<void>((resolve) => {
+      opened = resolve;
+    });
+    const handed: string[] = [];
+    let signal: AbortSignal | undefined;
+    const sweep = sweepAbandonedUploads(db, {
+      deadline: Date.now() + 400,
+      removeObjects: (keys, abort) => {
+        handed.push(...keys);
+        signal = abort;
+        opened();
+        return gate;
+      },
+    });
+    try {
+      await started;
+      await sweep;
+      const again = await library(owner).captureImage(input);
+      if (!("uploads" in again)) throw new Error("not recreated");
+      const stored = await library(owner).markStored(input.id);
+      expect(stored).toMatchObject({ id: input.id });
+      const live = new Set(again.uploads.map((file) => file.key));
+      expect(signal?.aborted).toBe(true);
+      expect(handed.length).toBeGreaterThan(0);
+      expect(handed.every((key) => !key.endsWith("/"))).toBe(true);
+      expect(handed.every((key) => !live.has(key))).toBe(true);
+      expect(handed).toEqual(expect.arrayContaining(abandoned));
+      const files = await library(owner).files(input.id);
+      expect(files?.every((file) => file.stored)).toBe(true);
+    } finally {
+      release();
+    }
+    await removeUser(db, owner);
+  });
+
+  it("deletes replaced keys with the abandoned upload, and not before the PUT expires", async () => {
+    const owner = await newUser(db);
+    const input = image();
+    const first = await library(owner).captureImage(input);
+    if (!("uploads" in first)) throw new Error("not created");
+    const again = await library(owner).captureImage(input);
+    if (!("uploads" in again)) throw new Error("not retried");
+    const { rows } = await db.execute<{ later: boolean }>(sql`
+      select due_at > now() + interval '14 minutes' as later
+      from object_removal
+      where key in (${sql.join(
+        first.uploads.map((file) => sql`${file.key}`),
+        sql`, `
+      )})
+    `);
+    expect(rows).toHaveLength(first.uploads.length);
+    expect(rows.every((row) => row.later)).toBe(true);
+    await age(input.id);
+    const removed: string[] = [];
+    await sweepAbandonedUploads(db, {
+      removeObjects: async (keys) => void removed.push(...keys),
+    });
+    expect(removed).toEqual(
+      expect.arrayContaining([
+        ...first.uploads.map((file) => file.key),
+        ...again.uploads.map((file) => file.key),
+      ])
+    );
+    expect(await library(owner).get(input.id)).toBeUndefined();
+    await removeUser(db, owner);
+  });
+
+  it("resumes after the owner the previous run stopped on", async () => {
+    await db.execute(sql`
+      delete from memory where id in (
+        select memory_id from memory_file
+        where stored_at is null
+          and created_at <= now() - interval '24 hours')`);
+    await db.execute(
+      sql`delete from app_setting where key = ${SWEEP_CURSOR_KEY}`
+    );
+    const early = "00000000-0000-4000-8000-000000000041";
+    const later = "ffffffff-ffff-4fff-8fff-ffffffffff41";
+    await db.execute(sql`delete from "user" where id in (${early}, ${later})`);
+    await db.execute(sql`
+      insert into "user" (id, name, email) values
+        (${early}, '', ${`cursor-${early}@example.com`}),
+        (${later}, '', ${`cursor-${later}@example.com`})
+    `);
+    const stalled = image();
+    const pending = image();
+    await library(early).captureImage(stalled);
+    await library(later).captureImage(pending);
+    await db.execute(
+      sql`update memory_file set created_at = now() - interval '2 days' where memory_id in (${stalled.id}, ${pending.id})`
+    );
+    await sweepAbandonedUploads(db, {
+      deadline: Date.now() + 300,
+      removeObjects: (keys, abort) => {
+        if (keys.some((key) => key.includes(`/${early}/`))) {
+          return new Promise((resolve) => {
+            const timer = setTimeout(resolve, 5_000);
+            abort?.addEventListener("abort", () => {
+              clearTimeout(timer);
+              resolve();
+            });
+          });
+        }
+        return Promise.resolve();
+      },
+    });
+    expect(await library(early).get(stalled.id)).toBeDefined();
+    expect(await library(later).get(pending.id)).toBeDefined();
+    const order: string[] = [];
+    await sweepAbandonedUploads(db, {
+      removeObjects: async (keys) => {
+        const owner = keys[0]?.split("/")[1];
+        if (owner) order.push(owner);
+      },
+    });
+    expect(order[0]).toBe(later);
+    expect(order).toContain(early);
+    expect(await library(later).get(pending.id)).toBeUndefined();
+    expect(await library(early).get(stalled.id)).toBeUndefined();
+    await db.execute(
+      sql`delete from app_setting where key = ${SWEEP_CURSOR_KEY}`
+    );
+    await removeUser(db, early);
+    await removeUser(db, later);
   });
 });
