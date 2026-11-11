@@ -8,14 +8,18 @@ type Hit = { id: string; matched: string[]; distance: number | null };
 /** The Library's search as a stub: records each call, answers `hits`. */
 function library(hits: Hit[] = []) {
   const calls: { query: string; probe?: Probe }[] = [];
-  const find = vi.fn(async (query: string, options: { probe?: Probe }) => {
-    calls.push({ query, ...(options.probe && { probe: options.probe }) });
-    return hits;
-  });
+  const find = vi.fn(
+    async (query: string, options: { probe?: Probe }): Promise<Hit[]> => {
+      calls.push({ query, ...(options.probe && { probe: options.probe }) });
+      return hits;
+    }
+  );
   return { find, calls };
 }
 
-function embedder(fail?: ProviderError) {
+function embedder(fail?: ProviderError): Embedder & {
+  embed: ReturnType<typeof vi.fn<Embedder["embed"]>>;
+} {
   return {
     name: "gemini",
     model: "gemini-embedding-2",
@@ -27,16 +31,16 @@ function embedder(fail?: ProviderError) {
         usage: { textTokens: 10, imageTokens: 0 },
       };
     }),
-  } satisfies Embedder;
+  };
 }
 
 function spend(spent = 0) {
   const calls: AiCall[] = [];
   return {
     calls,
-    spentTodayMicros: async () => spent,
+    spentTodayMicros: async (): Promise<number> => spent,
     dailyBudgetMicros: async () => INDEXING.dailyBudgetMicros,
-    recordCall: async (call: AiCall) => {
+    recordCall: async (call: AiCall): Promise<void> => {
       calls.push(call);
     },
   };
@@ -46,7 +50,7 @@ let user = 0;
 /** A fresh person per test, so the query cache never leaks between tests. */
 const setup = ({
   hits = [] as Hit[],
-  model = embedder() as Embedder | null,
+  model = embedder() as ReturnType<typeof embedder> | null,
   spent = 0,
   now = (): number => 0,
 } = {}) => {
@@ -106,6 +110,57 @@ describe("search", () => {
       });
       expect(lib.calls).toEqual([{ query: "purple" }]);
     }
+  });
+
+  it("falls back to keyword search when anything in the vector leg fails", async () => {
+    const failures: {
+      label: string;
+      tweak: (s: ReturnType<typeof setup>) => void;
+    }[] = [
+      {
+        label: "the SQL with a vector",
+        tweak: ({ lib }) =>
+          lib.find.mockImplementation(async (query, options) => {
+            if (options.probe) throw new Error("halfvec out of range");
+            lib.calls.push({ query });
+            return [];
+          }),
+      },
+      {
+        label: "an embedder that throws something unexpected",
+        tweak: ({ model }) =>
+          (model!.embed = vi.fn(async () => {
+            throw new TypeError("bad reply");
+          })),
+      },
+      {
+        label: "reading the budget",
+        tweak: ({ budget }) =>
+          (budget.spentTodayMicros = async () => {
+            throw new Error("database down");
+          }),
+      },
+    ];
+    for (const { label, tweak } of failures) {
+      const s = setup();
+      tweak(s);
+      await expect(s.search.search("purple", "full"), label).resolves.toEqual({
+        results: [],
+        mode: "instant",
+      });
+      expect(s.lib.calls.at(-1), label).toEqual({ query: "purple" });
+    }
+  });
+
+  it("keeps the query vector when recording its cost fails", async () => {
+    const s = setup();
+    s.budget.recordCall = async () => {
+      throw new Error("database down");
+    };
+    const answer = await s.search.search("purple", "full");
+    expect(answer.mode).toBe("full");
+    expect(s.lib.calls[0]!.probe).toMatchObject({ vector: [0, 1, 0] });
+    expect(s.model!.embed).toHaveBeenCalledTimes(1);
   });
 
   it("records what a timed-out query may cost", async () => {

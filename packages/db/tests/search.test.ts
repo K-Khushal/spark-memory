@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq, sql } from "drizzle-orm";
 import type { IndexingOutput } from "@spark/core";
 import {
   indexingStore,
   openDatabase,
   openLibrary,
+  schema,
   type Database,
   type Embedding,
 } from "../index";
@@ -179,6 +181,27 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       const ids = (await search("x", mix({ 0: 1 }))).map((r) => r.id);
       expect(ids).not.toContain(theirs);
     });
+
+    it("never returns another person's Memory, even from a vector row filed under the wrong person", async () => {
+      const theirs = await save({ body: "Ben's diary" }, { userId: ben });
+      await db.insert(schema.memoryVector).values({
+        memoryId: theirs,
+        userId: ana,
+        kind: "overview",
+        model: MODEL,
+        dimensions: DIMS,
+        embedding: mix({ 90: 1 }),
+      });
+      const raw = async (vector: number[] | null, like: string | null) =>
+        (
+          await db.execute<{ id: string }>(
+            sql`select id from search_memories(${ana}, '', 40, ${vector && `[${vector.join(",")}]`}::halfvec, ${like}::uuid, ${MODEL}, ${DIMS})`
+          )
+        ).rows.map((r) => r.id);
+      expect(await raw(mix({ 90: 1 }), null)).not.toContain(theirs);
+      // Nor can Ben's Memory be the probe for More Like This.
+      expect(await raw(null, theirs)).toEqual([]);
+    });
   });
 
   describe("fusion", () => {
@@ -277,6 +300,49 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     });
     const stale = async () =>
       (await store().staleVectors(spaceName, 10_000)).map((m) => m.id);
+
+    it("says whether a Memory has vectors in the space search uses now", async () => {
+      const id = await save(
+        { body: "Lighthouse" },
+        { vectors: [{ kind: "overview", embedding: mix({ 73: 1 }) }] }
+      );
+      const has = (vectorsSpace?: string) =>
+        openLibrary(db, ana, vectorsSpace ? { vectorsSpace } : {})
+          .get(id)
+          .then((m) => m?.hasVectors);
+      expect(await has(spaceName)).toBe(true);
+      // Another model, or no embedder at all (no paid tier): none to use.
+      expect(await has("next-model@768")).toBe(false);
+      expect(await has()).toBe(false);
+      await library().setAiOptOut(id, true);
+      expect(await has(spaceName)).toBe(false);
+    });
+
+    it("drops a Memory's vectors with the edit that changes its text, and keeps them for a new title", async () => {
+      const id = await save(
+        { body: "Harbour at dusk" },
+        { vectors: [{ kind: "overview", embedding: mix({ 72: 1 }) }] }
+      );
+      const vectors = async () =>
+        (
+          await db
+            .select({ kind: schema.memoryVector.kind })
+            .from(schema.memoryVector)
+            .where(eq(schema.memoryVector.memoryId, id))
+        ).length;
+      await library().edit(id, { title: "Renamed" });
+      expect(await vectors()).toBe(1);
+      await library().edit(id, { body: "Groceries" });
+      expect(await vectors()).toBe(0);
+      const [row] = await db
+        .select({
+          space: schema.memory.vectorsSpace,
+          revision: schema.memory.vectorsRevision,
+        })
+        .from(schema.memory)
+        .where(eq(schema.memory.id, id));
+      expect(row).toEqual({ space: null, revision: null });
+    });
 
     it("drops vectors made from text edited while they were made, and the sweep finds it", async () => {
       const result = await library().capture({ body: "Draft" });

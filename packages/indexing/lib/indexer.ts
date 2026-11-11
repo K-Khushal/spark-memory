@@ -223,6 +223,16 @@ export function createIndexer({
   readFile: (key: string) => Promise<Uint8Array | undefined>;
   now?: () => Date;
 }) {
+  /**
+   * Records a call that already happened. If that fails (the database), the
+   * answer already paid for is still used: retrying would pay again. Only
+   * the category is logged.
+   */
+  const recordCall = (call: AiCall) =>
+    store
+      .recordCall(call)
+      .catch(() => console.error("indexing: AI call cost not recorded"));
+
   /** One provider call for the Memory loaded as `memoryId`, recorded with its cost. */
   async function ask(provider: Provider, work: Work, request: ExtractRequest) {
     // AI opt-out switched on (or an edit, or Retry) since loading: stop here.
@@ -233,7 +243,7 @@ export function createIndexer({
       reply = await provider.extract(request);
     } catch (error) {
       if (error instanceof ProviderError && error.estimate) {
-        await store.recordCall({
+        await recordCall({
           userId: work.userId,
           memoryId: work.memoryId,
           provider: provider.name,
@@ -245,7 +255,7 @@ export function createIndexer({
       }
       throw error;
     }
-    await store.recordCall({
+    await recordCall({
       userId: work.userId,
       memoryId: work.memoryId,
       provider: provider.name,
@@ -295,7 +305,7 @@ export function createIndexer({
       usage: { textTokens: number; imageTokens: number },
       estimated?: boolean
     ) =>
-      store.recordCall({
+      recordCall({
         userId: work.userId,
         memoryId,
         provider: embedder.name,
@@ -468,12 +478,18 @@ export function createIndexer({
     for (const provider of providers) {
       try {
         const output = await extractWith(provider, work, request);
-        const embedding = await embed(
-          work.memoryId,
-          { ...work, found: output },
-          () => store.isCurrent(work.memoryId, work.run),
-          image
-        );
+        // Extraction may have spent the rest of the budget: a background
+        // run then finishes without vectors, and the hourly sweep embeds
+        // them once the budget allows (fresh Captures always embed).
+        const embedding =
+          job.priority === "background" && (await budgetSpent())
+            ? undefined
+            : await embed(
+                work.memoryId,
+                { ...work, found: output },
+                () => store.isCurrent(work.memoryId, work.run),
+                image
+              );
         const written = await store.complete(
           work.memoryId,
           work.run,

@@ -64,6 +64,20 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     });
   });
 
+  it("says a Memory has vectors only where this environment can search with them", async () => {
+    const { call } = await signedIn();
+    const id = await capture(call, "Sunset over the dock");
+    const hasVectors = async (bindings = env()) =>
+      (
+        (await (await call(`/api/memories/${id}`, {}, bindings)).json()) as {
+          hasVectors: boolean;
+        }
+      ).hasVectors;
+    expect(await hasVectors()).toBe(true);
+    // Without the paid tier there is no embedder: More Like This has nothing.
+    expect(await hasVectors(env({ INDEXING_PROVIDER: undefined }))).toBe(false);
+  });
+
   it("finds More Like This from a Memory's own vectors, never another person's", async () => {
     const { call } = await signedIn();
     const dock = await capture(call, "Sunset over the dock");
@@ -122,30 +136,40 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     expect((await search(call, "twilight", "full"))[0]?.id).toBe(id);
   });
 
-  it("falls back to keyword search when the embedding provider is down", async () => {
+  it("falls back to keyword search when the embedding provider is down or answers nonsense", async () => {
     const { call } = await signedIn();
     const id = await capture(call, "Sunset over the dock");
-    const realFetch = globalThis.fetch;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) =>
-      String(input instanceof Request ? input.url : input).includes(
-        "generativelanguage.googleapis.com"
-      )
-        ? new Response("", { status: 503 })
-        : realFetch(input, init)
-    );
     const gemini = env({
       INDEXING_PROVIDER: undefined,
       GEMINI_API_KEY: "test-key",
       GEMINI_PAID_TIER: "true",
     });
-    const res = await call(`/api/search?q=sunset&mode=full`, {}, gemini);
-    expect(res.status).toBe(200);
-    const { results, mode } = (await res.json()) as {
-      results: Result[];
-      mode: string;
-    };
-    expect(results.map((r) => r.id)).toEqual([id]);
-    expect(mode).toBe("instant");
+    const realFetch = globalThis.fetch;
+    const values = new Array(EMBEDDING.dimensions).fill(0);
+    let reply = () => new Response("", { status: 503 });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) =>
+      String(input instanceof Request ? input.url : input).includes(
+        "generativelanguage.googleapis.com"
+      )
+        ? reply()
+        : realFetch(input, init)
+    );
+    for (const next of [
+      () => new Response("", { status: 503 }),
+      () => new Response('{"embeddings": [{"values": [0.1, 0', { status: 200 }),
+      () =>
+        Response.json({ embeddings: [{ values: [null, ...values.slice(1)] }] }),
+      () =>
+        Response.json({ embeddings: [{ values: [1e9, ...values.slice(1)] }] }),
+    ]) {
+      reply = next;
+      // A failed embedding is never cached: each search asks again.
+      const res = await call(`/api/search?q=sunset&mode=full`, {}, gemini);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { results: Result[]; mode: string };
+      expect(body.mode).toBe("instant");
+      expect(body.results.map((r) => r.id)).toEqual([id]);
+    }
   });
 
   it("re-embeds, hourly, Memories whose vectors are missing or stale", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMBEDDING } from "@spark/core";
+import { EMBEDDING, INDEXING } from "@spark/core";
 import {
   createIndexer,
   embeddingInputs,
@@ -15,6 +15,7 @@ import {
   type Embedding,
   type IndexStore,
   type PendingMemory,
+  type Provider,
 } from "../index";
 
 /** An embedder answering with a fixed vector per input, or failing with `error`. */
@@ -68,8 +69,10 @@ function store({
   memory = pending as PendingMemory | undefined,
   embed = stale as EmbedMemory | undefined,
   spent = 0,
+  limit = 1_000_000,
   current = (): boolean => true,
 } = {}) {
+  let spentNow = spent;
   const s = {
     completed: [] as (Embedding | undefined)[],
     written: [] as Embedding[],
@@ -93,10 +96,14 @@ function store({
       return true;
     },
     fail: async () => true,
-    spentTodayMicros: async () => spent,
-    dailyBudgetMicros: async () => 1_000_000,
-    recordCall: async (call: { costMicros: number; estimated?: boolean }) => {
+    spentTodayMicros: async () => spentNow,
+    dailyBudgetMicros: async () => limit,
+    recordCall: async (call: {
+      costMicros: number;
+      estimated?: boolean;
+    }): Promise<void> => {
       s.calls.push(call);
+      spentNow += call.costMicros;
     },
   };
   return s satisfies IndexStore;
@@ -110,6 +117,23 @@ const embedJob = {
   task: "embed" as const,
 };
 const noFiles = async () => undefined;
+
+/** Gemini answering Extraction for 1M input tokens: $0.30 (INDEXING prices). */
+const paidExtraction: Provider = {
+  name: "gemini",
+  model: INDEXING.models.gemini,
+  extract: async () => ({
+    text: JSON.stringify({
+      title: "Pier",
+      description: "Boats",
+      ocrText: "",
+      entities: [],
+      tags: [],
+      language: "en",
+    }),
+    usage: { inputTokens: 1_000_000, outputTokens: 0 },
+  }),
+};
 
 describe("embedding in the Indexing pipeline", () => {
   it("embeds after Extraction and writes the vectors with the result, at the revision it read", async () => {
@@ -152,6 +176,54 @@ describe("embedding in the Indexing pipeline", () => {
     expect(await index(indexJob)).toEqual({ result: "searchable" });
     expect(s.completed).toEqual([undefined]);
     expect(s.calls.at(-1)).toMatchObject({ estimated: true, costMicros: 200 });
+  });
+
+  it("leaves the vectors of a background run for later when its Extraction spent the rest of the budget", async () => {
+    const s = store({ limit: 200_000 });
+    const embedder = stubEmbedder();
+    const { index } = createIndexer({
+      store: s,
+      providers: [paidExtraction],
+      embedder,
+      readFile: noFiles,
+    });
+    expect(await index({ ...indexJob, priority: "background" })).toEqual({
+      result: "searchable",
+    });
+    expect(embedder.embed).not.toHaveBeenCalled();
+    expect(s.completed).toEqual([undefined]);
+  });
+
+  it("still embeds a fresh Capture past the budget", async () => {
+    const s = store({ spent: 5_000_000, limit: 200_000 });
+    const embedder = stubEmbedder();
+    const { index } = createIndexer({
+      store: s,
+      providers: [paidExtraction],
+      embedder,
+      readFile: noFiles,
+    });
+    await index(indexJob);
+    expect(embedder.embed).toHaveBeenCalled();
+  });
+
+  it("keeps what a paid call returned when recording its cost fails, without calling again", async () => {
+    const s = store();
+    s.recordCall = async () => {
+      throw new Error("database down");
+    };
+    const embedder = stubEmbedder();
+    const extract = vi.fn(paidExtraction.extract);
+    const { index } = createIndexer({
+      store: s,
+      providers: [{ ...paidExtraction, extract }, fakeProvider()],
+      embedder,
+      readFile: noFiles,
+    });
+    expect(await index(indexJob)).toEqual({ result: "searchable" });
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(embedder.embed).toHaveBeenCalledTimes(1);
+    expect(s.completed[0]?.vectors.length).toBe(2);
   });
 
   it("never embeds a Memory with AI opt-out", async () => {
@@ -373,6 +445,56 @@ describe("Gemini Embedding", () => {
         timeoutMs: 10,
       })
     ).rejects.toMatchObject({ kind: "failed", estimate: { inputTokens: 1 } });
+  });
+
+  it("turns a reply it cannot read or trust into a failure that may still be billed", async () => {
+    const embedder = (body: string) =>
+      geminiEmbedding({
+        apiKey: "k",
+        paidTier: true,
+        dimensions: 3,
+        fetch: async () => new Response(body, { status: 200 }),
+      });
+    const replies = [
+      '{"embeddings": [{"values": [1, 0', // cut off
+      '{"embeddings": [{"values": [1e400, 0, 0]}]}', // Infinity
+      '{"embeddings": [{"values": [1, null, 0]}]}',
+      '{"embeddings": [{"values": [1e10, 0, 0]}]}', // beyond halfvec
+      "null",
+      '{"embeddings": {"values": [1, 0, 0]}}',
+      '{"embeddings": [{"values": [1, "0", 0]}]}',
+      '{"embeddings": [{"values": [1, 0]}]}', // wrong length
+      '{"embeddings": []}', // a vector short
+    ];
+    for (const body of replies) {
+      await expect(
+        embedder(body).embed([{ text: "abcd" }])
+      ).rejects.toMatchObject({
+        name: "ProviderError",
+        kind: "failed",
+        estimate: { inputTokens: 1 },
+      });
+    }
+    // A body that times out while it is read.
+    const slow = geminiEmbedding({
+      apiKey: "k",
+      paidTier: true,
+      dimensions: 3,
+      fetch: async (_, init) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"embeddings":'));
+              init?.signal?.addEventListener("abort", () =>
+                controller.error(new Error("aborted"))
+              );
+            },
+          })
+        ),
+    });
+    await expect(
+      slow.embed([{ text: "abcd" }], { timeoutMs: 20 })
+    ).rejects.toMatchObject({ name: "ProviderError", kind: "failed" });
   });
 });
 

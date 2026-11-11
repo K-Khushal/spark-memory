@@ -98,19 +98,23 @@ export function createSearch<R extends Hit>({
       spend.dailyBudgetMicros(),
     ]);
     if (spent >= limit) return undefined;
+    // Bookkeeping after the call: if it fails, the vector (already paid
+    // for) is still used. Only the category is logged.
     const record = (textTokens: number, estimated?: boolean) =>
-      spend.recordCall({
-        userId,
-        memoryId: null,
-        provider: embedder.name,
-        model: embedder.model,
-        usage: { inputTokens: textTokens, outputTokens: 0 },
-        costMicros: embedCostMicros(embedder.model, {
-          textTokens,
-          imageTokens: 0,
-        }),
-        ...(estimated && { estimated }),
-      });
+      spend
+        .recordCall({
+          userId,
+          memoryId: null,
+          provider: embedder.name,
+          model: embedder.model,
+          usage: { inputTokens: textTokens, outputTokens: 0 },
+          costMicros: embedCostMicros(embedder.model, {
+            textTokens,
+            imageTokens: 0,
+          }),
+          ...(estimated && { estimated }),
+        })
+        .catch(() => console.error("search: query cost not recorded"));
     try {
       const { vectors, usage } = await embedder.embed(
         [{ text: queryText(query) }],
@@ -120,8 +124,9 @@ export function createSearch<R extends Hit>({
       remember(key, vectors[0]!, now());
       return vectors[0];
     } catch (error) {
-      if (!(error instanceof ProviderError)) throw error;
-      if (error.estimate) await record(error.estimate.inputTokens, true);
+      if (error instanceof ProviderError && error.estimate) {
+        await record(error.estimate.inputTokens, true);
+      }
       return undefined;
     }
   }
@@ -136,17 +141,25 @@ export function createSearch<R extends Hit>({
       mode: Mode
     ): Promise<{ results: Ranked<R>[]; mode: Mode }> {
       const q = query.trim().replace(/\s+/g, " ");
-      const vector = q && mode === "full" ? await embedQuery(q) : undefined;
-      const probe = vector && space && { ...space, vector };
-      const ran = probe ? "full" : "instant";
-      if (!q) return { results: [], mode: ran };
-      const results = split(
-        await find(q, {
-          ...(probe && { probe }),
-          maxDistance: EMBEDDING.maxDistance,
-        })
-      );
-      return { results, mode: ran };
+      if (!q) return { results: [], mode: "instant" };
+      const options = { maxDistance: EMBEDDING.maxDistance };
+      if (mode === "full" && space) {
+        // Anything wrong on the way to the vector leg (the budget, the
+        // provider, the SQL with a vector) falls back to keywords.
+        try {
+          const vector = await embedQuery(q);
+          if (vector) {
+            const probe = { ...space, vector };
+            return {
+              results: split(await find(q, { ...options, probe })),
+              mode: "full",
+            };
+          }
+        } catch {
+          console.error("search: full search fell back to keywords");
+        }
+      }
+      return { results: split(await find(q, options)), mode: "instant" };
     },
 
     /** More Like This: the Memory's own vectors as the query, no provider call. */

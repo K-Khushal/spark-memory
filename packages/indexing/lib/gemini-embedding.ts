@@ -7,6 +7,9 @@ type Reply = {
   usageMetadata?: { promptTokenCount?: number };
 };
 
+/** The largest magnitude halfvec stores (IEEE half precision); also rules out NaN and Infinity. */
+const HALF_MAX = 65504;
+
 /** About what one image costs in tokens; the reply may not say (docs/research/embeddings.md). */
 const IMAGE_TOKENS = 258;
 
@@ -66,6 +69,12 @@ export function geminiEmbedding({
         textTokens: guessTokens(textChars),
         imageTokens: images * IMAGE_TOKENS,
       };
+      // Timed out, cut off or unreadable: it may still be billed.
+      const billed = () =>
+        new ProviderError("failed", {
+          inputTokens: estimate.textTokens + estimate.imageTokens,
+          outputTokens: 0,
+        });
       let res: Response;
       try {
         res = await send(url, {
@@ -78,26 +87,39 @@ export function geminiEmbedding({
           body: JSON.stringify({ requests }),
         });
       } catch {
-        // Timed out or cut off: it may still be billed.
-        throw new ProviderError("failed", {
-          inputTokens: estimate.textTokens + estimate.imageTokens,
-          outputTokens: 0,
-        });
+        throw billed();
       }
       if (res.status === 429) throw new ProviderError("overflow");
       if (res.status === 400 || res.status === 413) {
         throw new ProviderError(images ? "unsupported" : "failed");
       }
       if (!res.ok) throw new ProviderError("failed");
-      const reply = (await res.json()) as Reply;
-      const vectors = (reply.embeddings ?? []).map((e) => e.values ?? []);
+      let reply: Reply;
+      try {
+        reply = (await res.json()) as Reply;
+      } catch {
+        throw billed();
+      }
+      const vectors = Array.isArray(reply?.embeddings)
+        ? reply.embeddings.map((e) => e?.values)
+        : [];
+      // Exactly one vector per input, each of finite numbers within
+      // halfvec's range at the size asked for: anything else would break
+      // the halfvec cast in search.
       if (
         vectors.length !== inputs.length ||
-        vectors.some((v) => v.length !== dimensions)
+        !vectors.every(
+          (v): v is number[] =>
+            Array.isArray(v) &&
+            v.length === dimensions &&
+            v.every((x) => typeof x === "number" && Math.abs(x) <= HALF_MAX)
+        )
       ) {
-        throw new ProviderError("failed");
+        throw billed();
       }
-      const reported = reply.usageMetadata?.promptTokenCount;
+      const count = reply.usageMetadata?.promptTokenCount;
+      const reported =
+        typeof count === "number" && Number.isFinite(count) ? count : undefined;
       return {
         vectors,
         usage:

@@ -198,6 +198,7 @@ export function libraryActions({
       indexError: null,
       indexTitle: null,
       aiOptOut: false,
+      hasVectors: false,
       revision: 1,
       capturedAt: now,
       updatedAt: now,

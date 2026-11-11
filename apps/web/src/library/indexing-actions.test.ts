@@ -19,6 +19,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   indexError: null,
   indexTitle: null,
   aiOptOut: false,
+  hasVectors: false,
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
   updatedAt: "2026-11-10T10:00:00.000Z",
@@ -33,6 +34,7 @@ function setup(
 ) {
   let wall = initial;
   const notify = vi.fn();
+  const onChanged = vi.fn();
   const actions = indexingActions({
     setMemories: (update) => {
       wall = typeof update === "function" ? update(wall) : update;
@@ -40,8 +42,9 @@ function setup(
     transport: transport as IndexingTransport,
     notify: notify as never,
     isPending,
+    onChanged,
   });
-  return { actions, wall: () => wall, notify };
+  return { actions, wall: () => wall, notify, onChanged };
 }
 
 describe("Index state on the wall", () => {
@@ -80,6 +83,37 @@ describe("Index state on the wall", () => {
       indexState: "searchable",
       indexTitle: "Named",
     });
+  });
+
+  it("says the Library changed when Indexing finishes, so open searches run again", async () => {
+    const m = memory();
+    let answer: Memory = m;
+    const { actions, wall, onChanged } = setup({ poll: async () => [answer] }, [
+      m,
+    ]);
+    await actions.poll([m.id]);
+    expect(onChanged).not.toHaveBeenCalled();
+    answer = { ...m, indexState: "searchable", hasVectors: true };
+    await actions.poll([m.id]);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(wall()[0]).toMatchObject({ hasVectors: true });
+  });
+
+  it("says the Library changed once the server answers an AI opt-out switch", async () => {
+    const m = memory({ indexState: "searchable", hasVectors: true });
+    const { actions, wall, onChanged } = setup(
+      {
+        setAiOptOut: async (_id, on) => ({
+          ...m,
+          aiOptOut: on,
+          hasVectors: false,
+        }),
+      },
+      [m]
+    );
+    await actions.setAiOptOut(m, true);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(wall()[0]).toMatchObject({ aiOptOut: true, hasVectors: false });
   });
 
   it("Retry shows Indexing at once, and rolls back with a message if refused", async () => {
@@ -154,6 +188,7 @@ describe("Index state on the wall", () => {
     await actions.setAiOptOut(m, true);
     expect(wall()[0]).toMatchObject({
       aiOptOut: false,
+      hasVectors: false,
       indexState: "searchable",
     });
     expect(notify).toHaveBeenCalledWith("AI Opt-Out Did Not Change");

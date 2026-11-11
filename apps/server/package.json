@@ -7,7 +7,7 @@
     ".": "./src/app.ts"
   },
   "scripts": {
-    "dev": "mkdir -p ../web/dist && wrangler dev --port ${SPARK_API_PORT:-8787}",
+    "dev": "mkdir -p ../web/dist && wrangler dev --port ${SPARK_API_PORT:-8787} --var BETTER_AUTH_URL:http://localhost:${SPARK_WEB_PORT:-5173}",
     "build": "wrangler deploy --dry-run --env dev --outdir dist/dev && wrangler deploy --dry-run --env production --outdir dist/production",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

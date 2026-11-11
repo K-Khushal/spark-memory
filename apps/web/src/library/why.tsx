@@ -56,8 +56,9 @@ export function WhyChip({ found, direct }: { found: Found; direct: boolean }) {
 }
 
 /**
- * More Like This, for Memory detail and the image viewer. Only a
- * Searchable Memory without AI opt-out has the vectors it searches with.
+ * More Like This, for Memory detail and the image viewer, only for a
+ * Memory with vectors this environment searches with (`hasVectors`: none
+ * for AI opt-out, before embedding, or without the paid tier).
  */
 export function MoreLikeThis({
   memory,
@@ -71,7 +72,7 @@ export function MoreLikeThis({
   compact?: boolean;
   className?: string;
 }) {
-  if (memory.aiOptOut || memory.indexState !== "searchable") return null;
+  if (!memory.hasVectors) return null;
   return (
     <Button
       variant="quiet"

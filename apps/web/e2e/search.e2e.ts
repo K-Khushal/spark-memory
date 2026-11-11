@@ -50,16 +50,20 @@ test("finds a Memory by meaning, says what matched, and finds More Like This", a
   await expect(first.getByText("Overview")).toBeVisible();
   await expect(page.locator("[data-search=full]")).toBeVisible();
 
+  // A Memory that finishes Indexing while the results are up joins them:
+  // the search runs again, without being asked.
+  await paste(page, "Dusk by the port");
+  await expect(
+    direct.getByRole("listitem", { name: "Dusk by the port, Overview" })
+  ).toBeVisible({ timeout: 15_000 });
+
   // More Like This, from Memory detail.
   await page.getByRole("button", { name: "Clear Search" }).click();
-  await capture(page, "Dusk by the port");
-  await page
-    .getByRole("list", { name: "All Memories" })
-    .getByRole("listitem", { name: "Sunset over the dock" })
-    .click();
+  const wall = page.getByRole("list", { name: "All Memories" });
+  await wall.getByRole("listitem", { name: "Sunset over the dock" }).click();
   await page.getByRole("button", { name: "More Like This" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  const similar = page.locator("[data-search=full]");
+  const similar = page.getByRole("list", { name: "More Like This" });
   await expect(
     similar.getByRole("listitem", { name: "Dusk by the port" })
   ).toBeVisible();
@@ -69,4 +73,12 @@ test("finds a Memory by meaning, says what matched, and finds More Like This", a
   await expect(similar.getByRole("listitem", { name: /Grocery/ })).toHaveCount(
     0
   );
+
+  // With AI opt-out a Memory has no vectors: More Like This goes.
+  await page.getByRole("button", { name: "Clear Search" }).click();
+  await wall.getByRole("listitem", { name: "Dusk by the port" }).click();
+  const moreLikeThis = page.getByRole("button", { name: "More Like This" });
+  await expect(moreLikeThis).toBeVisible();
+  await page.getByRole("switch", { name: "AI Opt-Out" }).click();
+  await expect(moreLikeThis).toHaveCount(0);
 });

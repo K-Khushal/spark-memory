@@ -43,7 +43,7 @@ const indexTitle = sql<string | null>`(
   select i.title from ${memoryIndex} i
   where i.memory_id = ${memory.id} and not ${memory.aiOptOut})`;
 
-const columns = {
+const baseColumns = {
   id: memory.id,
   kind: memory.kind,
   title: memory.title,
@@ -66,8 +66,16 @@ const columns = {
 /** A Memory as the API reads it; routes turn `image` keys into signed URLs. */
 export type Memory = Pick<
   typeof memory.$inferSelect,
-  Exclude<keyof typeof columns, "image" | "indexTitle">
-> & { image: MemoryImage | null; indexTitle: string | null };
+  Exclude<keyof typeof baseColumns, "image" | "indexTitle">
+> & {
+  image: MemoryImage | null;
+  indexTitle: string | null;
+  /**
+   * It has vectors in the space search uses now, so More Like This can
+   * find something; false without an embedder (no paid tier).
+   */
+  hasVectors: boolean;
+};
 
 /** A Memory shows once every file it has is stored. */
 const allStored = sql`not exists (select 1 from memory_file f where f.memory_id = ${memory.id} and f.stored_at is null)`;
@@ -196,8 +204,20 @@ function parseCursor(cursor: string) {
  * One user's Library (GLOSSARY.md). The only way to reach the memory table:
  * every query is scoped to `userId` here, so no route can forget to.
  * Inputs are validated against the Free allowance (@spark/core).
+ * `vectorsSpace` is the embedding space (`model@dimensions`) this
+ * environment searches with; without one no Memory has usable vectors.
  */
-export function openLibrary(db: Database, userId: string) {
+export function openLibrary(
+  db: Database,
+  userId: string,
+  { vectorsSpace }: { vectorsSpace?: string } = {}
+) {
+  const columns = {
+    ...baseColumns,
+    hasVectors: vectorsSpace
+      ? sql<boolean>`coalesce(${memory.vectorsSpace} = ${vectorsSpace} and not ${memory.aiOptOut}, false)`
+      : sql<boolean>`false`,
+  };
   const owned = (id: string) =>
     and(eq(memory.userId, userId), eq(memory.id, id));
 
@@ -490,36 +510,40 @@ export function openLibrary(db: Database, userId: string) {
         changes.body === undefined
           ? sql`false`
           : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut}`;
-      const [row] = await db
-        .update(memory)
-        .set({
-          ...changes,
-          revision: sql`${memory.revision} + 1`,
-          indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
-          indexRun: sql`${memory.indexRun} + (${reindex})::int`,
-          indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
-          // A fix to a Capture still on its first, fresh run stays first in
-          // line; any later edit is background work.
-          indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
-        })
-        .where(
-          and(
-            owned(id),
-            // Only a text Memory has text to edit.
-            changes.body === undefined ? undefined : eq(memory.kind, "text"),
-            revision === undefined ? undefined : eq(memory.revision, revision)
-          )
-        )
-        .returning(columns);
-      if (row && changes.body !== undefined && row.indexState === "indexing") {
-        // Vectors of the old text would match it and point into the new one:
-        // gone until Indexing embeds the new text.
-        await db.delete(memoryVector).where(eq(memoryVector.memoryId, id));
-        await db
+      // One transaction: new text and the end of the old text's vectors
+      // (they would match it, and point into the new text) land together.
+      const row = await db.transaction(async (tx) => {
+        const [edited] = await tx
           .update(memory)
-          .set({ vectorsSpace: null, vectorsRevision: null })
-          .where(eq(memory.id, id));
-      }
+          .set({
+            ...changes,
+            revision: sql`${memory.revision} + 1`,
+            indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
+            indexRun: sql`${memory.indexRun} + (${reindex})::int`,
+            indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
+            // A fix to a Capture still on its first, fresh run stays first in
+            // line; any later edit is background work.
+            indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
+            vectorsSpace: sql`case when ${reindex} then null else ${memory.vectorsSpace} end`,
+            vectorsRevision: sql`case when ${reindex} then null else ${memory.vectorsRevision} end`,
+          })
+          .where(
+            and(
+              owned(id),
+              // Only a text Memory has text to edit.
+              changes.body === undefined ? undefined : eq(memory.kind, "text"),
+              revision === undefined ? undefined : eq(memory.revision, revision)
+            )
+          )
+          .returning({ ...columns, vectorsSpace: memory.vectorsSpace });
+        if (!edited) return undefined;
+        const { vectorsSpace, ...shown } = edited;
+        // Vectors always come with their space: none means none are kept.
+        if (vectorsSpace === null) {
+          await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
+        }
+        return shown;
+      });
       if (row) return row;
       const now = revision === undefined ? undefined : await get(id);
       return now && (changes.body === undefined || now.kind === "text")

@@ -26,7 +26,12 @@ import { ImageViewer } from "./image-viewer";
 import { useFlip } from "./flip";
 import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
-import { useSearch, type Found, type Results } from "./use-search";
+import {
+  clearSearchCache,
+  useSearch,
+  type Found,
+  type Results,
+} from "./use-search";
 import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
 
 /**
@@ -52,18 +57,22 @@ export function LibraryPage({
   const [imageId, setImageId] = useState<string>();
   /** The Memory the wall shows More Like This of, instead of a query. */
   const [like, setLike] = useState<Memory>();
-  // ⌘K: instant per keystroke, full once typing pauses. The wall: both at
-  // once (often straight from the cache the menu filled).
+  // ⌘K: instant per keystroke, full once typing pauses.
   const instant = useSearch(
     { query: draft },
     library.memories,
-    library.version
+    library.version,
+    {
+      userId: session.user.id,
+    }
   );
+  // The wall: instant and full at once (often straight from the cache the
+  // menu filled), and the last results stay up until new ones land.
   const results = useSearch(
     like ? { like: like.id } : { query },
     library.memories,
     library.version,
-    0
+    { userId: session.user.id, pauseMs: 0, keepPrevious: true }
   );
   const searching = !!like || !!query;
   const listRef = useRef<HTMLDivElement>(null);
@@ -176,6 +185,7 @@ export function LibraryPage({
     }
     stopAnalytics();
     clearAdminCache();
+    clearSearchCache();
     await navigate({ to: "/sign-in" });
   };
 
@@ -283,10 +293,10 @@ export function LibraryPage({
             </Centred>
           ) : (
             <div className="p-4 md:p-6">
-              {searching ? (
+              {/* Until a search's first answer lands, the wall stays as it was. */}
+              {searching && results ? (
                 <SearchResults
                   results={results}
-                  like={!!like}
                   query={query}
                   onOpen={openMemory}
                   tiles={tiles}
@@ -542,14 +552,11 @@ function ResultWall({
 /** Direct Matches first, Related Matches apart (DESIGN.md → Interaction baseline). */
 function SearchResults({
   results,
-  like,
   query,
   onOpen,
   tiles,
 }: {
   results: Results | "failed" | undefined;
-  /** More Like This: one wall, nearest first, no headings or chips. */
-  like: boolean;
   query: string;
   onOpen: (memory: Memory) => void;
   tiles: TileActions;
@@ -562,7 +569,10 @@ function SearchResults({
       </h2>
     );
   }
-  if (like) {
+  // More Like This: one wall, nearest first, no headings or chips. Read
+  // from the answer itself, so a previous search's results keep their own
+  // layout until the new answer lands.
+  if (results.key.startsWith("like:")) {
     const found = [...results.direct, ...results.related];
     return (
       <div data-search={results.mode}>

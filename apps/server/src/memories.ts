@@ -5,6 +5,7 @@ import { validator } from "hono/validator";
 import {
   AiOptOut,
   EMBEDDING,
+  embeddingSpace,
   FREE_ALLOWANCE,
   ImageCapture,
   MemoryEditRequest,
@@ -22,7 +23,15 @@ import { enqueue, enqueueEmbed, providers } from "./indexing";
 const withLibrary = createMiddleware<
   AppEnv & { Variables: UserVariables & { library: Library } }
 >(async (c, next) => {
-  c.set("library", openLibrary(c.var.db, c.var.user.id));
+  const embedder = embedderFor(providers(c.env));
+  c.set(
+    "library",
+    openLibrary(c.var.db, c.var.user.id, {
+      ...(embedder && {
+        vectorsSpace: embeddingSpace(embedder.model, embedder.dimensions),
+      }),
+    })
+  );
   await next();
 });
 

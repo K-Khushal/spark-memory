@@ -26,6 +26,26 @@ export const requestKey = (request: SearchRequest) =>
 const CACHE_SIZE = 50;
 
 /**
+ * Which answer a search may show for the `current` request (requestKey):
+ * its own, or, in the menu, one to the start of what is being typed (it
+ * stays steady as letters are added). `keepPrevious` (the wall) keeps the
+ * last results up until the new answer lands, so the wall never empties;
+ * a failure shows only for the search it belongs to.
+ */
+export function shownAnswer(
+  answer: Answer | undefined,
+  current: string | undefined,
+  keepPrevious: boolean
+): Answer | undefined {
+  if (!answer || !current) return undefined;
+  const own =
+    answer.key === current ||
+    (answer.key.startsWith("q:") && current.startsWith(answer.key));
+  if (own) return answer;
+  return keepPrevious && !("failed" in answer) ? answer : undefined;
+}
+
+/**
  * One search box's requests, as one state machine: each `set` drops
  * whatever the previous one started. Words get an instant answer at once
  * and a full one once typing pauses for `pauseMs`; a full answer is final
@@ -39,6 +59,7 @@ export function searchSession({
   onAnswer,
   pauseMs,
   cache,
+  scope,
 }: {
   /** `final: false` when a full search fell back to keywords: shown, never cached. */
   fetch: (
@@ -48,8 +69,10 @@ export function searchSession({
   ) => Promise<{ hits: Hit[]; final: boolean }>;
   onAnswer: (answer: Answer | undefined) => void;
   pauseMs: number;
-  /** Full answers by `${version}|${requestKey}`, shared between sessions. */
+  /** Full answers by `${scope}|${version}|${requestKey}`, shared between sessions. */
   cache: Map<string, Hit[]>;
+  /** Whose Library: answers are never shared between accounts. */
+  scope: string;
 }) {
   let stop = () => {};
 
@@ -61,7 +84,7 @@ export function searchSession({
       return;
     }
     const key = requestKey(request);
-    const cacheKey = `${version}|${key}`;
+    const cacheKey = `${scope}|${version}|${key}`;
     const cached = cache.get(cacheKey);
     if (cached) {
       stop = () => {};

@@ -10,6 +10,7 @@ import {
   noteAdminStatus,
   type AppSession,
 } from "../auth";
+import { clearSearchCache } from "../library/use-search";
 import { DeskSidebar } from "../shell";
 import {
   dollarsToMicros,
@@ -81,6 +82,7 @@ export function AdminPage({ session }: { session: AppSession }) {
     }
     stopAnalytics();
     clearAdminCache();
+    clearSearchCache();
     await navigate({ to: "/sign-in" });
   };
 

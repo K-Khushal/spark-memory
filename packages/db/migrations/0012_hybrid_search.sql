@@ -148,6 +148,8 @@ AS $$
     UNION ALL
     SELECT v.embedding
     FROM memory_vector v
+    -- The owner is read from memory, never only from the vector row.
+    JOIN memory pm ON pm.id = v.memory_id AND pm.user_id = p_user_id
     WHERE p_like IS NOT NULL AND v.memory_id = p_like
       AND v.user_id = p_user_id AND v.model = p_model
       AND v.dimensions = p_dimensions AND v.kind IN ('overview', 'visual')
@@ -156,6 +158,7 @@ AS $$
     SELECT DISTINCT ON (v.memory_id)
       v.memory_id AS id, v.kind, v.anchor, d.distance
     FROM memory_vector v
+    JOIN memory vm ON vm.id = v.memory_id AND vm.user_id = p_user_id
     CROSS JOIN LATERAL (
       SELECT min(v.embedding <=> p.v) AS distance FROM probe p
     ) AS d
@@ -169,7 +172,7 @@ AS $$
     SELECT n.id, n.kind, n.anchor, n.distance,
       row_number() OVER (ORDER BY n.distance, n.id) AS rank
     FROM nearest n
-    JOIN memory m ON m.id = n.id
+    JOIN memory m ON m.id = n.id AND m.user_id = p_user_id
     WHERE p_kinds IS NULL OR m.kind = ANY (p_kinds)
     ORDER BY rank
     LIMIT 100
@@ -200,7 +203,7 @@ AS $$
         matched_field(m, CASE f.best WHEN 'keyword' THEN q.any_word ELSE q.typo END)))
     END AS part
   FROM fused f
-  JOIN memory m ON m.id = f.id
+  JOIN memory m ON m.id = f.id AND m.user_id = p_user_id
   LEFT JOIN vector v ON v.id = f.id
   CROSS JOIN q
   ORDER BY f.score DESC, f.id

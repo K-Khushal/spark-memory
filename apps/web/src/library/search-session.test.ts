@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   searchSession,
+  shownAnswer,
   type Answer,
+  type Hit,
   type Mode,
   type SearchRequest,
 } from "./search-session";
@@ -17,12 +19,19 @@ type Pending = {
   fail: () => void;
 };
 
-function setup(pauseMs = 300) {
+function setup(
+  pauseMs = 300,
+  {
+    cache = new Map(),
+    scope = "ana",
+  }: { cache?: Map<string, Hit[]>; scope?: string } = {}
+) {
   const pending: Pending[] = [];
   const answers: (Answer | undefined)[] = [];
   const session = searchSession({
     pauseMs,
-    cache: new Map(),
+    cache,
+    scope,
     fetch: (request, mode, signal) =>
       new Promise((resolve, reject) =>
         pending.push({
@@ -162,5 +171,45 @@ describe("searchSession", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(s.pending.length).toBe(1);
     expect(s.last()).toBeUndefined();
+  });
+
+  it("never answers one account from another's cache", async () => {
+    const cache = new Map<string, Hit[]>();
+    const ana = setup(0, { cache, scope: "ana" });
+    ana.session.set({ query: "purple" }, 1);
+    await settle();
+    ana.find("full", "purple").answer(["anas"]);
+    await settle();
+    const ben = setup(0, { cache, scope: "ben" });
+    ben.session.set({ query: "purple" }, 1);
+    expect(ben.answers).toEqual([]);
+    expect(ben.pending.map((p) => p.mode)).toEqual(["instant", "full"]);
+  });
+});
+
+describe("shownAnswer", () => {
+  const hits = (key: string): Answer => ({ key, mode: "full", hits: [] });
+  const failed: Answer = { key: "q:tea", mode: "instant", failed: true };
+
+  it("shows the answer to the current search, or to its start while typing on", () => {
+    expect(shownAnswer(hits("q:purple"), "q:purple", false)).toBeDefined();
+    expect(shownAnswer(hits("q:purp"), "q:purple", false)).toBeDefined();
+  });
+
+  it("never shows another search's answer in the menu", () => {
+    expect(shownAnswer(hits("q:tea"), "q:purple", false)).toBeUndefined();
+    expect(shownAnswer(hits("q:purple"), "q:purp", false)).toBeUndefined();
+    expect(shownAnswer(hits("q:purple"), "like:m1", false)).toBeUndefined();
+  });
+
+  it("keeps the previous results on the wall until the new answer lands, never a failure", () => {
+    expect(shownAnswer(hits("q:tea"), "q:purple", true)?.key).toBe("q:tea");
+    expect(shownAnswer(hits("q:tea"), "like:m1", true)?.key).toBe("q:tea");
+    expect(shownAnswer(failed, "q:purple", true)).toBeUndefined();
+    expect(shownAnswer(failed, "q:tea", true)).toBe(failed);
+  });
+
+  it("shows nothing once there is no search", () => {
+    expect(shownAnswer(hits("q:tea"), undefined, true)).toBeUndefined();
   });
 });

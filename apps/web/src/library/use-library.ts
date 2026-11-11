@@ -175,6 +175,7 @@ export function useLibrary() {
       transport: indexingTransport,
       notify: toast,
       isPending: actions.isPending,
+      onChanged: () => setVersion((n) => n + 1),
     })
   );
   // While anything is Indexing, ask after it: every 2 s, backing off to 30 s
