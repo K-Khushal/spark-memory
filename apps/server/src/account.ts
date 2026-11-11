@@ -58,7 +58,10 @@ export const account = new Hono<AppEnv>()
   .use("/account", withAuth, requireUser, withAccount, noStore)
   .use("/account/*", withAuth, requireUser, withAccount, noStore)
   .get("/account/sessions", async (c) => {
-    const sessions = await c.var.account.sessions();
+    // This device first, then the most recently active.
+    const sessions = (await c.var.account.sessions()).sort(
+      (a, b) => +(b.id === c.var.sessionId) - +(a.id === c.var.sessionId)
+    );
     return c.json({
       sessions: await Promise.all(
         sessions.map(async (s) => ({
@@ -89,8 +92,20 @@ export const account = new Hono<AppEnv>()
     return c.body(null, 204);
   })
   .get("/account/export", async (c) =>
-    c.json({ export: await shown(c.var.account.export(), c) })
+    c.json({ export: shown(await c.var.account.export()) })
   )
+  /**
+   * The ready ZIP: a redirect to a freshly signed storage URL, so the link
+   * on screen works for as long as the export does, never longer.
+   */
+  .get("/account/export/download", async (c) => {
+    const ready = await c.var.account.export();
+    if (ready?.state !== "ready") return c.json(notFound, 404);
+    const url = await fileStore(c.env, c.req.url).signDownload(
+      exportKey(c.var.user.id, ready.id)
+    );
+    return c.redirect(url, 302);
+  })
   /** Starts building a ZIP of the whole Library in the background. */
   .post("/account/export", async (c) => {
     const result = await c.var.account.requestExport();
@@ -102,7 +117,7 @@ export const account = new Hono<AppEnv>()
       kind: "export",
       exportId: result.started.id,
     }).catch(() => console.error("account: export not sent"));
-    return c.json({ export: await shown(result.started, c) }, 202);
+    return c.json({ export: shown(result.started) }, 202);
   })
   /**
    * Deletes the account and everything in it, permanently, once the person
@@ -122,18 +137,11 @@ export const account = new Hono<AppEnv>()
     return c.body(null, 204);
   });
 
-/** An export as the browser sees it: a signed download link once it is ready. */
-async function shown(
-  pending: LibraryExport | undefined | Promise<LibraryExport | undefined>,
-  c: { env: AppEnv["Bindings"]; req: { url: string }; var: UserVariables }
-) {
-  const found = await pending;
+/** An export as the browser sees it; once ready, it downloads from /account/export/download. */
+function shown(found: LibraryExport | undefined) {
   if (!found) return null;
-  const { id, state, requestedAt, readyAt, bytes } = found;
+  const { state, requestedAt, readyAt, bytes } = found;
   if (state !== "ready" || !readyAt) return { state, requestedAt };
-  const url = await fileStore(c.env, c.req.url).signDownload(
-    exportKey(c.var.user.id, id)
-  );
   const expiresAt = new Date(readyAt.getTime() + EXPORT_TTL_HOURS * 3600_000);
-  return { state, requestedAt, bytes, url, expiresAt };
+  return { state, requestedAt, bytes, expiresAt };
 }

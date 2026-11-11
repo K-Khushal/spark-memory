@@ -1,4 +1,11 @@
-import { useId, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, DownloadIcon, LoaderIcon } from "lucide-react";
 import {
@@ -12,9 +19,9 @@ import {
 import type { Session } from "../auth";
 import { SidebarFooter, SidebarLink, Wordmark, useSignOut } from "../shell";
 import {
+  EXPORT_DOWNLOAD_URL,
   useAccount,
   type DeviceSession,
-  type LibraryExport,
 } from "./use-account";
 
 /** Settings: signed-in devices, Library export, account deletion. */
@@ -22,6 +29,9 @@ export function SettingsPage({ session }: { session: Session }) {
   const signOut = useSignOut();
   const account = useAccount();
   const { email } = session.user;
+  const loading =
+    account.sessions === undefined || account.export === undefined;
+  const failed = account.sessions === "failed" || account.export === "failed";
 
   return (
     <div className="flex min-h-dvh bg-canvas">
@@ -30,9 +40,13 @@ export function SettingsPage({ session }: { session: Session }) {
           <Wordmark />
         </div>
         <nav aria-label="Library">
-          <SidebarLink to="/" current={false}>
-            All Memories
-          </SidebarLink>
+          <ul>
+            <li>
+              <SidebarLink to="/" current={false}>
+                All Memories
+              </SidebarLink>
+            </li>
+          </ul>
         </nav>
         <SidebarFooter
           email={email}
@@ -42,7 +56,7 @@ export function SettingsPage({ session }: { session: Session }) {
       </aside>
 
       <main className="min-w-0 flex-1">
-        <div className="sticky top-0 z-20 flex h-[53px] items-center gap-2 border-b border-line bg-canvas px-4 md:hidden">
+        <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden">
           <Button variant="quiet" size="icon" aria-label="Library" asChild>
             <Link to="/">
               <ArrowLeftIcon aria-hidden />
@@ -52,19 +66,33 @@ export function SettingsPage({ session }: { session: Session }) {
             Settings
           </span>
         </div>
-        <div className="mx-auto flex max-w-xl flex-col gap-10 px-4 py-8 md:px-6 md:py-12">
+        <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12">
           <h1 className="sr-only font-display text-xl font-semibold tracking-[-0.02em] md:not-sr-only">
             Settings
           </h1>
-          <Section title="Sessions">
-            <Sessions account={account} />
-          </Section>
-          <Section title="Export">
-            <Export account={account} />
-          </Section>
-          <Section title="Account">
-            <DeleteAccount email={email} account={account} />
-          </Section>
+          {/* Nothing until both have loaded, so nothing moves under the pointer. */}
+          {failed ? (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-ink-muted">
+                Spark Is Unreachable
+              </span>
+              <Button variant="outline" size="sm" onClick={account.reload}>
+                Try Again
+              </Button>
+            </div>
+          ) : loading ? null : (
+            <>
+              <Section title="Sessions">
+                <Sessions account={account} />
+              </Section>
+              <Section title="Export" live>
+                <Export account={account} />
+              </Section>
+              <Section title="Account">
+                <DeleteAccount email={email} account={account} />
+              </Section>
+            </>
+          )}
         </div>
       </main>
       <Toaster />
@@ -72,13 +100,28 @@ export function SettingsPage({ session }: { session: Session }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  live,
+  children,
+}: {
+  title: string;
+  /** Announce changes (an export starting, finishing or failing). */
+  live?: boolean;
+  children: ReactNode;
+}) {
+  const id = useId();
   return (
-    <section aria-labelledby={title} className="flex flex-col gap-3">
-      <h2 id={title} className="text-sm font-medium text-ink-muted">
+    <section aria-labelledby={id} className="flex flex-col gap-2">
+      <h2 id={id} className="text-sm font-medium text-ink-muted">
         {title}
       </h2>
-      {children}
+      <div
+        aria-live={live ? "polite" : undefined}
+        className="flex flex-col gap-2"
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -98,7 +141,7 @@ const dayAndTime = new Intl.DateTimeFormat(undefined, {
 
 /** "Today", "Yesterday" or a date, for when a device was last active. */
 function lastActive(at: string) {
-  const days = Math.floor(
+  const days = Math.round(
     (new Date().setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) /
       86_400_000
   );
@@ -107,29 +150,64 @@ function lastActive(at: string) {
   return day.format(new Date(at));
 }
 
+function Spinner() {
+  return (
+    <LoaderIcon
+      className="animate-spin motion-reduce:animate-none"
+      aria-hidden
+    />
+  );
+}
+
 function Sessions({ account }: { account: Account }) {
   const navigate = useNavigate();
-  const { sessions } = account;
+  const list = useRef<HTMLUListElement>(null);
+  const sessions = Array.isArray(account.sessions) ? account.sessions : [];
+
+  const buttons = () => [...(list.current?.querySelectorAll("button") ?? [])];
+  const revoke = async (session: DeviceSession) => {
+    const index = buttons().findIndex((b) => b === document.activeElement);
+    if (!(await account.revoke(session))) return;
+    // Focus stays in the list: the next device's Sign Out, else the last one.
+    requestAnimationFrame(() => {
+      if (index < 0) return;
+      const left = buttons();
+      (left[Math.min(index, left.length - 1)] ?? list.current)?.focus();
+    });
+  };
   const everywhere = async () => {
     if (await account.signOutEverywhere()) await navigate({ to: "/sign-in" });
   };
-  if (sessions === "failed") return <Unreachable onRetry={account.reload} />;
+
   return (
     <>
-      <ul aria-label="Sessions" className="flex flex-col">
-        {sessions?.map((s) => (
+      <ul
+        ref={list}
+        aria-label="Sessions"
+        tabIndex={-1}
+        className="flex flex-col outline-none"
+      >
+        {sessions.map((s) => (
           <SessionRow
             key={s.handle}
             session={s}
-            onRevoke={() => void account.revoke(s)}
+            onRevoke={() => void revoke(s)}
           />
         ))}
       </ul>
-      <div>
-        <Button variant="outline" onClick={() => void everywhere()}>
-          Sign Out Everywhere
-        </Button>
-      </div>
+      {/* With this device alone it would only repeat the sidebar's Sign Out. */}
+      {sessions.length > 1 && (
+        <div className="pt-1">
+          <Button
+            variant="outline"
+            aria-disabled={account.pending === "everywhere"}
+            onClick={() => account.pending || void everywhere()}
+          >
+            {account.pending === "everywhere" && <Spinner />}
+            Sign Out Everywhere
+          </Button>
+        </div>
+      )}
     </>
   );
 }
@@ -141,6 +219,7 @@ function SessionRow({
   session: DeviceSession;
   onRevoke: () => void;
 }) {
+  const active = lastActive(session.lastActiveAt);
   return (
     <li className="flex min-h-12 items-center gap-3 border-b border-line py-1 last:border-b-0">
       <span className="min-w-0 flex-1 truncate text-sm">{session.device}</span>
@@ -148,13 +227,12 @@ function SessionRow({
         <span className="text-sm text-ink-muted">This Device</span>
       ) : (
         <>
-          <span className="text-sm text-ink-muted tabular">
-            {lastActive(session.lastActiveAt)}
-          </span>
+          <span className="text-sm text-ink-muted tabular">{active}</span>
           <Button
             variant="quiet"
             size="sm"
-            aria-label={`Sign Out ${session.device}`}
+            className="-mr-3"
+            aria-label={`Sign Out ${session.device}, ${active}`}
             onClick={onRevoke}
           >
             Sign Out
@@ -166,37 +244,56 @@ function SessionRow({
 }
 
 function Export({ account }: { account: Account }) {
-  const current: LibraryExport | undefined | "failed" = account.export;
-  if (current === "failed") return <Unreachable onRetry={account.reload} />;
-  if (current === undefined) return <div className="h-9" />;
-  if (current?.state === "building") {
-    return (
-      <div>
-        <Button variant="outline" disabled>
-          <LoaderIcon className="animate-spin" aria-hidden /> Exporting
-        </Button>
-      </div>
-    );
-  }
-  if (current?.state === "ready") {
-    return (
-      <div className="flex items-center gap-3">
-        <Button variant="primary" asChild>
-          <a href={current.url} download>
-            <DownloadIcon aria-hidden /> Download
-          </a>
-        </Button>
-        <span className="text-sm text-ink-muted tabular">
-          Until {dayAndTime.format(new Date(current.expiresAt))}
-        </span>
-      </div>
-    );
-  }
+  const box = useRef<HTMLDivElement>(null);
+  const current = account.export === "failed" ? null : account.export;
+  const state = account.pending === "export" ? "building" : current?.state;
+
+  // The button changes under the keyboard: keep focus on what replaced it.
+  const hadFocus = useRef(false);
+  useEffect(() => {
+    if (hadFocus.current)
+      box.current?.querySelector<HTMLElement>("a, button")?.focus();
+  }, [state]);
+
   return (
-    <div>
-      <Button variant="outline" onClick={() => void account.startExport()}>
-        {current?.state === "failed" ? "Try Export Again" : "Export Library"}
-      </Button>
+    <div
+      ref={box}
+      className="flex items-center gap-3"
+      onFocus={() => (hadFocus.current = true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          hadFocus.current = false;
+        }
+      }}
+    >
+      {current?.state === "ready" ? (
+        <>
+          <Button variant="primary" asChild>
+            <a href={EXPORT_DOWNLOAD_URL}>
+              <DownloadIcon aria-hidden /> Download
+            </a>
+          </Button>
+          <span className="text-sm text-ink-muted tabular">
+            Until {dayAndTime.format(new Date(current.expiresAt))}
+          </span>
+        </>
+      ) : (
+        <Button
+          variant="outline"
+          aria-disabled={state === "building"}
+          onClick={() => state === "building" || void account.startExport()}
+        >
+          {state === "building" ? (
+            <>
+              <Spinner /> Exporting
+            </>
+          ) : state === "failed" ? (
+            "Try Export Again"
+          ) : (
+            "Export Library"
+          )}
+        </Button>
+      )}
     </div>
   );
 }
@@ -220,8 +317,11 @@ function DeleteAccount({
     if (!matches || pending) return;
     setPending(true);
     const deleted = await account.deleteAccount(typed);
+    if (deleted) {
+      await navigate({ to: "/sign-in" });
+      return;
+    }
     setPending(false);
-    if (deleted) await navigate({ to: "/sign-in" });
   };
 
   return (
@@ -234,6 +334,8 @@ function DeleteAccount({
       <Dialog
         open={open}
         onOpenChange={(next) => {
+          // Once confirmed, it finishes: no closing halfway.
+          if (pending) return;
           setOpen(next);
           if (!next) setTyped("");
         }}
@@ -248,14 +350,18 @@ function DeleteAccount({
             </DialogTitle>
             <div className="flex flex-col gap-2">
               <label htmlFor={field} className="text-sm text-ink-muted">
-                Type <span className="break-all text-ink">{email}</span>
+                Type <span className="wrap-anywhere text-ink">{email}</span>
               </label>
               <Input
                 id={field}
+                name="email"
+                type="text"
+                inputMode="email"
                 value={typed}
                 onChange={(e) => setTyped(e.target.value)}
                 autoComplete="off"
                 autoCapitalize="off"
+                autoCorrect="off"
                 spellCheck={false}
               />
             </div>
@@ -263,6 +369,7 @@ function DeleteAccount({
               <Button
                 type="button"
                 variant="quiet"
+                disabled={pending}
                 onClick={() => setOpen(false)}
               >
                 Cancel
@@ -270,26 +377,18 @@ function DeleteAccount({
               <Button
                 type="submit"
                 variant="primary"
+                className="min-w-36"
                 disabled={!matches || pending}
               >
-                {pending && <LoaderIcon className="animate-spin" aria-hidden />}
-                Delete Account
+                {pending && <Spinner />}
+                <span className={pending ? "sr-only" : undefined}>
+                  Delete Account
+                </span>
               </Button>
             </div>
           </form>
         </DialogContent>
       </Dialog>
     </>
-  );
-}
-
-function Unreachable({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-sm text-ink-muted">Spark Is Unreachable</span>
-      <Button variant="outline" size="sm" onClick={onRetry}>
-        Try Again
-      </Button>
-    </div>
   );
 }

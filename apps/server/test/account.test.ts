@@ -32,7 +32,6 @@ type Session = {
 };
 type Export = {
   state: string;
-  url?: string;
   expiresAt?: string;
   bytes?: number;
 } | null;
@@ -140,12 +139,11 @@ describe.skipIf(!databaseUrl)("account", () => {
       expect(res.headers.get("cache-control")).toBe("private, no-store");
       const text = await res.text();
       const { sessions: list } = JSON.parse(text) as { sessions: Session[] };
-      expect(list.map((s) => [s.device, s.current])).toEqual(
-        expect.arrayContaining([
-          ["Chrome on macOS", true],
-          ["Safari on iPhone", false],
-        ])
-      );
+      // This device first, though the phone signed in later.
+      expect(list.map((s) => [s.device, s.current])).toEqual([
+        ["Chrome on macOS", true],
+        ["Safari on iPhone", false],
+      ]);
       expect(list.every((s) => /^[\da-f]{16}$/.test(s.handle))).toBe(true);
       const { rows } = await db.query<{ id: string; token: string }>(
         `select id, token from session where user_id = $1`,
@@ -237,7 +235,9 @@ describe.skipIf(!databaseUrl)("account", () => {
         Date.now() + 23 * 3600_000
       );
 
-      const res = await download(ready!.url!);
+      const link = await call("/api/account/export/download");
+      expect(link.status).toBe(302);
+      const res = await download(link.headers.get("location")!);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-disposition")).toMatch(
         /^attachment; filename="spark-library-\d{4}-\d{2}-\d{2}\.zip"$/
@@ -317,6 +317,7 @@ describe.skipIf(!databaseUrl)("account", () => {
       await sweepAccounts(env());
       expect(zips()).toEqual([]);
       expect(await exportOf(call)).toBeNull();
+      expect((await call("/api/account/export/download")).status).toBe(404);
     });
   });
 
