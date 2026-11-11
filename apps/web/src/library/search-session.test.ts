@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  clearSearchCache,
   libraryVersion,
+  searchCache,
   searchSession,
   shownAnswer,
   type Answer,
@@ -189,6 +191,16 @@ describe("searchSession", () => {
     again.session.set({ query: "purple" }, after(0));
     expect(again.answers).toEqual([]);
     expect(again.pending.map((p) => p.mode)).toEqual(["instant", "full"]);
+  });
+
+  it("never keeps an answer that lands after the cache was cleared (sign-out)", async () => {
+    const s = setup(0, { cache: searchCache });
+    s.session.set({ query: "purple" }, "race.0");
+    await settle();
+    clearSearchCache();
+    s.find("full", "purple").answer(["late"]);
+    await settle();
+    expect(searchCache.size).toBe(0);
   });
 
   it("never answers one account from another's cache", async () => {

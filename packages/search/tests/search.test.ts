@@ -256,4 +256,35 @@ describe("search", () => {
     await ben.search("purple", "full");
     expect(shared.embed).toHaveBeenCalledTimes(4);
   });
+
+  it("never caches a query vector that arrives after the person's vectors were forgotten", async () => {
+    let finish!: () => void;
+    const slow = embedder();
+    slow.embed = vi.fn(
+      () =>
+        new Promise<{
+          vectors: number[][];
+          usage: { textTokens: number; imageTokens: number };
+        }>(
+          (resolve) =>
+            (finish = () =>
+              resolve({
+                vectors: [[0, 1, 0]],
+                usage: { textTokens: 1, imageTokens: 0 },
+              }))
+        )
+    );
+    const search = createSearch({
+      userId: "race-ana",
+      find: library().find,
+      embedder: slow,
+      spend: spend(),
+    });
+    const pending = search.search("purple", "full");
+    await vi.waitFor(() => expect(slow.embed).toHaveBeenCalled());
+    forgetQueryVectors("race-ana");
+    finish();
+    await pending;
+    expect(queryVectorsCached("race-ana")).toBe(0);
+  });
 });

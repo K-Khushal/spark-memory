@@ -25,6 +25,8 @@ export type Ranked<R> = R & { match: "direct" | "related" };
  * (`userId\0model\0dimensions\0query`), so one person's can be forgotten.
  */
 const cache = new Map<string, { vector: number[]; at: number }>();
+/** How many times each person's query vectors were forgotten in this isolate. */
+const purges = new Map<string, number>();
 const ownKeys = (userId: string) =>
   [...cache.keys()].filter((key) => key.startsWith(`${userId}\0`));
 
@@ -34,6 +36,8 @@ const ownKeys = (userId: string) =>
  */
 export function forgetQueryVectors(userId: string) {
   for (const key of ownKeys(userId)) cache.delete(key);
+  // A query embedding still in flight must not put one back.
+  purges.set(userId, (purges.get(userId) ?? 0) + 1);
 }
 
 /** How many of a person's query vectors this isolate holds (tests, admin). */
@@ -107,6 +111,7 @@ export function createSearch<R extends Hit>({
   async function embedQuery(query: string): Promise<number[] | undefined> {
     if (!embedder) return undefined;
     const key = [userId, embedder.model, embedder.dimensions, query].join("\0");
+    const epoch = purges.get(userId) ?? 0;
     const hit = cached(key, now());
     if (hit) return hit;
     const [spent, limit] = await Promise.all([
@@ -137,7 +142,10 @@ export function createSearch<R extends Hit>({
         { timeoutMs: EMBEDDING.queryTimeoutMs }
       );
       await record(usage.textTokens);
-      remember(key, vectors[0]!, now());
+      // Forgotten meanwhile (account deletion): used once, never kept.
+      if ((purges.get(userId) ?? 0) === epoch) {
+        remember(key, vectors[0]!, now());
+      }
       return vectors[0];
     } catch (error) {
       if (error instanceof ProviderError && error.estimate) {

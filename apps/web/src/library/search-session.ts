@@ -44,8 +44,14 @@ export function libraryVersion() {
  */
 export const searchCache = new Map<string, Hit[]>();
 
+/** Bumped by every clear: an answer still in flight then is never kept. */
+let cacheEpoch = 0;
+
 /** Forgets every search answer: when a session ends (endSession). */
-export const clearSearchCache = () => searchCache.clear();
+export const clearSearchCache = () => {
+  cacheEpoch++;
+  searchCache.clear();
+};
 
 /**
  * Which answer a search may show for the `current` request (requestKey):
@@ -108,6 +114,7 @@ export function searchSession({
     }
     const key = requestKey(request);
     const cacheKey = `${scope}|${version}|${key}`;
+    const epoch = cacheEpoch;
     const cached = cache.get(cacheKey);
     if (cached) {
       stop = () => {};
@@ -127,7 +134,7 @@ export function searchSession({
       const other = step[mode === "full" ? "instant" : "full"];
       if (hits && (mode === "full" || other !== "ok")) {
         onAnswer({ key, mode, hits });
-        if (mode === "full" && final) {
+        if (mode === "full" && final && epoch === cacheEpoch) {
           cache.set(cacheKey, hits);
           if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
         }
