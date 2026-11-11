@@ -500,6 +500,28 @@ describe("another tab's draft", () => {
       page: tabB.drafts.page,
     });
   });
+
+  it("prunes a stored draft that matches the server, even if another page owns it", async () => {
+    const store = storage();
+    const server = fakeServer();
+    const tabA = setup({ server, drafts: draftStore(store) });
+    tabA.actions.editText(start, text("Mine"));
+    const tabB = setup({ server, drafts: draftStore(store) });
+    expect(tabB.actions.openEdit(start)).toMatchObject({
+      status: "idle",
+      refused: [{ title: "Mine" }],
+      fromStorage: true,
+    });
+    server.editElsewhere("Mine");
+    tabB.actions.refresh("m1");
+    await settle();
+    expect(tabB.actions.pendingEdit("m1")?.refused).toBeUndefined();
+    expect(tabA.drafts.read("m1")).toBeUndefined();
+    tabB.actions.closeEdit("m1");
+    server.editElsewhere("Later");
+    const again = setup({ server, drafts: draftStore(store) });
+    expect(again.actions.openEdit(server.row())).toBeUndefined();
+  });
 });
 
 describe("a draft after reload", () => {

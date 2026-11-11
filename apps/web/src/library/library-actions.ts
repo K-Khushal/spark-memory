@@ -182,8 +182,32 @@ export function libraryActions({
     for (const watch of watchers.get(id) ?? []) watch(edit);
   }
 
-  /** Drop refused versions the server already stores. */
+  /**
+   * Drop every stored version whose text the server already has, whichever
+   * page owns the record. Unmatched text, including the owner's own unsaved
+   * fields, stays. An empty record is removed.
+   */
+  function pruneStored(id: string, memory: Memory) {
+    const kept = drafts.read(id);
+    if (!kept) return;
+    const fields =
+      kept.fields && !saved(memory, kept.fields) ? kept.fields : undefined;
+    const refused = withoutSaved(kept.refused, memory);
+    if (!fields && !refused) {
+      drafts.discard(id);
+      return;
+    }
+    drafts.keep(id, {
+      fields,
+      refused,
+      baseRevision: kept.baseRevision,
+      page: kept.page,
+    });
+  }
+
+  /** Drop refused versions the server already stores, in memory and in storage. */
   function dropRefusedOnServer(id: string, memory: Memory) {
+    pruneStored(id, memory);
     const now = pending.get(id);
     if (!now?.refused?.length) return;
     const refused = withoutSaved(now.refused, memory);
@@ -398,6 +422,7 @@ export function libraryActions({
         if (!latest) return failed();
         serverCopy.set(id, latest);
         replaceLocal(latest);
+        dropRefusedOnServer(id, latest);
         setPending(id, {
           baseRevision: latest.revision,
           status: "idle",
@@ -408,6 +433,7 @@ export function libraryActions({
       }
       onSaved();
       serverCopy.set(id, result);
+      dropRefusedOnServer(id, result);
       const now = pending.get(id)!;
       const refused = withoutSaved(now.refused, result);
       if (now.fields && sameText(now.fields, sent)) {
