@@ -532,7 +532,12 @@ export function libraryActions({
     if (images.isUploading(id) || Date.now() - last < 60_000) return;
     refreshed.set(id, Date.now());
     void transport.get(id).then(
-      (m) => m && replaceLocal(m),
+      // Fresh URLs only: whatever the wall knows of its upload stays.
+      (fresh) =>
+        fresh &&
+        setMemories((all) =>
+          all.map((m) => (m.id === id ? { ...fresh, upload: m.upload } : m))
+        ),
       () => {}
     );
   }

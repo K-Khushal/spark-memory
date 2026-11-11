@@ -115,6 +115,7 @@ export function ImageViewer({
             <UploadBadge
               upload={memory.upload}
               onRetry={() => onRetry(memory.id)}
+              onDelete={() => remove(memory)}
               className="absolute top-3 left-3 h-11"
             />
           )}
@@ -208,7 +209,10 @@ function Picture({
   );
 }
 
-/** Previous or Next; stays mounted (hidden) at the ends, so focus never drops. */
+/**
+ * Previous or Next. At the ends it is aria-disabled, not disabled: it stays
+ * focusable, so focus never drops to the page and ← → keep working.
+ */
 function Step({
   side,
   disabled,
@@ -223,13 +227,13 @@ function Step({
     <Button
       variant="quiet"
       size="icon"
-      disabled={disabled}
-      onClick={onClick}
+      aria-disabled={disabled}
+      onClick={disabled ? undefined : onClick}
       aria-label={side === "left" ? "Previous Image" : "Next Image"}
       className={cn(
         "absolute bottom-4 size-11 md:top-1/2 md:bottom-auto md:-translate-y-1/2",
         side === "left" ? "left-3" : "right-3",
-        disabled && "invisible"
+        disabled && "cursor-default opacity-30 hover:bg-transparent"
       )}
     >
       <Icon className="size-5" aria-hidden />

@@ -74,6 +74,7 @@ export function LibraryPage({ session }: { session: Session }) {
   const tiles: TileActions = {
     onRetry: library.retryUpload,
     onBroken: library.refresh,
+    onDelete: library.remove,
   };
   const showOnWall = (q: string) => {
     setQuery(q.trim());
@@ -374,10 +375,11 @@ function Centred({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** What a tile can ask of the Library: Try Again on an upload, fresh URLs for a broken image. */
+/** What a tile can ask of the Library: Try Again or Delete for an upload, fresh URLs for a broken image. */
 type TileActions = {
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
+  onDelete: (memory: WallMemory) => void;
 };
 
 function Wall({

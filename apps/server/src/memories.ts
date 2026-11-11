@@ -94,10 +94,15 @@ export const memories = new Hono<AppEnv>()
     const after = c.req.query("after");
     const page = await c.var.library.list(after ? { after } : {});
     if (!page) return c.json({ ok: false, error: "invalid" } as const, 400);
-    const memories = await Promise.all(
-      page.memories.map((m) => forClient(c.var.files, m))
-    );
-    return c.json({ ...page, memories });
+    const signed = (all: typeof page.memories) =>
+      Promise.all(all.map((m) => forClient(c.var.files, m)));
+    // The first page also carries uploads a closed page left unfinished,
+    // apart from the wall, so they can be deleted before the sweep.
+    const [memories, unfinished] = await Promise.all([
+      signed(page.memories),
+      after ? [] : c.var.library.unfinished().then(signed),
+    ]);
+    return c.json({ ...page, memories, unfinished });
   })
   .post("/memories", limitBody, json(TextCapture), async (c) => {
     const result = await c.var.library.capture(c.req.valid("json"));

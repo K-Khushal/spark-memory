@@ -18,7 +18,7 @@ export type Upload = {
 
 /** The server refused the Capture for a reason a retry cannot fix. */
 export class Refused extends Error {
-  constructor(readonly reason: "file_too_large" | "storage_full") {
+  constructor(readonly reason: "file_too_large" | "storage_full" | "invalid") {
     super(reason);
   }
 }
@@ -38,11 +38,16 @@ export type ImageTransport = {
   ) => Promise<void>;
   /** Asks the server to check the files and show the Memory. */
   confirm: (id: string) => Promise<Memory>;
+  /** Resolves once the browser has `url` (an image) loaded, or failed to. */
+  preload: (url: string) => Promise<void>;
 };
 
 /** An image upload as the wall shows it. Stored images have none. */
 export type UploadState =
-  { step: "sending"; progress: number } | { step: "failed" };
+  | { step: "sending"; progress: number }
+  | { step: "failed" }
+  /** Its upload stopped on an earlier page (a reload): the file is gone, only Delete helps. */
+  | { step: "stranded" };
 
 /**
  * One state machine per image Memory, from Capture until its files are
@@ -139,7 +144,10 @@ export function imageCapture({
       const saved = await transport.confirm(id);
       if (!current()) return;
       entries.delete(id);
-      // The server's copy, but the local files stay on screen: no reload flash.
+      // The server's copy, but the local files stay on screen (no reload
+      // flash) until the stored thumbnail has loaded; then they are freed.
+      const local = (m: WallMemory) =>
+        m.id === id && m.image?.thumbnailUrl === entry.urls.thumbnailUrl;
       setMemories((all) =>
         all.map((m) =>
           m.id === id
@@ -151,6 +159,14 @@ export function imageCapture({
         )
       );
       onSaved();
+      if (saved.image) {
+        await transport.preload(saved.image.thumbnailUrl).catch(() => {});
+        setMemories((all) =>
+          all.map((m) => (local(m) ? { ...m, image: saved.image } : m))
+        );
+      }
+      URL.revokeObjectURL(entry.urls.url);
+      URL.revokeObjectURL(entry.urls.thumbnailUrl);
     } catch (error) {
       if (!current()) return;
       // One file failed: stop the other, so no PUT outlives its run.
@@ -182,7 +198,7 @@ export function imageCapture({
     return true;
   }
 
-  function refuse(reason: ImageRefusal) {
+  function refuse(reason: ImageRefusal | "invalid") {
     notify(REFUSALS[reason], { id: `refused-${reason}` });
   }
 
@@ -272,7 +288,9 @@ export function imageCapture({
   };
 }
 
-const REFUSALS: Record<ImageRefusal, string> = {
+const REFUSALS: Record<ImageRefusal | "invalid", string> = {
+  // The server could not accept what the browser made of it: retrying won't help.
+  invalid: "Image Can't Be Captured",
   file_too_large: "Images Over 25 MB Can't Be Captured",
   storage_full: "Your 1 GB Free Allowance Is Full",
   unsupported: "This File Type Can't Be Captured",

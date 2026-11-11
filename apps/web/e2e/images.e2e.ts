@@ -71,7 +71,7 @@ test("drop images: one is Captured and uploaded, one over 25 MB is refused; view
     .poll(async () => (await page.request.get("/api/memories")).json(), {
       timeout: 10_000,
     })
-    .toEqual({ memories: [] });
+    .toEqual({ memories: [], unfinished: [] });
 });
 
 test("a failed upload shows on its tile, and Try Again finishes it", async ({
@@ -93,4 +93,57 @@ test("a failed upload shows on its tile, and Try Again finishes it", async ({
   await expect
     .poll(async () => (await page.request.get("/api/memories")).json())
     .toMatchObject({ memories: [{ kind: "image" }] });
+});
+
+test("an upload a reload cut short shows as Failed, and Delete removes it", async ({
+  page,
+}) => {
+  await signIn(page);
+  // The upload never finishes on this page.
+  await page.route("**/api/local-files/**", (route) =>
+    route.request().method() === "PUT" ? undefined : route.fallback()
+  );
+  await dropImages(page);
+  const tile = page.getByRole("listitem", { name: /^Image/ });
+  await expect(tile.getByRole("progressbar")).toBeVisible();
+  await expect
+    .poll(async () => (await page.request.get("/api/memories")).json())
+    .toMatchObject({ unfinished: [{ kind: "image" }] });
+
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.reload();
+  await expect(tile).toHaveAccessibleName(/Failed$/);
+  await tile.getByRole("button", { name: "Delete" }).click();
+  await expect(tile).toBeHidden();
+  await expect
+    .poll(async () => (await page.request.get("/api/memories")).json(), {
+      timeout: 10_000,
+    })
+    .toEqual({ memories: [], unfinished: [] });
+});
+
+test("the viewer keeps focus at the last image, so the arrow keys still work", async ({
+  page,
+}) => {
+  await signIn(page);
+  await dropImages(page);
+  await dropImages(page);
+  const tiles = page.getByRole("listitem", { name: /^Image/ });
+  await expect(tiles).toHaveCount(2);
+  await expect(page.getByRole("progressbar")).toHaveCount(0);
+
+  await tiles.first().click();
+  const viewer = page.getByRole("dialog");
+  const next = viewer.getByRole("button", { name: "Next Image" });
+  const previous = viewer.getByRole("button", { name: "Previous Image" });
+  await expect(previous).toHaveAttribute("aria-disabled", "true");
+  await next.focus();
+  await page.keyboard.press("Enter");
+  // The last image: Next is unavailable but keeps focus.
+  await expect(next).toHaveAttribute("aria-disabled", "true");
+  await expect(next).toBeFocused();
+  await page.keyboard.press("Enter"); // nothing further
+  await page.keyboard.press("ArrowLeft");
+  await expect(next).toHaveAttribute("aria-disabled", "false");
+  await expect(previous).toHaveAttribute("aria-disabled", "true");
 });

@@ -109,6 +109,29 @@ describe("sentryScrubbing.beforeSend", () => {
     });
   });
 
+  it("keeps only the host of a Memory file URL, never its owner's or Memory's ids", () => {
+    const user = "user-8f2c";
+    const memory = "0b8e5a52-7d3c-4f4e-9a59-2f8f6d0c1e11";
+    const urls = [
+      `https://acct.r2.cloudflarestorage.com/spark-files-prod/users/${user}/${memory}/original?X-Amz-Signature=abc`,
+      `http://localhost:8787/api/local-files/users/${user}/${memory}/thumbnail?sig=abc`,
+      `/api/local-files/users/${user}/${memory}/original`,
+    ];
+    const kept = urls.map(
+      (url) =>
+        (
+          sentryScrubbing.beforeSend({ request: { method: "PUT", url } }) as {
+            request: { url: string };
+          }
+        ).request.url
+    );
+    expect(kept).toEqual([
+      "acct.r2.cloudflarestorage.com",
+      "/api/local-files",
+      "/api/local-files",
+    ]);
+  });
+
   it("replaces a captured message with a fixed string", () => {
     const scrubbed = sentryScrubbing.beforeSend({
       message: SENTINEL,

@@ -88,6 +88,18 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     await removeUser(db, owner);
   });
 
+  it("lists its owner's unfinished uploads apart from the wall, and no one else's", async () => {
+    const input = image();
+    await library(ana).captureImage(input);
+    const done = await stored(ana);
+    const ids = (await library(ana).unfinished()).map((m) => m.id);
+    expect(ids).toContain(input.id);
+    expect(ids).not.toContain(done.id);
+    expect((await library(ben).unfinished()).map((m) => m.id)).not.toContain(
+      input.id
+    );
+  });
+
   it("stores nothing that storage does not confirm", async () => {
     const input = image();
     await library(ana).captureImage(input);

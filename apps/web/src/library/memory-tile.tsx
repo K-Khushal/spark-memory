@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { motion } from "motion/react";
-import { RotateCwIcon } from "lucide-react";
+import { RotateCwIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { cn } from "@spark/ui";
 import { DURATION, EASING } from "@spark/ui/tokens";
@@ -88,7 +88,7 @@ export function memoryName(memory: WallMemory) {
 export function tileLabel(memory: WallMemory) {
   const name = memoryName(memory);
   if (!memory.upload) return name;
-  return `${name}, ${memory.upload.step === "failed" ? "Failed" : "Uploading"}`;
+  return `${name}, ${memory.upload.step === "sending" ? "Uploading" : "Failed"}`;
 }
 
 /** One Memory on the wall, landing with DESIGN.md's Capture motion. */
@@ -98,6 +98,7 @@ export function MemoryTile(props: {
   width: number;
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
+  onDelete: (memory: WallMemory) => void;
 }) {
   return (
     <motion.div
@@ -120,36 +121,43 @@ function ImageTile({
   memory,
   onRetry,
   onBroken,
+  onDelete,
 }: {
   memory: WallMemory;
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
+  onDelete: (memory: WallMemory) => void;
 }) {
   const image = memory.image!;
   const placeholder = placeholderUrl(image.thumbhash);
+  // A stranded upload may have no thumbnail stored: its ThumbHash stands in.
+  const stranded = memory.upload?.step === "stranded";
   return (
     <figure className="group h-full cursor-pointer">
       <div
         className={cn(tileFrame, "bg-sunken bg-cover bg-center")}
         style={placeholder ? { backgroundImage: `url(${placeholder})` } : {}}
       >
-        <img
-          src={image.thumbnailUrl}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-          onError={() => onBroken(memory.id)}
-          className={cn(
-            "h-full w-full object-cover",
-            // Screenshots read top down: crop the bottom.
-            image.height / image.width > ASPECT.max && "object-top"
-          )}
-        />
+        {!stranded && (
+          <img
+            src={image.thumbnailUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            onError={() => onBroken(memory.id)}
+            className={cn(
+              "h-full w-full object-cover",
+              // Screenshots read top down: crop the bottom.
+              image.height / image.width > ASPECT.max && "object-top"
+            )}
+          />
+        )}
         {memory.upload && (
           <UploadBadge
             upload={memory.upload}
             onRetry={() => onRetry(memory.id)}
+            onDelete={() => onDelete(memory)}
             // One tab stop per wall: the keyboard retries from the viewer.
             focusable={false}
             className="absolute right-2 bottom-2"
@@ -162,39 +170,45 @@ function ImageTile({
 
 /**
  * Preservation while it is not yet Preserved: upload progress, or Failed
- * with Try Again. A fixed ink plate, since the image under it ignores the
- * theme (DESIGN.md → Colour).
+ * with Try Again (or Delete, when the file is no longer in hand, after a
+ * reload). A fixed ink plate in both themes, since the image under it
+ * ignores the theme (DESIGN.md → Colour): the dark theme's tokens.
  */
 export function UploadBadge({
   upload,
   onRetry,
+  onDelete,
   focusable = true,
   className,
 }: {
   upload: UploadState;
   onRetry: () => void;
+  onDelete: () => void;
   focusable?: boolean;
   className?: string;
 }) {
   const plate =
-    "inline-flex h-7 items-center gap-1.5 rounded-chip bg-[#111214]/80 px-2 text-xs font-medium text-[#fff] tabular";
-  if (upload.step === "failed") {
+    "inline-flex h-7 items-center gap-1.5 rounded-chip bg-canvas/80 px-2 text-xs font-medium text-ink tabular";
+  if (upload.step !== "sending") {
+    const stranded = upload.step === "stranded";
+    const Icon = stranded ? Trash2Icon : RotateCwIcon;
     return (
-      <span className={cn(plate, "pr-1", className)}>
+      <span data-theme="dark" className={cn(plate, "pr-1", className)}>
         Failed
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onRetry();
+            if (stranded) onDelete();
+            else onRetry();
           }}
           // Keep Enter and Space from also opening the Memory.
           onKeyDown={(e) => e.stopPropagation()}
-          aria-label="Try Again"
+          aria-label={stranded ? "Delete" : "Try Again"}
           tabIndex={focusable ? undefined : -1}
-          className="relative grid size-5 place-items-center rounded-[4px] hover:bg-[#fff]/15 before:absolute before:-inset-2.5"
+          className="relative grid size-5 place-items-center rounded-[4px] hover:bg-surface before:absolute before:-inset-2.5"
         >
-          <RotateCwIcon className="size-3.5" aria-hidden />
+          <Icon className="size-3.5" aria-hidden />
         </button>
       </span>
     );
@@ -202,6 +216,7 @@ export function UploadBadge({
   const percent = Math.round(upload.progress * 100);
   return (
     <span
+      data-theme="dark"
       role="progressbar"
       aria-label="Uploading"
       aria-valuenow={percent}
@@ -213,7 +228,7 @@ export function UploadBadge({
           cy="8"
           r="6"
           fill="none"
-          stroke="#fff"
+          stroke="currentColor"
           strokeOpacity="0.3"
           strokeWidth="2"
         />
@@ -222,7 +237,7 @@ export function UploadBadge({
           cy="8"
           r="6"
           fill="none"
-          stroke="#fff"
+          stroke="currentColor"
           strokeWidth="2"
           strokeLinecap="round"
           pathLength={100}

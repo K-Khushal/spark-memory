@@ -42,17 +42,26 @@ const transport: Transport = {
   storage: async () => (await ok(api.api.storage.$get())).json(),
   createImage: async (json) => {
     const res = await api.api.memories.images.$post({ json });
-    if (res.status === 413) {
+    const status: number = res.status;
+    if (status === 413) {
       const { error } = (await res.json()) as { error: string };
       if (error === "file_too_large" || error === "storage_full") {
         throw new Refused(error);
       }
     }
+    // The server refused what was sent: the same request would fail again.
+    if (status === 400 || status === 413) throw new Refused("invalid");
     return (await (await ok(Promise.resolve(res))).json()) as {
       memory: Memory;
       uploads: Upload[];
     };
   },
+  preload: (url) =>
+    new Promise((done) => {
+      const image = new Image();
+      image.onload = image.onerror = () => done();
+      image.src = url;
+    }),
   put: (upload, body, onProgress, signal) =>
     putFile(upload, body, onProgress, signal),
   confirm: async (id) =>
@@ -115,7 +124,15 @@ export function useLibrary() {
         );
         const page = await res.json();
         if (cancelled) return;
-        setMemories((all) => mergeNewestFirst(all, page.memories));
+        // Uploads an earlier page left unfinished show as Failed, to delete.
+        const unfinished: Memory[] = page.unfinished ?? [];
+        const stranded = unfinished.map((m): WallMemory => ({
+          ...m,
+          upload: { step: "stranded" },
+        }));
+        setMemories((all) =>
+          mergeNewestFirst(all, [...page.memories, ...stranded])
+        );
         setState("ready");
         after = page.next;
       } while (after);
@@ -149,7 +166,7 @@ export function useLibrary() {
 }
 
 /** Adds a page from the server; Memories already on the wall (optimistic ones) win. */
-function mergeNewestFirst(all: WallMemory[], page: Memory[]) {
+function mergeNewestFirst(all: WallMemory[], page: WallMemory[]) {
   const known = new Set(all.map((m) => m.id));
   return [...all, ...page.filter((m) => !known.has(m.id))].sort(newestFirst);
 }

@@ -352,6 +352,18 @@ export function openLibrary(db: Database, userId: string) {
     usedStorage: () => usedStorage(db),
 
     /**
+     * Image Memories whose upload has not finished (a page closed midway),
+     * newest first, so the wall can offer to delete them before the sweep.
+     */
+    unfinished: (limit = 100): Promise<Memory[]> =>
+      db
+        .select(columns)
+        .from(memory)
+        .where(and(eq(memory.userId, userId), sql`not ${allStored}`))
+        .orderBy(desc(memory.capturedAt), desc(memory.id))
+        .limit(limit),
+
+    /**
      * Newest first, `limit` at a time; pass `next` back as `after`.
      * Undefined for a cursor this did not make.
      */

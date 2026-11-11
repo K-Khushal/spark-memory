@@ -31,8 +31,14 @@ function pick(source: unknown, keys: readonly string[]): Fields {
 
 const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
-/** The path of a URL, without origin, query or fragment. */
+/** Memory file URLs: their paths name a person and a Memory, so only where they point is kept. */
+const FILE_URL =
+  /^(?:https?:\/\/)?([^/?#]*\.r2\.cloudflarestorage\.com)(?:[/?#]|$)|^(?:[a-z][a-z\d+.-]*:\/\/[^/?#]*)?(\/api\/local-files)\//i;
+
+/** The path of a URL, without origin, query or fragment; a file URL's host or route only. */
 function urlPath(url: string): string {
+  const file = FILE_URL.exec(url);
+  if (file) return file[1] ?? file[2]!;
   const withoutOrigin = url.replace(/^[a-z][a-z\d+.-]*:\/\/[^/?#]*/i, "");
   return withoutOrigin.split(/[?#]/)[0] || "/";
 }

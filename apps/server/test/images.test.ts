@@ -99,9 +99,10 @@ describe.skipIf(!databaseUrl)("image Capture", () => {
       "original",
       "thumbnail",
     ]);
-    // Not on the wall until its files are stored.
-    expect(await (await call("/api/memories")).json()).toEqual({
+    // Not on the wall until its files are stored: listed apart, as unfinished.
+    expect(await (await call("/api/memories")).json()).toMatchObject({
       memories: [],
+      unfinished: [{ id: input.id, kind: "image" }],
     });
 
     await uploadAll(created.body.uploads);

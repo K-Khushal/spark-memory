@@ -83,6 +83,7 @@ function setup(transport: Partial<Transport> = {}) {
       calls.push(`confirm ${id}`);
       return serverCopy(id);
     }),
+    preload: async () => {},
     ...transport,
   };
   const actions = libraryActions({
@@ -106,17 +107,30 @@ function toastAction(notify: ReturnType<typeof vi.fn>, label: string) {
 }
 
 describe("image Capture", () => {
-  it("lands at once, uploads, and becomes the server's copy without losing the local files", async () => {
-    const { actions, wall, calls } = setup();
+  it("lands at once, uploads, and keeps the local files on screen until the stored ones load, then frees them", async () => {
+    const loaded = later();
+    const revoke = vi.spyOn(URL, "revokeObjectURL");
+    const { actions, wall, calls } = setup({ preload: () => loaded.promise });
     await actions.captureImages([png()]);
     const [landed] = wall();
     expect(landed).toMatchObject({ kind: "image", fresh: true });
     expect(landed!.image!.url).toMatch(/^blob:/);
     await settle();
-    const [now] = wall();
-    expect(now!.upload).toBeUndefined();
-    expect(now!.image!.url).toBe(landed!.image!.url);
+    const [stored] = wall();
+    expect(stored!.upload).toBeUndefined();
+    expect(stored!.image!.url).toBe(landed!.image!.url);
     expect(calls).toEqual([`create ${landed!.id}`, `confirm ${landed!.id}`]);
+    expect(revoke).not.toHaveBeenCalled();
+
+    loaded.resolve();
+    await settle();
+    expect(wall()[0]!.image).toMatchObject({
+      url: "https://r2/original",
+      thumbnailUrl: "https://r2/thumbnail",
+    });
+    expect(revoke).toHaveBeenCalledWith(landed!.image!.url);
+    expect(revoke).toHaveBeenCalledWith(landed!.image!.thumbnailUrl);
+    revoke.mockRestore();
   });
 
   it("shows a failed upload on its tile, and Try Again resends the same Memory", async () => {
@@ -195,20 +209,25 @@ describe("image Capture", () => {
     expect(transport.createImage).toHaveBeenCalledTimes(1);
   });
 
-  it("takes the tile away with the reason when the server refuses it", async () => {
-    const { actions, wall, notify } = setup({
-      createImage: async () => {
-        throw new Refused("storage_full");
-      },
-    });
-    await actions.captureImages([png()]);
-    await settle();
-    expect(wall()).toEqual([]);
-    expect(notify).toHaveBeenCalledWith(
-      "Your 1 GB Free Allowance Is Full",
-      expect.anything()
-    );
-  });
+  it.each([
+    ["storage_full", "Your 1 GB Free Allowance Is Full"],
+    // e.g. a 400 for something the browser made that the server won't take:
+    // no Failed tile that Try Again could never fix.
+    ["invalid", "Image Can't Be Captured"],
+  ] as const)(
+    "takes the tile away with the reason when the server refuses it (%s)",
+    async (reason, message) => {
+      const { actions, wall, notify } = setup({
+        createImage: async () => {
+          throw new Refused(reason);
+        },
+      });
+      await actions.captureImages([png()]);
+      await settle();
+      expect(wall()).toEqual([]);
+      expect(notify).toHaveBeenCalledWith(message, expect.anything());
+    }
+  );
 
   it("stops the other file when one fails, so no upload outlives its run", async () => {
     let signal: AbortSignal | undefined;

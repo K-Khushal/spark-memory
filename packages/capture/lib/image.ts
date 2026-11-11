@@ -3,6 +3,7 @@ import {
   FREE_ALLOWANCE,
   IMAGE_TYPES,
   isFileWithinAllowance,
+  THUMBNAIL_MAX_BYTES,
   type ImageType,
 } from "@spark/core";
 
@@ -96,7 +97,20 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
       THUMBNAIL_WIDTH / bitmap.width,
       THUMBNAIL_MAX_HEIGHT / bitmap.height
     );
-    const thumbnail = await encode(bitmap, "image/webp", 0.8, scale);
+    // Busy images can make a large thumbnail: lower the quality, then the
+    // size, until it fits the server's limit.
+    let thumbnail = await encode(bitmap, "image/webp", 0.8, scale);
+    for (const [quality, smaller] of [
+      [0.6, 1],
+      [0.5, 0.75],
+      [0.5, 0.5],
+    ] as const) {
+      if (thumbnail.size <= THUMBNAIL_MAX_BYTES) break;
+      thumbnail = await encode(bitmap, "image/webp", quality, scale * smaller);
+    }
+    if (thumbnail.size > THUMBNAIL_MAX_BYTES) {
+      throw "unreadable" satisfies ImageRefusal;
+    }
     return {
       file: kept,
       mime: keptType(file)!,

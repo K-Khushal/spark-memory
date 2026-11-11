@@ -140,7 +140,7 @@ describe.skipIf(!databaseUrl)("the Memory API", () => {
     const taken = await capture(ben.call, { id: secret.id, body: "mine" });
     expect(taken.status).toBe(409);
     const list = await (await ben.call("/api/memories")).json();
-    expect(list).toEqual({ memories: [] });
+    expect(list).toEqual({ memories: [], unfinished: [] });
     const search = await (await ben.call("/api/search?q=locker")).json();
     expect(search).toEqual({ results: [] });
 
