@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import {
   requestKey,
+  searchCache,
   searchSession,
   shownAnswer,
   type Answer,
@@ -56,12 +57,6 @@ async function fetchHits(
   };
 }
 
-/** Full answers, shared by the ⌘K menu and the wall, per account. */
-const cache = new Map<string, Hit[]>();
-
-/** Forgets every search answer: on sign-out, nothing of one Library stays. */
-export const clearSearchCache = () => cache.clear();
-
 /**
  * Search as the person types (searchSession): an instant answer per
  * keystroke, the full one once typing pauses (`pauseMs`; 0 on the wall).
@@ -75,7 +70,7 @@ export const clearSearchCache = () => cache.clear();
 export function useSearch(
   request: SearchRequest | undefined,
   memories: Memory[],
-  version: number,
+  version: string,
   {
     userId,
     pauseMs = FULL_SEARCH_PAUSE_MS,
@@ -88,7 +83,7 @@ export function useSearch(
       fetch: fetchHits,
       onAnswer: setAnswer,
       pauseMs,
-      cache,
+      cache: searchCache,
       scope: userId,
     })
   );

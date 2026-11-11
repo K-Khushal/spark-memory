@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { EMBEDDING, INDEXING } from "@spark/core";
 import { ProviderError, type AiCall, type Embedder } from "@spark/indexing";
-import { createSearch, type Probe } from "../index";
+import {
+  createSearch,
+  forgetQueryVectors,
+  queryVectorsCached,
+  type Probe,
+} from "../index";
 
 type Hit = { id: string; matched: string[]; distance: number | null };
 
@@ -223,5 +228,32 @@ describe("search", () => {
       },
     ]);
     expect(await setup({ model: null }).search.similar("m1")).toEqual([]);
+  });
+
+  it("forgets one person's query vectors, and only theirs, when their account goes", async () => {
+    const shared = embedder();
+    const ana = createSearch({
+      userId: "forget-ana",
+      find: library().find,
+      embedder: shared,
+      spend: spend(),
+    });
+    const ben = createSearch({
+      userId: "forget-ben",
+      find: library().find,
+      embedder: shared,
+      spend: spend(),
+    });
+    await ana.search("purple", "full");
+    await ana.search("teal", "full");
+    await ben.search("purple", "full");
+    expect(queryVectorsCached("forget-ana")).toBe(2);
+    forgetQueryVectors("forget-ana");
+    expect(queryVectorsCached("forget-ana")).toBe(0);
+    expect(queryVectorsCached("forget-ben")).toBe(1);
+    // Ana's next search asks the provider again; Ben's still comes from the cache.
+    await ana.search("purple", "full");
+    await ben.search("purple", "full");
+    expect(shared.embed).toHaveBeenCalledTimes(4);
   });
 });

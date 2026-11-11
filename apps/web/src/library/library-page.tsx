@@ -21,8 +21,8 @@ import {
   cn,
   toast,
 } from "@spark/ui";
-import { startAnalytics, stopAnalytics, track } from "../analytics";
-import { authClient, clearAdminCache, type AppSession } from "../auth";
+import { startAnalytics, track } from "../analytics";
+import { authClient, endSession, type AppSession } from "../auth";
 import { DeskSidebar } from "../shell";
 import { productMetrics } from "./product-metrics";
 import { MemoryDetail } from "./memory-detail";
@@ -32,12 +32,7 @@ import { ImageViewer } from "./image-viewer";
 import { useFlip } from "./flip";
 import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
-import {
-  clearSearchCache,
-  useSearch,
-  type Found,
-  type Results,
-} from "./use-search";
+import { useSearch, type Found, type Results } from "./use-search";
 import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
 
 /**
@@ -189,9 +184,7 @@ export function LibraryPage({
       });
       return;
     }
-    stopAnalytics();
-    clearAdminCache();
-    clearSearchCache();
+    endSession();
     await navigate({ to: "/sign-in" });
   };
 

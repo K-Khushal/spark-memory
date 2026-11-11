@@ -2,6 +2,8 @@
 // full mode and More Like This, over the Library's hybrid SQL (ADR-0004).
 export {
   createSearch,
+  forgetQueryVectors,
+  queryVectorsCached,
   type Hit,
   type Mode,
   type Probe,

@@ -20,8 +20,24 @@ export type Mode = "instant" | "full";
 
 export type Ranked<R> = R & { match: "direct" | "related" };
 
-/** A recent query's vector, per person and embedding space. */
+/**
+ * Recent query vectors in this Worker isolate, keyed by person first
+ * (`userId\0model\0dimensions\0query`), so one person's can be forgotten.
+ */
 const cache = new Map<string, { vector: number[]; at: number }>();
+const ownKeys = (userId: string) =>
+  [...cache.keys()].filter((key) => key.startsWith(`${userId}\0`));
+
+/**
+ * Forgets a person's cached query vectors (their account is being
+ * deleted). Other isolates' copies expire within EMBEDDING.queryCacheMs.
+ */
+export function forgetQueryVectors(userId: string) {
+  for (const key of ownKeys(userId)) cache.delete(key);
+}
+
+/** How many of a person's query vectors this isolate holds (tests, admin). */
+export const queryVectorsCached = (userId: string) => ownKeys(userId).length;
 
 function cached(key: string, now: number) {
   const hit = cache.get(key);

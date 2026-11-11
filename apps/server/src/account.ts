@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { AccountDeletion, confirmsDeletion } from "@spark/core";
+import { forgetQueryVectors } from "@spark/search";
 import {
   EXPORT_COOLDOWN_MINUTES,
   EXPORT_TTL_HOURS,
@@ -130,6 +131,8 @@ export const account = new Hono<AppEnv>()
     }
     await signOutHere(c);
     await c.var.account.requestDeletion();
+    // Their recent search queries, as vectors, go from this isolate now.
+    forgetQueryVectors(c.var.user.id);
     await c.env.ACCOUNT_QUEUE.send({ kind: "delete", userId: c.var.user.id })
       // The hourly sweep sends it again.
       .catch(() => console.error("account: deletion not sent"));

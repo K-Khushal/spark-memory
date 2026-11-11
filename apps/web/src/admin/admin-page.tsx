@@ -3,14 +3,13 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import type { InferResponseType } from "@spark/api-client";
 import { Button, Input, Toaster, cn, toast } from "@spark/ui";
 import { api } from "../api";
-import { startAnalytics, stopAnalytics } from "../analytics";
+import { startAnalytics } from "../analytics";
 import {
   authClient,
-  clearAdminCache,
+  endSession,
   noteAdminStatus,
   type AppSession,
 } from "../auth";
-import { clearSearchCache } from "../library/use-search";
 import { DeskSidebar } from "../shell";
 import {
   dollarsToMicros,
@@ -80,9 +79,7 @@ export function AdminPage({ session }: { session: AppSession }) {
       });
       return;
     }
-    stopAnalytics();
-    clearAdminCache();
-    clearSearchCache();
+    endSession();
     await navigate({ to: "/sign-in" });
   };
 

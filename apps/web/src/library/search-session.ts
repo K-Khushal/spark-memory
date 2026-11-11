@@ -25,6 +25,28 @@ export const requestKey = (request: SearchRequest) =>
 
 const CACHE_SIZE = 50;
 
+let generations = 0;
+
+/**
+ * Versions for one Library mount: `version(n)` names its n-th change. Each
+ * mount gets a generation no earlier mount had, so a page opened again
+ * (back from Settings) never reuses an answer cached before it, which
+ * would miss what was Indexed meanwhile.
+ */
+export function libraryVersion() {
+  const generation = ++generations;
+  return (changes: number) => `${generation}.${changes}`;
+}
+
+/**
+ * Full answers in this tab, shared by the ⌘K menu and the wall, keyed by
+ * `${scope}|${generation}|${requestKey}` (searchSession).
+ */
+export const searchCache = new Map<string, Hit[]>();
+
+/** Forgets every search answer: when a session ends (endSession). */
+export const clearSearchCache = () => searchCache.clear();
+
 /**
  * Which answer a search may show for the `current` request (requestKey):
  * its own, or, in the menu, one to the start of what is being typed (it
@@ -76,7 +98,8 @@ export function searchSession({
 }) {
   let stop = () => {};
 
-  function set(request: SearchRequest | undefined, version: number) {
+  /** `version` names the Library's state (libraryVersion): a new one searches again. */
+  function set(request: SearchRequest | undefined, version: string) {
     stop();
     if (!request) {
       stop = () => {};

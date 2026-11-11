@@ -7,6 +7,7 @@ import {
   type ExportedMemory,
   type Library,
 } from "@spark/db";
+import { forgetQueryVectors } from "@spark/search";
 import type { AccountMessage, Bindings, FileBucket } from "./env";
 import { fixedParts, zipStream, type ZipEntry } from "./zip";
 
@@ -40,6 +41,7 @@ export async function consumeAccount(batch: AccountBatch, env: Bindings) {
           const outcome = await buildExport(db, env.FILES, body.exportId);
           console.log(`account: export ${outcome}`);
         } else {
+          forgetQueryVectors(body.userId);
           const outcome = await continueDeletion(db, env.FILES, body.userId);
           if (outcome === "waiting") {
             await env.ACCOUNT_QUEUE.send(body, {

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { LogOutIcon, SettingsIcon } from "lucide-react";
 import { Button, cn, toast } from "@spark/ui";
-import { authClient } from "./auth";
+import { authClient, endSession } from "./auth";
 
 /** A sidebar destination. The current one is the raised surface. */
 export function DeskNavLink({
@@ -119,6 +119,7 @@ export function useSignOut() {
       });
       return;
     }
+    endSession();
     await navigate({ to: "/sign-in" });
   };
   return signOut;

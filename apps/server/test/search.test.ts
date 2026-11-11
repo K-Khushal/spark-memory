@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { EMBEDDING } from "@spark/core";
+import { queryVectorsCached } from "@spark/search";
 import { requeueStalled } from "../src/indexing";
 import {
   databaseUrl,
@@ -170,6 +171,36 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       expect(body.mode).toBe("instant");
       expect(body.results.map((r) => r.id)).toEqual([id]);
     }
+  });
+
+  it("forgets a person's cached query vectors when they delete their account", async () => {
+    const { call, address } = await signedIn();
+    const { id: userId } = (await (await call("/api/me")).json()) as {
+      id: string;
+    };
+    const values = [1, ...new Array(EMBEDDING.dimensions - 1).fill(0)];
+    const realFetch = globalThis.fetch;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) =>
+      String(input instanceof Request ? input.url : input).includes(
+        "generativelanguage.googleapis.com"
+      )
+        ? Response.json({ embeddings: [{ values }] })
+        : realFetch(input, init)
+    );
+    const gemini = env({
+      INDEXING_PROVIDER: undefined,
+      GEMINI_API_KEY: "test-key",
+      GEMINI_PAID_TIER: "true",
+    });
+    await call(`/api/search?q=lighthouse&mode=full`, {}, gemini);
+    expect(queryVectorsCached(userId)).toBe(1);
+    const res = await call(
+      "/api/account",
+      { method: "DELETE", json: { email: address } },
+      gemini
+    );
+    expect(res.status).toBe(204);
+    expect(queryVectorsCached(userId)).toBe(0);
   });
 
   it("re-embeds, hourly, Memories whose vectors are missing or stale", async () => {

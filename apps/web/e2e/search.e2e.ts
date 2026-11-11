@@ -82,3 +82,52 @@ test("finds a Memory by meaning, says what matched, and finds More Like This", a
   await page.getByRole("switch", { name: "AI Opt-Out" }).click();
   await expect(moreLikeThis).toHaveCount(0);
 });
+
+test("a search run again after leaving the Library sees what was Indexed meanwhile", async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page);
+  // Searched once in an empty Library: the answer is kept for this visit.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("twilight harbor");
+  await expect(page.getByText("No Direct Matches").first()).toBeVisible();
+  await page.waitForTimeout(1000); // the full answer lands after a pause
+  await page.keyboard.press("Escape");
+
+  // Away in Settings, a Memory that matches is Captured and Indexed.
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  const res = await page.request.post("/api/memories", {
+    headers: { origin: baseURL! },
+    data: { body: "Sunset over the dock" },
+  });
+  expect(res.status()).toBe(201);
+  const { id } = (await res.json()) as { id: string };
+  await expect
+    .poll(
+      async () =>
+        (
+          (await (await page.request.get(`/api/memories/${id}`)).json()) as {
+            indexState: string;
+          }
+        ).indexState,
+      { timeout: 15_000 }
+    )
+    .toBe("searchable");
+
+  // Back in the Library, the same search finds it.
+  await page.getByRole("link", { name: "All Memories" }).click();
+  await expect(
+    page
+      .getByRole("list", { name: "All Memories" })
+      .getByRole("listitem", { name: "Sunset over the dock" })
+  ).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("twilight harbor");
+  await expect(
+    page
+      .getByRole("listbox")
+      .getByRole("option", { name: "Sunset over the dock" })
+  ).toBeVisible();
+});

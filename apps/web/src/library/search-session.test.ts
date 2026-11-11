@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  libraryVersion,
   searchSession,
   shownAnswer,
   type Answer,
@@ -68,8 +69,8 @@ afterEach(() => vi.useRealTimers());
 describe("searchSession", () => {
   it("answers instantly per keystroke, then fully after a pause in typing", async () => {
     const s = setup();
-    s.session.set({ query: "pur" }, 0);
-    s.session.set({ query: "purple" }, 0);
+    s.session.set({ query: "pur" }, "0");
+    s.session.set({ query: "purple" }, "0");
     expect(s.pending.map((p) => p.mode)).toEqual(["instant", "instant"]);
     expect(s.pending[0]!.signal.aborted).toBe(true);
     await vi.advanceTimersByTimeAsync(299);
@@ -87,7 +88,7 @@ describe("searchSession", () => {
 
   it("never lets a late instant answer replace the full one", async () => {
     const s = setup(0);
-    s.session.set({ query: "purple" }, 0);
+    s.session.set({ query: "purple" }, "0");
     await settle();
     s.find("full", "purple").answer(["b"]);
     await settle();
@@ -98,9 +99,9 @@ describe("searchSession", () => {
 
   it("drops answers to a query the person has typed past", async () => {
     const s = setup(0);
-    s.session.set({ query: "pur" }, 0);
+    s.session.set({ query: "pur" }, "0");
     await settle();
-    s.session.set({ query: "purple" }, 0);
+    s.session.set({ query: "purple" }, "0");
     s.find("full", "pur").answer(["stale"]);
     s.find("instant", "pur").answer(["stale"]);
     await settle();
@@ -109,7 +110,7 @@ describe("searchSession", () => {
 
   it("keeps the instant answer when the full search fails", async () => {
     const s = setup(0);
-    s.session.set({ query: "purple" }, 0);
+    s.session.set({ query: "purple" }, "0");
     await settle();
     s.find("instant", "purple").answer(["a"]);
     await settle();
@@ -120,7 +121,7 @@ describe("searchSession", () => {
 
   it("says it failed only when nothing answered", async () => {
     const s = setup(0);
-    s.session.set({ query: "purple" }, 0);
+    s.session.set({ query: "purple" }, "0");
     await settle();
     s.find("instant", "purple").fail();
     s.find("full", "purple").fail();
@@ -130,34 +131,34 @@ describe("searchSession", () => {
 
   it("answers from the cache what it already searched fully, with no request", async () => {
     const s = setup(0);
-    s.session.set({ query: "purple" }, 3);
+    s.session.set({ query: "purple" }, "3");
     await settle();
     s.find("full", "purple").answer(["b"]);
     await settle();
     s.pending.length = 0;
-    s.session.set({ query: "purple" }, 3);
+    s.session.set({ query: "purple" }, "3");
     expect(s.pending).toEqual([]);
     expect(s.ids()).toEqual(["full", ["b"]]);
     // Once the Library changed, it searches again.
-    s.session.set({ query: "purple" }, 4);
+    s.session.set({ query: "purple" }, "4");
     expect(s.pending.map((p) => p.mode)).toEqual(["instant", "full"]);
   });
 
   it("never keeps a full search that fell back to keywords", async () => {
     const s = setup(0);
-    s.session.set({ query: "purple" }, 3);
+    s.session.set({ query: "purple" }, "3");
     await settle();
     s.find("full", "purple").answer(["a"], false);
     await settle();
     expect(s.ids()).toEqual(["full", ["a"]]);
     s.pending.length = 0;
-    s.session.set({ query: "purple" }, 3);
+    s.session.set({ query: "purple" }, "3");
     expect(s.pending.map((p) => p.mode)).toEqual(["instant", "full"]);
   });
 
   it("finds More Like This in one full request", async () => {
     const s = setup();
-    s.session.set({ like: "m1" }, 0);
+    s.session.set({ like: "m1" }, "0");
     expect(s.pending.map((p) => [p.mode, p.request])).toEqual([
       ["full", { like: "m1" }],
     ]);
@@ -165,23 +166,40 @@ describe("searchSession", () => {
 
   it("forgets the answer when the search is closed, and stops its requests", async () => {
     const s = setup();
-    s.session.set({ query: "purple" }, 0);
-    s.session.set(undefined, 0);
+    s.session.set({ query: "purple" }, "0");
+    s.session.set(undefined, "0");
     expect(s.pending[0]!.signal.aborted).toBe(true);
     await vi.advanceTimersByTimeAsync(1000);
     expect(s.pending.length).toBe(1);
     expect(s.last()).toBeUndefined();
   });
 
+  it("never answers a Library opened again from an earlier visit's cache", async () => {
+    const cache = new Map<string, Hit[]>();
+    const before = libraryVersion();
+    const first = setup(0, { cache });
+    first.session.set({ query: "purple" }, before(0));
+    await settle();
+    first.find("full", "purple").answer(["old"]);
+    await settle();
+    // Back from Settings: a new mount counts its changes from 0 again.
+    const after = libraryVersion();
+    expect(after(0)).not.toBe(before(0));
+    const again = setup(0, { cache });
+    again.session.set({ query: "purple" }, after(0));
+    expect(again.answers).toEqual([]);
+    expect(again.pending.map((p) => p.mode)).toEqual(["instant", "full"]);
+  });
+
   it("never answers one account from another's cache", async () => {
     const cache = new Map<string, Hit[]>();
     const ana = setup(0, { cache, scope: "ana" });
-    ana.session.set({ query: "purple" }, 1);
+    ana.session.set({ query: "purple" }, "1");
     await settle();
     ana.find("full", "purple").answer(["anas"]);
     await settle();
     const ben = setup(0, { cache, scope: "ben" });
-    ben.session.set({ query: "purple" }, 1);
+    ben.session.set({ query: "purple" }, "1");
     expect(ben.answers).toEqual([]);
     expect(ben.pending.map((p) => p.mode)).toEqual(["instant", "full"]);
   });

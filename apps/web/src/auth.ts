@@ -1,6 +1,9 @@
 import { redirect } from "@tanstack/react-router";
 import { createSparkAuthClient } from "@spark/auth/client";
 import { api } from "./api";
+import { stopAnalytics } from "./analytics";
+import { clearSearchCache } from "./library/search-session";
+import { createEndSession } from "./session-end";
 import { createSessionGate } from "./session-gate";
 
 export const authClient = createSparkAuthClient();
@@ -43,6 +46,16 @@ const gate = createSessionGate({
 export function clearAdminCache() {
   gate.clear();
 }
+
+/**
+ * Forgets the person who was signed in: analytics, the admin flag and
+ * every search answer. Call it on every way a session ends.
+ */
+export const endSession = createEndSession([
+  stopAnalytics,
+  clearAdminCache,
+  clearSearchCache,
+]);
 
 /** An admin route answered 403: the stored flag is no longer trustworthy. */
 export function noteAdminStatus(status: number) {
