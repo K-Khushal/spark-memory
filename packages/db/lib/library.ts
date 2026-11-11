@@ -106,8 +106,22 @@ export type ImageCaptureResult =
  */
 export const UPLOAD_WINDOW_HOURS = 24;
 
+/**
+ * A presigned PUT lives this long (apps/server/src/files.ts). An unfinished
+ * Memory stays out of `unfinished` until then, so another tab cannot delete
+ * it while a PUT may still land and leave an object with no row.
+ */
+export const UPLOAD_URL_MINUTES = 15;
+
 /** A file whose upload did not finish within the window. */
 const expiredUpload = sql`${memoryFile.storedAt} is null and ${memoryFile.createdAt} <= now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})`;
+
+/** An unstored file whose presigned PUT may still be used. */
+const putStillValid = sql`exists (
+  select 1 from memory_file f
+  where f.memory_id = ${memory.id}
+    and f.stored_at is null
+    and f.created_at > now() - make_interval(mins => ${UPLOAD_URL_MINUTES}))`;
 
 /** Object keys are the server's: the owner's id, the Memory's id, the role. */
 const keyFor = (userId: string, memoryId: string, role: FileRole) =>
@@ -418,17 +432,39 @@ export function openLibrary(
 
     /**
      * Marks a Memory's files stored once `check` (the storage side) confirms
-     * each file not yet stored, so it shows on the wall. All under the
-     * owner's lock, so the sweep can never take the objects in between.
-     * "expired" when an upload outlived its window (retry it: that starts a
-     * new one); "missing" or "mismatch" from `check`.
+     * each file not yet stored, so it shows on the wall. The check runs
+     * before the owner's lock. Under the lock we only re-check that the row
+     * is still there, the upload has not expired, and the account is not
+     * being deleted, then mark it stored. The sweep holds that same lock
+     * while it deletes objects, so a confirm cannot mark a Memory stored
+     * after those objects are gone. "expired" when an upload outlived its
+     * window (retry it: that starts a new one); "missing" or "mismatch" from
+     * `check`. Undefined when there is no such Memory, or the account is
+     * being deleted.
      */
     async markStored(
       id: string,
       check: (file: FileUpload) => Promise<FileCheck> = async () => "stored"
     ): Promise<Memory | "expired" | Exclude<FileCheck, "stored"> | undefined> {
+      const pending = await db
+        .select({
+          role: memoryFile.role,
+          key: memoryFile.key,
+          mime: memoryFile.mime,
+          bytes: memoryFile.bytes,
+        })
+        .from(memoryFile)
+        .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
+        .where(and(owned(id), sql`${memoryFile.storedAt} is null`));
+      const checked = new Set(pending.map((file) => file.key));
+      const checks = await Promise.all(pending.map((file) => check(file)));
+      if (checks.includes("mismatch")) return "mismatch";
+      if (checks.includes("missing")) return "missing";
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
+        // Account deletion takes this lock too (account.ts): never store
+        // files for an account that is going away.
+        if (await deletionRequested(tx, userId)) return undefined;
         const [row] = await tx.select(columns).from(memory).where(owned(id));
         if (!row) return undefined;
         const late = await tx
@@ -436,8 +472,9 @@ export function openLibrary(
           .from(memoryFile)
           .where(and(eq(memoryFile.memoryId, id), expiredUpload));
         if (late.length) return "expired";
-        const pending = await tx
-          .select(fileColumns)
+        // A file created after the check was never confirmed.
+        const still = await tx
+          .select({ key: memoryFile.key })
           .from(memoryFile)
           .where(
             and(
@@ -445,11 +482,7 @@ export function openLibrary(
               sql`${memoryFile.storedAt} is null`
             )
           );
-        const checks = await Promise.all(
-          pending.map(({ stored: _, ...f }) => check(f))
-        );
-        if (checks.includes("mismatch")) return "mismatch";
-        if (checks.includes("missing")) return "missing";
+        if (still.some((file) => !checked.has(file.key))) return "missing";
         await tx
           .update(memoryFile)
           .set({ storedAt: sql`coalesce(${memoryFile.storedAt}, now())` })
@@ -463,14 +496,21 @@ export function openLibrary(
     usedStorage: () => usedStorage(db),
 
     /**
-     * Image Memories whose upload has not finished (a page closed midway),
-     * newest first, so the wall can offer to delete them before the sweep.
+     * Image Memories whose upload has not finished and whose presigned PUT
+     * has expired, newest first, so the wall can offer to delete them before
+     * the sweep. Younger ones stay out: another tab may still be uploading.
      */
     unfinished: (limit = 100): Promise<Memory[]> =>
       db
         .select(columns)
         .from(memory)
-        .where(and(eq(memory.userId, userId), sql`not ${allStored}`))
+        .where(
+          and(
+            eq(memory.userId, userId),
+            sql`not ${allStored}`,
+            sql`not (${putStillValid})`
+          )
+        )
         .orderBy(desc(memory.capturedAt), desc(memory.id))
         .limit(limit),
 
@@ -722,22 +762,38 @@ export function openLibrary(
 export type Library = ReturnType<typeof openLibrary>;
 
 /**
+ * How long one sweep may run before it stops and leaves the rest for the
+ * next hourly run. The account sweep runs in the same cron and has the
+ * same budget (account.ts).
+ */
+export const SWEEP_BUDGET_MS = 20_000;
+
+/** Memories removed for one owner in one transaction, so a backlog cannot be one long lock. */
+const SWEEP_PER_OWNER = 500;
+
+/**
  * Removes image Memories whose upload never finished within the upload
  * window (by the database's clock), a batch of owners at a time: their
  * objects first (an upload may have landed without being checked), then the
- * rows. Each owner's Memories go under that owner's lock, so a Try Again or
- * a confirmation waits and then finds the Memory gone, never stored without
- * its objects. If removing objects fails, the rows stay for the next sweep.
- * Returns how many Memories went.
+ * rows. Each batch goes under that owner's lock, so a Try Again or a
+ * confirmation waits and then finds the Memory gone, never stored without
+ * its objects. One owner's storage failure leaves their rows for the next
+ * sweep and does not stop the others. A batch is at most `perOwner`
+ * Memories; the rest of that owner follows in the next transaction, until
+ * `deadline` (epoch ms). Returns how many Memories went.
  */
 export async function sweepAbandonedUploads(
   db: Database,
   {
     removeObjects,
     owners = 50,
+    perOwner = SWEEP_PER_OWNER,
+    deadline = Date.now() + SWEEP_BUDGET_MS,
   }: {
     removeObjects: (keys: string[]) => Promise<void>;
     owners?: number;
+    perOwner?: number;
+    deadline?: number;
   }
 ): Promise<number> {
   const due = await db
@@ -748,31 +804,44 @@ export async function sweepAbandonedUploads(
     .limit(owners);
   let total = 0;
   for (const { userId } of due) {
-    total += await db.transaction(async (tx) => {
-      await lockOwner(tx, userId);
-      // Read again under the lock: a retry may have started a new window.
-      const abandoned = tx
-        .selectDistinct({ id: memoryFile.memoryId })
-        .from(memoryFile)
-        .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
-        .where(and(eq(memory.userId, userId), expiredUpload));
-      const files = await tx
-        .select({ memoryId: memoryFile.memoryId, key: memoryFile.key })
-        .from(memoryFile)
-        .where(inArray(memoryFile.memoryId, abandoned));
-      if (!files.length) return 0;
-      // R2 deletes at most 1,000 keys a call.
-      const keys = files.map((f) => f.key);
-      for (let i = 0; i < keys.length; i += 1000) {
-        await removeObjects(keys.slice(i, i + 1000));
+    let stop = false;
+    try {
+      for (;;) {
+        const removed = await db.transaction(async (tx) => {
+          await lockOwner(tx, userId);
+          // Read again under the lock: a retry may have started a new window.
+          const abandoned = await tx
+            .selectDistinct({ id: memory.id })
+            .from(memory)
+            .innerJoin(memoryFile, eq(memoryFile.memoryId, memory.id))
+            .where(and(eq(memory.userId, userId), expiredUpload))
+            .limit(perOwner);
+          if (!abandoned.length) return 0;
+          const ids = abandoned.map((row) => row.id);
+          const files = await tx
+            .select({ key: memoryFile.key })
+            .from(memoryFile)
+            .where(inArray(memoryFile.memoryId, ids));
+          // R2 deletes at most 1,000 keys a call.
+          const keys = files.map((file) => file.key);
+          for (let i = 0; i < keys.length; i += 1000) {
+            await removeObjects(keys.slice(i, i + 1000));
+          }
+          const gone = await tx
+            .delete(memory)
+            .where(inArray(memory.id, ids))
+            .returning({ id: memory.id });
+          return gone.length;
+        });
+        total += removed;
+        stop = Date.now() >= deadline;
+        if (removed < perOwner || stop) break;
       }
-      const ids = [...new Set(files.map((f) => f.memoryId))];
-      const removed = await tx
-        .delete(memory)
-        .where(inArray(memory.id, ids))
-        .returning({ id: memory.id });
-      return removed.length;
-    });
+    } catch {
+      // Their rows stay for the next sweep. The error can name object keys.
+      console.error("sweep: one owner failed");
+    }
+    if (stop || Date.now() >= deadline) break;
   }
   return total;
 }

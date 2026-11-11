@@ -9,6 +9,8 @@ export { openDatabase, type Database } from "./lib/client";
 export {
   openLibrary,
   sweepAbandonedUploads,
+  SWEEP_BUDGET_MS,
+  UPLOAD_URL_MINUTES,
   UPLOAD_WINDOW_HOURS,
   type CaptureResult,
   type EditResult,

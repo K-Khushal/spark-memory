@@ -99,10 +99,11 @@ describe.skipIf(!databaseUrl)("image Capture", () => {
       "original",
       "thumbnail",
     ]);
-    // Not on the wall until its files are stored: listed apart, as unfinished.
+    // Not on the wall until its files are stored. A PUT is still live, so
+    // it is not listed as unfinished either: another tab must not delete it.
     expect(await (await call("/api/memories")).json()).toMatchObject({
       memories: [],
-      unfinished: [{ id: input.id, kind: "image" }],
+      unfinished: [],
     });
 
     await uploadAll(created.body.uploads);
@@ -142,6 +143,23 @@ describe.skipIf(!databaseUrl)("image Capture", () => {
     expect(await create(call, input)).toMatchObject({
       status: 200,
       body: { uploads: [] },
+    });
+  });
+
+  it("lists an unfinished upload once its PUT has expired", async () => {
+    const { call } = await signedIn();
+    const input = describe_();
+    await create(call, input);
+    const db = new Client({ connectionString: databaseUrl });
+    await db.connect();
+    await db.query(
+      `update memory_file set created_at = now() - interval '20 minutes' where memory_id = $1`,
+      [input.id]
+    );
+    await db.end();
+    expect(await (await call("/api/memories")).json()).toMatchObject({
+      memories: [],
+      unfinished: [{ id: input.id, kind: "image" }],
     });
   });
 

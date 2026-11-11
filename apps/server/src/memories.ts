@@ -146,8 +146,10 @@ export const memories = new Hono<AppEnv>()
     if (!page) return c.json({ ok: false, error: "invalid" } as const, 400);
     const signed = (all: typeof page.memories) =>
       Promise.all(all.map((m) => forClient(c.var.files, m)));
-    // The first page also carries uploads a closed page left unfinished,
-    // apart from the wall, so they can be deleted before the sweep.
+    // The first page also carries uploads a closed page left unfinished
+    // once their PUT has expired, apart from the wall, so they can be
+    // deleted before the sweep. A younger one stays off this list: another
+    // tab may still be uploading it.
     const [memories, unfinished] = await Promise.all([
       signed(page.memories),
       after ? [] : c.var.library.unfinished().then(signed),

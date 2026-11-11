@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { FREE_ALLOWANCE, type ImageCapture } from "@spark/core";
 import {
+  openAccount,
   openDatabase,
   openLibrary,
   sweepAbandonedUploads,
@@ -88,10 +89,17 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     await removeUser(db, owner);
   });
 
-  it("lists its owner's unfinished uploads apart from the wall, and no one else's", async () => {
+  it("lists an unfinished upload only once its PUT has expired, and only to its owner", async () => {
     const input = image();
     await library(ana).captureImage(input);
     const done = await stored(ana);
+    // A presigned PUT lives about 15 minutes. Until then another tab must
+    // not be offered Delete: a late PUT would leave an object with no row.
+    const fresh = (await library(ana).unfinished()).map((m) => m.id);
+    expect(fresh).not.toContain(input.id);
+    await db.execute(
+      sql`update memory_file set created_at = now() - interval '20 minutes' where memory_id = ${input.id}`
+    );
     const ids = (await library(ana).unfinished()).map((m) => m.id);
     expect(ids).toContain(input.id);
     expect(ids).not.toContain(done.id);
@@ -278,19 +286,135 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     await removeUser(db, owner);
   });
 
-  it("keeps the rows when deleting the objects fails, to try again next time", async () => {
+  it("checks thirty confirms at once, before the owner lock, so the network waits do not queue", async () => {
     const owner = await newUser(db);
-    const abandoned = image();
-    await library(owner).captureImage(abandoned);
-    await db.execute(
-      sql`update memory_file set created_at = now() - interval '2 days' where memory_id = ${abandoned.id}`
-    );
-    await expect(
-      sweepAbandonedUploads(db, {
-        removeObjects: () => Promise.reject(new Error("storage down")),
+    const ids = await Promise.all(
+      Array.from({ length: 30 }, async () => {
+        const input = image();
+        const created = await library(owner).captureImage(input);
+        if (!("memory" in created)) throw new Error("not created");
+        return input.id;
       })
-    ).rejects.toThrow();
-    expect(await library(owner).get(abandoned.id)).toBeDefined();
+    );
+    let current = 0;
+    let max = 0;
+    const check = async () => {
+      current += 1;
+      max = Math.max(max, current);
+      await new Promise((r) => setTimeout(r, 100));
+      current -= 1;
+      return "stored" as const;
+    };
+    const started = Date.now();
+    const stored = await Promise.all(
+      ids.map((id) => library(owner).markStored(id, check))
+    );
+    // One owner's confirms used to run the check under the lock: 30 × 100 ms.
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(max).toBeGreaterThanOrEqual(30);
+    expect(stored.every((m) => m && typeof m !== "string")).toBe(true);
+    await removeUser(db, owner);
+  });
+
+  it("does not mark a Memory stored once its account is being deleted", async () => {
+    const owner = await newUser(db);
+    const input = image();
+    await library(owner).captureImage(input);
+    await openAccount(db, owner).requestDeletion();
+    expect(await library(owner).markStored(input.id)).toBeUndefined();
+    const { rows } = await db.execute<{ stored_at: Date | null }>(
+      sql`select stored_at from memory_file where memory_id = ${input.id}`
+    );
+    expect(rows.map((r) => r.stored_at)).toEqual([null, null]);
+    await removeUser(db, owner);
+  });
+
+  it("keeps one owner's rows when their storage delete fails, and still sweeps the next", async () => {
+    const broken = await newUser(db);
+    const fine = await newUser(db);
+    const left = image();
+    const gone = image();
+    await library(broken).captureImage(left);
+    await library(fine).captureImage(gone);
+    await db.execute(
+      sql`update memory_file set created_at = now() - interval '2 days' where memory_id in (${left.id}, ${gone.id})`
+    );
+    const swept = await sweepAbandonedUploads(db, {
+      removeObjects: async (keys) => {
+        if (keys.some((key) => key.includes(`/${broken}/`))) {
+          throw new Error("storage down");
+        }
+      },
+    });
+    expect(swept).toBeGreaterThanOrEqual(1);
+    expect(await library(broken).get(left.id)).toBeDefined();
+    expect(await library(fine).get(gone.id)).toBeUndefined();
+    await removeUser(db, broken);
+    await removeUser(db, fine);
+  });
+
+  it("deletes a capped batch of Memories per transaction, then the rest", async () => {
+    await db.execute(sql`
+      delete from memory where id in (
+        select memory_id from memory_file
+        where stored_at is null
+          and created_at <= now() - interval '24 hours')`);
+    const owner = await newUser(db);
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const input = image();
+      await library(owner).captureImage(input);
+      ids.push(input.id);
+    }
+    await db.execute(
+      sql`update memory_file set created_at = now() - interval '2 days' where memory_id in (${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `
+      )})`
+    );
+    const batches: number[] = [];
+    const swept = await sweepAbandonedUploads(db, {
+      perOwner: 2,
+      removeObjects: async (keys) => {
+        batches.push(new Set(keys.map((key) => key.split("/")[2])).size);
+      },
+    });
+    expect(swept).toBe(5);
+    expect(batches.length).toBeGreaterThan(1);
+    expect(batches.every((count) => count <= 2)).toBe(true);
+    for (const id of ids) expect(await library(owner).get(id)).toBeUndefined();
+    await removeUser(db, owner);
+  });
+
+  it("stops at its time budget and leaves the rest for the next sweep", async () => {
+    await db.execute(sql`
+      delete from memory where id in (
+        select memory_id from memory_file
+        where stored_at is null
+          and created_at <= now() - interval '24 hours')`);
+    const owner = await newUser(db);
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const input = image();
+      await library(owner).captureImage(input);
+      ids.push(input.id);
+    }
+    await db.execute(
+      sql`update memory_file set created_at = now() - interval '2 days' where memory_id in (${sql.join(
+        ids.map((id) => sql`${id}`),
+        sql`, `
+      )})`
+    );
+    const swept = await sweepAbandonedUploads(db, {
+      perOwner: 1,
+      deadline: 0,
+      removeObjects: async () => {},
+    });
+    expect(swept).toBe(1);
+    const left = (
+      await Promise.all(ids.map((id) => library(owner).get(id)))
+    ).filter(Boolean);
+    expect(left).toHaveLength(2);
     await removeUser(db, owner);
   });
 });

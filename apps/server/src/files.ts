@@ -24,6 +24,7 @@ export type SignedUpload = { url: string; headers: Record<string, string> };
 
 /** Files never change once stored, and only their owner ever has a URL. */
 export const FILE_CACHE_CONTROL = "private, max-age=31536000, immutable";
+/** Keep in step with UPLOAD_URL_MINUTES in @spark/db (what `unfinished` hides). */
 const UPLOAD_SECONDS = 15 * 60;
 /** Download URLs are signed at the start of the hour and last two. */
 const DOWNLOAD_SECONDS = 2 * 60 * 60;
