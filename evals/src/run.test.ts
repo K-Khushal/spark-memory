@@ -15,7 +15,7 @@ describe.skipIf(!process.env.DATABASE_URL)("runEvals", () => {
 
   const pick = async (...ids: string[]) => {
     const set = await loadSet();
-    return { ...set, items: set.items.filter((i) => ids.includes(i.id)) };
+    return { ...set, memories: set.memories.filter((i) => ids.includes(i.id)) };
   };
 
   it("finds Memories it captured, an image by its text and a note by its words", async () => {
@@ -26,7 +26,7 @@ describe.skipIf(!process.env.DATABASE_URL)("runEvals", () => {
     );
     const report = await runEvals({
       db,
-      items: set.items,
+      memories: set.memories,
       searches: [
         {
           id: "a",
@@ -47,7 +47,7 @@ describe.skipIf(!process.env.DATABASE_URL)("runEvals", () => {
           kind: "none",
         },
       ],
-      ...(await fakeSetup(set.items)),
+      ...(await fakeSetup(set.memories)),
     });
     expect(report.searches.map((s) => s.rank)).toEqual([1, 1, null]);
     expect(report.searches.every((s) => !s.fellBack)).toBe(true);
@@ -61,9 +61,9 @@ describe.skipIf(!process.env.DATABASE_URL)("runEvals", () => {
     const set = await pick("note-passport-renewal", "img-red-car");
     await runEvals({
       db,
-      items: set.items,
+      memories: set.memories,
       searches: [],
-      ...(await fakeSetup(set.items)),
+      ...(await fakeSetup(set.memories)),
     });
     const after = await db.execute<{ n: string }>(
       sql`select count(*) as n from memory`
@@ -73,15 +73,15 @@ describe.skipIf(!process.env.DATABASE_URL)("runEvals", () => {
 
   it("still Indexes an image the manifest has no recorded extraction for", async () => {
     const set = await pick("img-red-car");
-    const setup = await fakeSetup(set.items);
+    const setup = await fakeSetup(set.memories);
     const broken = {
-      ...set.items[0]!,
-      image: { ...set.items[0]!.image!, contentHash: "0".repeat(64) },
+      ...set.memories[0]!,
+      image: { ...set.memories[0]!.image!, contentHash: "0".repeat(64) },
     };
     // No recorded answer by hash: the replay provider gives an empty one, and the Memory is still Searchable.
     const report = await runEvals({
       db,
-      items: [broken],
+      memories: [broken],
       searches: [],
       ...setup,
     });

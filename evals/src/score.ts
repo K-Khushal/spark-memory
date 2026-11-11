@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { Report, SearchOutcome } from "./run";
 
 export type Tally = { total: number; top1: number; top5: number };
@@ -33,11 +34,12 @@ export function worstOf(runs: SearchOutcome[][]): SearchOutcome[] {
 }
 
 /** What `baseline.json` holds: every search's rank, and how much a drop may be. */
-export type Baseline = {
+export const Baseline = z.object({
   /** The most the top-1 or top-5 rate may fall (0.02 = two points) before the gate fails. */
-  tolerance: number;
-  ranks: Record<string, number | null>;
-};
+  tolerance: z.number().min(0).max(1),
+  ranks: z.record(z.string(), z.number().int().positive().nullable()),
+});
+export type Baseline = z.infer<typeof Baseline>;
 
 export const DEFAULT_TOLERANCE = 0.02;
 

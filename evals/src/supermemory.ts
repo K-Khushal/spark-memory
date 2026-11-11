@@ -8,7 +8,7 @@
 // GET /ns/{ns}/document/{id}, POST /ns/{ns}/search, and the namespace-wide
 // removal at the end. Search results carry the metadata sent with a document;
 // that is how a result is mapped back to a sample Library id.
-import { loadSet, readLibraryFile } from "./manifest";
+import { loadSet, readLibraryFile, refuseOwnerMemories } from "./manifest";
 import type { SearchOutcome } from "./run";
 import { formatReport } from "./score";
 
@@ -44,22 +44,23 @@ const json = (body: unknown): RequestInit => ({
 });
 
 const set = await loadSet();
+refuseOwnerMemories(set.memories, "the Supermemory comparison");
 const ids: string[] = [];
 try {
-  for (const item of set.items) {
-    const metadata = { memoryId: item.id };
+  for (const sample of set.memories) {
+    const metadata = { memoryId: sample.id };
     let reply;
-    if (item.kind === "text") {
-      const text = (await readLibraryFile(item.text!)).toString("utf8");
-      const content = `${item.title ?? ""}\n\n${text}`;
+    if (sample.kind === "text") {
+      const text = (await readLibraryFile(sample.text!)).toString("utf8");
+      const content = `${sample.title ?? ""}\n\n${text}`;
       reply = await call("/document", json({ content, metadata }));
     } else {
       const form = new FormData();
-      const bytes = new Uint8Array(await readLibraryFile(item.file!));
+      const bytes = new Uint8Array(await readLibraryFile(sample.file!));
       form.set(
         "file",
-        new Blob([bytes], { type: item.image!.mime }),
-        item.file!.split("/").pop()
+        new Blob([bytes], { type: sample.image!.mime }),
+        sample.file!.split("/").pop()
       );
       form.set("metadata", JSON.stringify(metadata));
       reply = await call("/document/file", { method: "POST", body: form });
@@ -67,7 +68,8 @@ try {
     ids.push((reply as { id: string }).id);
   }
   // Processing is asynchronous: wait until every document is searchable.
-  for (let waited = 0; waited < 600; waited += 5) {
+  let ready = false;
+  for (let waited = 0; waited < 600 && !ready; waited += 5) {
     const states = await Promise.all(
       ids.map(
         async (id) =>
@@ -78,8 +80,13 @@ try {
     if (states.includes("failed")) {
       throw new Error("Supermemory failed to process a document");
     }
-    if (states.every((s) => s === "done")) break;
-    await sleep(5000);
+    ready = states.every((s) => s === "done");
+    if (!ready) await sleep(5000);
+  }
+  if (!ready) {
+    throw new Error(
+      "Supermemory had not finished processing after 10 minutes: scores would be wrong"
+    );
   }
 
   const outcomes: SearchOutcome[] = [];
@@ -107,7 +114,7 @@ try {
   }
   console.log(
     formatReport({
-      memories: set.items.length,
+      memories: set.memories.length,
       searches: outcomes,
       costMicros: 0,
     })

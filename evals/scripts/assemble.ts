@@ -13,11 +13,13 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 import { rgbaToThumbHash } from "thumbhash";
 import { dominantColours } from "@spark/capture";
-import type { LibraryItem } from "../src/manifest";
+import type { SampleMemory } from "../src/manifest";
 import { SCREENS } from "./screens";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const lib = join(root, "library");
+/** Where our own Memories live, for their source link. */
+const REPO = "https://github.com/K-Khushal/spark-memory/blob/main/evals/";
 const UA = "spark-evals-sample-library/1.0 (open-licence sample set)";
 const FREE = /^(cc0|public domain|pd\b|cc[- ]by[- ]\d)/i;
 
@@ -86,14 +88,14 @@ const notes: {
 }[] = JSON.parse(await readFile(join(root, "scripts/notes.json"), "utf8"));
 
 await rm(lib, { recursive: true, force: true });
-const items: LibraryItem[] = [];
+const memories: SampleMemory[] = [];
 const text = async (id: string, body: string) => {
   await write(`texts/${id}.txt`, body.trim() + "\n");
   return `texts/${id}.txt`;
 };
 
 for (const n of notes) {
-  items.push({
+  memories.push({
     id: n.id,
     kind: "text",
     title: n.title,
@@ -103,7 +105,7 @@ for (const n of notes) {
     language: n.language ?? "en",
     source: {
       type: "original",
-      url: "",
+      url: `${REPO}library/texts/${n.id}.txt`,
       licence: "CC0 1.0",
       attribution: "Written for this sample Library",
     },
@@ -131,7 +133,7 @@ for (const w of sources.wikipedia) {
     revisions: { revid: number }[];
   };
   const url = `https://${lang}.wikipedia.org/w/index.php?title=${encodeURIComponent(page.title.replaceAll(" ", "_"))}&oldid=${page.revisions[0]!.revid}`;
-  items.push({
+  memories.push({
     id: w.id,
     kind: "text",
     title: page.title,
@@ -160,7 +162,7 @@ for (const g of sources.gutenberg) {
     .slice(start, end)
     .replace(/\r/g, "")
     .slice(0, g.max ?? 30_000);
-  items.push({
+  memories.push({
     id: g.id,
     kind: "text",
     title: g.title,
@@ -177,7 +179,7 @@ for (const g of sources.gutenberg) {
 }
 
 type Raw = {
-  item: Omit<LibraryItem, "image">;
+  sample: Omit<SampleMemory, "image">;
   bytes: Uint8Array;
   mime: "image/jpeg" | "image/png";
 };
@@ -218,7 +220,7 @@ for (const c of sources.commons) {
   raws.push({
     mime,
     bytes: new Uint8Array(await res.arrayBuffer()),
-    item: {
+    sample: {
       id: c.id,
       kind: "image",
       tags: c.tags,
@@ -259,7 +261,7 @@ for (const s of SCREENS) {
   raws.push({
     mime: "image/png",
     bytes: await view.screenshot({ type: "png" }),
-    item: {
+    sample: {
       id: s.id,
       kind: "image",
       tags: s.tags,
@@ -267,7 +269,7 @@ for (const s of SCREENS) {
       file: `files/${s.id}.png`,
       source: {
         type: "original",
-        url: "",
+        url: `${REPO}scripts/screens.ts`,
         licence: "CC0 1.0",
         attribution: "Drawn for this sample Library (evals/scripts/screens.ts)",
       },
@@ -283,8 +285,8 @@ for (const s of SCREENS) {
 }
 
 // What Capture sends with an image: size, hash, ThumbHash and palette.
-for (const { item, bytes, mime } of raws) {
-  await write(item.file!, bytes);
+for (const { sample, bytes, mime } of raws) {
+  await write(sample.file!, bytes);
   const px = await view.evaluate(
     async (url) => {
       const bitmap = await createImageBitmap(await (await fetch(url)).blob());
@@ -312,8 +314,8 @@ for (const { item, bytes, mime } of raws) {
     `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`
   );
   const rgba = Uint8Array.from(px.data);
-  items.push({
-    ...item,
+  memories.push({
+    ...sample,
     image: {
       mime,
       bytes: bytes.length,
@@ -329,8 +331,8 @@ for (const { item, bytes, mime } of raws) {
 }
 await browser.close();
 
-items.sort((a, b) => a.id.localeCompare(b.id));
-const ids = new Set(items.map((i) => i.id));
-if (ids.size !== items.length) throw new Error("duplicate ids");
-await write("manifest.json", JSON.stringify(items, null, 1) + "\n");
-console.log(`assembled ${items.length} Memories`);
+memories.sort((a, b) => a.id.localeCompare(b.id));
+const ids = new Set(memories.map((i) => i.id));
+if (ids.size !== memories.length) throw new Error("duplicate ids");
+await write("manifest.json", JSON.stringify(memories, null, 1) + "\n");
+console.log(`assembled ${memories.length} Memories`);

@@ -69,7 +69,7 @@ To rebuild after changing `scripts/sources.json`, `notes.json` or `screens.ts`: 
 
 ## Comparison and experiments (on demand, never in CI)
 
-Both spend money or credits and call outside services, so each refuses without `--yes`. The sample Library holds only openly licensed content, never a user's.
+Both spend money or credits and call outside services, so each refuses without `--yes`, and both stop if the Library holds the owner's own Memories (`source.type: "owner"`) unless you pass `--include-owner`. The sample Library holds only openly licensed content, never a user's.
 
 ```sh
 # ADR-0009: Spark against Supermemory on its free credits

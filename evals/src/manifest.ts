@@ -19,7 +19,7 @@ const Extraction = z.object({
  * manifest), an image in `file`, with what Capture works out in the browser.
  * The owner's own Memories (#10) go in another `library/*.json` of the same shape.
  */
-const Item = z.object({
+const Sample = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   kind: z.enum(["text", "image"]),
   title: z.string().optional(),
@@ -48,7 +48,7 @@ const Item = z.object({
   }),
   extraction: Extraction.optional(),
 });
-export type LibraryItem = z.infer<typeof Item>;
+export type SampleMemory = z.infer<typeof Sample>;
 
 /**
  * One vague search: what the owner would type, and the Memories that count
@@ -77,10 +77,10 @@ const readAll = async <T>(dir: string, schema: z.ZodType<T>) =>
 
 /** Every `library/*.json` and `searches/*.json`, checked against each other. */
 export async function loadSet(root = EVALS_ROOT) {
-  const items = await readAll(join(root, "library"), Item);
+  const memories = await readAll(join(root, "library"), Sample);
   const searches = await readAll(join(root, "searches"), Search);
-  const ids = new Set(items.map((i) => i.id));
-  if (ids.size !== items.length) throw new Error("two Memories share an id");
+  const ids = new Set(memories.map((i) => i.id));
+  if (ids.size !== memories.length) throw new Error("two Memories share an id");
   const searchIds = new Set(searches.map((s) => s.id));
   if (searchIds.size !== searches.length)
     throw new Error("two searches share an id");
@@ -90,7 +90,21 @@ export async function loadSet(root = EVALS_ROOT) {
         throw new Error(`search ${s.id} expects unknown Memory ${id}`);
     }
   }
-  return { items, searches };
+  return { memories, searches };
+}
+
+/**
+ * Experiments and comparisons send the whole sample Library to outside
+ * services. The sample is openly licensed; the owner's own Memories (#10)
+ * may be personal, so a run that would send them stops unless allowed.
+ */
+export function refuseOwnerMemories(memories: SampleMemory[], what: string) {
+  if (process.argv.includes("--include-owner")) return;
+  if (memories.some((m) => m.source.type === "owner")) {
+    throw new Error(
+      `${what} would send the owner's own Memories to an outside service: pass --include-owner if that is intended`
+    );
+  }
 }
 
 /** The Memory's text or image bytes from library/. */

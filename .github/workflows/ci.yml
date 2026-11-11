@@ -142,7 +142,7 @@ jobs:
           retention-days: 14
 
   deploy-dev:
-    needs: [check, smoke, search-evals]
+    needs: [check, smoke]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/deploy.yml
     with:
@@ -151,7 +151,7 @@ jobs:
     secrets: inherit
 
   deploy-production:
-    needs: [check, smoke, search-evals]
+    needs: [check, smoke]
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_production)

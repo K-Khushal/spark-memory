@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Provider } from "@spark/indexing";
-import type { LibraryItem } from "./manifest";
+import type { SampleMemory } from "./manifest";
 
 const ZERO = { inputTokens: 0, outputTokens: 0 };
 const key = (title: string) => title.normalize("NFKC").trim();
@@ -21,28 +21,28 @@ export function summarise(text: string) {
  * vision. Texts without a recorded extraction get a deterministic summary.
  */
 export function replayProvider(
-  items: LibraryItem[],
+  memories: SampleMemory[],
   texts: Map<string, string>
 ): Provider {
-  const images = new Map<string, NonNullable<LibraryItem["extraction"]>>();
-  const titles = new Map<string, NonNullable<LibraryItem["extraction"]>>();
-  for (const item of items) {
-    const body = texts.get(item.id);
+  const images = new Map<string, NonNullable<SampleMemory["extraction"]>>();
+  const titles = new Map<string, NonNullable<SampleMemory["extraction"]>>();
+  for (const sample of memories) {
+    const body = texts.get(sample.id);
     const found =
-      item.extraction ??
+      sample.extraction ??
       (body !== undefined && {
-        title: item.title ?? "",
+        title: sample.title ?? "",
         description: summarise(body),
         ocrText: "",
-        tags: item.tags,
-        language: item.language,
+        tags: sample.tags,
+        language: sample.language,
       });
     if (!found) continue;
-    if (item.image) images.set(item.image.contentHash, found);
-    else if (item.title) {
-      if (titles.has(key(item.title)))
-        throw new Error(`two texts share the title of ${item.id}`);
-      titles.set(key(item.title), found);
+    if (sample.image) images.set(sample.image.contentHash, found);
+    else if (sample.title) {
+      if (titles.has(key(sample.title)))
+        throw new Error(`two texts share the title of ${sample.id}`);
+      titles.set(key(sample.title), found);
     }
   }
   return {

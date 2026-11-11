@@ -9,7 +9,7 @@ import {
   type Embedder,
   type Provider,
 } from "@spark/indexing";
-import { readLibraryFile, type LibraryItem } from "./manifest";
+import { readLibraryFile, type SampleMemory } from "./manifest";
 import { replayProvider } from "./replay";
 
 loadRootEnv();
@@ -36,14 +36,17 @@ export type Setup = {
 };
 
 /** The deterministic providers: no keys, no network, the same answer every run. */
-export async function fakeSetup(items: LibraryItem[]): Promise<Setup> {
+export async function fakeSetup(memories: SampleMemory[]): Promise<Setup> {
   const texts = new Map<string, string>();
-  for (const item of items) {
-    if (item.text)
-      texts.set(item.id, (await readLibraryFile(item.text)).toString("utf8"));
+  for (const sample of memories) {
+    if (sample.text)
+      texts.set(
+        sample.id,
+        (await readLibraryFile(sample.text)).toString("utf8")
+      );
   }
   return {
-    providers: [replayProvider(items, texts)],
+    providers: [replayProvider(memories, texts)],
     embedder: fakeEmbedder(),
     concurrency: 1,
   };

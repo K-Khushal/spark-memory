@@ -9,7 +9,11 @@ import {
   type Provider,
 } from "@spark/indexing";
 import { createSearch } from "@spark/search";
-import { readLibraryFile, type LibraryItem, type SearchCase } from "./manifest";
+import {
+  readLibraryFile,
+  type SampleMemory,
+  type SearchCase,
+} from "./manifest";
 
 export type SearchOutcome = {
   id: string;
@@ -45,7 +49,7 @@ export const RERANK_TOP = 20;
 
 export type RunOptions = {
   db: Database;
-  items: LibraryItem[];
+  memories: SampleMemory[];
   searches: SearchCase[];
   providers: Provider[];
   embedder?: Embedder;
@@ -59,7 +63,7 @@ export type RunOptions = {
 async function pool<T>(
   list: T[],
   width: number,
-  work: (item: T) => Promise<void>
+  work: (sample: T) => Promise<void>
 ) {
   const queue = [...list];
   await Promise.all(
@@ -93,7 +97,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 export async function runEvals({
   db,
-  items,
+  memories,
   searches,
   providers,
   embedder,
@@ -112,32 +116,32 @@ export async function runEvals({
     });
     const store = indexingStore(db);
     const files = new Map<string, Uint8Array>();
-    const itemOf = new Map<string, string>();
+    const sampleOf = new Map<string, string>();
     /** What a text reranker reads of each Memory: its title and what is in it. */
     const textOf = new Map<string, string>();
     const jobs: { memoryId: string; run: number }[] = [];
 
-    for (const item of items) {
-      const id = memoryId(item.id);
+    for (const sample of memories) {
+      const id = memoryId(sample.id);
       let run: number;
-      if (item.kind === "text") {
-        const body = (await readLibraryFile(item.text!)).toString("utf8");
-        textOf.set(item.id, `${item.title ?? ""}\n${body}`.slice(0, 2000));
+      if (sample.kind === "text") {
+        const body = (await readLibraryFile(sample.text!)).toString("utf8");
+        textOf.set(sample.id, `${sample.title ?? ""}\n${body}`.slice(0, 2000));
         const captured = await library.capture({
           id,
           body,
-          title: item.title,
-          captureNote: item.captureNote,
+          title: sample.title,
+          captureNote: sample.captureNote,
         });
         if (!("memory" in captured))
-          throw new Error(`${item.id}: capture conflict`);
+          throw new Error(`${sample.id}: capture conflict`);
         run = captured.memory.indexRun;
       } else {
-        const bytes = new Uint8Array(await readLibraryFile(item.file!));
-        const { image } = item;
+        const bytes = new Uint8Array(await readLibraryFile(sample.file!));
+        const { image } = sample;
         textOf.set(
-          item.id,
-          `${item.extraction?.title ?? ""}\n${item.extraction?.description ?? ""}\n${item.extraction?.ocrText ?? ""}`
+          sample.id,
+          `${sample.extraction?.title ?? ""}\n${sample.extraction?.description ?? ""}\n${sample.extraction?.ocrText ?? ""}`
         );
         const captured = await library.captureImage({
           id,
@@ -152,14 +156,14 @@ export async function runEvals({
           thumbnail: { mime: "image/jpeg", bytes: bytes.length },
         });
         if (!("memory" in captured))
-          throw new Error(`${item.id}: ${JSON.stringify(captured)}`);
+          throw new Error(`${sample.id}: ${JSON.stringify(captured)}`);
         for (const upload of captured.uploads) files.set(upload.key, bytes);
         const stored = await library.markStored(id);
         if (!stored || typeof stored === "string")
-          throw new Error(`${item.id}: not stored`);
+          throw new Error(`${sample.id}: not stored`);
         run = captured.memory.indexRun;
       }
-      itemOf.set(id, item.id);
+      sampleOf.set(id, sample.id);
       jobs.push({ memoryId: id, run });
     }
     log(`captured ${jobs.length} Memories`);
@@ -184,7 +188,7 @@ export async function runEvals({
         await sleep(Math.min(outcome.delaySeconds, 20) * 1000);
       }
       if (outcome.result !== "searchable")
-        failed.push(`${itemOf.get(memoryId)}:${outcome.result}`);
+        failed.push(`${sampleOf.get(memoryId)}:${outcome.result}`);
     });
     if (failed.length)
       throw new Error(`Indexing did not finish: ${failed.join(", ")}`);
@@ -210,7 +214,7 @@ export async function runEvals({
     const outcomes: SearchOutcome[] = [];
     for (const c of searches) {
       const { results, mode } = await search.search(c.query, "full");
-      let ids = results.map((r) => itemOf.get(r.id) ?? r.id);
+      let ids = results.map((r) => sampleOf.get(r.id) ?? r.id);
       if (rerank) {
         const head = ids.slice(0, RERANK_TOP);
         const order = await rerank(
@@ -241,7 +245,7 @@ export async function runEvals({
       .from(schema.aiCall)
       .where(eq(schema.aiCall.userId, userId));
     return {
-      memories: items.length,
+      memories: memories.length,
       searches: outcomes,
       costMicros: Number(spent?.micros ?? 0),
     };
