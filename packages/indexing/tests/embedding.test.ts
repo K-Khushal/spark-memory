@@ -9,6 +9,7 @@ import {
   passages,
   ProviderError,
   queryText,
+  type Claim,
   type EmbedInput,
   type EmbedMemory,
   type Embedder,
@@ -39,6 +40,7 @@ function stubEmbedder(error?: ProviderError) {
 
 const pending: PendingMemory = {
   userId: "u1",
+  generation: "g1",
   run: 1,
   revision: 4,
   kind: "text",
@@ -50,6 +52,7 @@ const pending: PendingMemory = {
 
 const stale: EmbedMemory = {
   userId: "u1",
+  generation: "g1",
   run: 2,
   revision: 7,
   title: null,
@@ -80,18 +83,13 @@ function store({
     load: async () => memory,
     release: async () => {},
     isCurrent: async () => current(),
-    complete: async (
-      _id: string,
-      _run: number,
-      _found: unknown,
-      embedding?: Embedding
-    ) => {
+    complete: async (_claim: Claim, _found: unknown, embedding?: Embedding) => {
       s.completed.push(embedding);
       return true;
     },
     loadForEmbedding: async () => embed,
     stillEmbeddable: async () => current(),
-    writeVectors: async (_id: string, _run: number, embedding: Embedding) => {
+    writeVectors: async (_claim: Claim, embedding: Embedding) => {
       s.written.push(embedding);
       return true;
     },
@@ -176,6 +174,29 @@ describe("embedding in the Indexing pipeline", () => {
     expect(await index(indexJob)).toEqual({ result: "searchable" });
     expect(s.completed).toEqual([undefined]);
     expect(s.calls.at(-1)).toMatchObject({ estimated: true, costMicros: 200 });
+  });
+
+  it("prices the image in a timed-out embedding call as image tokens", async () => {
+    const s = store();
+    const { index } = createIndexer({
+      store: s,
+      providers: [fakeProvider()],
+      embedder: stubEmbedder(
+        new ProviderError("failed", {
+          inputTokens: 1_000_000 + 1_000_000,
+          outputTokens: 0,
+          imageTokens: 1_000_000,
+        })
+      ),
+      readFile: noFiles,
+    });
+    await index(indexJob);
+    // 1M text tokens at $0.20/M and 1M image tokens at $0.45/M.
+    expect(s.calls.at(-1)).toMatchObject({
+      estimated: true,
+      costMicros: 650_000,
+      usage: { inputTokens: 2_000_000, outputTokens: 0 },
+    });
   });
 
   it("leaves the vectors of a background run for later when its Extraction spent the rest of the budget", async () => {
@@ -445,6 +466,19 @@ describe("Gemini Embedding", () => {
         timeoutMs: 10,
       })
     ).rejects.toMatchObject({ kind: "failed", estimate: { inputTokens: 1 } });
+    // With an image, its tokens are said apart: they are priced apart.
+    await expect(
+      embedder(hang as typeof fetch).embed(
+        [
+          { text: "abcd" },
+          { image: { bytes: new Uint8Array([1]), mime: "image/png" } },
+        ],
+        { timeoutMs: 10 }
+      )
+    ).rejects.toMatchObject({
+      kind: "failed",
+      estimate: { inputTokens: 1 + 258, imageTokens: 258 },
+    });
   });
 
   it("turns a reply it cannot read or trust into a failure that may still be billed", async () => {

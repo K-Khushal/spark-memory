@@ -263,7 +263,7 @@ export const memories = new Hono<AppEnv>()
       !result.aiOptOut
     ) {
       // Its vectors read the title and note: made again once typing stops.
-      await enqueueEmbed(c.env, result.id, EMBEDDING.editDelaySeconds);
+      await enqueueEmbed(c.env, result, EMBEDDING.editDelaySeconds);
     }
     return c.json(await forClient(c.var.files, result));
   })

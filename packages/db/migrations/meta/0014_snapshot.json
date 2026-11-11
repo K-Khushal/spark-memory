@@ -1,5 +1,5 @@
 {
-  "id": "7b948eca-0d49-4f47-8939-43c082ce9bfc",
+  "id": "3852dca8-1ed9-4ff6-8bfa-640a33e3c172",
   "prevId": "ffdd0fb6-994d-4498-beb9-9a13d932e8cd",
   "version": "7",
   "dialect": "postgresql",
@@ -178,6 +178,12 @@
         },
         "memory_id": {
           "name": "memory_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "memory_generation": {
+          "name": "memory_generation",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -471,6 +477,13 @@
           "notNull": true,
           "default": 1
         },
+        "index_generation": {
+          "name": "index_generation",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
         "index_lease_until": {
           "name": "index_lease_until",
           "type": "timestamp with time zone",
@@ -637,13 +650,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "generation": {
-          "name": "generation",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "gen_random_uuid()"
         },
         "r2_key": {
           "name": "r2_key",

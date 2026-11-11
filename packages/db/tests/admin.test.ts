@@ -216,12 +216,26 @@ describe.skipIf(!databaseUrl)("admin costs, usage and the budget", () => {
       productAnalytics: false,
     });
     if (!("memory" in quiet)) throw new Error("capture conflict");
-    await indexingStore(db).complete(quiet.memory.id, 1, null);
+    await indexingStore(db).complete(
+      {
+        memoryId: quiet.memory.id,
+        userId: ada,
+        generation: quiet.memory.indexGeneration,
+        run: 1,
+      },
+      null
+    );
     expect(
-      await indexingStore(db).claimFirstSearchable(quiet.memory.id)
+      await indexingStore(db).claimFirstSearchable(
+        quiet.memory.id,
+        quiet.memory.indexGeneration
+      )
     ).toBeUndefined();
     expect(
-      await indexingStore(db).claimFirstSearchable(quiet.memory.id)
+      await indexingStore(db).claimFirstSearchable(
+        quiet.memory.id,
+        quiet.memory.indexGeneration
+      )
     ).toBeUndefined();
 
     const captured = await library.capture({
@@ -230,22 +244,44 @@ describe.skipIf(!databaseUrl)("admin costs, usage and the budget", () => {
     });
     if (!("memory" in captured)) throw new Error("capture conflict");
     expect(
-      await indexingStore(db).claimFirstSearchable(captured.memory.id)
+      await indexingStore(db).claimFirstSearchable(
+        captured.memory.id,
+        captured.memory.indexGeneration
+      )
     ).toBeUndefined();
     await db.execute(sql`
       update memory
       set captured_at = now() - interval '30 days'
       where id = ${captured.memory.id}
     `);
-    await indexingStore(db).complete(captured.memory.id, 1, null);
+    await indexingStore(db).complete(
+      {
+        memoryId: captured.memory.id,
+        userId: ada,
+        generation: captured.memory.indexGeneration,
+        run: 1,
+      },
+      null
+    );
+    // Another Memory's generation (one deleted, with the same id) claims nothing.
+    expect(
+      await indexingStore(db).claimFirstSearchable(
+        captured.memory.id,
+        crypto.randomUUID()
+      )
+    ).toBeUndefined();
     const timing = await indexingStore(db).claimFirstSearchable(
-      captured.memory.id
+      captured.memory.id,
+      captured.memory.indexGeneration
     );
     expect(timing).toMatchObject({ userId: ada, kind: "text" });
     expect(timing?.milliseconds).toBeGreaterThan(2_147_483_647);
     expect(JSON.stringify(timing)).not.toContain("lemon");
     expect(
-      await indexingStore(db).claimFirstSearchable(captured.memory.id)
+      await indexingStore(db).claimFirstSearchable(
+        captured.memory.id,
+        captured.memory.indexGeneration
+      )
     ).toBeUndefined();
   });
 });

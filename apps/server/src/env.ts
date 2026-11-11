@@ -69,6 +69,8 @@ export type Bindings = {
 export type IndexMessage = {
   memoryId: string;
   run?: number;
+  /** The Memory's `indexGeneration`: a message for an earlier Memory with the id does nothing. */
+  generation?: string;
   priority: Priority;
   task?: "embed";
 };

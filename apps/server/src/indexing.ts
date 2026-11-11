@@ -27,12 +27,22 @@ import type { Bindings, IndexMessage } from "./env";
  */
 export async function enqueue(
   env: Bindings,
-  memory: { id: string; indexRun: number; indexPriority: Priority }
+  memory: {
+    id: string;
+    indexRun: number;
+    indexGeneration: string;
+    indexPriority: Priority;
+  }
 ) {
   const priority = memory.indexPriority;
   const queue = priority === "fresh" ? env.INDEX_QUEUE : env.REINDEX_QUEUE;
   try {
-    await queue.send({ memoryId: memory.id, run: memory.indexRun, priority });
+    await queue.send({
+      memoryId: memory.id,
+      run: memory.indexRun,
+      generation: memory.indexGeneration,
+      priority,
+    });
   } catch {
     console.error("indexing: enqueue failed");
   }
@@ -53,12 +63,17 @@ export const providers = (env: Bindings): ChainOptions => ({
  */
 export async function enqueueEmbed(
   env: Bindings,
-  memoryId: string,
+  memory: { id: string; indexGeneration: string },
   delaySeconds?: number
 ) {
   try {
     await env.REINDEX_QUEUE.send(
-      { memoryId, priority: "background", task: "embed" },
+      {
+        memoryId: memory.id,
+        generation: memory.indexGeneration,
+        priority: "background",
+        task: "embed",
+      },
       delaySeconds ? { delaySeconds } : undefined
     );
   } catch {
@@ -95,9 +110,9 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     const store = indexingStore(db);
     if (isDeadLetter(batch.queue)) {
       for (const message of batch.messages) {
-        const { memoryId, run, task } = message.body;
+        const { memoryId, run, generation, task } = message.body;
         // A lost embed job leaves the Memory Searchable; the sweep tries again.
-        if (task !== "embed") await store.fail(memoryId, run, "unavailable");
+        if (task !== "embed") await store.giveUp({ memoryId, run, generation });
         message.ack();
       }
       return;
@@ -117,12 +132,13 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     });
     await Promise.all(
       batch.messages.map(async (message) => {
-        const { memoryId, run, priority, task } = message.body;
+        const { memoryId, run, generation, priority, task } = message.body;
         let outcome: IndexOutcome;
         try {
           outcome = await index({
             memoryId,
             run,
+            generation,
             priority,
             task,
             attempt: message.attempts,
@@ -147,12 +163,14 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
         } else {
           message.ack();
         }
-        if (outcome.result === "searchable") {
+        // A message from before generations were sent claims nothing: it
+        // cannot say which Memory with its id it was for.
+        if (outcome.result === "searchable" && generation) {
           // Sent from the Worker, not the tile: Indexing can finish after
           // the dashboard is closed. The Capture stored whether Do Not
           // Track was off, and only the first Searchable run is counted.
           const timing = await store
-            .claimFirstSearchable(memoryId)
+            .claimFirstSearchable(memoryId, generation)
             .catch(() => undefined);
           if (timing) {
             pending.push({
@@ -202,9 +220,14 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
     // the limit would drop a fresh Memory sitting behind background rows.
     const stalled = await store.stalled(60, room ?? 500, spent);
     let sent = 0;
-    for (const { id, run, priority } of stalled) {
+    for (const { id, run, generation, priority } of stalled) {
       if (calls && !calls.take("indexing")) break;
-      await enqueue(env, { id, indexRun: run, indexPriority: priority });
+      await enqueue(env, {
+        id,
+        indexRun: run,
+        indexGeneration: generation,
+        indexPriority: priority,
+      });
       sent += 1;
     }
     if (sent) console.log(`indexing: re-enqueued ${sent}`);
@@ -221,9 +244,9 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
         : EMBEDDING.sweepBatch
     );
     let embedded = 0;
-    for (const { id } of stale) {
+    for (const { id, generation } of stale) {
       if (calls && !calls.take("indexing")) break;
-      await enqueueEmbed(env, id);
+      await enqueueEmbed(env, { id, indexGeneration: generation });
       embedded += 1;
     }
     if (embedded) console.log(`indexing: re-embedding ${embedded}`);

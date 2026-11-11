@@ -125,7 +125,12 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     });
     expect(queues.background.sent).toEqual([
       {
-        body: { memoryId: id, priority: "background", task: "embed" },
+        body: {
+          memoryId: id,
+          generation: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          priority: "background",
+          task: "embed",
+        },
         delaySeconds: EMBEDDING.editDelaySeconds,
       },
     ]);
@@ -214,6 +219,7 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     await requeueStalled(env());
     expect(queues.background.sent.map((m) => m.body)).toContainEqual({
       memoryId: id,
+      generation: expect.stringMatching(/^[0-9a-f-]{36}$/),
       priority: "background",
       task: "embed",
     });
