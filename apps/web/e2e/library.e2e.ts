@@ -131,3 +131,21 @@ test("paste a Memory, find it by a typo, delete it with Undo", async ({
     page.getByRole("heading", { name: "No Memories Yet" })
   ).toBeVisible();
 });
+
+test("⌘K opens Search, and Settings loads from the Library", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByPlaceholder("Search…")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByText("Loading")).toHaveCount(0);
+  await page.getByRole("link", { name: "All Memories" }).click();
+  await expect(
+    page.getByRole("heading", { name: "No Memories Yet" })
+  ).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByPlaceholder("Search…")).toBeVisible();
+});
