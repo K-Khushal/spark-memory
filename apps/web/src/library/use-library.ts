@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "@spark/ui";
 import { api } from "../api";
+import { track } from "../analytics";
 import { drafts } from "./drafts";
 import { Refused, type Upload } from "./image-capture";
 import {
@@ -135,6 +136,8 @@ export function useLibrary() {
       drafts,
       notify: toast,
       onSaved: () => setVersion((n) => n + 1),
+      onCaptured: (kind) =>
+        track({ event: "save_success", properties: { kind } }),
     })
   );
 

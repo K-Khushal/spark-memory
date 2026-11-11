@@ -1,4 +1,4 @@
-import { INDEXING } from "@spark/core";
+import { sendProductEvent, type ProductEvent } from "@spark/core";
 import { indexingStore, openDatabase } from "@spark/db";
 import {
   backoffSeconds,
@@ -54,6 +54,7 @@ const isDeadLetter = (queue: string) => queue.startsWith("spark-index-failed");
  */
 export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
+  const pending: { distinctId: string; event: ProductEvent }[] = [];
   try {
     const store = indexingStore(db);
     if (isDeadLetter(batch.queue)) {
@@ -110,12 +111,45 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
         } else {
           message.ack();
         }
+        if (outcome.result === "searchable") {
+          // Sent from the Worker, not the tile: Indexing can finish after
+          // the dashboard is closed. The Capture stored whether Do Not
+          // Track was off, and only the first Searchable run is counted.
+          const timing = await store
+            .claimFirstSearchable(memoryId)
+            .catch(() => undefined);
+          if (timing) {
+            pending.push({
+              distinctId: timing.userId,
+              event: {
+                event: "time_to_searchable",
+                properties: {
+                  kind: timing.kind,
+                  milliseconds: timing.milliseconds,
+                },
+              },
+            });
+          }
+        }
         console.log(`indexing: ${priority} ${outcome.result}`);
       })
     );
   } finally {
     await close();
   }
+  // After the database is closed: a slow capture call must not hold a connection.
+  await Promise.all(
+    pending.map((item) =>
+      sendProductEvent({
+        key: env.POSTHOG_KEY,
+        host: env.POSTHOG_HOST,
+        distinctId: item.distinctId,
+        event: item.event,
+        fetch,
+        signal: AbortSignal.timeout(2_000),
+      })
+    )
+  );
 }
 
 /** Memories left Indexing (a message lost or never sent) go back on the background queue. */
@@ -126,7 +160,7 @@ export async function requeueStalled(env: Bindings) {
     // Past the budget, background work is waiting on purpose (with its own
     // delayed message): only fresh work, which the budget never holds, goes.
     const spent =
-      (await store.spentTodayMicros()) >= INDEXING.dailyBudgetMicros;
+      (await store.spentTodayMicros()) >= (await store.dailyBudgetMicros());
     const stalled = (await store.stalled()).filter(
       (m) => !spent || m.priority === "fresh"
     );

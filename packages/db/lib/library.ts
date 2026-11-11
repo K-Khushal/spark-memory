@@ -210,7 +210,8 @@ export function openLibrary(db: Database, userId: string) {
      * Indexing. A retry with the same `id` returns the Memory already saved.
      */
     async capture(input: TextCapture): Promise<CaptureResult> {
-      const { id, body, title, captureNote } = TextCapture.parse(input);
+      const parsed = TextCapture.parse(input);
+      const { id, body, title, captureNote } = parsed;
       const [row] = await db
         .insert(memory)
         .values({
@@ -221,6 +222,7 @@ export function openLibrary(db: Database, userId: string) {
           title,
           captureNote,
           indexPriority: "fresh",
+          productAnalytics: parsed.productAnalytics === true,
         })
         .onConflictDoNothing({ target: memory.id })
         .returning(columns);
@@ -301,6 +303,7 @@ export function openLibrary(db: Database, userId: string) {
           contentHash: capture.contentHash,
           indexState: "indexing",
           indexPriority: "fresh",
+          productAnalytics: capture.productAnalytics === true,
         });
         const uploads: FileUpload[] = [
           {

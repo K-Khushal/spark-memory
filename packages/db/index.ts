@@ -24,4 +24,13 @@ export {
   type SearchResult,
 } from "./lib/library";
 export { indexingStore, type IndexingStore } from "./lib/indexing";
+export {
+  ADMIN_USERS_LIMIT,
+  openAdmin,
+  readDailyBudgetMicros,
+  type Admin,
+  type BudgetState,
+  type DailySpend,
+  type UserUsage,
+} from "./lib/admin";
 export * as schema from "./lib/schema";
