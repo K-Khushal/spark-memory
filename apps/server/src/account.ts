@@ -4,7 +4,6 @@ import { AccountDeletion, confirmsDeletion } from "@spark/core";
 import {
   EXPORT_COOLDOWN_MINUTES,
   EXPORT_TTL_HOURS,
-  exportKey,
   openAccount,
   type Account,
   type LibraryExport,
@@ -102,10 +101,10 @@ export const account = new Hono<AppEnv>()
    */
   .get("/account/export/download", async (c) => {
     const ready = await c.var.account.export();
-    if (ready?.state !== "ready") return c.json(notFound, 404);
-    const url = await fileStore(c.env, c.req.url).signDownload(
-      exportKey(c.var.user.id, ready.id)
-    );
+    if (ready?.state !== "ready" || !ready.key) {
+      return c.json(notFound, 404);
+    }
+    const url = await fileStore(c.env, c.req.url).signDownload(ready.key);
     return c.redirect(url, 302);
   })
   /** Starts building a ZIP of the whole Library in the background. */

@@ -394,14 +394,16 @@ describe.skipIf(!databaseUrl)("an account", () => {
 
       expect(await jobs.claimExport(first.started.id)).toEqual({
         userId: ana,
-        key: exportKey(ana, first.started.id),
+        attempt: 1,
+        key: exportKey(ana, first.started.id, 1),
       });
       expect(await jobs.claimExport(first.started.id)).toBeUndefined();
-      expect(await jobs.finishExport(first.started.id, 1234)).toBe(true);
+      expect(await jobs.finishExport(first.started.id, 1, 1234)).toBe(true);
       expect(await account.export()).toMatchObject({
         id: first.started.id,
         state: "ready",
         bytes: 1234,
+        key: exportKey(ana, first.started.id, 1),
       });
       // Not again within the cooldown.
       expect(await account.requestExport()).toEqual({ refused: "too_soon" });
@@ -419,24 +421,20 @@ describe.skipIf(!databaseUrl)("an account", () => {
       const jobs = accountJobs(db);
       const first = await account.requestExport();
       if (!("started" in first)) throw new Error("refused");
-      await jobs.claimExport(first.started.id);
-      await jobs.finishExport(first.started.id, 10);
+      const claim = await jobs.claimExport(first.started.id);
+      await jobs.finishExport(first.started.id, claim!.attempt, 10);
       await db
         .update(schema.libraryExport)
         .set({ requestedAt: sql`now() - interval '2 hours'` })
         .where(eq(schema.libraryExport.userId, ana));
       // The replacement commits; the Worker dies before removing anything.
       await account.requestExport();
-      const old = exportKey(ana, first.started.id);
+      const old = claim!.key;
       const removed: string[] = [];
       const remove = async (keys: string[]) => void removed.push(...keys);
 
-      // Not at once: a builder of the old export may still be writing it.
-      await jobs.sweepExports(remove);
-      expect(removed).not.toContain(old);
-      await db.execute(
-        sql`update object_removal set due_at = now() - interval '1 minute' where key = ${old}`
-      );
+      // A finished attempt's object is never written again: due at once.
+      expect(await count("object_removal", "key", old)).toBe(1);
       // Storage fails: the record stays for the next sweep.
       await expect(
         jobs.sweepExports(async () => {
@@ -480,8 +478,8 @@ describe.skipIf(!databaseUrl)("an account", () => {
         .where(eq(schema.libraryExport.id, id));
       expect(await jobs.stalledExports()).toContain(id);
 
-      await jobs.claimExport(id);
-      await jobs.finishExport(id, 10);
+      const claim = await jobs.claimExport(id);
+      await jobs.finishExport(id, claim!.attempt, 10);
       await db
         .update(schema.libraryExport)
         .set({ readyAt: sql`now() - interval '25 hours'` })
@@ -489,7 +487,7 @@ describe.skipIf(!databaseUrl)("an account", () => {
       expect(await account.export()).toBeUndefined();
       const removed: string[] = [];
       await jobs.sweepExports(async (keys) => void removed.push(...keys));
-      expect(removed).toContain(exportKey(ana, id));
+      expect(removed).toContain(claim!.key);
       expect(await count("library_export", "user_id", ana)).toBe(0);
     });
 
@@ -499,7 +497,7 @@ describe.skipIf(!databaseUrl)("an account", () => {
         Array.from({ length: 5 }, () => person())
       );
       const keys = owners.map((userId) =>
-        exportKey(userId, crypto.randomUUID())
+        exportKey(userId, crypto.randomUUID(), 1)
       );
       await db
         .insert(schema.objectRemoval)
@@ -528,7 +526,7 @@ describe.skipIf(!databaseUrl)("an account", () => {
       const { id } = request.started;
       const claim = await accountJobs(db).claimExport(id);
       if (!claim) throw new Error("not claimed");
-      return { ana, id, key: claim.key };
+      return { ana, id, key: claim.key, attempt: claim.attempt };
     }
     const dueNow = (key: string) =>
       db.execute(
@@ -545,17 +543,23 @@ describe.skipIf(!databaseUrl)("an account", () => {
     it("removes the ZIP of a build that failed for good after its upload completed", async () => {
       const { id, key } = await claimed();
       const jobs = accountJobs(db);
-      // Its upload completed, then the database step failed: three times.
+      // Each upload completed, then the database step failed: three times.
+      const keys = [key];
       expect(await jobs.failExport(id)).toBe("retry");
-      await jobs.claimExport(id);
+      keys.push((await jobs.claimExport(id))!.key);
       expect(await jobs.failExport(id)).toBe("retry");
-      await jobs.claimExport(id);
+      keys.push((await jobs.claimExport(id))!.key);
       expect(await jobs.failExport(id)).toBe("failed");
+      expect(new Set(keys).size).toBe(3);
       // Not while a builder might still be writing it.
-      expect(await sweptKeys()).not.toContain(key);
-      await dueNow(key);
-      expect(await sweptKeys()).toContain(key);
-      expect(await count("object_removal", "key", key)).toBe(0);
+      const early = await sweptKeys();
+      for (const k of keys) expect(early).not.toContain(k);
+      for (const k of keys) await dueNow(k);
+      const swept = await sweptKeys();
+      for (const k of keys) {
+        expect(swept).toContain(k);
+        expect(await count("object_removal", "key", k)).toBe(0);
+      }
     });
 
     it("removes the ZIP of a builder that died between completing the upload and recording it", async () => {
@@ -567,25 +571,58 @@ describe.skipIf(!databaseUrl)("an account", () => {
     });
 
     it("keeps a finished export's ZIP, however long the sweep waits", async () => {
-      const { id, key } = await claimed();
-      expect(await accountJobs(db).finishExport(id, 10)).toBe(true);
+      const { id, key, attempt } = await claimed();
+      expect(await accountJobs(db).finishExport(id, attempt, 10)).toBe(true);
       await dueNow(key);
       expect(await sweptKeys()).not.toContain(key);
     });
 
-    it("never forgets the removal a newer build armed while the sweep was removing", async () => {
-      const { ana, id, key } = await claimed();
+    it("never deletes a retry's finished ZIP while a sweep is removing the abandoned attempt's", async () => {
+      const { ana, id, key: abandoned } = await claimed();
+      const jobs = accountJobs(db);
+      // Attempt 1 completed its upload, then its builder died.
+      const storage = new Set([abandoned]);
+      await db
+        .update(schema.libraryExport)
+        .set({ leaseUntil: sql`now() - interval '1 minute'` })
+        .where(eq(schema.libraryExport.userId, ana));
+      await dueNow(abandoned);
+      let finished: string | undefined;
+      await jobs.sweepExports(async (keys) => {
+        expect(keys).toContain(abandoned);
+        // Paused between selecting and deleting: a retry claims, uploads
+        // and finishes, then storage deletes what the sweep selected.
+        const retry = await jobs.claimExport(id);
+        storage.add(retry!.key);
+        expect(await jobs.finishExport(id, retry!.attempt, 10)).toBe(true);
+        finished = retry!.key;
+        for (const key of keys) storage.delete(key);
+      });
+      expect(finished).not.toBe(abandoned);
+      expect(await openAccount(db, ana).export()).toMatchObject({
+        state: "ready",
+        key: finished,
+      });
+      expect(storage.has(finished!)).toBe(true);
+      expect(storage.has(abandoned)).toBe(false);
+    });
+
+    it("refuses to finish an attempt a newer one has taken over, and removes its ZIP", async () => {
+      const { ana, id, key: stale, attempt } = await claimed();
       const jobs = accountJobs(db);
       await db
         .update(schema.libraryExport)
         .set({ leaseUntil: sql`now() - interval '1 minute'` })
         .where(eq(schema.libraryExport.userId, ana));
-      await dueNow(key);
-      await jobs.sweepExports(async () => {
-        // A new attempt claims the export while storage is being cleared.
-        expect(await jobs.claimExport(id)).toBeDefined();
+      const newer = await jobs.claimExport(id);
+      // The first builder was only slow: it finishes after the takeover.
+      expect(await jobs.finishExport(id, attempt, 10)).toBe(false);
+      expect(await jobs.finishExport(id, newer!.attempt, 10)).toBe(true);
+      expect(await openAccount(db, ana).export()).toMatchObject({
+        key: newer!.key,
       });
-      expect(await count("object_removal", "key", key)).toBe(1);
+      await dueNow(stale);
+      expect(await sweptKeys()).toContain(stale);
     });
 
     it("sends again a build whose builder died on its first attempt", async () => {

@@ -1,5 +1,5 @@
 {
-  "id": "636c3187-32fb-46b6-bd1f-887eb868a870",
+  "id": "f1da7ede-c59a-494a-8743-a06025074586",
   "prevId": "21daabb8-7fec-488b-8217-b51e4388f04b",
   "version": "7",
   "dialect": "postgresql",
@@ -355,6 +355,12 @@
         "bytes": {
           "name": "bytes",
           "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "r2_key": {
+          "name": "r2_key",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

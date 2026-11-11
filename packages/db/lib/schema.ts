@@ -356,8 +356,10 @@ export type ExportState = "building" | "ready" | "failed";
 
 /**
  * A person's latest Library export (one at a time): a ZIP in object storage
- * at `users/<id>/exports/<id>.zip`, built by the account job, downloadable
- * through a signed URL until it expires.
+ * built by the account job, downloadable through a signed URL until it
+ * expires. Every build attempt writes its own object
+ * (`users/<id>/exports/<export id>/<attempt>.zip`), so removing an
+ * abandoned attempt can never touch the one that finished; `key` is that one.
  */
 export const libraryExport = pgTable("library_export", {
   userId: text("user_id")
@@ -370,6 +372,8 @@ export const libraryExport = pgTable("library_export", {
   /** Set while one job builds it, so a duplicate message skips. */
   leaseUntil: timestamp("lease_until", { withTimezone: true }),
   bytes: bigint("bytes", { mode: "number" }),
+  /** The finished attempt's ZIP; set once Ready. */
+  key: text("r2_key"),
   requestedAt: instant("requested_at"),
   readyAt: timestamp("ready_at", { withTimezone: true }),
 });

@@ -10,6 +10,7 @@ CREATE TABLE "library_export" (
 	"attempts" integer DEFAULT 0 NOT NULL,
 	"lease_until" timestamp with time zone,
 	"bytes" bigint,
+	"r2_key" text,
 	"requested_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"ready_at" timestamp with time zone
 );

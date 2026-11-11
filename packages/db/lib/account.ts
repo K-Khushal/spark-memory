@@ -39,8 +39,8 @@ const OTP_TYPES = [
 ] as const;
 
 /** Where an export's ZIP lives: under its owner, so deletion takes it too. */
-export const exportKey = (userId: string, id: string) =>
-  `${ownerPrefix(userId)}exports/${id}.zip`;
+export const exportKey = (userId: string, id: string, attempt: number) =>
+  `${ownerPrefix(userId)}exports/${id}/${attempt}.zip`;
 
 /** One signed-in device, as the owner may see it (never the token). */
 export type SessionInfo = {
@@ -56,6 +56,8 @@ export type LibraryExport = {
   requestedAt: Date;
   readyAt: Date | null;
   bytes: number | null;
+  /** The finished ZIP's storage key (server only). */
+  key: string | null;
 };
 
 export type ExportRequest =
@@ -67,6 +69,7 @@ const exportColumns = {
   requestedAt: libraryExport.requestedAt,
   readyAt: libraryExport.readyAt,
   bytes: libraryExport.bytes,
+  key: libraryExport.key,
 };
 
 /** A ready export past its time. */
@@ -145,7 +148,7 @@ export function openAccount(db: Database, userId: string) {
         await lockOwner(tx, userId);
         const [last] = await tx
           .select({
-            id: libraryExport.id,
+            key: libraryExport.key,
             state: libraryExport.state,
             recent: sql<boolean>`${libraryExport.requestedAt} > now() - make_interval(mins => ${EXPORT_COOLDOWN_MINUTES})`,
           })
@@ -161,6 +164,7 @@ export function openAccount(db: Database, userId: string) {
           attempts: 0,
           leaseUntil: null,
           bytes: null,
+          key: null,
           requestedAt: sql`now()`,
           readyAt: null,
         };
@@ -169,13 +173,11 @@ export function openAccount(db: Database, userId: string) {
           .values({ userId, ...fresh })
           .onConflictDoUpdate({ target: libraryExport.userId, set: fresh })
           .returning(exportColumns);
-        if (last) {
+        // The finished ZIP goes; abandoned attempts were recorded when claimed.
+        if (last?.key) {
           await tx
             .insert(objectRemoval)
-            .values({
-              key: exportKey(userId, last.id),
-              dueAt: sql`now() + make_interval(mins => ${EXPORT_LEASE_MINUTES})`,
-            })
+            .values({ key: last.key })
             .onConflictDoNothing();
         }
         return { started: started! };
@@ -290,7 +292,7 @@ export function accountJobs(db: Database) {
      */
     claimExport: (
       id: string
-    ): Promise<{ userId: string; key: string } | undefined> =>
+    ): Promise<{ userId: string; attempt: number; key: string } | undefined> =>
       db.transaction(async (tx) => {
         const [row] = await tx
           .update(libraryExport)
@@ -310,35 +312,60 @@ export function accountJobs(db: Database) {
               sql`not exists (select 1 from ${accountDeletion} d where d.user_id = ${libraryExport.userId})`
             )
           )
-          .returning({ userId: libraryExport.userId });
+          .returning({
+            userId: libraryExport.userId,
+            attempt: libraryExport.attempts,
+          });
         if (!row) return undefined;
-        const key = exportKey(row.userId, id);
-        const dueAt = sql`now() + make_interval(mins => ${EXPORT_LEASE_MINUTES})`;
+        // This attempt's own object: no other attempt ever writes it.
+        const key = exportKey(row.userId, id, row.attempt);
         await tx
           .insert(objectRemoval)
-          .values({ key, dueAt })
-          .onConflictDoUpdate({ target: objectRemoval.key, set: { dueAt } });
-        return { userId: row.userId, key };
+          .values({
+            key,
+            dueAt: sql`now() + make_interval(mins => ${EXPORT_LEASE_MINUTES})`,
+          })
+          .onConflictDoNothing();
+        return { userId: row.userId, attempt: row.attempt, key };
       }),
 
     /**
-     * Built: ready to download, and its ZIP no longer up for removal (one
-     * transaction). False when it was replaced meanwhile: the ZIP stays up
-     * for removal.
+     * Built: ready to download from this attempt's ZIP, which is no longer
+     * up for removal (one transaction). False when the export was replaced
+     * or a newer attempt took it over: this attempt's ZIP stays up for
+     * removal.
      */
-    finishExport: (id: string, bytes: number): Promise<boolean> =>
+    finishExport: (
+      id: string,
+      attempt: number,
+      bytes: number
+    ): Promise<boolean> =>
       db.transaction(async (tx) => {
+        const [owner] = await tx
+          .select({ userId: libraryExport.userId })
+          .from(libraryExport)
+          .where(eq(libraryExport.id, id));
+        if (!owner) return false;
+        const key = exportKey(owner.userId, id, attempt);
         const [row] = await tx
           .update(libraryExport)
-          .set({ state: "ready", bytes, readyAt: sql`now()`, leaseUntil: null })
+          .set({
+            state: "ready",
+            bytes,
+            readyAt: sql`now()`,
+            leaseUntil: null,
+            key,
+          })
           .where(
-            and(eq(libraryExport.id, id), eq(libraryExport.state, "building"))
+            and(
+              eq(libraryExport.id, id),
+              eq(libraryExport.state, "building"),
+              eq(libraryExport.attempts, attempt)
+            )
           )
-          .returning({ userId: libraryExport.userId });
+          .returning({ id: libraryExport.id });
         if (!row) return false;
-        await tx
-          .delete(objectRemoval)
-          .where(eq(objectRemoval.key, exportKey(row.userId, id)));
+        await tx.delete(objectRemoval).where(eq(objectRemoval.key, key));
         return true;
       }),
 
@@ -405,9 +432,9 @@ export function accountJobs(db: Database) {
       await db.execute(sql`
         with expired as (
           delete from ${libraryExport} where ${exportExpired}
-          returning ${libraryExport.userId} as user_id, ${libraryExport.id} as id)
+          returning ${libraryExport.key} as key)
         insert into ${objectRemoval} (key)
-        select 'users/' || user_id || '/exports/' || id || '.zip' from expired
+        select key from expired where key is not null
         on conflict do nothing`);
       let removed = 0;
       for (;;) {
@@ -420,7 +447,8 @@ export function accountJobs(db: Database) {
         if (!due.length) return removed;
         const keys = due.map((d) => d.key);
         await removeObjects(keys);
-        // A build that claimed meanwhile armed its record again: kept.
+        // Only records still due go (keys are never reused by a later
+        // attempt, so what was selected is an abandoned object).
         await db
           .delete(objectRemoval)
           .where(
