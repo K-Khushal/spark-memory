@@ -86,6 +86,13 @@ test("paste a Memory, find it by a typo, delete it with Undo", async ({
   const note = page.getByRole("textbox", { name: "Capture Note" });
   await expect(note).toHaveValue("");
   const restore = page.getByRole("button", { name: "Restore Your Edit" });
+  await expect(restore).toBeVisible();
+  // Done without Restore keeps the other page's crash copy.
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(restore).toBeHidden();
+  await tile.click();
+  await expect(note).toHaveValue("");
+  await expect(restore).toBeVisible();
   for (
     let i = 0;
     i < 10 && !(await restore.evaluate((el) => el === document.activeElement));

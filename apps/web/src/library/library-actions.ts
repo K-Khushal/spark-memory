@@ -59,8 +59,9 @@ const fitsKeepalive = (json: unknown) =>
  * - failed: the last send failed; Try Again sends `fields` as they are now.
  * `refused` is text the server refused because the Memory changed elsewhere,
  * or text another page left: it is only ever sent by Restore Your Edit, and
- * typing never overwrites it. `fromStorage` marks a `refused` from storage,
- * which is dropped if closed without a Restore.
+ * typing never overwrites it. `fromStorage` marks a `refused` from storage:
+ * this page does not rewrite that crash copy, and closing without Restore
+ * drops it only when this page wrote it.
  */
 export type PendingEdit = Readonly<{
   fields?: Draft;
@@ -128,23 +129,27 @@ export function libraryActions({
   const watchers = new Map<string, Set<(edit?: PendingEdit) => void>>();
 
   /** Tags this page's drafts: only the page that wrote one resumes it. */
-  const page = crypto.randomUUID();
+  const page = drafts.page;
 
   /** The only way a pending edit changes: kept as a draft, and watchers told. */
   function setPending(id: string, edit: PendingEdit | undefined) {
     if (edit && (edit.fields || edit.refused)) {
       pending.set(id, edit);
-      drafts.keep(id, {
-        fields: edit.fields,
-        baseRevision: edit.baseRevision,
-        refused: edit.refused,
-        page,
-      });
+      // An offer from storage belongs to the page that wrote it; leave it.
+      if (!edit.fromStorage) {
+        drafts.keep(id, {
+          fields: edit.fields,
+          baseRevision: edit.baseRevision,
+          refused: edit.refused,
+          page,
+        });
+      }
     } else {
       edit = undefined;
       pending.delete(id);
       serverCopy.delete(id);
-      drafts.discard(id);
+      const kept = drafts.read(id);
+      if (!kept || kept.page === page) drafts.discard(id);
     }
     for (const watch of watchers.get(id) ?? []) watch(edit);
   }
@@ -294,13 +299,14 @@ export function libraryActions({
     const id = memory.id;
     const now = pending.get(id);
     const base = serverCopy.get(id) ?? memory;
+    if (!serverCopy.has(id)) serverCopy.set(id, base);
     setPending(id, {
       fields,
       baseRevision:
         !now || now.status === "idle" ? base.revision : now.baseRevision,
       status: now?.status === "sending" ? "sending" : "dirty",
       refused: now?.refused,
-      fromStorage: now?.fromStorage ?? false,
+      fromStorage: false,
     });
     replaceLocal(withText(base, fields));
   }
@@ -342,10 +348,14 @@ export function libraryActions({
         if (!latest) return failed();
         serverCopy.set(id, latest);
         replaceLocal(latest);
+        const refused =
+          now.refused && (!now.fields || !sameText(now.refused, now.fields))
+            ? now.refused
+            : now.fields;
         setPending(id, {
           baseRevision: latest.revision,
           status: "idle",
-          refused: now.fields,
+          refused,
           fromStorage: false,
         });
         return;
@@ -375,19 +385,22 @@ export function libraryActions({
 
   /**
    * Restore Your Edit: the refused text becomes the edit, on the server's
-   * current revision, and is sent. Returns the restored text.
+   * current revision, and is sent. Current typing, if any, swaps into
+   * `refused` so it is not dropped. Returns the restored text.
    */
   function restoreEdit(id: string): Draft | undefined {
     const edit = pending.get(id);
     const base = serverCopy.get(id);
     if (!edit?.refused || !base) return undefined;
     const fields = edit.refused;
+    const displaced =
+      edit.fields && !sameText(edit.fields, fields) ? edit.fields : undefined;
     setPending(id, {
       fields,
       baseRevision:
         edit.status === "sending" ? edit.baseRevision : base.revision,
       status: edit.status === "sending" ? "sending" : "dirty",
-      refused: undefined,
+      refused: displaced,
       fromStorage: false,
     });
     replaceLocal(withText(base, fields));
@@ -451,8 +464,9 @@ export function libraryActions({
 
   /**
    * Memory detail closed. Unsaved text is sent and stays a draft until saved;
-   * refused text stays a draft to offer next time. Only text offered from
-   * storage and neither restored nor typed beside is dropped.
+   * refused text stays a draft to offer next time. This page's offered draft
+   * (neither restored nor typed beside) is dropped; another page's crash
+   * copy is left in storage until the text is replaced.
    */
   function closeEdit(id: string) {
     const edit = pending.get(id);
@@ -497,13 +511,28 @@ export function libraryActions({
       if (done) return;
       done = true;
       pendingDeletes.delete(id);
+      const known = serverCopy.get(id);
       setPending(id, undefined);
       inOrder(id, () => transport.remove(id, { keepalive })).then(
         onSaved,
         () => {
-          restoreLocal(memory);
+          let snapshot = known;
+          if (known) restoreLocal(known);
+          void transport.get(id).then(
+            (row) => {
+              snapshot = row ?? known ?? memory;
+              restoreLocal(snapshot);
+            },
+            () => {
+              snapshot = known ?? memory;
+              if (!known) restoreLocal(memory);
+            }
+          );
           notify("Delete Did Not Finish", {
-            action: { label: "Try Again", onClick: () => remove(memory) },
+            action: {
+              label: "Try Again",
+              onClick: () => remove(snapshot ?? memory),
+            },
           });
         }
       );

@@ -16,8 +16,23 @@ export type StoredEdit = {
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem" | "removeItem">;
 
 const key = (id: string) => `spark-draft:${id}`;
+const PAGE_KEY = "spark-page";
+
 export const sameText = (a: Draft, b: Draft) =>
   a.title === b.title && a.body === b.body && a.captureNote === b.captureNote;
+
+/** Survives a reload of this tab; a new tab gets its own id. */
+function thisPage(): string {
+  try {
+    const existing = sessionStorage.getItem(PAGE_KEY);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    sessionStorage.setItem(PAGE_KEY, id);
+    return id;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
 
 const isDraft = (x: unknown): x is Draft =>
   typeof x === "object" &&
@@ -35,10 +50,12 @@ const draftOf = ({ title, body, captureNote }: Draft): Draft => ({
 /**
  * Pending edits kept in this browser until the server has them, so a page
  * that closes mid-edit loses nothing. Storage can be blocked or full; then
- * this is simply off.
+ * this is simply off. `page` tags this tab so a reload can resume its own
+ * draft and another tab only ever offers one.
  */
-export function draftStore(storage: Storage | undefined) {
+export function draftStore(storage: Storage | undefined, page = thisPage()) {
   return {
+    page,
     read(id: string): StoredEdit | undefined {
       try {
         const raw = storage?.getItem(key(id));

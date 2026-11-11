@@ -26,7 +26,8 @@ const fields = { title: "T", body: "Long text", captureNote: "" };
 
 describe("stored pending edits", () => {
   it("keeps an edit, with its revision and page, until discarded", () => {
-    const drafts = draftStore(memoryStorage());
+    const drafts = draftStore(memoryStorage(), "p1");
+    expect(drafts.page).toBe("p1");
     const edit = { fields, baseRevision: 3, page: "p1" };
     drafts.keep("m1", edit);
     expect(drafts.read("m1")).toEqual({ ...edit, refused: undefined });
