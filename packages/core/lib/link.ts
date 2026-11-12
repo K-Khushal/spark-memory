@@ -94,6 +94,8 @@ export function isYouTubeVideo(input: string): boolean {
 export function normaliseUrl(input: string): string | undefined {
   const url = parse(input);
   if (!url) return undefined;
+  const id = youtubeId(input);
+  if (id) return `https://www.youtube.com/watch?v=${id}`;
   url.hash = "";
   const video = isYouTubeVideo(input);
   const kept = [...url.searchParams].filter(
@@ -181,7 +183,10 @@ export function keptPage(
   page: PageExtract
 ): { metadata: LinkMetadata; text: string | null } | undefined {
   const metadata: LinkMetadata = {};
-  const put = (key: keyof LinkMetadata, value: string | undefined) => {
+  const put = (
+    key: Exclude<keyof LinkMetadata, "video">,
+    value: string | undefined
+  ) => {
     const clean = oneLine(value);
     if (clean) metadata[key] = clean;
   };
@@ -224,6 +229,7 @@ export type LinkCapture = z.input<typeof LinkCapture>;
  * the Memory's metadata. Every field is the page's own words, never a model's.
  */
 export type LinkMetadata = {
+  video?: VideoMetadata;
   selectionContext?: string;
   title?: string;
   description?: string;
@@ -235,3 +241,57 @@ export type LinkMetadata = {
   /** Where the link's redirects ended, when somewhere else. */
   finalUrl?: string;
 };
+
+/** Recognised public YouTube URL forms, without trusting look-alike hosts. */
+export function youtubeId(input: string): string | undefined {
+  const u = parse(input);
+  if (!u) return undefined;
+  const params = [...u.searchParams];
+  const id =
+    u.hostname === "youtu.be"
+      ? u.pathname.slice(1).split("/")[0]
+      : /^(www\.|m\.)?youtube\.com$/.test(u.hostname)
+        ? u.pathname === "/watch"
+          ? params.find(([k]) => k === "v")?.[1]
+          : /^\/(shorts|embed|live)\//.test(u.pathname)
+            ? u.pathname.split("/")[2]
+            : undefined
+        : undefined;
+  return id && /^[\w-]{11}$/.test(id) ? id : undefined;
+}
+
+export function isVideoUrl(input: string): boolean {
+  const url = parse(input);
+  return (
+    !!youtubeId(input) ||
+    (!!url &&
+      /^(www\.)?vimeo\.com$/.test(url.hostname) &&
+      /^\/\d+(?:\/|$)/.test(url.pathname))
+  );
+}
+
+/** Seconds at Capture, kept in the Source while dedupe ignores the moment. */
+export function videoTimestamp(input: string): number {
+  const u = parse(input);
+  const value =
+    u &&
+    ([...u.searchParams].find(([k]) => k === "t" || k === "start")?.[1] ??
+      u.hash.replace(/^#t=/, ""));
+  if (!value) return 0;
+  const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/.exec(value);
+  const seconds = m
+    ? Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)
+    : 0;
+  return Number.isSafeInteger(seconds) && seconds >= 0 && seconds <= 86400
+    ? seconds
+    : 0;
+}
+
+export type TranscriptSegment = { seconds: number; text: string };
+export type VideoMetadata = {
+  duration?: number;
+  transcript: TranscriptSegment[];
+  transcriptState: "available" | "unavailable" | "over_allowance";
+};
+export const formatTimestamp = (seconds: number) =>
+  `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;

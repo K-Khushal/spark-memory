@@ -103,8 +103,14 @@ export function LibraryPage({
     setPasteOpen(true);
   };
   /** Opens a Memory (a search result says what matched in it, `query` how). */
+  const [videoSeconds, setVideoSeconds] = useState<number>();
   const reveal = (memory: Memory | Found, typed = query) => {
     setSearchOpen(false);
+    setVideoSeconds(
+      "part" in memory && memory.part?.kind === "passage"
+        ? memory.part.seconds
+        : undefined
+    );
     if (memory.kind === "image") setImageId(memory.id);
     else if (memory.kind === "pdf") {
       setPdf({
@@ -332,6 +338,7 @@ export function LibraryPage({
         pdf={library.memories.find((m) => m.id === pdf?.id)}
         pdfMatch={pdf?.match ?? {}}
         onPdfClose={() => setPdf(undefined)}
+        videoSeconds={videoSeconds}
         opened={opened}
         edits={library.edits}
         onDetailClose={() => setOpenId(undefined)}

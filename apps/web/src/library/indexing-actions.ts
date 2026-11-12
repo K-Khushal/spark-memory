@@ -24,7 +24,10 @@ const indexFields = (m: Memory) => ({
   preservation: m.preservation,
   pageTitle: m.pageTitle,
   description: m.description,
-  ...((m.kind === "link" || m.kind === "pdf") && { body: m.body }),
+  video: m.video,
+  ...((m.kind === "link" || m.kind === "pdf" || m.kind === "video") && {
+    body: m.body,
+  }),
 });
 
 /** Poll every 2 s, then back off by half each time nothing changed, up to 30 s. */

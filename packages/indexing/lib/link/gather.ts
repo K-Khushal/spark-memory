@@ -1,4 +1,10 @@
-import { FREE_ALLOWANCE, type LinkMetadata } from "@spark/core";
+import {
+  FREE_ALLOWANCE,
+  isVideoUrl,
+  youtubeId,
+  type LinkMetadata,
+} from "@spark/core";
+import { publicVideo } from "./video";
 import { decodeEntities, scanHtml, type ScannedPage } from "./html";
 import {
   GATHER,
@@ -100,7 +106,7 @@ function jsonLdNode(blocks: string[]): Ld | undefined {
 /** Fills only what is still missing: earlier sources win. */
 function fill(into: LinkMetadata, from: LinkMetadata) {
   for (const [key, value] of Object.entries(from) as [
-    keyof LinkMetadata,
+    Exclude<keyof LinkMetadata, "video">,
     string | undefined,
   ][]) {
     const clean = value
@@ -184,12 +190,19 @@ export function createGatherer({
   ) {
     const metadata: LinkMetadata = {};
     let text = "";
+    const video = isVideoUrl(url);
 
     const page = await get(url);
     if (page.ok) {
       const found = fromPage(scanHtml(page.text, FREE_ALLOWANCE.textMaxChars));
       fill(metadata, found.metadata);
-      text = found.text;
+      text = video ? "" : found.text;
+      if (youtubeId(url))
+        metadata.video = await publicVideo(page.text, {
+          fetch,
+          resolve,
+          permitted: thirdParty,
+        });
       if (page.url !== url) metadata.finalUrl = page.url;
     }
     // Only a Source shown to be public (it answered, or every address on
@@ -223,7 +236,12 @@ export function createGatherer({
       }
     }
 
-    if (confirmed && reader && text.length < GATHER.minPreservedChars) {
+    if (
+      !video &&
+      confirmed &&
+      reader &&
+      text.length < GATHER.minPreservedChars
+    ) {
       const res = await get(GATHER.readerUrl + url, {
         accept: ["application/json"],
         timeoutMs: GATHER.readerTimeoutMs,
@@ -243,8 +261,16 @@ export function createGatherer({
       });
     }
 
+    if (video) {
+      metadata.video ??= { transcript: [], transcriptState: "unavailable" };
+      text = metadata.video.transcript.map((s) => s.text).join("\n");
+    }
     const kept = text.slice(0, FREE_ALLOWANCE.textMaxChars).trim();
-    const preserved = kept.length >= GATHER.minPreservedChars ? kept : null;
+    const preserved =
+      metadata.video?.transcriptState === "available" ||
+      kept.length >= GATHER.minPreservedChars
+        ? kept
+        : null;
     return {
       metadata,
       text: preserved,

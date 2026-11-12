@@ -11,17 +11,22 @@ export function CommandDialog({
   children,
   className,
   shouldFilter,
+  onCloseAutoFocus,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Root> & {
   title: string;
   className?: string;
   shouldFilter?: boolean;
+  onCloseAutoFocus?: ComponentProps<
+    typeof DialogPrimitive.Content
+  >["onCloseAutoFocus"];
 }) {
   return (
     <DialogPrimitive.Root {...props}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim" />
         <DialogPrimitive.Content
+          onCloseAutoFocus={onCloseAutoFocus}
           aria-describedby={undefined}
           className={cn(
             "fixed top-[12vh] left-1/2 z-50 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 overflow-hidden rounded-panel bg-surface text-ink shadow-overlay outline-none",

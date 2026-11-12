@@ -7,6 +7,7 @@ import {
   type LinkMetadata,
   type MemoryKind,
   type ProviderName,
+  type TranscriptSegment,
 } from "@spark/core";
 import { readDailyBudgetMicros } from "./admin";
 import type { Database } from "./client";
@@ -137,7 +138,10 @@ const failed = (reason: IndexFailure) => ({
  */
 const linkColumns = {
   sourceUrl: memory.sourceUrlNormalised,
-  gathered: sql<boolean>`${memory.metadata} is not null`,
+  gathered: sql<boolean>`${memory.metadata} is not null and (${memory.kind} <> 'video' or ${memory.metadata}->'video' is not null)`,
+  transcript: sql<
+    TranscriptSegment[] | null
+  >`${memory.metadata}->'video'->'transcript'`,
   pageTitle: sql<string | null>`${memory.metadata}->>'title'`,
   description: sql<string | null>`${memory.metadata}->>'description'`,
 };
@@ -293,9 +297,9 @@ export function indexingStore(db: Database) {
         const [row] = await db
           .update(memory)
           .set({
-            metadata: gathered.metadata,
+            metadata: sql`coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(gathered.metadata)}::jsonb`,
             body: gathered.text,
-            preservation: gathered.text ? "preserved" : "reference_only",
+            preservation: sql`case when ${memory.kind} = 'video' then 'reference_only' when ${gathered.text}::text is not null then 'preserved' else 'reference_only' end`,
             contentHash: sql`case when exists (
               select 1 from memory o where o.user_id = ${memory.userId}
                 and o.kind = 'link' and o.content_hash = ${hash}::text
@@ -305,8 +309,8 @@ export function indexingStore(db: Database) {
             and(
               claimed(claim),
               indexing,
-              eq(memory.kind, "link"),
-              sql`${memory.metadata} is null`
+              sql`${memory.kind} in ('link', 'video')`,
+              sql`(${memory.metadata} is null or (${memory.kind} = 'video' and ${memory.metadata}->'video' is null))`
             )
           )
           .returning({
@@ -405,6 +409,7 @@ export function indexingStore(db: Database) {
           title: memory.title,
           body: memory.body,
           captureNote: memory.captureNote,
+          transcript: linkColumns.transcript,
         });
       if (!row) return undefined;
       const [found] = await db
