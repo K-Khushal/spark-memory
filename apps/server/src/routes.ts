@@ -1,3 +1,4 @@
+import { extensionCors } from "./origin";
 import { Hono } from "hono";
 import { isVerifiedAdmin, publicAnalytics } from "@spark/core";
 import { checkDatabase } from "@spark/db";
@@ -32,7 +33,7 @@ export const routes = new Hono<AppEnv>()
       turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
     })
   )
-  .get("/me", withAuth, requireUser, (c) => {
+  .get("/me", extensionCors, withAuth, requireUser, (c) => {
     const { emailVerified, ...user } = c.var.user;
     return c.json({
       ...user,

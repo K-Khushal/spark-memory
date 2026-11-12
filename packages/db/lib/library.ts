@@ -5,9 +5,11 @@ import {
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
+  keptPage,
   LinkCapture,
   MemoryEdit,
   normaliseUrl,
+  SCREENSHOT_MAX_BYTES,
   TextCapture,
   type LinkMetadata,
   type MemoryKind,
@@ -219,9 +221,10 @@ export type EditResult = Memory | { stale: true } | undefined;
 export type CaptureResult =
   { created: boolean; memory: Memory } | { conflict: true };
 
-/** `duplicate`: the page was already saved, so that Memory came back (moved to the top). */
+/** `duplicate`: the existing Memory moved to the top. */
 export type LinkCaptureResult =
-  { created: boolean; duplicate?: true; memory: Memory } | { conflict: true };
+  | { created: boolean; duplicate?: true; indexAgain?: true; memory: Memory }
+  | { conflict: true };
 
 export type Page = { memories: Memory[]; next?: string };
 
@@ -367,8 +370,9 @@ export function openLibrary(
      * the top, with this Capture note only if it had none.
      */
     async captureLink(input: LinkCapture): Promise<LinkCaptureResult> {
-      const { id, url, captureNote, productAnalytics } =
-        LinkCapture.parse(input);
+      const parsed = LinkCapture.parse(input);
+      const { id, url, captureNote, productAnalytics } = parsed;
+      const kept = parsed.page ? keptPage(parsed.page) : undefined;
       const normalised = normaliseUrl(url)!;
       const [row] = await db
         .insert(memory)
@@ -379,7 +383,8 @@ export function openLibrary(
           sourceUrl: url,
           sourceUrlNormalised: normalised,
           captureNote,
-          preservation: "reference_only",
+          preservation: kept?.text ? "preserved" : "reference_only",
+          ...(kept && { metadata: kept.metadata, body: kept.text }),
           indexPriority: "fresh",
           productAnalytics: productAnalytics === true,
         })
@@ -414,9 +419,132 @@ export function openLibrary(
           )
         )
         .returning(columns);
+      if (existing && kept?.text && !existing.body) {
+        const filled = await db.transaction(async (tx) => {
+          await lockOwner(tx, userId);
+          if (await deletionRequested(tx, userId)) return undefined;
+          const [row] = await tx
+            .update(memory)
+            .set({
+              body: kept.text,
+              metadata: sql`coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(kept.metadata)}::jsonb`,
+              preservation: "preserved",
+              ...restartIndexing,
+            })
+            .where(and(owned(existing.id), sql`${memory.body} is null`))
+            .returning(columns);
+          return row;
+        });
+        if (filled)
+          return {
+            created: false,
+            duplicate: true,
+            indexAgain: true,
+            memory: filled,
+          };
+      }
       return existing
         ? { created: false, duplicate: true, memory: existing }
         : { conflict: true };
+    },
+
+    /**
+     * A slot for the visible-area screenshot, or `already` when this link
+     * has one. Nothing is written here: the caller stores the bytes, then
+     * {@link recordScreenshot}, so a lost upload cannot leave an unstored
+     * file (the sweep would delete the link with it).
+     */
+    async prepareScreenshot(
+      id: string,
+      bytes: number
+    ): Promise<
+      | { already: true }
+      | { key: string }
+      | { refused: "file_too_large" | "storage_full" }
+      | undefined
+    > {
+      if (bytes < 1 || bytes > SCREENSHOT_MAX_BYTES) {
+        return { refused: "file_too_large" };
+      }
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        if (await deletionRequested(tx, userId)) return undefined;
+        const [row] = await tx
+          .select({ kind: memory.kind })
+          .from(memory)
+          .where(owned(id));
+        if (!row || row.kind !== "link") return undefined;
+        const [existing] = await tx
+          .select({ key: memoryFile.key })
+          .from(memoryFile)
+          .where(
+            and(eq(memoryFile.memoryId, id), eq(memoryFile.role, "screenshot"))
+          );
+        if (existing) return { already: true };
+        const fit = isFileWithinAllowance({
+          fileBytes: bytes,
+          usedStorageBytes: await usedStorage(tx),
+        });
+        if (!fit.ok) return { refused: fit.reason };
+        const generation = crypto.randomUUID();
+        return { key: keyFor(userId, id, generation, "screenshot") };
+      });
+    },
+
+    /**
+     * Records a screenshot that is already in storage, as stored, so the
+     * link stays on the wall. False when the Memory is gone, the account
+     * is being deleted, the key is not this owner's, or storage no longer
+     * fits (the caller deletes the object).
+     */
+    async recordScreenshot(
+      id: string,
+      file: { key: string; bytes: number; width?: number; height?: number }
+    ): Promise<boolean> {
+      const prefix = `${ownerPrefix(userId)}${id}/`;
+      if (
+        !file.key.startsWith(prefix) ||
+        !file.key.endsWith("/screenshot") ||
+        file.key.includes("..")
+      ) {
+        return false;
+      }
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        if (await deletionRequested(tx, userId)) return false;
+        const [row] = await tx
+          .select({ kind: memory.kind })
+          .from(memory)
+          .where(owned(id));
+        if (!row || row.kind !== "link") return false;
+        const [existing] = await tx
+          .select({ key: memoryFile.key })
+          .from(memoryFile)
+          .where(
+            and(eq(memoryFile.memoryId, id), eq(memoryFile.role, "screenshot"))
+          );
+        if (existing) return existing.key === file.key;
+        const fit = isFileWithinAllowance({
+          fileBytes: file.bytes,
+          usedStorageBytes: await usedStorage(tx),
+        });
+        if (!fit.ok) return false;
+        const dimension = (n: number | undefined) =>
+          n !== undefined && Number.isInteger(n) && n > 0 && n <= 8000
+            ? n
+            : null;
+        await tx.insert(memoryFile).values({
+          memoryId: id,
+          role: "screenshot",
+          key: file.key,
+          mime: "image/jpeg",
+          bytes: file.bytes,
+          width: dimension(file.width),
+          height: dimension(file.height),
+          storedAt: sql`now()`,
+        });
+        return true;
+      });
     },
 
     /**
