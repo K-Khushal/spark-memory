@@ -3,6 +3,7 @@ import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import {
   DEEP_FETCH,
   type DeepFetchEngine,
+  type DeepFetchFailure,
   type LinkMetadata,
   type MemoryKind,
   type TranscriptSegment,
@@ -53,6 +54,10 @@ const claimed = ({ memoryId, userId, generation, run }: DeepFetchClaim) =>
     eq(memory.deepFetchState, "running")
   );
 
+/** Queued and past its due time, or running on a lease that ran out. */
+const isDue = sql`((${memory.deepFetchState} = 'queued' and ${memory.deepFetchDueAt} <= now())
+  or (${memory.deepFetchState} = 'running' and ${memory.deepFetchLeaseUntil} < now()))`;
+
 const delayOf = sql<number>`greatest(0, ceil(extract(epoch from (${memory.deepFetchDueAt} - now()))))::int`;
 
 /**
@@ -93,8 +98,7 @@ export function deepFetchStore(db: Database) {
             eq(memory.deepFetchRun, run),
             inArray(memory.kind, ["link", "video"]),
             isNotNull(memory.sourceUrlNormalised),
-            sql`((${memory.deepFetchState} = 'queued' and ${memory.deepFetchDueAt} <= now())
-              or (${memory.deepFetchState} = 'running' and ${memory.deepFetchLeaseUntil} < now()))`,
+            isDue,
             sql`not exists (select 1 from ${accountDeletion} d where d.user_id = ${memory.userId})`
           )
         )
@@ -104,6 +108,7 @@ export function deepFetchStore(db: Database) {
           url: memory.sourceUrlNormalised,
           aiOptOut: memory.aiOptOut,
           attempts: memory.deepFetchAttempts,
+          hasText: sql<boolean>`${memory.body} is not null`,
         });
       if (!row?.url) return undefined;
       const claim: DeepFetchClaim = {
@@ -118,6 +123,8 @@ export function deepFetchStore(db: Database) {
         url: row.url,
         aiOptOut: row.aiOptOut,
         attempts: row.attempts,
+        /** The Memory already has text: Deep fetch is for what is missing. */
+        hasText: row.hasText,
       };
     },
 
@@ -180,14 +187,10 @@ export function deepFetchStore(db: Database) {
      */
     async done(claim: DeepFetchClaim, found?: DeepFetched) {
       const text = found?.text ?? null;
-      const patch = {
-        ...(found?.transcript && {
-          video: {
-            transcript: found.transcript,
-            transcriptState: "available",
-          },
-        }),
-      };
+      // The video marker keeps what Gather stored (its duration) and gains the transcript.
+      const video = found?.transcript
+        ? sql`jsonb_build_object('video', coalesce(${memory.metadata}->'video', '{}'::jsonb) || ${JSON.stringify({ transcript: found.transcript, transcriptState: "available" })}::jsonb)`
+        : sql`'{}'::jsonb`;
       const [row] = await db
         .update(memory)
         .set({
@@ -197,7 +200,7 @@ export function deepFetchStore(db: Database) {
           ...(found && {
             // Metadata the page already had stays; the patch (a video's
             // transcript) replaces what was empty.
-            metadata: sql`(${JSON.stringify(found.metadata ?? {})}::jsonb || coalesce(${memory.metadata}, '{}'::jsonb)) || ${JSON.stringify(patch)}::jsonb`,
+            metadata: sql`(${JSON.stringify(found.metadata ?? {})}::jsonb || coalesce(${memory.metadata}, '{}'::jsonb)) || ${video}`,
             body: sql`case when ${text}::text is not null and (${memory.body} is null or char_length(${memory.body}) < char_length(${text}::text)) then ${text}::text else ${memory.body} end`,
             preservation: sql`case when ${memory.kind} = 'link' and (${memory.body} is not null or ${text}::text is not null) then 'preserved' else ${memory.preservation} end`,
             indexState: "indexing",
@@ -231,7 +234,7 @@ export function deepFetchStore(db: Database) {
       }),
 
     /** Failed for good (Try Again starts it over). */
-    fail: (claim: DeepFetchClaim, error: string) =>
+    fail: (claim: DeepFetchClaim, error: DeepFetchFailure) =>
       settle(claim, {
         deepFetchState: "failed",
         deepFetchError: error,
@@ -288,10 +291,7 @@ export function deepFetchStore(db: Database) {
           run: memory.deepFetchRun,
         })
         .from(memory)
-        .where(
-          sql`((${memory.deepFetchState} = 'queued' and ${memory.deepFetchDueAt} <= now())
-            or (${memory.deepFetchState} = 'running' and ${memory.deepFetchLeaseUntil} < now()))`
-        )
+        .where(isDue)
         .orderBy(memory.deepFetchDueAt)
         .limit(limit);
       return rows.map((r) => ({ ...r, delaySeconds: 0 }));

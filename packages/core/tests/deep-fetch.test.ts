@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { budgetWindow, engineFor, isThin, retryDelaySeconds } from "../index";
+import {
+  budgetWindow,
+  engineFor,
+  isThin,
+  retryDelaySeconds,
+  secondsToNextUtcDay,
+} from "../index";
 
 const readable = "word ".repeat(100);
 
@@ -34,6 +40,11 @@ it("retries after one hour, then 24 hours, then stops", () => {
   expect(retryDelaySeconds(1)).toBe(3600);
   expect(retryDelaySeconds(2)).toBe(86400);
   expect(retryDelaySeconds(3)).toBeUndefined();
+});
+
+it("counts the seconds to the next UTC day", () => {
+  expect(secondsToNextUtcDay(new Date("2026-11-30T23:59:30Z"))).toBe(30);
+  expect(secondsToNextUtcDay(new Date("2026-11-30T00:00:00Z"))).toBe(86400);
 });
 
 describe("budgetWindow", () => {

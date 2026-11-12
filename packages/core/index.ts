@@ -97,6 +97,7 @@ export {
   engineFor,
   isThin,
   retryDelaySeconds,
+  secondsToNextUtcDay,
   type DeepFetchEngine,
   type DeepFetchFailure,
   type DeepFetchState,

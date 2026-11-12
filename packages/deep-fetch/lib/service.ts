@@ -24,6 +24,7 @@ export type MediaTools = {
   /** A timestamped transcript of the audio, and the model calls it took. */
   transcribe(
     file: string,
+    durationSeconds: number,
     signal: AbortSignal
   ): Promise<{ transcript: TranscriptSegment[]; usage: EngineUsage[] }>;
 };
@@ -85,7 +86,11 @@ export function createFetcher({
         throw new ToolError("too_long");
       }
       const file = await tools.downloadAudio(url, dir, signal);
-      const { transcript, usage } = await tools.transcribe(file, signal);
+      const { transcript, usage } = await tools.transcribe(
+        file,
+        durationSeconds,
+        signal
+      );
       return { transcript, usage };
     } finally {
       // Media is temporary (ADR-0010): gone when the job ends, however it ends.

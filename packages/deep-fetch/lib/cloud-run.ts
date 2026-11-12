@@ -1,4 +1,4 @@
-import type { TranscriptSegment } from "@spark/core";
+import type { DeepFetchFailure, TranscriptSegment } from "@spark/core";
 import type { Engine, EngineResult, EngineUsage } from "./engine";
 
 /**
@@ -7,7 +7,13 @@ import type { Engine, EngineResult, EngineUsage } from "./engine";
  */
 const CALL_TIMEOUT_MS = 6 * 60_000;
 
-const FAILURES = new Set(["not_public", "too_long", "nothing", "error"]);
+const FAILURES = new Set([
+  "unavailable",
+  "not_public",
+  "too_long",
+  "nothing",
+  "error",
+]);
 
 const isSegments = (v: unknown): v is TranscriptSegment[] =>
   Array.isArray(v) &&
@@ -50,6 +56,7 @@ export function cloudRunFetcher({
   const endpoint = `${url.replace(/\/+$/, "")}/fetch`;
   return {
     async fetch({ url: source, maxMinutes }): Promise<EngineResult> {
+      const started = Date.now();
       let res: Response;
       try {
         res = await send(endpoint, {
@@ -62,7 +69,12 @@ export function cloudRunFetcher({
           body: JSON.stringify({ url: source, maxMinutes }),
         });
       } catch {
-        return { ok: false, reason: "error", seconds: 0 };
+        // The container may have run until we gave up: that time is spent.
+        return {
+          ok: false,
+          reason: "error",
+          seconds: Math.ceil((Date.now() - started) / 1000),
+        };
       }
       // Cloud Run answers 429 when it has no instance to give: try later.
       if (res.status === 429 || res.status === 503) {
@@ -92,7 +104,7 @@ export function cloudRunFetcher({
       }
       const reason =
         typeof body.reason === "string" && FAILURES.has(body.reason)
-          ? (body.reason as "not_public" | "too_long" | "nothing" | "error")
+          ? (body.reason as DeepFetchFailure)
           : "error";
       return { ok: false, reason, seconds, ...(usage && { usage }) };
     },

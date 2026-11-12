@@ -130,12 +130,14 @@ export function createMediaTools({
   paidTier: boolean;
   fetch?: typeof fetch;
 }): MediaTools {
-  let duration = 0;
   return {
     makeDir: () => mkdtemp(join(tmpdir(), "spark-job-")),
     removeDir: (dir) => rm(dir, { recursive: true, force: true }),
 
     async probe(url, signal) {
+      // Before anything is downloaded: without a paid-tier key (ADR-0005)
+      // there is no transcript to make, and that is not worth a retry.
+      if (!apiKey || !paidTier) throw new ToolError("unavailable");
       const info = JSON.parse(await run("yt-dlp", probeArgs(url), signal)) as {
         duration?: number;
         is_live?: boolean;
@@ -143,8 +145,7 @@ export function createMediaTools({
       if (info.is_live || !Number.isFinite(info.duration)) {
         throw new ToolError("nothing");
       }
-      duration = info.duration!;
-      return { durationSeconds: duration };
+      return { durationSeconds: info.duration! };
     },
 
     async downloadAudio(url, dir, signal) {
@@ -156,11 +157,8 @@ export function createMediaTools({
       return file;
     },
 
-    async transcribe(file, signal) {
-      if (!apiKey || !paidTier) {
-        // ADR-0005: never the free tier, so without the paid tier, no transcript.
-        throw new Error("transcription is not configured");
-      }
+    async transcribe(file, durationSeconds, signal) {
+      if (!apiKey || !paidTier) throw new ToolError("unavailable");
       const model = INDEXING.models.gemini;
       const res = await send(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -209,7 +207,7 @@ export function createMediaTools({
         .join("");
       const usage = reply.usageMetadata;
       return {
-        transcript: parseTranscript(text, duration),
+        transcript: parseTranscript(text, durationSeconds),
         usage: [
           {
             model,

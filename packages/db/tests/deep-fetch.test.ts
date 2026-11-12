@@ -202,6 +202,51 @@ describe.skipIf(!databaseUrl)("Deep fetch store", () => {
     });
   });
 
+  it("keeps a video's duration when its transcript arrives", async () => {
+    const memory = await link(
+      "https://www.youtube.com/watch?v=ffffffffffff".slice(0, 43)
+    );
+    const r = await row(memory.id);
+    await indexingStore(db).saveGathered(
+      {
+        memoryId: r.id,
+        userId: ana,
+        generation: r.indexGeneration,
+        run: r.indexRun,
+      },
+      {
+        text: null,
+        metadata: {
+          video: {
+            duration: 754,
+            transcript: [],
+            transcriptState: "unavailable",
+          },
+        },
+      }
+    );
+    const taken = (await store().claim(r.id, r.indexGeneration, 0))!;
+    expect(taken.hasText).toBe(false);
+    await store().done(taken.claim, {
+      text: "Hello there.",
+      transcript: [{ seconds: 1, text: "Hello there." }],
+    });
+    expect((await row(r.id)).metadata).toMatchObject({
+      video: { duration: 754, transcriptState: "available" },
+    });
+  });
+
+  it("says when a link already has text", async () => {
+    const m = await gathered("https://hastext1.test/", { text: ARTICLE });
+    await db
+      .update(schema.memory)
+      .set({ deepFetchState: "queued", deepFetchDueAt: sql`now()` })
+      .where(eq(schema.memory.id, m.id));
+    expect((await store().claim(m.id, m.indexGeneration, 0))!.hasText).toBe(
+      true
+    );
+  });
+
   it("is never wanted for a video with AI opt-out, and stops when it is switched on", async () => {
     const a = await link("https://www.youtube.com/watch?v=bbbbbbbbbbb");
     await library().setAiOptOut(a.id, true);

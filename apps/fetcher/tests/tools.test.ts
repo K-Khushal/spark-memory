@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { audioArgs, parseTranscript, probeArgs } from "../src/tools";
+import { ToolError } from "@spark/deep-fetch/fetcher";
+import {
+  audioArgs,
+  createMediaTools,
+  parseTranscript,
+  probeArgs,
+} from "../src/tools";
 
 const FORBIDDEN = [
   "--cookies",
@@ -59,5 +65,22 @@ describe("parseTranscript", () => {
   it("refuses a reply that is not a transcript", () => {
     expect(() => parseTranscript('{"text":"hi"}', 60)).toThrow();
     expect(() => parseTranscript("not json", 60)).toThrow();
+  });
+});
+
+describe("without a paid-tier key", () => {
+  it("refuses before downloading anything, as unavailable (ADR-0005)", async () => {
+    for (const options of [
+      { paidTier: true },
+      { apiKey: "key", paidTier: false },
+    ]) {
+      const tools = createMediaTools(options);
+      await expect(
+        tools.probe(
+          "https://www.youtube.com/watch?v=abcdefghijk",
+          AbortSignal.timeout(1000)
+        )
+      ).rejects.toEqual(new ToolError("unavailable"));
+    }
   });
 });

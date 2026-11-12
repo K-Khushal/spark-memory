@@ -112,6 +112,19 @@ describe("fetcher container", () => {
     ).toMatchObject({ ok: false, reason: "error" });
   });
 
+  it("passes on that it is not set up to transcribe, after removing the media", async () => {
+    const { t, log } = tools({
+      probe: async () => {
+        throw new ToolError("unavailable");
+      },
+    });
+    expect(await ask(handler(t))).toMatchObject({
+      ok: false,
+      reason: "unavailable",
+    });
+    expect(log.at(-1)).toBe("remove /job");
+  });
+
   it("still removes the media when removing fails, and answers anyway", async () => {
     const { t } = tools({
       removeDir: async () => {

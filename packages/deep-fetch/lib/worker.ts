@@ -6,7 +6,9 @@ import {
   INDEXING,
   MIN_PRESERVED_CHARS,
   retryDelaySeconds,
+  secondsToNextUtcDay,
   type DeepFetchEngine,
+  type DeepFetchFailure,
   type LinkMetadata,
   type MemoryKind,
   type TranscriptSegment,
@@ -49,6 +51,7 @@ export type DeepFetchJobStore = {
         url: string;
         aiOptOut: boolean;
         attempts: number;
+        hasText: boolean;
       }
     | undefined
   >;
@@ -68,7 +71,7 @@ export type DeepFetchJobStore = {
     claim: Claim,
     options: { delaySeconds: number; attempt: boolean }
   ): Promise<boolean>;
-  fail(claim: Claim, error: string): Promise<boolean>;
+  fail(claim: Claim, error: DeepFetchFailure): Promise<boolean>;
   unavailable(claim: Claim): Promise<boolean>;
   stop(claim: Claim): Promise<boolean>;
 };
@@ -103,17 +106,6 @@ const costMicros = (model: string, usage: EngineUsage) => {
   );
 };
 
-/** Until the next UTC day (a full day's wait is the most a day limit costs). */
-const secondsToNextDay = (now: Date) =>
-  Math.max(
-    1,
-    Math.ceil(
-      (Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) -
-        now.getTime()) /
-        1000
-    )
-  );
-
 /**
  * One Deep fetch job (ADR-0010) behind one call: take the Memory if it is
  * due, then choose the engine for its kind, honour the person's 20 a day,
@@ -147,14 +139,18 @@ export function createDeepFetchWorker({
   }): Promise<DeepFetchOutcome> {
     const taken = await store.claim(job.memoryId, job.generation, job.run);
     if (!taken) return { result: "skipped" };
-    const { claim, kind, url, aiOptOut, attempts } = taken;
+    const { claim, kind, url, aiOptOut, attempts, hasText } = taken;
     const engine = engineFor(kind);
     // Video goes to a model: never for AI opt-out (switched on since queued).
-    if (!engine || (kind === "video" && aiOptOut)) {
+    if (
+      !engine ||
+      (kind !== "link" && kind !== "video") ||
+      (kind === "video" && aiOptOut)
+    ) {
       await store.stop(claim);
       return { result: "stopped" };
     }
-    if (!deepFetch.available(kind as "link" | "video")) {
+    if (!deepFetch.available(kind)) {
       await store.unavailable(claim);
       return { result: "unavailable" };
     }
@@ -175,15 +171,15 @@ export function createDeepFetchWorker({
       engine === "media" &&
       (await ai.spentTodayMicros()) >= (await ai.dailyBudgetMicros())
     ) {
-      return wait(secondsToNextDay(now()));
+      return wait(secondsToNextUtcDay(now()));
     }
     if (!(await store.takeSlot(claim.userId))) {
-      return wait(secondsToNextDay(now()));
+      return wait(secondsToNextUtcDay(now()));
     }
 
     const result = await deepFetch.fetch({
       url,
-      kind: kind as "link" | "video",
+      kind,
       maxMinutes: FREE_ALLOWANCE.videoTranscriptMaxMinutes,
     });
     // What it used is spent whether or not it found anything.
@@ -210,6 +206,13 @@ export function createDeepFetchWorker({
         await store.giveBackSlot(claim.userId);
         return wait(window.secondsToNext);
       }
+      if (result.reason === "unavailable") {
+        // The engine is not set up to do this (no transcript key): nothing
+        // was tried, so no slot and no attempt is spent.
+        await store.giveBackSlot(claim.userId);
+        await store.unavailable(claim);
+        return { result: "unavailable" };
+      }
       if (result.reason === "not_public" || result.reason === "too_long") {
         await store.fail(claim, result.reason);
         return { result: "failed" };
@@ -217,16 +220,21 @@ export function createDeepFetchWorker({
       return nextAttempt(claim, attempts, result.reason);
     }
 
-    const text =
-      result.text ??
-      (result.transcript?.length
-        ? result.transcript.map((s) => s.text).join("\n")
-        : undefined);
+    // A link that already has text is fetched again for what it lacks (its
+    // screenshot): its text is never replaced, so Indexing is not run again.
+    const wantsText = !(kind === "link" && hasText);
+    const text = !wantsText
+      ? undefined
+      : (result.text ??
+        (result.transcript?.length
+          ? result.transcript.map((s) => s.text).join("\n")
+          : undefined));
     const readable =
       !!text &&
       (result.transcript?.length || text.length >= MIN_PRESERVED_CHARS);
     const found =
-      readable || result.metadata?.title || result.metadata?.description
+      wantsText &&
+      (readable || result.metadata?.title || result.metadata?.description)
         ? {
             ...(readable && {
               text: text.slice(0, FREE_ALLOWANCE.textMaxChars),
@@ -258,7 +266,7 @@ export function createDeepFetchWorker({
   async function nextAttempt(
     claim: Claim,
     attempts: number,
-    reason: string
+    reason: DeepFetchFailure
   ): Promise<DeepFetchOutcome> {
     const delaySeconds = retryDelaySeconds(attempts + 1);
     if (delaySeconds === undefined) {

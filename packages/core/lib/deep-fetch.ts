@@ -46,9 +46,13 @@ export type DeepFetchState =
  */
 export type DeepFetchView = "fetching" | "waiting" | "failed" | "unavailable";
 
-/** Why an attempt found nothing; only `retry` ones are worth another go. */
+/**
+ * Why an attempt found nothing. `error` and `nothing` are tried again;
+ * `limit` waits for the next window; `unavailable` (the engine is not set
+ * up to do this) shows as such; the rest fail for good.
+ */
 export type DeepFetchFailure =
-  "not_public" | "too_long" | "nothing" | "error" | "limit";
+  "unavailable" | "not_public" | "too_long" | "nothing" | "error" | "limit";
 
 /** The engine that handles a Memory of this kind, if Deep fetch applies to it. */
 export function engineFor(kind: MemoryKind): DeepFetchEngine | undefined {
@@ -82,16 +86,33 @@ export function isThin(found: {
 export const retryDelaySeconds = (attempts: number): number | undefined =>
   DEEP_FETCH.retryDelaysSeconds[attempts - 1];
 
+/** Seconds until the next UTC day begins (at least 1). */
+export const secondsToNextUtcDay = (now: Date) =>
+  Math.max(
+    1,
+    Math.ceil(
+      (Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) -
+        now.getTime()) /
+        1000
+    )
+  );
+
 /** The window an engine's budget is counted in, as a key, and when the next begins. */
 export function budgetWindow(engine: DeepFetchEngine, now: Date) {
   const { per } = DEEP_FETCH.budgets[engine];
   const iso = now.toISOString();
-  const next =
-    per === "day"
-      ? Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
-      : Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
   return {
     key: per === "day" ? iso.slice(0, 10) : iso.slice(0, 7),
-    secondsToNext: Math.max(1, Math.ceil((next - now.getTime()) / 1000)),
+    secondsToNext:
+      per === "day"
+        ? secondsToNextUtcDay(now)
+        : Math.max(
+            1,
+            Math.ceil(
+              (Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) -
+                now.getTime()) /
+                1000
+            )
+          ),
   };
 }

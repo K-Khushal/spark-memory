@@ -242,6 +242,58 @@ describe.skipIf(!databaseUrl)("Deep fetch job", () => {
     expect(await next.run(job(page, 1))).toMatchObject({ result: "done" });
   });
 
+  it("is Unavailable, giving the slot back, when the container is not set up to transcribe", async () => {
+    const m = await thin(`${VIDEO}ggggggggggg`, ana, true);
+    const day = new Date().toISOString().slice(0, 10);
+    const used = async () =>
+      (
+        await db
+          .select()
+          .from(schema.usageDay)
+          .where(eq(schema.usageDay.userId, ana))
+      ).find((r) => r.day === day)?.deepFetches ?? 0;
+    const before = await used();
+    const { run } = setup(() => ({
+      ok: false,
+      reason: "unavailable",
+      seconds: 1,
+    }));
+    expect(await run(job(m))).toEqual({ result: "unavailable" });
+    expect(await row(m.id)).toMatchObject({
+      deepFetchState: "unavailable",
+      deepFetchAttempts: 0,
+    });
+    expect(await used()).toBe(before);
+  });
+
+  it("fetches a link that already has text only for what it lacks: its text stays, Indexing does not run again", async () => {
+    const m = await thin("https://hastext2.test/");
+    await db
+      .update(schema.memory)
+      .set({ body: "Words the page already gave us. ".repeat(12) })
+      .where(eq(schema.memory.id, m.id));
+    const shot = { bytes: new Uint8Array([1]), width: 1280, height: 800 };
+    const a = setup(() => ({ ...found, screenshot: shot }), {
+      keepScreenshot: async () => true,
+    });
+    expect(await a.run(job(m))).toEqual({ result: "done" });
+    expect(await row(m.id)).toMatchObject({
+      deepFetchState: "done",
+      body: "Words the page already gave us. ".repeat(12),
+      indexState: "searchable",
+    });
+    // Nothing it lacks was found: that is an attempt that found nothing.
+    const n = await thin("https://hastext3.test/");
+    await db
+      .update(schema.memory)
+      .set({ body: "Words the page already gave us. ".repeat(12) })
+      .where(eq(schema.memory.id, n.id));
+    expect(await setup(() => found).run(job(n))).toEqual({
+      result: "later",
+      delaySeconds: 3600,
+    });
+  });
+
   it("stops for a video whose AI opt-out was switched on while it waited", async () => {
     const m = await thin(`${VIDEO}ccccccccccc`, ana, true);
     await db
