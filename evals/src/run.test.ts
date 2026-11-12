@@ -140,6 +140,18 @@ describe.skipIf(!process.env.DATABASE_URL)(
       expect(Number(after.memories)).toBeLessThanOrEqual(
         Number(before.memories)
       );
+      // Independent of other runs: none of this run's sample Memories remains
+      // under any throwaway person.
+      const ids = set.memories.map((sample) => memoryId(sample.id));
+      const { rows: left } = await db.execute(sql`
+        select m.id from memory m join "user" u on u.id = m.user_id
+        where u.email like 'evals-%@example.com'
+          and m.id in (${sql.join(
+            ids.map((id) => sql`${id}::uuid`),
+            sql`, `
+          )})
+      `);
+      expect(left).toHaveLength(0);
     });
 
     it("clears what a stopped run left behind, so the next run does not conflict", async () => {
