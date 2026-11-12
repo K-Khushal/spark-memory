@@ -14,5 +14,5 @@ One SQL function compares the query (text or image) against all of them and scor
 
 ## Consequences
 
-- Vector size (768, 1536 or 3072), passage length and reranker are chosen by the search test set, not by guesswork. The model ID and dimension are stored with every vector so re-embedding is a background job.
+- Vector size (768, 1536 or 3072), passage length and reranker are chosen by the search test set (`evals/`), not by guesswork. The runners exist (`evals/README.md`); until the owner has run them with paid keys the defaults stand (768, ~2,000-character Passages, no reranker) and this ADR gets the winner. The model ID and dimension are stored with every vector so re-embedding is a background job.
 - Add an HNSW index only when a single Library grows past roughly 50k vectors.

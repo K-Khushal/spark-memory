@@ -1,0 +1,1 @@
+Q2 planning, 20 June. Decisions: hiring freeze until the pricing page ships. Anita owns the database migration, target 28 June. Pricing page goes live by 5 July. Open question: do we drop the legacy export format? Follow up with Sam on support volume before the next meeting.
