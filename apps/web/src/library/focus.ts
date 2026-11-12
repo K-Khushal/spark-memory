@@ -13,7 +13,7 @@ export function restoreLibraryFocus(event: Event) {
     const tile = document.querySelector<HTMLElement>(
       'main [role="listitem"][tabindex="0"]'
     );
-    if (tile) tile.focus({ preventScroll: true });
+    if (tile) tile.focus();
     else focusDeskControl("capture");
   });
 }

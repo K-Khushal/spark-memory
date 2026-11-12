@@ -74,9 +74,15 @@ Fetched the current vercel-labs/web-interface-guidelines `command.md` on 2026-11
 ## Evidence and reproduction
 
 - `SPARK_EXPECT_TIMEOUT=30000 SPARK_WEB_PORT=5199 SPARK_API_PORT=8799 pnpm --filter @spark/web exec playwright test polish.e2e.ts --workers=1`
-- `POLISH_SCREENSHOTS=1 POLISH_PHASE=after SPARK_EXPECT_TIMEOUT=30000 SPARK_WEB_PORT=5199 SPARK_API_PORT=8799 pnpm --filter @spark/web exec playwright test --workers=1`
+- `POLISH_SCREENSHOTS=1 POLISH_SCREENSHOT_DIR=/data/workspace/spark-memory/.git/factory/r POLISH_PHASE=after SPARK_EXPECT_TIMEOUT=30000 SPARK_WEB_PORT=5199 SPARK_API_PORT=8799 pnpm --filter @spark/web exec playwright test --workers=1`
 - Screenshots: `/data/workspace/spark-memory/.git/factory/r/t9-{before,after}-{wall,viewer,detail,capture,search}-{1440,390}-{light,dark}.png`.
 - The screenshot suite seeds local API responses from a Memory captured against the local Worker; the visual matrix uses 24 worst-case text Memories plus an image. The separate huge case loads 10,000 text Memories plus that image, checks virtualisation, and scrolls to the last Memory. Its data picker exists only inside the test browser.
 - Slow connection uses CDP throttling (500ms latency, 1 MB/s down, 20 KB/s up). Large-text case uses 320px width and a 200% root font; reduced motion is emulated. No physical-device test is claimed.
 - Impeccable source detector: zero findings (`detect apps/web/src/library apps/web/src/shell.tsx --json` returned `[]`).
 - Keyboard regression was reproduced against 9f26644: after Search → Memory → Delete, Capture remained inactive instead of receiving focus.
+
+## Code Review
+
+Standards: two findings (no baseline smells): restoration could focus an offscreen overscan tile with preventScroll, and screenshot output was hardcoded to this machine. The repair lets focus scroll into view and gives screenshots a repository-relative default with POLISH_SCREENSHOT_DIR override. The scrolled-Library regression covers the overscan case.
+
+Spec: zero code defects or scope creep; one partial requirement, the absent six better-interface owning skills, remains explicitly deferred above.

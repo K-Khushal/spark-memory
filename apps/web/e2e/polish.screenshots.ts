@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./sign-in";
 import type { Memory } from "../src/library/use-library";
 
-const OUT = "/data/workspace/spark-memory/.git/factory/r";
+const OUT =
+  process.env.POLISH_SCREENSHOT_DIR ?? "test-results/polish-screenshots";
 const phase = process.env.POLISH_PHASE ?? "after";
 const titles = [
   "Designing a Personal Library Across Languages, Devices, and Years: "
