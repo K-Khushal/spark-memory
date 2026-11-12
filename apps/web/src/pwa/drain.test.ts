@@ -54,6 +54,7 @@ const lib = (
 
 const live = () => true;
 const ask = () => {};
+const fail = () => {};
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("drainShares", () => {
@@ -68,6 +69,7 @@ describe("drainShares", () => {
       notify: vi.fn(),
       live,
       ask,
+      fail,
     });
     expect(captured).toEqual([["hello", one.id]]);
     expect(hold.size()).toBe(0);
@@ -80,6 +82,7 @@ describe("drainShares", () => {
     const tab = () =>
       drainShares({
         ask,
+        fail,
         hold,
         locks,
         library: lib(captured),
@@ -98,6 +101,7 @@ describe("drainShares", () => {
     const tab = () =>
       drainShares({
         ask,
+        fail,
         hold,
         library: lib(captured),
         notify: vi.fn(),
@@ -118,6 +122,7 @@ describe("drainShares", () => {
       notify: vi.fn(),
       live,
       ask,
+      fail,
     });
     await tick();
     expect(hold.size()).toBe(1);
@@ -138,6 +143,7 @@ describe("drainShares", () => {
       notify: vi.fn(),
       live,
       ask,
+      fail,
     });
     await tick();
     expect(hold.size()).toBe(1); // the tab is gone; nothing was dropped
@@ -149,6 +155,7 @@ describe("drainShares", () => {
       notify: vi.fn(),
       live,
       ask,
+      fail,
     });
     expect(second).toEqual([["interrupted", one.id]]);
     expect(first[0]?.[1]).toBe(one.id);
@@ -165,6 +172,7 @@ describe("drainShares", () => {
       notify: vi.fn(),
       live: () => false,
       ask,
+      fail,
     });
     expect(captured).toEqual([]);
     expect(hold.size()).toBe(1);
@@ -182,6 +190,7 @@ describe("drainShares", () => {
       notify: vi.fn(),
       live,
       ask,
+      fail,
     });
     expect(captured.map(([text]) => text)).toEqual(["good"]);
     expect(hold.size()).toBe(1); // "bad" stays for the next time
@@ -195,6 +204,7 @@ describe("shares that could have come from another site", () => {
     const asked: HeldShare[] = [];
     await drainShares({
       ask: (unsure) => asked.push(...unsure),
+      fail,
       hold,
       locks: fakeLocks(),
       library: lib(captured),
@@ -267,6 +277,7 @@ describe("a share the person must decide on", () => {
       notify: vi.fn(),
       live,
       ask: (unsure) => asked.push(...unsure),
+      fail,
     });
     await tick();
     expect(asked.map(({ share }) => share.text)).toEqual(["sent by a page"]);
@@ -285,6 +296,7 @@ describe("a share that cannot be Captured yet", () => {
       notify: vi.fn(),
       live,
       ask,
+      fail,
     });
     return hold.size();
   };
@@ -305,20 +317,53 @@ describe("a hold that fails", () => {
       throw new Error("blocked");
     };
     await expect(
-      drainShares({ hold, library: lib(), notify: vi.fn(), live, ask })
+      drainShares({ hold, library: lib(), notify: vi.fn(), live, ask, fail })
     ).rejects.toThrow();
     expect(hold.size()).toBe(1);
   });
 
-  it("rejects, with the share still held, when it cannot be dropped", async () => {
+  it("reports, with the share still held, when it cannot be dropped", async () => {
     const hold = memoryHold(share("one"));
     hold.drop = async () => {
       throw new Error("quota");
     };
-    await expect(
-      drainShares({ hold, library: lib(), notify: vi.fn(), live, ask })
-    ).rejects.toThrow();
+    const fail = vi.fn();
+    await drainShares({
+      hold,
+      library: lib(),
+      notify: vi.fn(),
+      live,
+      ask,
+      fail,
+    });
+    expect(fail).toHaveBeenCalledTimes(1);
     expect(hold.size()).toBe(1);
+  });
+
+  it("reports a storage failure at once, while another Capture is still unfinished", async () => {
+    const hold = memoryHold(share("never ends"), share("cannot be read"));
+    const read = hold.get;
+    hold.get = async (key) => {
+      if (key === 2) throw new Error("blocked");
+      return read(key);
+    };
+    const library = lib();
+    vi.mocked(library.captureShared).mockImplementation(
+      () => new Promise<"stored">(() => {})
+    );
+    const fail = vi.fn();
+    void drainShares({
+      hold,
+      locks: fakeLocks(),
+      library,
+      notify: vi.fn(),
+      live,
+      ask,
+      fail,
+    });
+    await tick();
+    expect(fail).toHaveBeenCalledTimes(1);
+    expect(library.captureShared).toHaveBeenCalledTimes(1); // the other goes on
   });
 
   it("rejects a decision the same way, so the dialog can offer Try Again", async () => {
@@ -341,7 +386,7 @@ describe("a hold that fails", () => {
     const hold = memoryHold();
     hold.held = async () => ({ shares: [], unreadable: 1 });
     const notify = vi.fn();
-    await drainShares({ hold, library: lib(), notify, live, ask });
+    await drainShares({ hold, library: lib(), notify, live, ask, fail });
     expect(notify).toHaveBeenCalledWith("This Share Can't Be Read");
   });
 });

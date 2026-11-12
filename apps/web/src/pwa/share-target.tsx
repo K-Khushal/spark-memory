@@ -44,6 +44,8 @@ export function ShareTarget({ library }: { library: ShareLibrary }) {
 
   useEffect(() => {
     let live = true;
+    const retry = () =>
+      retryable(REFUSAL_COPY.unreadable, () => setAttempt((n) => n + 1));
     drainShares({
       hold,
       locks: navigator.locks,
@@ -51,9 +53,8 @@ export function ShareTarget({ library }: { library: ShareLibrary }) {
       notify,
       live: () => live,
       ask: (unsure) => live && setAsked(unsure),
-    }).catch(() =>
-      retryable(REFUSAL_COPY.unreadable, () => setAttempt((n) => n + 1))
-    );
+      fail: retry,
+    }).catch(retry);
     return () => {
       live = false;
     };

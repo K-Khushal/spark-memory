@@ -70,23 +70,25 @@ export function decideShare({
  * Captures every held share that is sure to be a share, each once across
  * all open tabs. The ones that are not sure go to `ask` as soon as they are
  * read, whatever the others are doing, and wait for the person (see
- * judgeShare). Rejects when the hold cannot be read or written.
+ * judgeShare). Rejects when the hold cannot be read. A share whose hold
+ * cannot be read or written goes to `fail` the moment it happens, and the
+ * other Captures carry on.
  */
 export async function drainShares(
   deps: Deps & {
     live: () => boolean;
     ask: (unsure: HeldShare[]) => void;
+    fail: () => void;
   }
 ): Promise<void> {
   const { shares, unreadable } = await deps.hold.held();
   if (unreadable) deps.notify(REFUSAL_COPY.unreadable);
   deps.ask(shares.filter(({ share }) => !share.verified));
-  const results = await Promise.allSettled(
+  await Promise.all(
     shares
       .filter(({ share }) => share.verified)
-      .map(({ key }) => decideShare({ ...deps, key, capture: true }))
+      .map(({ key }) =>
+        decideShare({ ...deps, key, capture: true }).catch(deps.fail)
+      )
   );
-  if (results.some(({ status }) => status === "rejected")) {
-    throw new Error("The share hold could not be read or written");
-  }
 }
