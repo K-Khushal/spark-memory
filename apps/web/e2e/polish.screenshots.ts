@@ -151,6 +151,10 @@ test("M1 surfaces and worst-case local Library", async ({ page, context }) => {
   // Test-only dataset picker: the production app never receives this chrome.
   await page.addInitScript(() => {
     document.addEventListener("DOMContentLoaded", () => {
+      const style = document.createElement("style");
+      style.textContent =
+        'body:has([role="dialog"][data-state="open"]) nav[aria-label="Polish Test Data"] { display: none; }';
+      document.head.append(style);
       const nav = document.createElement("nav");
       nav.ariaLabel = "Polish Test Data";
       nav.style.cssText =

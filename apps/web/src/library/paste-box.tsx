@@ -89,7 +89,7 @@ export function PasteBox({
             <Button
               type="button"
               variant="quiet"
-              className="min-h-10 whitespace-normal"
+              className="h-auto min-h-10 max-w-full px-2 whitespace-normal"
               onClick={() => picker.current?.click()}
             >
               <PaperclipIcon aria-hidden /> Choose Files
