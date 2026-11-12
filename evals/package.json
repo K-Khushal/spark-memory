@@ -4,6 +4,30 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "assemble": "tsx scripts/assemble.ts",
+    "eval": "tsx src/cli.ts",
+    "eval:check": "tsx src/cli.ts --check",
+    "eval:update-baseline": "tsx src/cli.ts --update-baseline",
+    "eval:real": "tsx src/cli.ts --real",
+    "experiments": "tsx src/experiments.ts",
+    "compare:supermemory": "tsx src/supermemory.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@spark/core": "workspace:*",
+    "@spark/db": "workspace:*",
+    "@spark/indexing": "workspace:*",
+    "@spark/search": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@spark/capture": "workspace:*",
+    "@spark/config": "workspace:*",
+    "@types/node": "^22.20.5",
+    "thumbhash": "0.1.1",
+    "tsx": "4.23.15"
   }
 }

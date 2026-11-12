@@ -15,6 +15,7 @@ Spark is a personal memory library: people save anything they come across and fi
 - `pnpm dev`: Postgres (Docker) + the Worker (`wrangler dev`, :8787) + the dashboard (Vite, :5173, proxies `/api`).
 - `pnpm check`: typecheck, lint, package boundaries, formatting, tests, build. It must pass before a ticket is done; CI runs the same steps.
 - `pnpm --filter @spark/<name> <script>`: run one package's script.
+- `pnpm --filter @spark/evals eval`: the search test set (needs the dev Postgres). CI runs `eval:check` against `evals/baseline.json`; see `evals/README.md`.
 
 ## Non-negotiables
 
