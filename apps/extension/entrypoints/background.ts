@@ -3,7 +3,11 @@ import { defineBackground } from "wxt/utils/define-background";
 import { LinkCapture, PageExtract, SCREENSHOT_MAX_BYTES } from "@spark/core";
 import { captureClient, ApiError, type SavedMemory } from "../lib/client";
 import { API_ORIGIN } from "../lib/config";
-import { createOutbox, type PendingCapture } from "../lib/outbox";
+import {
+  createOutbox,
+  type PendingCapture,
+  type OutboxState,
+} from "../lib/outbox";
 
 type Result =
   | { state: "saved" | "duplicate"; memory: SavedMemory; owner: string }
@@ -12,14 +16,30 @@ export default defineBackground(() => {
   const api = captureClient(API_ORIGIN);
   const pending = new Map<
     number,
-    { url: string; resolve(page: PageExtract): void }
+    { url: string; resolve(page: PageExtract | undefined): void }
   >();
+  async function syncAlarm(rows: PendingCapture[]) {
+    if (!rows.length) await browser.alarms.clear("outbox");
+    else if (!(await browser.alarms.get("outbox")))
+      await browser.alarms.create("outbox", { periodInMinutes: 1 });
+  }
   const box = createOutbox({
-    read: async () =>
-      (await browser.storage.local.get<{ outbox?: PendingCapture[] }>("outbox"))
-        .outbox ?? [],
-    write: async (outbox) => {
-      await browser.storage.local.set({ outbox });
+    read: async (): Promise<OutboxState> => {
+      const stored = await browser.storage.local.get<{
+        outbox?: PendingCapture[];
+        outboxRefusal?: number | null;
+      }>(["outbox", "outboxRefusal"]);
+      return {
+        rows: stored.outbox ?? [],
+        refused: stored.outboxRefusal ?? undefined,
+      };
+    },
+    write: async ({ rows, refused }) => {
+      await browser.storage.local.set({
+        outbox: rows,
+        outboxRefusal: refused ?? null,
+      });
+      await syncAlarm(rows);
     },
     send: async (row) => {
       const memory = await api.save(row.owner, row.capture);
@@ -40,21 +60,48 @@ export default defineBackground(() => {
   });
   const identity = async () => {
     const me = await api.me();
+    await box.useOwner(me.id);
     await browser.storage.local.set({ owner: me.id });
     return me.id;
   };
   async function retry() {
+    if (!(await box.reconcile())) return;
     try {
       await box.flush(await identity());
     } catch {
       /* Retain until explicit retry/sign-in. */
     }
   }
-  browser.alarms.create("outbox", { periodInMinutes: 1 });
   browser.alarms.onAlarm.addListener(() => retry());
   browser.runtime.onStartup.addListener(() => retry());
 
-  let running: Promise<Result> | undefined;
+  function failed(error: unknown, offline: "queued" | "error"): Result {
+    if (error instanceof ApiError && error.status === 401)
+      return { state: "signed-out" };
+    return {
+      state: offline,
+      ...(offline === "error" && {
+        label:
+          error instanceof Error && error.message === "Outbox Full"
+            ? "Outbox Full"
+            : "Try Again",
+      }),
+    };
+  }
+  async function present(
+    result: Result
+  ): Promise<Result & { hasRows: boolean }> {
+    const { hasRows, refused } = await box.takeStatus(
+      result.state !== "signed-out"
+    );
+    return {
+      ...(refused !== undefined
+        ? { state: "error", label: "Capture Refused" }
+        : result),
+      hasRows,
+    };
+  }
+  let running: Promise<Awaited<ReturnType<typeof present>>> | undefined;
   async function capture(): Promise<Result> {
     let owner: string | undefined;
     try {
@@ -80,10 +127,10 @@ export default defineBackground(() => {
     }
     const tabId = tab.id;
     const url = tab.url;
-    const page = await new Promise<PageExtract>((resolve) => {
+    const page = await new Promise<PageExtract | undefined>((resolve) => {
       const timer = setTimeout(() => {
         pending.delete(tabId);
-        resolve(PageExtract.parse({ title: tab.title?.slice(0, 300) }));
+        resolve(undefined);
       }, 5000);
       pending.set(tabId, {
         url,
@@ -98,7 +145,7 @@ export default defineBackground(() => {
         .catch(() => {
           clearTimeout(timer);
           pending.delete(tabId);
-          resolve(PageExtract.parse({ title: tab.title?.slice(0, 300) }));
+          resolve(undefined);
         });
     });
     let screenshot: string | undefined;
@@ -123,18 +170,16 @@ export default defineBackground(() => {
         screenshot = data;
     }
     const id = crypto.randomUUID();
-    await box.add({
+    const sent = await box.submit({
       owner,
       capture: LinkCapture.parse({ id, url, page }),
       screenshot,
       addedAt: Date.now(),
     });
-    const results = await box.flush(owner);
-    const sent = results.find((row) => row.captureId === id);
     return sent
       ? {
-          state: sent.memory.id === id ? "saved" : "duplicate",
-          memory: sent.memory,
+          state: sent.id === id ? "saved" : "duplicate",
+          memory: sent,
           owner,
         }
       : { state: "queued" };
@@ -152,24 +197,16 @@ export default defineBackground(() => {
         job &&
         sender.url === job.url &&
         message.url === job.url &&
-        parsed.success
+        (message.failed === true || parsed.success)
       )
-        job.resolve(parsed.data);
+        job.resolve(parsed.success ? parsed.data : undefined);
       return;
     }
     if (sender.url !== browser.runtime.getURL("/popup.html")) return;
     if (message?.type === "capture") {
       running ??= capture()
-        .catch((error): Result => ({
-          state:
-            error instanceof ApiError && error.status === 401
-              ? "signed-out"
-              : "error",
-          label:
-            error instanceof Error && error.message === "Outbox Full"
-              ? "Outbox Full"
-              : "Try Again",
-        }))
+        .catch((error) => failed(error, "error"))
+        .then(present)
         .finally(() => {
           running = undefined;
         });
@@ -185,16 +222,18 @@ export default defineBackground(() => {
         .then((memory) => ({ memory }))
         .catch(() => ({ error: true }));
     }
+    if (message?.type === "status") return box.takeStatus();
     if (message?.type === "retry")
       return identity()
-        .then(async (owner) => {
+        .then(async (owner): Promise<Result> => {
           const results = await box.flush(owner);
           const last = results.at(-1);
           return last
             ? { state: "saved", memory: last.memory, owner }
             : { state: "queued" };
         })
-        .catch(() => ({ state: "signed-out" }));
+        .catch((error) => failed(error, "queued"))
+        .then(present);
     if (message?.type === "clear") return box.clear();
   });
 });

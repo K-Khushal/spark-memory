@@ -30,7 +30,7 @@ Independent Spec review found:
 Also probed concurrent screenshot uploads (one stored file, allowance rechecked
 inside the owner lock, losing objects removed) and account switching (explicit
 owner header checked against the authenticated account on every mutation).
-Permanent outbox refusals are retained for discard without blocking later rows.
+Round 1 removes permanently refused rows and records an error notice once.
 
 ## Interface scope and coverage
 
@@ -76,3 +76,24 @@ cookie-blocking configurations and Edge store identity before release. The
 Playwright test build has a test-only broad host grant, removed from release
 builds. A separate in-page toast is deferred: v1 uses the brief's minimal popup
 confirmation and avoids injecting another UI surface into arbitrary pages.
+
+
+## Fix round 1 (after 7d87a3e)
+
+S1–S6 were reproduced in failing tests before their implementations changed.
+The browser API harness uses the actual background entry point and API client,
+with browser APIs and HTTP as the external boundaries. Outbox tests cover
+capacity, permanent refusal cleanup, confirmed account changes and concurrent
+submit/flush. Worker HTTP tests cover forbidden extension account/admin access.
+
+Independent Standards and Spec reviewers caught two additional races: stale
+empty snapshots could clear a newly created alarm, and Sign In could consume an
+undisplayed refusal. Both were reproduced with failing tests and fixed. Alarm
+reconciliation now runs through the outbox writer; refusal acknowledgement is
+explicit and only occurs when it can be shown.
+
+S8 is implemented in CI smoke: build the test extension, launch full Chromium
+headless and run the extension test alongside dashboard smoke. Screenshot output
+is portable to CI. S9 reuses the bundled brand font imports, with real font-load
+assertions, and verifies Discard Outbox visibility as the queue fills/drains.
+S7, multiple store IDs per deployment, remains a bounded-allowlist follow-up.

@@ -203,3 +203,30 @@ describe.skipIf(!databaseUrl)("extension session revocation", () => {
     expect((await capture()).status).toBe(401);
   });
 });
+describe.skipIf(!databaseUrl)("extension route scope", () => {
+  it("cannot delete an account or access account/admin routes from the extension", async () => {
+    const { call, address } = await signedIn();
+    for (const [path, method] of [
+      ["account", "DELETE"],
+      ["account/sessions", "GET"],
+      ["admin/overview", "GET"],
+    ]) {
+      const response = await worker.fetch(
+        new Request(`http://localhost:8787/api/${path}`, {
+          method,
+          headers: {
+            origin: extension,
+            cookie: call.cookie(),
+            "content-type": "application/json",
+          },
+          ...(method === "DELETE" && {
+            body: JSON.stringify({ email: address }),
+          }),
+        }),
+        bindings(),
+        ctx
+      );
+      expect(response.status).toBe(403);
+    }
+  });
+});

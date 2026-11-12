@@ -120,7 +120,7 @@ const filesOf = async (library: Library, id: string) =>
 
 const signedIn = [
   extensionCors,
-  sameOrigin,
+  sameOrigin({ extension: true }),
   withAuth,
   requireUser,
   createMiddleware<AppEnv & { Variables: UserVariables }>(async (c, next) => {

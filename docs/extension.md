@@ -32,7 +32,8 @@ Never set a wildcard. Do not deploy the local development ID as the store ID.
   credentialed background requests. Sign-in always opens the dashboard.
   Session expiration, sign-out and account deletion revoke access through the
   existing session/deletion checks. Cookies retain their existing SameSite
-  settings. The API accepts only the dashboard or pinned extension origin.
+  settings. Only the Memory API and `/me` opt into the pinned extension
+  origin; account and admin routes require the dashboard origin.
 - Defuddle runs on a cloned DOM, synchronously with `useAsync: false`. No
   page content goes to another extraction service. Metadata is bounded;
   HTML is converted to text, never mounted in the page. Restricted browser
@@ -42,18 +43,26 @@ Never set a wildcard. Do not deploy the local development ID as the store ID.
   screenshots are unavailable or the storage allowance refuses the copy.
   Signed downloads: `GET /api/memories/:id/screenshot`. Account exports and
   deletion include screenshot files through the existing file lifecycle.
-- An outbox holds at most ten Captures, including page text and screenshot,
+- An outbox holds at most ten retryable Captures for the current owner,
+  including page text and screenshot,
   in **local**, trusted-extension-only storage, never sync. It stores an
-  account ID, not credentials. No expiry silently discards unsent content.
-  It retries every minute and at startup, or via Try Again. Capturing offline
+  account ID, not credentials. Retries run every minute while rows exist,
+  at startup when queued, or via Try Again. An empty outbox has no alarm and
+  never refreshes a session in the background. Capturing offline
   requires having signed in successfully through this extension before.
   Outbox requests bind to that account; switching accounts cannot send old
-  Captures to a new Library. Discard Outbox removes queued content. Uninstall
+  Captures to a new Library. Once `/me` confirms a different account, the
+  previous account's queued text and screenshots are removed. Discard Outbox
+  appears only while rows exist and removes queued content. Uninstall
   clears extension storage. Account deletion prevents sending old entries;
   use Discard Outbox or uninstall to remove local copies.
-- A permanent refusal stays queued for explicit discard and does not block
-  later Captures. Auth/account changes pause sending. A successful link with
-  a failed screenshot is retried with the same Capture ID.
+- Non-retryable 4xx refusals remove the queued page and record a one-shot
+  error notice, including refusals during an alarm. A 401 retains the Capture
+  for sign-in and does not consume an undisplayed refusal notice. Refused or
+  other-owner rows cannot prevent an online Capture from saving. A successful
+  link with a retryable screenshot failure is retried with the same Capture ID.
+- Failed injection, an extraction exception or no extraction answer omits
+  `page` from the Capture, allowing the existing paste/server gathering path.
 - Existing AI opt-out, Free allowance and Indexing policy apply. Client text
   skips server gathering. Resurfacing a link can fill missing readable text
   once, invalidating stale Indexing claims, without overwriting preserved text
@@ -64,7 +73,8 @@ Never set a wildcard. Do not deploy the local development ID as the store ID.
 Unit/API tests: `pnpm check` with a migrated real Postgres `DATABASE_URL`.
 Use a throwaway `pgvector/pgvector:pg17` container on a random host port.
 
-Unpacked-extension e2e, in addition to the normal Playwright smoke suite:
+CI smoke builds the unpacked test extension and runs it with the dashboard
+suite using headless Chromium's `--load-extension`. Run it alone locally:
 
 ```sh
 WXT_E2E=1 WXT_API_ORIGIN=http://localhost:5173 pnpm --filter @spark/extension build
@@ -76,8 +86,10 @@ ports also set `SPARK_WEB_PORT`, `SPARK_API_PORT` and match `WXT_API_ORIGIN`.
 The test-only `WXT_E2E=1` build adds `<all_urls>` because Playwright cannot
 simulate the toolbar gesture's `activeTab` grant. It uses a real unpacked
 extension, real dashboard sign-in, API and database; only the Source page is
-an HTML fixture. **Never distribute this test build.** Normal smoke skips
-this one opt-in test. Rebuild normally afterward.
+an HTML fixture. **Never distribute this test build.** Local smoke skips
+this test unless `EXTENSION_E2E=1`; CI sets it explicitly. Screenshots use the
+Playwright artifact directory by default; set `EXTENSION_SCREENSHOTS_DIR` to
+save them elsewhere. Rebuild normally afterward.
 
 Manual release checks (real toolbar gesture, normal permissions):
 

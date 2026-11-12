@@ -22,25 +22,34 @@ const dashboardOrigin = (c: {
 }) => new URL(c.env.BETTER_AUTH_URL || c.req.url).origin;
 
 /**
- * Cookie-authenticated changes come from Spark's own pages, or from the
- * pinned extension and nothing else. SameSite=Lax cookies still ride along
+ * Cookie-authenticated changes come from Spark's own pages. Memory routes
+ * and /me explicitly opt into the pinned extension origin. SameSite=Lax cookies still ride along
  * from other sites on the same registrable domain, so this is the CSRF
- * check. Reads pass; a change with no Origin is refused (browsers always
- * send it on these methods).
+ * check. Extension reads also require opt-in. A change with no Origin is
+ * refused (browsers always send it on these methods).
  */
-export const sameOrigin = createMiddleware<AppEnv>(async (c, next) => {
-  if (READS.has(c.req.method)) return next();
-  const origin = c.req.header("origin");
-  const allowed = new Set(
-    [dashboardOrigin(c), extensionOrigin(c.env.EXTENSION_ORIGIN)].filter(
-      (value): value is string => value !== undefined
-    )
-  );
-  if (!origin || !allowed.has(origin)) {
-    return c.json({ ok: false, error: "forbidden" } as const, 403);
-  }
-  await next();
-});
+export const sameOrigin = ({
+  extension = false,
+}: { extension?: boolean } = {}) =>
+  createMiddleware<AppEnv>(async (c, next) => {
+    const origin = c.req.header("origin");
+    const pinned = extension
+      ? extensionOrigin(c.env.EXTENSION_ORIGIN)
+      : undefined;
+    if (origin?.startsWith("chrome-extension://") && origin !== pinned) {
+      return c.json({ ok: false, error: "forbidden" } as const, 403);
+    }
+    if (READS.has(c.req.method)) return next();
+    const allowed = new Set(
+      [dashboardOrigin(c), pinned].filter(
+        (value): value is string => value !== undefined
+      )
+    );
+    if (!origin || !allowed.has(origin)) {
+      return c.json({ ok: false, error: "forbidden" } as const, 403);
+    }
+    await next();
+  });
 
 /**
  * Lets the pinned extension read credentialed responses. No other origin

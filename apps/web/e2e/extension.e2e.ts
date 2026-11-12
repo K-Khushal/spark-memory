@@ -6,6 +6,7 @@ import { signIn } from "./sign-in";
 
 // Build with WXT_API_ORIGIN=http://localhost:5173 before this test.
 test("unpacked extension shares sign-in and captures a fixture page", async () => {
+  test.setTimeout(60_000);
   test.skip(
     process.env.EXTENSION_E2E !== "1",
     "Requires the local unpacked test build"
@@ -81,31 +82,39 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
       `/api/memories/${memory.id}/screenshot`
     );
     expect(screenshot.ok()).toBe(true);
+    await expect(
+      popup.getByRole("button", { name: "Discard Outbox" })
+    ).toHaveCount(0);
+    const fonts = await popup.evaluate(async () =>
+      Promise.all([
+        document.fonts.load('400 13px "Instrument Sans Variable"'),
+        document.fonts.load('600 13px "Bricolage Grotesque Variable"'),
+      ]).then((families) =>
+        families.map(
+          (faces) =>
+            faces.length > 0 && faces.every((face) => face.status === "loaded")
+        )
+      )
+    );
+    expect(fonts).toEqual([true, true]);
     await fixture.goto(`${fixtureUrl}-offline`);
     await context.setOffline(true);
+    await popup.reload();
     await fixture.bringToFront();
-    const queued = await popup.evaluate(() =>
-      (
-        globalThis as unknown as {
-          chrome: {
-            runtime: { sendMessage(message: unknown): Promise<unknown> };
-          };
-        }
-      ).chrome.runtime.sendMessage({ type: "capture" })
-    );
-    expect(queued).toMatchObject({ state: "queued" });
+    await expect(popup.getByRole("status")).toHaveText("Waiting to Send");
+    await expect(
+      popup.getByRole("button", { name: "Discard Outbox" })
+    ).toBeVisible();
+    await popup.getByRole("button", { name: "Try Again" }).click();
+    await expect(popup.getByRole("status")).toHaveText("Waiting to Send");
     await context.setOffline(false);
-    const retried = await popup.evaluate(() =>
-      (
-        globalThis as unknown as {
-          chrome: {
-            runtime: { sendMessage(message: unknown): Promise<unknown> };
-          };
-        }
-      ).chrome.runtime.sendMessage({ type: "retry" })
-    );
-    expect(retried).toMatchObject({ state: "saved" });
-    const folder = "/data/workspace/spark-memory/.git/factory/r";
+    await popup.getByRole("button", { name: "Try Again" }).click();
+    await expect(popup.getByRole("status")).toHaveText("Saved");
+    await expect(
+      popup.getByRole("button", { name: "Discard Outbox" })
+    ).toHaveCount(0);
+    const folder =
+      process.env.EXTENSION_SCREENSHOTS_DIR ?? test.info().outputPath("popup");
     await mkdir(folder, { recursive: true });
     for (const colorScheme of ["light", "dark"] as const)
       for (const width of [1440, 390]) {

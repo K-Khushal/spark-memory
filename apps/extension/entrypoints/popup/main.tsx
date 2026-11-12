@@ -7,9 +7,10 @@ import { API_ORIGIN } from "../../lib/config";
 import type { SavedMemory } from "../../lib/client";
 import "./style.css";
 
-type State =
+type State = { hasRows?: boolean } & (
   | { state: "saving" | "queued" | "signed-out" | "error"; label?: string }
-  | { state: "saved" | "duplicate"; memory: SavedMemory; owner: string };
+  | { state: "saved" | "duplicate"; memory: SavedMemory; owner: string }
+);
 const labels = {
   saving: "Saving",
   saved: "Saved",
@@ -116,7 +117,7 @@ function Popup() {
           </button>
         </form>
       )}
-      {!saved && result.state !== "saving" && (
+      {result.hasRows && result.state !== "saving" && (
         <button
           onClick={async () => {
             if (!window.confirm("Discard All Queued Captures?")) return;
