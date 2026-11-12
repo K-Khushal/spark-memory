@@ -21,7 +21,7 @@ The Library is a Pinterest-style masonry wall of Memories beside a quiet left si
 - The **sidebar** holds the wordmark, Capture, Search (⌘K), the Memory kinds, the colour filters and the Categories. It has no counts or headings, because the groups are separated by space alone.
 - The **wall** is full-width and virtualised. Tiles show the Memory itself. A title appears under a tile only when the visual does not already show it.
 - **Search** opens the ⌘K menu with instant results. Enter puts the results on the wall: Direct Matches first, Related Matches below, each tile with its strongest why-chip.
-- **Why-chips** name the part that matched, in a word or the passage itself: Title, Capture Note, Tag, Text, Text in Image, Description, Overview, Image, or “the words of the passage”. The spark tone marks a Direct Match. Every result tile keeps room for one, so a chip arriving never moves the wall.
+- **Why-chips** name the part that matched, in a word or the passage itself: Title, Capture Note, Tag, Text, Text in Image, Description, Source, Overview, Image, or “the words of the passage”. The spark tone marks a Direct Match. Every result tile keeps room for one, so a chip arriving never moves the wall.
 - **Quick preview** (Space or Enter) shows the Memory large with what Spark knows. A permanent details pane was left out, because the preview covers it and the wall keeps its width.
 - **On a phone** the sidebar becomes a top bar (wordmark, Search, Capture) over one scrolling row of kind and colour filters.
 
@@ -98,6 +98,7 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 - **Index state on tiles** shows only while a Memory is not Searchable: Indexing, or Failed with a Retry whose label says why. Over images it sits on the same fixed dark plate as the upload badge; the image viewer, which has no Memory detail, shows the reason in place of "Failed". The wall asks after Indexing Memories every 2 s, backing off to 30 s, and stops once none are left. While a text tile shows a badge, its last line makes room for it, so the wall never moves when Indexing finishes.
 - **AI Opt-Out** is a switch in Memory detail and the image viewer. Memory detail also shows why Indexing failed, with Retry.
 - **Preservation on image tiles** shows only while an image is not yet Preserved: a progress ring while it uploads, Failed with Try Again (or Delete, after a reload cut the upload short). A stored image shows no badge, because every stored image is Preserved.
+- **Links**: a paste that is exactly one URL Captures a link. Its tile shows the page's title and description, and a last line with its Source host and, while it lasts, Index state or **Reference Only** (no text was kept). Capturing a page again moves its Memory to the top with "Already in Your Library". Memory detail is the reader view: the Source link, then the Preserved text as plain paragraphs. No page image, font or script is ever loaded from the Source.
 - **Images open in `ImageViewer`** for now (← →, swipe, Escape), not Quick preview; it folds into Quick preview when that lands.
 - **Arrow keys** move spatially on the wall (`neighbour` in `@spark/ui/layout`). Enter and Space open Quick preview. Escape closes the top layer.
 - One tab stop per wall (roving `tabindex`). Focus is always visible.

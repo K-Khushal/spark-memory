@@ -61,3 +61,10 @@ export {
   type ProductEvent,
   type ProductPayload,
 } from "./lib/product-events";
+export {
+  LinkCapture,
+  type LinkMetadata,
+  linkFromPaste,
+  normaliseUrl,
+  sourceHost,
+} from "./lib/link";

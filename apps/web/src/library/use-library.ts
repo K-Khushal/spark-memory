@@ -33,6 +33,8 @@ async function ok(request: Promise<Response>) {
 const transport: Transport = {
   create: async (json) =>
     (await (await ok(api.api.memories.$post({ json }))).json()) as Memory,
+  createLink: async (json) =>
+    (await (await ok(api.api.memories.links.$post({ json }))).json()) as Memory,
   patch: async (id, json, init) => {
     const res = await byId.$patch({ param: { id }, json }, { init });
     if (res.status === 409) return "stale";
