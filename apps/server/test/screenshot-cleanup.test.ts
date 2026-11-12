@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Client } from "pg";
+import { accountJobs, openDatabase } from "@spark/db";
 import worker from "../src/index";
 import {
   ctx,
@@ -22,6 +23,7 @@ describe.skipIf(!databaseUrl)("screenshot failures", () => {
       const { id } = (await res.json()) as { id: string };
       const client = new Client({ connectionString: databaseUrl });
       await client.connect();
+      const { db, close } = openDatabase(databaseUrl!);
       let key = "";
       const bindings = env({
         FILES: {
@@ -57,17 +59,25 @@ describe.skipIf(!databaseUrl)("screenshot failures", () => {
         );
         expect(response.status).toBe(500);
         expect(files.objects.has(key)).toBe(true);
-        const pending = await client.query(
-          "SELECT key, due_at > now() as future FROM object_removal WHERE key = $1",
+        // Cleanup must leave a live upload alone, then reclaim the object
+        // after its window, including when the request's delete failed.
+        const sweep = () =>
+          accountJobs(db).sweepExports((keys) => files.delete(keys));
+        await sweep();
+        expect(files.objects.has(key)).toBe(true);
+        await client.query(
+          "UPDATE object_removal SET due_at = now() - interval '1 second' WHERE key = $1",
           [key]
         );
-        expect(pending.rows).toEqual([{ key, future: true }]);
+        await sweep();
+        expect(files.objects.has(key)).toBe(false);
       } finally {
         if (failure === "record")
           await client.query(
             "ALTER TABLE memory_file DROP CONSTRAINT screenshot_test_failure"
           );
         await client.end();
+        await close();
       }
     });
   }
