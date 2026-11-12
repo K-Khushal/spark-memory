@@ -14,6 +14,10 @@ _Avoid_: memory (for the whole collection), account, vault
 One thing a user chose to save: a link, a page, a post, a video, an image, a screenshot, a PDF or a piece of text.
 _Avoid_: item, bookmark, save, post, content, note
 
+**Sample**:
+A Memory Spark wrote for a new Library so a first search has something to find. Marked in data, never sent to an AI provider, not counted in the Free allowance, left out of export, and removed all at once.
+_Avoid_: demo data, example, placeholder
+
 **Capture**:
 The act of putting a new Memory into the Library from any client (paste, drop, upload, extension, share sheet).
 _Avoid_: import, ingest, clip

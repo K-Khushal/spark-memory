@@ -6,6 +6,7 @@ import type { MemoryKind } from "./memory";
  * never a Memory's content, title, Capture note, a search query, or an email.
  */
 export const PRODUCT_EVENTS = {
+  activation: "first_successful_search",
   saveSuccess: "save_success",
   timeToSearchable: "time_to_searchable",
   searchSuccess: "search_success",
@@ -14,6 +15,7 @@ export const PRODUCT_EVENTS = {
 } as const;
 
 export type ProductEvent =
+  | { event: "first_successful_search"; properties: Record<string, never> }
   | {
       event: "save_success";
       properties: { kind: "text" | "image" | "link" | "pdf" };
@@ -37,6 +39,8 @@ export type ProductPayload = {
 /** The wire payload: only the fields each event is allowed to carry. */
 export function productPayload(event: ProductEvent): ProductPayload {
   switch (event.event) {
+    case "first_successful_search":
+      return { event: PRODUCT_EVENTS.activation, properties: {} };
     case "save_success":
       return {
         event: PRODUCT_EVENTS.saveSuccess,
@@ -81,6 +85,7 @@ export function productAnalyticsEnabled(options: {
 const DEFAULT_HOST = "https://us.i.posthog.com";
 
 const EVENT_PROPERTIES: Record<ProductPayload["event"], readonly string[]> = {
+  first_successful_search: [],
   save_success: ["kind"],
   time_to_searchable: ["kind", "milliseconds"],
   search_success: ["direct", "related"],

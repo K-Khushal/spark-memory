@@ -109,3 +109,4 @@ export {
   type SearchKind,
   type SearchWhen,
 } from "./lib/search-filters";
+export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";

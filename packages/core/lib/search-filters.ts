@@ -56,7 +56,7 @@ export function sourceHosts(source: string): string[] {
  * when its host is one of that name's, else the host without "www.".
  */
 export function sourceOf(url: string): string | undefined {
-  // The host the way the database reads it (migrations/0021).
+  // The host the way the database reads it (migrations/0022).
   const match = /^https?:\/\/(?:[^/?#@]*@)?([^/:?#]+)/i.exec(url.trim());
   const host = match?.[1]?.toLowerCase().replace(/^www\./, "");
   if (!host?.includes(".")) return undefined;

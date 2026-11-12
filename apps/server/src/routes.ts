@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { isVerifiedAdmin, publicAnalytics } from "@spark/core";
 import { checkDatabase } from "@spark/db";
 import type { AppEnv } from "./env";
+import { onboarding } from "./onboarding";
 import { account } from "./account";
 import { admin } from "./admin";
 import { memories } from "./memories";
@@ -99,4 +100,5 @@ export const routes = new Hono<AppEnv>()
     });
   })
   .route("/", memories)
-  .route("/", account);
+  .route("/", account)
+  .route("/", onboarding);
