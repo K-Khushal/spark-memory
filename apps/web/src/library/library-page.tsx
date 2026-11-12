@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { PlusIcon, SearchIcon, XIcon } from "lucide-react";
+import {
+  Link,
+  useNavigate,
+  useSearch as useRouteSearch,
+} from "@tanstack/react-router";
+import { PlusIcon, SearchIcon } from "lucide-react";
 import { Button, Kbd, Masonry, Toaster, cn, toast } from "@spark/ui";
 import { startAnalytics, track } from "../analytics";
 import { authClient, endSession, type AppSession } from "../auth";
-import { DeskSidebar } from "../shell";
+import { DeskSearchField, DeskSidebar, focusDeskControl } from "../shell";
 import { productMetrics } from "./product-metrics";
 import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
 import { LibraryOverlaysHost } from "./overlays-host";
-import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
+import { MOD, useFileDrop } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
 import { useSearch, type Found, type Results } from "./use-search";
 import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
@@ -27,13 +31,18 @@ export function LibraryPage({
 }) {
   const navigate = useNavigate();
   const library = useLibrary();
+  const { desk } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(desk === "search");
   const [overlaysEpoch, setOverlaysEpoch] = useState(0);
   const [overlaysDown, setOverlaysDown] = useState(false);
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
-  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(desk === "capture");
+  /** Set when this page was opened to show Capture or Search, then cleared on close. */
+  const deskReturn = useRef<"capture" | "search" | null>(
+    desk === "capture" || desk === "search" ? desk : null
+  );
   const [openId, setOpenId] = useState<string>();
   const [imageId, setImageId] = useState<string>();
   /** The Memory the wall shows More Like This of, instead of a query. */
@@ -143,23 +152,35 @@ export function LibraryPage({
     setLike(undefined);
   };
 
-  useLibraryShortcuts({
-    onSearch: openSearch,
-    onToggleSearch: () => {
-      if (overlaysDown) {
-        openSearch();
-        return;
-      }
-      if (searchOpen) setSearchOpen(false);
-      else openSearch();
-    },
-    // Office apps put a picture of copied text beside it: text wins.
-    onPaste: (data) => {
-      const text = data.getData("text/plain");
-      if (data.files.length && !text.trim()) captureFiles([...data.files]);
-      else void library.capture(text);
-    },
-  });
+  useEffect(() => {
+    if (desk !== "capture" && desk !== "search") return;
+    if (desk === "search") metrics.searchOpened();
+    void navigate({ to: "/", search: {}, replace: true });
+  }, [desk, metrics, navigate]);
+
+  useEffect(() => {
+    const which = deskReturn.current;
+    if (!which) return;
+    if (which === "search" ? searchOpen : pasteOpen) return;
+    deskReturn.current = null;
+    const frame = requestAnimationFrame(() => focusDeskControl(which));
+    return () => cancelAnimationFrame(frame);
+  }, [searchOpen, pasteOpen]);
+
+  const toggleSearch = () => {
+    if (overlaysDown) {
+      openSearch();
+      return;
+    }
+    if (searchOpen) setSearchOpen(false);
+    else openSearch();
+  };
+  // Office apps put a picture of copied text beside it: text wins.
+  const pasteOntoWall = (data: DataTransfer) => {
+    const text = data.getData("text/plain");
+    if (data.files.length && !text.trim()) captureFiles([...data.files]);
+    else void library.capture(text);
+  };
 
   const signOut = async () => {
     setSearchOpen(false);
@@ -174,37 +195,13 @@ export function LibraryPage({
     await navigate({ to: "/sign-in" });
   };
 
-  const search = (
-    <div className="flex min-w-0 items-center gap-1">
-      <button
-        type="button"
-        onClick={openSearch}
-        className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-[transform,color] duration-(--duration-press) ease-out hover:text-ink active:scale-[0.97]"
-      >
-        <SearchIcon className="size-4 shrink-0" aria-hidden />
-        <span
-          className={cn("min-w-0 flex-1 truncate", searching && "text-ink")}
-          dir="auto"
-        >
-          {like ? "More Like This" : query || "Search"}
-        </span>
-        {!searching && <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>}
-      </button>
-      {searching && (
-        <Button
-          variant="quiet"
-          size="icon-sm"
-          aria-label="Clear Search"
-          onClick={() => {
-            metrics.cleared();
-            clearSearch();
-          }}
-        >
-          <XIcon aria-hidden />
-        </Button>
-      )}
-    </div>
-  );
+  const searchLabel = like ? "More Like This" : query || "Search";
+  const clearSearchClick = searching
+    ? () => {
+        metrics.cleared();
+        clearSearch();
+      }
+    : undefined;
 
   return (
     <div className="flex min-h-dvh bg-canvas">
@@ -217,19 +214,14 @@ export function LibraryPage({
           metrics.cleared();
           clearSearch();
         }}
-        headerAction={
-          <Button
-            variant="quiet"
-            size="icon-sm"
-            aria-label="Capture"
-            onClick={openPasteBox}
-          >
-            <PlusIcon aria-hidden />
-          </Button>
-        }
-      >
-        {search}
-      </DeskSidebar>
+        onCapture={openPasteBox}
+        onSearch={openSearch}
+        onToggleSearch={toggleSearch}
+        onPaste={pasteOntoWall}
+        searchLabel={searchLabel}
+        searchActive={searching}
+        onClearSearch={clearSearchClick}
+      />
 
       <main className="min-w-0 flex-1">
         <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden">
@@ -239,11 +231,19 @@ export function LibraryPage({
               Admin
             </Link>
           )}
-          <div className="min-w-0 flex-1">{search}</div>
+          <div className="min-w-0 flex-1">
+            <DeskSearchField
+              label={searchLabel}
+              active={searching}
+              onSearch={openSearch}
+              onClear={clearSearchClick}
+            />
+          </div>
           <Button
             variant="primary"
             size="icon"
             aria-label="Capture"
+            data-desk="capture"
             onClick={openPasteBox}
           >
             <PlusIcon aria-hidden />
