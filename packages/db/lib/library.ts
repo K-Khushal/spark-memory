@@ -12,6 +12,8 @@ import {
   LinkCapture,
   MemoryEdit,
   normaliseUrl,
+  isVideoUrl,
+  type VideoMetadata,
   SCREENSHOT_MAX_BYTES,
   TextCapture,
   type LinkMetadata,
@@ -88,6 +90,7 @@ const baseColumns = {
   updatedAt: memory.updatedAt,
   /** A link's Source, and the page's own title and description once gathered. */
   sourceUrl: memory.sourceUrl,
+  video: sql<VideoMetadata | null>`${memory.metadata}->'video'`,
   pageTitle: sql<string | null>`${memory.metadata}->>'title'`,
   description: sql<string | null>`${memory.metadata}->>'description'`,
   image,
@@ -99,12 +102,13 @@ export type Memory = Pick<
   typeof memory.$inferSelect,
   Exclude<
     keyof typeof baseColumns,
-    "image" | "indexTitle" | "pageTitle" | "description" | "pages"
+    "image" | "indexTitle" | "pageTitle" | "description" | "pages" | "video"
   >
 > & {
   /** An image's files, or a PDF's: the PDF and its first page's thumbnail. */
   image: MemoryImage | null;
   pages: number | null;
+  video?: VideoMetadata | null;
   indexTitle: string | null;
   pageTitle: string | null;
   description: string | null;
@@ -552,12 +556,16 @@ export function openLibrary(
         .values({
           id,
           userId,
-          kind: "link",
+          kind: isVideoUrl(url) ? "video" : "link",
           sourceUrl: url,
           sourceUrlNormalised: normalised,
           captureNote,
-          preservation: kept?.text ? "preserved" : "reference_only",
-          ...(kept && { metadata: kept.metadata, body: kept.text }),
+          preservation:
+            !isVideoUrl(url) && kept?.text ? "preserved" : "reference_only",
+          ...(kept && {
+            metadata: kept.metadata,
+            body: isVideoUrl(url) ? null : kept.text,
+          }),
           indexPriority: "fresh",
           productAnalytics: productAnalytics === true,
         })
@@ -592,7 +600,12 @@ export function openLibrary(
           )
         )
         .returning(columns);
-      if (existing && kept?.text && !existing.body) {
+      if (
+        existing &&
+        existing.kind !== "video" &&
+        kept?.text &&
+        !existing.body
+      ) {
         const filled = await db.transaction(async (tx) => {
           await lockOwner(tx, userId);
           if (await deletionRequested(tx, userId)) return undefined;
@@ -646,7 +659,7 @@ export function openLibrary(
           .select({ kind: memory.kind })
           .from(memory)
           .where(owned(id));
-        if (!row || row.kind !== "link") return undefined;
+        if (!row || !["link", "video"].includes(row.kind)) return undefined;
         const [existing] = await tx
           .select({ key: memoryFile.key })
           .from(memoryFile)
@@ -691,7 +704,7 @@ export function openLibrary(
           .select({ kind: memory.kind })
           .from(memory)
           .where(owned(id));
-        if (!row || row.kind !== "link") return false;
+        if (!row || !["link", "video"].includes(row.kind)) return false;
         const [existing] = await tx
           .select({ key: memoryFile.key })
           .from(memoryFile)

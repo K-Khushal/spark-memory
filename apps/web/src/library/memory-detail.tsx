@@ -13,6 +13,7 @@ import { AiOptOutSwitch, IndexStatus, type IndexingProps } from "./index-state";
 import { textOf, type libraryActions } from "./library-actions";
 import { hostOf, isReferenceOnly, ReferenceOnlyBadge } from "./memory-tile";
 import type { Memory } from "./use-library";
+import { VideoReader } from "./video-reader";
 import { MoreLikeThis } from "./why";
 
 const AUTOSAVE_MS = 800;
@@ -38,6 +39,7 @@ export type Edits = Pick<
  */
 export function MemoryDetail({
   memory,
+  seconds,
   edits,
   onClose,
   onDelete,
@@ -45,6 +47,7 @@ export function MemoryDetail({
   onAiOptOut,
   onMoreLikeThis,
 }: {
+  seconds?: number;
   memory: Memory | undefined;
   edits: Edits;
   onClose: () => void;
@@ -57,6 +60,7 @@ export function MemoryDetail({
         <Fields
           key={memory.id}
           memory={memory}
+          seconds={seconds}
           edits={edits}
           onClose={onClose}
           onDelete={onDelete}
@@ -71,6 +75,7 @@ export function MemoryDetail({
 
 function Fields({
   memory,
+  seconds,
   edits,
   onClose,
   onDelete,
@@ -78,6 +83,7 @@ function Fields({
   onAiOptOut,
   onMoreLikeThis,
 }: {
+  seconds?: number;
   memory: Memory;
   edits: Edits;
   onClose: () => void;
@@ -147,7 +153,9 @@ function Fields({
         dir="auto"
         className="mr-8 min-w-0 rounded-chip bg-transparent text-ellipsis font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
       />
-      {memory.kind === "link" ? (
+      {memory.kind === "video" ? (
+        <VideoReader memory={memory} seconds={seconds} />
+      ) : memory.kind === "link" ? (
         <Reader memory={memory} />
       ) : (
         <Textarea

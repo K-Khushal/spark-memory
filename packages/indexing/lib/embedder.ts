@@ -1,5 +1,6 @@
 import {
   EMBEDDING,
+  type TranscriptSegment,
   indexedPages,
   type IndexingOutput,
   type ProviderName,
@@ -37,6 +38,7 @@ export type VectorPart =
         start: number;
         end: number;
         page?: number;
+        seconds?: number;
       };
     };
 
@@ -76,6 +78,7 @@ export type EmbedSource = {
   >;
   /** A PDF's page count: its text is pages apart by form feeds. */
   pages?: number | null;
+  transcript?: TranscriptSegment[] | null;
 };
 
 /** The document side of Gemini Embedding 2's retrieval prompt (no task_type field). */
@@ -142,6 +145,21 @@ export function pagePassages(text: string, max: number, pages: number) {
   return out;
 }
 
+/** Fixed overlapping windows cover a whole bounded transcript, even with tiny paragraphs. */
+function transcriptPassages(text: string) {
+  const out: { start: number; end: number }[] = [];
+  for (
+    let start = 0;
+    start < text.length;
+    start += EMBEDDING.passageChars - EMBEDDING.passageOverlapChars
+  ) {
+    const end = Math.min(text.length, start + EMBEDDING.passageChars);
+    out.push({ start, end });
+    if (end === text.length) break;
+  }
+  return out;
+}
+
 /**
  * The inputs for a Memory's vectors, and the part each one stands for:
  * one Overview (title, description, Tags, entities, Capture note), a
@@ -173,17 +191,36 @@ export function embeddingInputs(
     );
   }
   const pdf = source.pages ?? 0;
-  let room = pdf ? EMBEDDING.maxPdfPassages : EMBEDDING.maxPassages;
+  let room = source.transcript?.length
+    ? EMBEDDING.maxVideoPassages
+    : pdf
+      ? EMBEDDING.maxPdfPassages
+      : EMBEDDING.maxPassages;
   for (const [field, text] of [
     ["body", source.body ?? ""],
     ["ocr", found.ocrText],
   ] as const) {
     // A scan's few typed characters would only crowd out its pages' text.
     if (pdf && field === "body" && isScan(text, indexedPages(pdf))) continue;
-    const cut = pdf ? pagePassages(text, room, pdf) : passages(text, room);
+    const cut =
+      field === "body" && source.transcript?.length
+        ? transcriptPassages(text)
+        : pdf
+          ? pagePassages(text, room, pdf)
+          : passages(text, room);
     for (const p of cut) {
+      let offset = 0;
+      let seconds: number | undefined;
+      if (field === "body")
+        for (const segment of source.transcript ?? []) {
+          if (offset <= p.start) seconds = segment.seconds;
+          offset += segment.text.length + 1;
+        }
       inputs.push({ text: document(title, text.slice(p.start, p.end)) });
-      parts.push({ kind: "passage", anchor: { field, ...p } });
+      parts.push({
+        kind: "passage",
+        anchor: { field, ...p, ...(seconds !== undefined && { seconds }) },
+      });
       room--;
     }
   }

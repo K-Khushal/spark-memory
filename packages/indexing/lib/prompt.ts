@@ -1,4 +1,4 @@
-import { INDEXING } from "@spark/core";
+import { INDEXING, type TranscriptSegment } from "@spark/core";
 
 /**
  * The instructions, fixed and never built from a Memory. Saved content goes
@@ -20,6 +20,7 @@ export const SCAN_SYSTEM = `${SYSTEM}
 - pages: the text of each page image, verbatim, at most 1,500 characters a page, one entry per image, in order.`;
 
 export type MemoryContent = {
+  transcript?: TranscriptSegment[] | null;
   kind: string;
   title: string | null;
   captureNote: string | null;
@@ -93,7 +94,7 @@ export function memoryPart(memory: MemoryContent): string {
     return `<${tag}>\n${text}\n</${tag}>\n`;
   };
   return (
-    `<memory kind="${["image", "link", "pdf"].includes(memory.kind) ? memory.kind : "text"}">\n` +
+    `<memory kind="${["image", "link", "pdf", "video"].includes(memory.kind) ? memory.kind : "text"}">\n` +
     field("title", memory.title ?? memory.pageTitle ?? null) +
     field("source", memory.sourceUrl ?? null) +
     field("description", memory.description ?? null) +

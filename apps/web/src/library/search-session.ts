@@ -14,6 +14,7 @@ export type MatchedPart =
       start: number;
       end: number;
       page?: number;
+      seconds?: number;
     }
   | { kind: "overview" }
   | { kind: "visual"; page?: number };

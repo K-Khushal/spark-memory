@@ -345,6 +345,7 @@ export type PassageAnchor = {
   start: number;
   end: number;
   page?: number;
+  seconds?: number;
 };
 /** Where a vector sits: a Passage's text, or the PDF page a Visual is of. */
 export type VectorAnchor = PassageAnchor | { page: number };

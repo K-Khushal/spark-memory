@@ -175,6 +175,7 @@ export type IndexStore = {
         | "sourceUrl"
         | "pageTitle"
         | "description"
+        | "transcript"
       > & { gathered: boolean })
     | undefined
   >;
@@ -582,7 +583,11 @@ export function createIndexer({
     // never through oEmbed or a reader: `isCurrent` is false for it). Kept
     // once; a Source that is down, or whose name could not be looked up,
     // is asked again, and after the last attempt it stays Reference only.
-    if (work.kind === "link" && work.gathered === false && work.sourceUrl) {
+    if (
+      (work.kind === "link" || work.kind === "video") &&
+      work.gathered === false &&
+      work.sourceUrl
+    ) {
       if (gatherer) {
         const claim = work;
         const { transient, ...found } = await gatherer.gather(work.sourceUrl, {
@@ -633,6 +638,15 @@ export function createIndexer({
       if (image) visuals = embedderReads(image.mime) ? [{ image }] : undefined;
     }
 
+    if (work.kind === "video") {
+      request.system +=
+        "\nFor a video, describe only the supplied metadata and transcript. Never infer speech or unseen frames from a URL; ocrText must be empty.";
+      chain = chain.filter((p) => p.name === "gemini" || p.name === "fake");
+      if (!chain.length) {
+        const written = await store.complete(work, null);
+        return { result: written ? "searchable" : "skipped" };
+      }
+    }
     const seen = new Set<"invalid" | "unsupported" | "unavailable">();
     for (const provider of chain) {
       try {

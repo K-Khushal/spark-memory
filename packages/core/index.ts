@@ -80,3 +80,12 @@ export {
   normaliseUrl,
   sourceHost,
 } from "./lib/link";
+
+export {
+  youtubeId,
+  isVideoUrl,
+  videoTimestamp,
+  formatTimestamp,
+  type VideoMetadata,
+  type TranscriptSegment,
+} from "./lib/link";

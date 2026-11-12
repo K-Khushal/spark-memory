@@ -87,6 +87,8 @@ export const EMBEDDING = {
   maxPassages: 30,
   /** A PDF's Indexed pages hold about two Passages each. */
   maxPdfPassages: 60,
+  /** Covers the full 100,000-character transcript, including overlap. */
+  maxVideoPassages: 60,
   /** One call for a Memory's vectors. */
   timeoutMs: 30_000,
   /** A query waits this long, then full search goes on without vectors. */
