@@ -73,6 +73,7 @@ const indexTitle = sql<string | null>`(
   where i.memory_id = ${memory.id} and not ${memory.aiOptOut})`;
 
 const baseColumns = {
+  sample: memory.sample,
   id: memory.id,
   kind: memory.kind,
   title: memory.title,
@@ -273,6 +274,7 @@ export type SearchOptions = {
   probe?: VectorProbe;
   maxDistance?: number;
   kinds?: Memory["kind"][];
+  excludeSamples?: boolean;
 };
 
 export type EditResult = Memory | { stale: true } | undefined;
@@ -1036,7 +1038,7 @@ export function openLibrary(
       const reindex =
         changes.body === undefined
           ? sql`false`
-          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut}`;
+          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut} and not ${memory.sample}`;
       // One transaction: new text and the end of the old text's vectors
       // (they would match it, and point into the new text) land together.
       const row = await db.transaction(async (tx) => {
@@ -1173,7 +1175,11 @@ export function openLibrary(
                   language: null,
                   body: sql`case when ${memory.kind} = 'pdf' then null else ${memory.body} end`,
                 }
-              : { aiOptOut: false, ...restartIndexing }
+              : {
+                  aiOptOut: false,
+                  ...restartIndexing,
+                  indexState: sql`case when ${memory.sample} then 'searchable' else 'indexing' end`,
+                }
           )
           .where(and(owned(id), eq(memory.aiOptOut, !on)))
           .returning({ id: memory.id });
@@ -1231,6 +1237,7 @@ export function openLibrary(
         .where(
           and(
             eq(memory.userId, userId),
+            eq(memory.sample, false),
             allStored,
             after && UUID.test(after) ? sql`${memory.id} > ${after}` : undefined
           )
@@ -1251,6 +1258,7 @@ export function openLibrary(
         probe,
         maxDistance = EMBEDDING.maxDistance,
         kinds,
+        excludeSamples = false,
       }: SearchOptions = {}
     ): Promise<SearchResult[]> {
       if (!query.trim() && !probe) return [];
@@ -1281,7 +1289,13 @@ export function openLibrary(
         })
         .from(hits)
         .innerJoin(memory, eq(memory.id, hits.id))
-        .where(and(eq(memory.userId, userId), allStored))
+        .where(
+          and(
+            eq(memory.userId, userId),
+            allStored,
+            excludeSamples ? eq(memory.sample, false) : undefined
+          )
+        )
         .orderBy(desc(hits.score), asc(hits.id));
     },
   };

@@ -20,6 +20,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   indexState: "searchable",
   indexError: null,
   indexTitle: null,
+  sample: false,
   aiOptOut: false,
   hasVectors: false,
   deepFetch: null,

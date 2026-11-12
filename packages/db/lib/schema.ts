@@ -129,6 +129,7 @@ export const memory = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    sample: boolean("sample").default(false).notNull(),
     kind: text("kind").$type<MemoryKind>().notNull(),
     title: text("title"),
     /** The text of a text Memory. */
@@ -533,3 +534,21 @@ export const deepFetchUsage = pgTable(
   },
   (t) => [primaryKey({ columns: [t.engine, t.window] })]
 );
+
+/** First-run state belongs to the person, across devices. */
+export const onboarding = pgTable("onboarding", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  step: text("step")
+    .$type<
+      "disclosure" | "extension" | "capture" | "indexing" | "search" | "done"
+    >()
+    .default("disclosure")
+    .notNull(),
+  paused: boolean("paused").default(false).notNull(),
+  samplesSeeded: boolean("samples_seeded").default(false).notNull(),
+  firstSuccessfulSearchAt: timestamp("first_successful_search_at", {
+    withTimezone: true,
+  }),
+});

@@ -103,3 +103,4 @@ export {
   type DeepFetchState,
   type DeepFetchView,
 } from "./lib/deep-fetch";
+export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";

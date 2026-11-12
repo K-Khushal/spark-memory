@@ -502,22 +502,27 @@ describe.skipIf(!databaseUrl)("an account", () => {
       await openAccount(db, ana).requestDeletion();
       await openAccount(db, ben).requestDeletion();
       await openAccount(db, cara).requestDeletion();
-      await db.execute(sql`
-        delete from account_deletion
-        where requested_at < now() - interval '20 days'
-      `);
-      await db
-        .update(schema.accountDeletion)
-        .set({ requestedAt: sql`now() - interval '3 days'` })
-        .where(eq(schema.accountDeletion.userId, ana));
-      await db
-        .update(schema.accountDeletion)
-        .set({ requestedAt: sql`now() - interval '2 days'` })
-        .where(eq(schema.accountDeletion.userId, ben));
-      await db
-        .update(schema.accountDeletion)
-        .set({ requestedAt: sql`now() - interval '1 day'` })
-        .where(eq(schema.accountDeletion.userId, cara));
+      // The walk is global, so rows left by earlier runs (or other tests)
+      // must not sort before these three: place them before every other
+      // pending deletion, oldest first, ana then ben then cara.
+      const mine = [ana, ben, cara];
+      const place = (userId: string, daysBeforeOthers: number) =>
+        db.execute(sql`
+          update account_deletion
+          set requested_at =
+            (
+              select coalesce(min(other.requested_at), now())
+              from account_deletion other
+              where other.user_id not in (${sql.join(
+                mine.map((id) => sql`${id}`),
+                sql`, `
+              )})
+            ) - ${daysBeforeOthers} * interval '1 day'
+          where user_id = ${userId}
+        `);
+      await place(ana, 3);
+      await place(ben, 2);
+      await place(cara, 1);
       await db.execute(
         sql`delete from app_setting where key = 'sweep_deletion_cursor'`
       );

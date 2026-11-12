@@ -75,3 +75,5 @@ export {
   type UserUsage,
 } from "./lib/admin";
 export * as schema from "./lib/schema";
+
+export { openOnboarding, type OnboardingStep } from "./lib/onboarding";

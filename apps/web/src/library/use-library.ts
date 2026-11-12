@@ -251,6 +251,12 @@ export function useLibrary() {
       setAttempt((n) => n + 1);
     },
     ...actions,
+    /** Refresh Samples without discarding pending Captures or edits. */
+    refreshSamples: () => {
+      setMemories((all) => all.filter((m) => !m.sample));
+      setAttempt((n) => n + 1);
+      setVersion((n) => n + 1);
+    },
     retryIndexing: indexing.retryIndexing,
     retryDeepFetch: indexing.retryDeepFetch,
     setAiOptOut: indexing.setAiOptOut,

@@ -323,6 +323,7 @@ export function libraryActions({
         indexState: "indexing",
         indexError: null,
         indexTitle: null,
+        sample: false,
         aiOptOut: false,
         hasVectors: false,
         deepFetch: null,
