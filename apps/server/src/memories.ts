@@ -34,6 +34,24 @@ import {
 import { extensionCors, sameOrigin } from "./origin";
 import { enqueue, enqueueEmbed, providers } from "./indexing";
 
+/** Bound screenshot storage calls; cleanup stays durable if a PUT finishes late. */
+async function screenshotStorage<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("screenshot storage timeout")),
+          10_000
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The signed-in person's Library, for every route below. */
 const withLibrary = createMiddleware<
   AppEnv & { Variables: UserVariables & { library: Library } }
@@ -278,12 +296,14 @@ export const memories = new Hono<AppEnv>()
     }
     if ("already" in slot) return c.json({ ok: true } as const);
     try {
-      await c.env.FILES.put(slot.key, body, {
-        httpMetadata: {
-          contentType: "image/jpeg",
-          cacheControl: FILE_CACHE_CONTROL,
-        },
-      });
+      await screenshotStorage(
+        c.env.FILES.put(slot.key, body, {
+          httpMetadata: {
+            contentType: "image/jpeg",
+            cacheControl: FILE_CACHE_CONTROL,
+          },
+        })
+      );
     } catch {
       return c.json({ ok: false, error: "unavailable" } as const, 503);
     }
@@ -294,7 +314,7 @@ export const memories = new Hono<AppEnv>()
       height: dimension(c.req.header("x-spark-height")),
     });
     if (!recorded) {
-      await c.env.FILES.delete(slot.key).catch(() => {});
+      await screenshotStorage(c.env.FILES.delete(slot.key));
       return c.json({ ok: false, error: "unavailable" } as const, 503);
     }
     return c.json({ ok: true } as const);

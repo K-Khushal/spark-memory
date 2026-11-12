@@ -499,6 +499,9 @@ export function createIndexer({
   }
 
   async function index(job: IndexJob): Promise<IndexOutcome> {
+    // A legacy delivery cannot identify the Memory it originally targeted.
+    // Its attempts must not exhaust a new Memory saved with the same id.
+    if (job.generation === undefined) job = { ...job, attempt: 1 };
     const loaded =
       job.task === "embed"
         ? embedder &&

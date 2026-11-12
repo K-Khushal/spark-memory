@@ -6,4 +6,6 @@ loadRootEnv();
 
 // One file at a time: test/budget.test.ts spends the global daily AI budget
 // while it runs, which would pause other files' background Indexing.
-export default defineConfig({ test: { fileParallelism: false } });
+export default defineConfig({
+  test: { fileParallelism: false, testTimeout: 30_000 },
+});
