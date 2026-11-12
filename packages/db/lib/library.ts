@@ -1,3 +1,4 @@
+import { searchHistory } from "./search-history";
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -225,7 +226,7 @@ const restartIndexing = {
 } as const;
 
 /** Which search legs found a Memory (ADR-0004). */
-export type MatchedBy = "keyword" | "typo" | "vector";
+export type MatchedBy = "keyword" | "typo" | "vector" | "filter";
 /** What matched in the leg that ranked a Memory highest (migrations/0013). */
 export type MatchedPart =
   | {
@@ -234,7 +235,8 @@ export type MatchedPart =
         "title" | "note" | "tags" | "text" | "ocr" | "description" | "source";
     }
   | ({ kind: "passage" } & PassageAnchor)
-  | { kind: "overview" | "visual" };
+  | { kind: "overview" | "visual" }
+  | { kind: "filter"; field: "colour" | "source" | "kind" | "date" };
 export type SearchResult = Memory & {
   matched: MatchedBy[];
   /** Cosine distance of its closest vector; null when the vector leg did not find it. */
@@ -247,7 +249,17 @@ export type VectorProbe = { model: string; dimensions: number } & (
   { vector: number[] } | { like: string }
 );
 
+export type SearchFilters = {
+  kinds?: MemoryKind[];
+  source?: string;
+  after?: string;
+  before?: string;
+  colour?: string;
+};
+
 export type SearchOptions = {
+  filters?: SearchFilters;
+  offset?: number;
   limit?: number;
   probe?: VectorProbe;
   maxDistance?: number;
@@ -498,6 +510,7 @@ export function openLibrary(
   }
 
   return {
+    ...searchHistory(db, userId),
     get,
 
     /** The owner's Memories among `ids` (the dashboard polls those Indexing). */
@@ -1194,9 +1207,11 @@ export function openLibrary(
         probe,
         maxDistance = EMBEDDING.maxDistance,
         kinds,
+        filters,
+        offset = 0,
       }: SearchOptions = {}
     ): Promise<SearchResult[]> {
-      if (!query.trim() && !probe) return [];
+      if (!query.trim() && !probe && !filters) return [];
       const vector =
         probe && "vector" in probe ? `[${probe.vector.join(",")}]` : null;
       const like = probe && "like" in probe ? probe.like : null;
@@ -1211,7 +1226,7 @@ export function openLibrary(
             part: sql<MatchedPart>`part`.as("part"),
           })
           .from(
-            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[])`
+            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[], ${JSON.stringify(filters ?? {})}::jsonb, ${offset}::int)`
           )
       );
       return db

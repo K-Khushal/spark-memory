@@ -1,3 +1,5 @@
+import { SearchFilters } from "./search-filters";
+import { recordSearch } from "./search-history";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Link,
@@ -37,8 +39,12 @@ export function LibraryPage({
   const [searchOpen, setSearchOpen] = useState(desk === "search");
   const [overlaysEpoch, setOverlaysEpoch] = useState(0);
   const [overlaysDown, setOverlaysDown] = useState(false);
+  const previousSearch = useRef("");
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
+  const [filterQueries, setFilterQueries] = useState<string[]>([]);
+  const [colour, setColour] = useState<string>();
+  const [offset, setOffset] = useState(0);
   const [pasteOpen, setPasteOpen] = useState(desk === "capture");
   /** Set when this page was opened to show Capture or Search, then cleared on close. */
   const deskReturn = useRef<"capture" | "search" | null>(
@@ -61,13 +67,35 @@ export function LibraryPage({
   );
   // The wall: instant and full at once (often straight from the cache the
   // menu filled), and the last results stay up until new ones land.
+  const filteredQuery = [query, ...filterQueries].filter(Boolean).join(" ");
+  const applyFilter = (value: string) => {
+    const group = (q: string) =>
+      q === "from last month"
+        ? "date"
+        : q.startsWith("from ")
+          ? "source"
+          : "kind";
+    const next = filterQueries.includes(value)
+      ? filterQueries.filter((q) => q !== value)
+      : [...filterQueries.filter((q) => group(q) !== group(value)), value];
+    setFilterQueries(next);
+    setLike(undefined);
+    setOffset(0);
+    recordSearch([query, ...next].filter(Boolean).join(" "));
+  };
   const results = useSearch(
-    like ? { like: like.id } : { query },
+    like
+      ? { like: like.id }
+      : {
+          query: filteredQuery,
+          ...(colour && { colour }),
+          ...(offset && { offset }),
+        },
     library.memories,
     library.version,
     { userId: session.user.id, pauseMs: 0, keepPrevious: true }
   );
-  const searching = !!like || !!query;
+  const searching = !!like || !!query || !!colour || !!filterQueries.length;
   const opened = library.memories.find((m) => m.id === openId);
   // The viewer steps through the images of the wall on screen.
   const images = useMemo(() => {
@@ -114,6 +142,13 @@ export function LibraryPage({
   };
   const openMemory = (memory: Memory) => {
     metrics.found();
+    if ((filteredQuery || colour) && results && results !== "failed") {
+      const hits = [...results.direct, ...results.related];
+      recordSearch(filteredQuery, {
+        memoryId: memory.id,
+        position: hits.findIndex((m) => m.id === memory.id) + 1,
+      });
+    }
     reveal(memory);
   };
   const openFromSearch = (memory: Memory) => {
@@ -123,6 +158,14 @@ export function LibraryPage({
         related: instant.related.length,
       });
     }
+    const hits =
+      instant && instant !== "failed"
+        ? [...instant.direct.slice(0, 6), ...instant.related.slice(0, 4)]
+        : [];
+    recordSearch(draft, {
+      memoryId: memory.id,
+      position: hits.findIndex((m) => m.id === memory.id) + 1,
+    });
     reveal(memory, draft);
   };
   const captureFiles = (files: File[]) => {
@@ -144,6 +187,13 @@ export function LibraryPage({
         related: instant.related.length,
       });
     }
+    recordSearch(
+      trimmed,
+      undefined,
+      !!previousSearch.current && previousSearch.current !== trimmed
+    );
+    previousSearch.current = trimmed;
+    setOffset(0);
     setQuery(trimmed);
     setLike(undefined);
     setSearchOpen(false);
@@ -158,6 +208,9 @@ export function LibraryPage({
     window.scrollTo({ top: 0 });
   };
   const clearSearch = () => {
+    setFilterQueries([]);
+    setColour(undefined);
+    setOffset(0);
     setQuery("");
     setLike(undefined);
   };
@@ -231,6 +284,18 @@ export function LibraryPage({
         searchLabel={searchLabel}
         searchActive={searching}
         onClearSearch={clearSearchClick}
+        filters={
+          <SearchFilters
+            onQuery={applyFilter}
+            selected={filterQueries}
+            colour={colour}
+            onColour={(hex) => {
+              setColour(hex);
+              setLike(undefined);
+              setOffset(0);
+            }}
+          />
+        }
       />
 
       <main className="min-w-0 flex-1">
@@ -283,6 +348,19 @@ export function LibraryPage({
           </Centred>
         ) : (
           <div className="p-4 md:p-6">
+            <div className="mb-5 md:hidden">
+              <SearchFilters
+                compact
+                onQuery={applyFilter}
+                selected={filterQueries}
+                colour={colour}
+                onColour={(hex) => {
+                  setColour(hex);
+                  setLike(undefined);
+                  setOffset(0);
+                }}
+              />
+            </div>
             {/* Until a search's first answer lands, the wall stays as it was. */}
             {searching && results ? (
               <SearchResults
@@ -300,6 +378,28 @@ export function LibraryPage({
                 tiles={tiles}
               />
             )}
+            {(colour || filterQueries.length > 0) &&
+              results &&
+              results !== "failed" && (
+                <div className="mt-5 flex gap-2">
+                  {offset > 0 && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setOffset((n) => Math.max(0, n - 40))}
+                    >
+                      Previous
+                    </Button>
+                  )}
+                  {results.direct.length + results.related.length === 40 && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setOffset((n) => n + 40)}
+                    >
+                      Next
+                    </Button>
+                  )}
+                </div>
+              )}
           </div>
         )}
       </main>

@@ -263,7 +263,7 @@ describe.skipIf(!databaseUrl)("account", () => {
       );
       const zip = unzip(new Uint8Array(await res.arrayBuffer()));
       expect([...zip.keys()].sort()).toEqual(
-        ["memories.json", `files/${image}.png`].sort()
+        ["memories.json", "searches.json", `files/${image}.png`].sort()
       );
       // Compared as one hash: a byte-by-byte diff of 9 MiB is unreadable.
       const sha = async (b: Uint8Array | undefined) =>

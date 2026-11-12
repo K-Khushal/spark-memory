@@ -27,9 +27,15 @@ export function whyLabel({
   // A scanned PDF's text is read from its pages, not an image.
   const ocr = kind === "pdf" ? FIELD.text : FIELD.ocr;
   switch (part.kind) {
+    case "filter":
+      return { colour: "Colour", source: "Source", kind: "Kind", date: "Date" }[
+        part.field
+      ];
     case "field":
       return part.field === "ocr" ? ocr : part.field && FIELD[part.field];
     case "passage": {
+      if (part.timestamp !== undefined)
+        return `${Math.floor(part.timestamp / 60)}:${String(Math.floor(part.timestamp % 60)).padStart(2, "0")}`;
       if (part.field === "ocr") return part.page ? `Page ${part.page}` : ocr;
       const words = (body ?? "").slice(part.start, part.end).trim();
       return words

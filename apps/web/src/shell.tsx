@@ -105,6 +105,7 @@ export function DeskSidebar({
   searchLabel = "Search",
   searchActive = false,
   onClearSearch,
+  filters,
 }: {
   email: string;
   current: "library" | "admin" | "settings";
@@ -121,6 +122,7 @@ export function DeskSidebar({
   searchLabel?: string;
   searchActive?: boolean;
   onClearSearch?: () => void;
+  filters?: ReactNode;
 }) {
   useLibraryShortcuts({
     onSearch,
@@ -169,6 +171,7 @@ export function DeskSidebar({
           )}
         </ul>
       </nav>
+      {filters}
       <div className="mt-auto flex flex-col gap-1">
         <DeskNavLink to="/settings" current={current === "settings"}>
           <SettingsIcon aria-hidden /> Settings

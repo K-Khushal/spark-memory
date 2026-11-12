@@ -4,6 +4,7 @@ import { EMBEDDING } from "@spark/core";
 import { queryVectorsCached } from "@spark/search";
 import { requeueStalled } from "../src/indexing";
 import {
+  newClient,
   databaseUrl,
   drain,
   env,
@@ -43,6 +44,52 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
   const sql = new Client({ connectionString: databaseUrl });
   beforeAll(() => sql.connect());
   afterAll(() => sql.end());
+
+  it("records committed searches behind authentication and isolates their history", async () => {
+    expect((await newClient()("/api/search/recent")).status).toBe(401);
+    const { call } = await signedIn();
+    const other = (await signedIn()).call;
+    const id = await capture(call, "Animation reference");
+    expect(
+      (
+        await call("/api/search/events", {
+          method: "POST",
+          json: {
+            query: "animations",
+            memoryId: id,
+            position: 1,
+            reformulation: true,
+          },
+        })
+      ).status
+    ).toBe(204);
+    const recent = (await (await call("/api/search/recent")).json()) as {
+      searches: { id: string; query: string }[];
+    };
+    expect(recent.searches.map((s) => s.query)).toEqual(["animations"]);
+    expect(await (await other("/api/search/recent")).json()).toEqual({
+      searches: [],
+    });
+    await other(`/api/search/recent/${recent.searches[0]!.id}`, {
+      method: "DELETE",
+    });
+    expect(
+      ((await (await call("/api/search/recent")).json()) as typeof recent)
+        .searches
+    ).toHaveLength(1);
+    expect(
+      (
+        await call("/api/search/events", {
+          method: "POST",
+          json: { query: "animations", memoryId: id, position: 0 },
+        })
+      ).status
+    ).toBe(400);
+    await call("/api/search/recent", { method: "DELETE" });
+    expect(await (await call("/api/search/recent")).json()).toEqual({
+      searches: [],
+    });
+  });
 
   it("finds a Memory by meaning in full mode, with the part that matched; instant mode by words only", async () => {
     const { call } = await signedIn();

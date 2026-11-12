@@ -77,14 +77,14 @@ describe("search", () => {
     const { search, lib, model } = setup();
     await search.search("purple dashboard", "instant");
     expect(model!.embed).not.toHaveBeenCalled();
-    expect(lib.calls).toEqual([{ query: "purple dashboard" }]);
+    expect(lib.calls).toEqual([{ query: "dashboard purple" }]);
   });
 
   it("embeds the query in full mode and records its cost against no Memory", async () => {
     const { search, lib, budget, model } = setup();
     await search.search("  purple   dashboard ", "full");
     expect(model!.embed).toHaveBeenCalledWith(
-      [{ text: "task: search result | query: purple dashboard" }],
+      [{ text: "task: search result | query: dashboard purple" }],
       { timeoutMs: EMBEDDING.queryTimeoutMs }
     );
     expect(lib.calls[0]!.probe).toEqual({

@@ -2,7 +2,8 @@
 export type Mode = "instant" | "full";
 
 /** What to search for: words typed, or a Memory to find More Like This of. */
-export type SearchRequest = { query: string } | { like: string };
+export type SearchRequest =
+  { query: string; colour?: string; offset?: number } | { like: string };
 
 /** What matched in a result (migrations/0013_hybrid_search.sql). */
 /** What matched (packages/db MatchedPart); `page` is a PDF's page. */
@@ -14,7 +15,9 @@ export type MatchedPart =
       start: number;
       end: number;
       page?: number;
+      timestamp?: number;
     }
+  | { kind: "filter"; field: "colour" | "source" | "kind" | "date" }
   | { kind: "overview" }
   | { kind: "visual"; page?: number };
 
@@ -29,7 +32,9 @@ export type Answer =
   | { key: string; mode: Mode; failed: true };
 
 export const requestKey = (request: SearchRequest) =>
-  "like" in request ? `like:${request.like}` : `q:${request.query}`;
+  "like" in request
+    ? `like:${request.like}`
+    : `q:${request.query}${request.colour ? `|colour:${request.colour}` : ""}${request.offset ? `|offset:${request.offset}` : ""}`;
 
 const CACHE_SIZE = 50;
 

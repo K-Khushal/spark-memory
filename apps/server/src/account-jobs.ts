@@ -161,6 +161,14 @@ async function* exportEntries(
         yield encode("\n]\n");
       })(),
   };
+  yield {
+    name: "searches.json",
+    modified: at,
+    body: async () =>
+      (async function* () {
+        yield encode(JSON.stringify(await library.searchData()));
+      })(),
+  };
   for (const file of files) {
     yield {
       name: file.name,

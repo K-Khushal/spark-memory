@@ -514,6 +514,12 @@ export function accountJobs(db: Database) {
         allowCall?: () => boolean;
       } = {}
     ): Promise<number> {
+      await db.execute(
+        sql`delete from recent_search where searched_at <= now() - interval '30 days'`
+      );
+      await db.execute(
+        sql`delete from search_event where occurred_at <= now() - interval '30 days'`
+      );
       await db.execute(sql`
         with expired as (
           delete from ${libraryExport} where ${exportExpired}

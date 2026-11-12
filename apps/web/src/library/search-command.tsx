@@ -1,4 +1,6 @@
-import { useRef, type ReactNode } from "react";
+import { api } from "../api";
+import type { RecentSearch } from "./search-history";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LogOutIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import {
   CommandDialog,
@@ -7,12 +9,14 @@ import {
   CommandItem,
   CommandList,
   Kbd,
+  toast,
 } from "@spark/ui";
 import { useFlip } from "./flip";
 import { MOD } from "./shortcuts";
 import { memoryName } from "./memory-tile";
 import type { Memory } from "./use-library";
-import type { Results } from "./use-search";
+import type { Found, Results } from "./use-search";
+import { whyLabel } from "./why";
 
 /** The ⌘K palette: instant results, or Capture / Settings / Sign Out. */
 export function SearchCommand({
@@ -38,6 +42,40 @@ export function SearchCommand({
   onSettings: () => void;
   onSignOut: () => void;
 }) {
+  const recentEpoch = useRef(0);
+  const [recent, setRecent] = useState<RecentSearch[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const epoch = ++recentEpoch.current;
+    void api.api.search.recent
+      .$get()
+      .then(async (r) => {
+        if (r.ok) {
+          const body = await r.json();
+          if (active && epoch === recentEpoch.current) setRecent(body.searches);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [open]);
+  const forget = async (id?: string) => {
+    recentEpoch.current++;
+    try {
+      const response = id
+        ? await api.api.search.recent[":id"].$delete({ param: { id } })
+        : await api.api.search.recent.$delete();
+      if (response.ok)
+        setRecent((all) => (id ? all.filter((s) => s.id !== id) : []));
+      else throw new Error("delete failed");
+    } catch {
+      toast.error("Could Not Delete Search", {
+        action: { label: "Try Again", onClick: () => void forget(id) },
+      });
+    }
+  };
   const listRef = useRef<HTMLDivElement>(null);
   useFlip(
     listRef,
@@ -98,17 +136,50 @@ export function SearchCommand({
             )
           )
         ) : (
-          <CommandGroup>
-            <Action icon={<PlusIcon />} hint={`${MOD}V`} onSelect={onCapture}>
-              Capture
-            </Action>
-            <Action icon={<SettingsIcon />} onSelect={onSettings}>
-              Settings
-            </Action>
-            <Action icon={<LogOutIcon />} onSelect={onSignOut}>
-              Sign Out
-            </Action>
-          </CommandGroup>
+          <>
+            {recent.length > 0 && (
+              <CommandGroup heading="Recent Searches">
+                {recent.map((s) => (
+                  <div key={s.id} className="flex min-w-0 items-center">
+                    <CommandItem
+                      value={`recent:${s.id}`}
+                      className="min-w-0 flex-1"
+                      onSelect={() => onShowOnWall(s.query)}
+                    >
+                      <span className="truncate" dir="auto" title={s.query}>
+                        {s.query}
+                      </span>
+                    </CommandItem>
+                    <button
+                      type="button"
+                      aria-label={`Delete Search ${s.query}`}
+                      className="shrink-0 rounded-control px-2 py-1 text-xs text-ink-muted hover:text-ink"
+                      onClick={() => void forget(s.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+                <CommandItem
+                  value="__clear_recent"
+                  onSelect={() => void forget()}
+                >
+                  Clear Recent Searches
+                </CommandItem>
+              </CommandGroup>
+            )}
+            <CommandGroup>
+              <Action icon={<PlusIcon />} hint={`${MOD}V`} onSelect={onCapture}>
+                Capture
+              </Action>
+              <Action icon={<SettingsIcon />} onSelect={onSettings}>
+                Settings
+              </Action>
+              <Action icon={<LogOutIcon />} onSelect={onSignOut}>
+                Sign Out
+              </Action>
+            </CommandGroup>
+          </>
         )}
       </CommandList>
     </CommandDialog>
@@ -130,7 +201,7 @@ function ResultGroup({
   onOpen,
 }: {
   heading: string;
-  memories: Memory[];
+  memories: Found[];
   onOpen: (memory: Memory) => void;
 }) {
   if (!memories.length) return null;
@@ -145,6 +216,12 @@ function ResultGroup({
         >
           <span className="min-w-0 flex-1 truncate" dir="auto">
             {memoryName(memory)}
+          </span>
+          <span
+            className="max-w-32 truncate text-xs text-ink-muted"
+            title={whyLabel(memory)}
+          >
+            {whyLabel(memory)}
           </span>
         </CommandItem>
       ))}

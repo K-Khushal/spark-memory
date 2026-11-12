@@ -43,6 +43,9 @@ async function fetchHits(
           {
             query: {
               q: request.query,
+              ...(request.colour && { colour: request.colour }),
+              ...(request.offset && { offset: String(request.offset) }),
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
               ...(mode === "full" && { mode: "full" }),
             },
           },
@@ -90,16 +93,29 @@ export function useSearch(
   const query = request && "query" in request ? request.query.trim() : "";
   const like = request && "like" in request ? request.like : "";
 
+  const colour = request && "query" in request ? request.colour : undefined;
+  const offset = request && "query" in request ? request.offset : undefined;
   useEffect(() => {
-    session.set(like ? { like } : query ? { query } : undefined, version);
-  }, [session, query, like, version]);
+    session.set(
+      like
+        ? { like }
+        : query || colour
+          ? { query, ...(colour && { colour }), ...(offset && { offset }) }
+          : undefined,
+      version
+    );
+  }, [session, query, like, colour, offset, version]);
   useEffect(() => () => session.stop(), [session]);
 
   return useMemo((): Results | "failed" | undefined => {
     const current = like
       ? requestKey({ like })
-      : query
-        ? requestKey({ query })
+      : query || colour
+        ? requestKey({
+            query,
+            ...(colour && { colour }),
+            ...(offset && { offset }),
+          })
         : undefined;
     const shown = shownAnswer(answer, current, keepPrevious);
     if (!shown) return undefined;
@@ -116,5 +132,5 @@ export function useSearch(
       if (memory) results[hit.match].push({ ...memory, part: hit.part });
     }
     return results;
-  }, [answer, query, like, memories, keepPrevious]);
+  }, [answer, query, like, colour, offset, memories, keepPrevious]);
 }

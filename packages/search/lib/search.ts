@@ -1,3 +1,4 @@
+import { understandQuery, type QueryFilters } from "./query";
 import { EMBEDDING } from "@spark/core";
 import {
   embedCostMicros,
@@ -76,6 +77,7 @@ const split = <R extends Hit>(hits: R[]): Ranked<R>[] =>
     ...hit,
     match:
       hit.matched.includes("keyword") ||
+      hit.matched.includes("filter") ||
       (hit.distance !== null && hit.distance <= EMBEDDING.directDistance)
         ? "direct"
         : "related",
@@ -99,7 +101,12 @@ export function createSearch<R extends Hit>({
   /** The Library's hybrid search. */
   find: (
     query: string,
-    options: { probe?: Probe; maxDistance: number }
+    options: {
+      probe?: Probe;
+      maxDistance: number;
+      filters?: QueryFilters;
+      offset?: number;
+    }
   ) => Promise<R[]>;
   embedder?: Embedder;
   /** The budget breaker's side of the database (`indexingStore`). */
@@ -186,20 +193,43 @@ export function createSearch<R extends Hit>({
      */
     async search(
       query: string,
-      mode: Mode
+      mode: Mode,
+      context: {
+        timezone?: string;
+        filters?: QueryFilters;
+        offset?: number;
+      } = {}
     ): Promise<{ results: Ranked<R>[]; mode: Mode }> {
-      const q = query.trim().replace(/\s+/g, " ");
-      if (!q) return { results: [], mode: "instant" };
-      const options = { maxDistance: EMBEDDING.maxDistance };
-      if (mode === "full" && space) {
+      const parsed = understandQuery(query, {
+        now: new Date(now()),
+        ...(context.timezone && { timezone: context.timezone }),
+      });
+      const q = parsed.text;
+      const filters = {
+        ...parsed.filters,
+        ...context.filters,
+        ...(context.filters?.colour && { strictColour: true }),
+      };
+      // Colour helps ranking in prose, but is a strict filter for an explicit chip.
+      const keyword = parsed.filters.colour
+        ? `${q} ${query.match(/\b(red|orange|yellow|green|blue|purple|pink|black|white)\b/i)?.[0] ?? ""}`.trim()
+        : q;
+      if (!q && !Object.keys(filters).length)
+        return { results: [], mode: "instant" };
+      const options = {
+        maxDistance: EMBEDDING.maxDistance,
+        ...(Object.keys(filters).length && { filters }),
+        ...(context.offset && { offset: context.offset }),
+      };
+      if (q && mode === "full" && space) {
         // Anything wrong on the way to the vector leg (the budget, the
         // provider, the SQL with a vector) falls back to keywords.
         try {
-          const vector = await embedQuery(q);
+          const vector = await embedQuery(keyword);
           if (vector) {
             const probe = { ...space, vector };
             return {
-              results: split(await find(q, { ...options, probe })),
+              results: split(await find(keyword, { ...options, probe })),
               mode: "full",
             };
           }
@@ -207,7 +237,7 @@ export function createSearch<R extends Hit>({
           console.error("search: full search fell back to keywords");
         }
       }
-      return { results: split(await find(q, options)), mode: "instant" };
+      return { results: split(await find(keyword, options)), mode: "instant" };
     },
 
     /** More Like This: the Memory's own vectors as the query, no provider call. */
