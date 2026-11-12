@@ -191,9 +191,14 @@ AS $$
       AND v.memory_id IS DISTINCT FROM p_like
       AND d.distance <= p_max_distance
     -- Equally close (a short text's Passage often says what its Overview
-    -- does): the Overview, then a Visual, then a Passage, never by row order.
+    -- does): the Overview, then a Visual, then a Passage; within a kind the
+    -- first page, then the first place, never by row order. Rows still tied
+    -- have the same kind and anchor, so they report the same part.
     ORDER BY v.memory_id, d.distance,
-      CASE v.kind WHEN 'overview' THEN 0 WHEN 'visual' THEN 1 ELSE 2 END
+      CASE v.kind WHEN 'overview' THEN 0 WHEN 'visual' THEN 1 ELSE 2 END,
+      (v.anchor->>'page')::int NULLS FIRST,
+      (v.anchor->>'start')::int NULLS FIRST,
+      v.anchor::text NULLS FIRST
   ),
   vector AS (
     SELECT n.id, n.kind, n.anchor, n.distance,
