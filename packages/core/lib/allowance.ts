@@ -18,6 +18,19 @@ export const FREE_ALLOWANCE = {
   captureNoteMaxChars: 500,
 } as const;
 
+/**
+ * Image types Spark keeps as the Preserved copy. HEIC and HEIF are converted
+ * to JPEG in the browser, so they never reach the server. Here, free of zod,
+ * so the service worker can check types without bundling the schemas.
+ */
+export const IMAGE_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+] as const;
+
 export function isFileWithinAllowance(input: {
   fileBytes: number;
   usedStorageBytes: number;
