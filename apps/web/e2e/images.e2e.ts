@@ -1,5 +1,9 @@
+import { createRequire } from "node:module";
 import { expect, test, type Page } from "@playwright/test";
+import { loadRootEnv } from "@spark/config/load-env";
 import { signIn } from "./sign-in";
+
+loadRootEnv();
 
 /** An image goes by its Capture day until Indexing (the fake provider, locally) names it. */
 const IMAGE_NAME = /^(Image|Fake Image Title)/;
@@ -98,25 +102,84 @@ test("a failed upload shows on its tile, and Try Again finishes it", async ({
     .toMatchObject({ memories: [{ kind: "image" }] });
 });
 
-test("an upload a reload cut short shows as Failed, and Delete removes it", async ({
+/** Ages an upload past the presigned PUT (15 minutes) so the wall may offer Delete. */
+async function ageUpload(memoryId: string) {
+  const require = createRequire(
+    new URL("../../server/package.json", import.meta.url)
+  );
+  const { Client } = require("pg") as {
+    Client: new (config: { connectionString: string | undefined }) => {
+      connect(): Promise<void>;
+      query(text: string, values: string[]): Promise<unknown>;
+      end(): Promise<void>;
+    };
+  };
+  const db = new Client({ connectionString: process.env.DATABASE_URL });
+  await db.connect();
+  await db.query(
+    `update memory_file set created_at = now() - interval '20 minutes' where memory_id = $1`,
+    [memoryId]
+  );
+  await db.end();
+}
+
+test("an upload a reload cut short stays until its PUT expires, then the viewer offers only Delete", async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   await signIn(page);
-  // The upload never finishes on this page.
+  // The PUT never lands, so nothing is stored and confirm never runs.
   await page.route("**/api/local-files/**", (route) =>
-    route.request().method() === "PUT" ? undefined : route.fallback()
+    route.request().method() === "PUT" ? route.abort() : route.fallback()
+  );
+  const created = page.waitForResponse(
+    (res) =>
+      res.url().includes("/api/memories/images") &&
+      res.request().method() === "POST" &&
+      res.ok()
   );
   await dropImages(page);
+  const { memory } = (await (await created).json()) as {
+    memory: { id: string };
+  };
   const tile = page.getByRole("listitem", { name: IMAGE_NAME });
-  await expect(tile.getByRole("progressbar")).toBeVisible();
+  await expect(tile.getByText("Failed")).toBeVisible();
+  // The Memory exists, but a live PUT is not listed for another tab to delete.
+  expect((await page.request.get(`/api/memories/${memory.id}`)).status()).toBe(
+    200
+  );
   await expect
     .poll(async () => (await page.request.get("/api/memories")).json())
-    .toMatchObject({ unfinished: [{ kind: "image" }] });
+    .toEqual({ memories: [], unfinished: [] });
 
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.reload();
+  await expect(tile).toHaveCount(0);
+
+  await ageUpload(memory.id);
+  await page.reload();
   await expect(tile).toHaveAccessibleName(/Failed$/);
-  await tile.getByRole("button", { name: "Delete" }).click();
+  const fetches: string[] = [];
+  page.on("request", (req) => {
+    if (
+      req.method() === "GET" &&
+      req.url().includes(`/api/memories/${memory.id}`)
+    ) {
+      fetches.push(req.url());
+    }
+  });
+  await tile.click();
+  const viewer = page.getByRole("dialog");
+  await expect(viewer.locator("img")).toHaveCount(0);
+  await expect(viewer.getByText("AI Opt-Out")).toHaveCount(0);
+  await expect(viewer.getByRole("button", { name: "Delete" })).toBeVisible();
+  await expect(viewer.locator(".rounded-tile")).toHaveCSS(
+    "background-image",
+    /data:image/
+  );
+  expect(fetches).toEqual([]);
+
+  await viewer.getByRole("button", { name: "Delete" }).click();
   await expect(tile).toBeHidden();
   await expect
     .poll(async () => (await page.request.get("/api/memories")).json(), {

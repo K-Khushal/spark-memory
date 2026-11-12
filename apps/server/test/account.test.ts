@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
 import worker from "../src/index";
 import { sweepAccounts } from "../src/account-jobs";
+import { cronCalls } from "../src/cron-budget";
 import {
   accountQueue,
   ctx,
@@ -388,6 +389,29 @@ describe.skipIf(!databaseUrl)("account", () => {
       expect(zips()).toEqual([]);
       expect(await exportOf(call)).toBeNull();
       expect((await call("/api/account/export/download")).status).toBe(404);
+    });
+
+    it("sends only its share of stalled exports", async () => {
+      const first = await signInAs(email());
+      const second = await signInAs(email());
+      expect(
+        (await first.call("/api/account/export", { method: "POST" })).status
+      ).toBe(202);
+      expect(
+        (await second.call("/api/account/export", { method: "POST" })).status
+      ).toBe(202);
+      const ids = [await userId(first.call), await userId(second.call)];
+      await db.query(
+        `update library_export set requested_at = now() - interval '2 hours'
+         where user_id = $1 or user_id = $2`,
+        ids
+      );
+      const sent = () =>
+        accountQueue.sent.filter((message) => message.body.kind === "export")
+          .length;
+      const before = sent();
+      await sweepAccounts(env(), cronCalls(4));
+      expect(sent() - before).toBe(1);
     });
   });
 

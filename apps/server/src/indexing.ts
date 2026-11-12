@@ -14,6 +14,7 @@ import {
   type IndexOutcome,
   type Priority,
 } from "@spark/indexing";
+import type { CronCalls } from "./cron-budget";
 import type { Bindings, IndexMessage } from "./env";
 
 /**
@@ -206,7 +207,7 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
 }
 
 /** Memories left Indexing (a message lost or never sent) go back on the background queue. */
-export async function requeueStalled(env: Bindings) {
+export async function requeueStalled(env: Bindings, calls?: CronCalls) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
     const store = indexingStore(db);
@@ -214,30 +215,41 @@ export async function requeueStalled(env: Bindings) {
     // delayed message): only fresh work, which the budget never holds, goes.
     const spent =
       (await store.spentTodayMicros()) >= (await store.dailyBudgetMicros());
-    const stalled = (await store.stalled()).filter(
-      (m) => !spent || m.priority === "fresh"
-    );
+    const room = calls?.remaining("indexing");
+    // Past the budget, the limit applies to fresh work only. Filtering after
+    // the limit would drop a fresh Memory sitting behind background rows.
+    const stalled = await store.stalled(60, room ?? 500, spent);
+    let sent = 0;
     for (const { id, run, generation, priority } of stalled) {
+      if (calls && !calls.take("indexing")) break;
       await enqueue(env, {
         id,
         indexRun: run,
         indexGeneration: generation,
         indexPriority: priority,
       });
+      sent += 1;
     }
-    if (stalled.length) console.log(`indexing: re-enqueued ${stalled.length}`);
+    if (sent) console.log(`indexing: re-enqueued ${sent}`);
     // Vectors missing (an embedding that failed) or stale (a new model or
     // size, an edited title): made again in the background, within budget.
     const embedder = embedderFor(providers(env));
     if (!embedder || spent) return;
+    const embedRoom = calls?.remaining("indexing");
+    if (embedRoom === 0) return;
     const stale = await store.staleVectors(
       embeddingSpace(embedder.model, embedder.dimensions),
-      EMBEDDING.sweepBatch
+      embedRoom !== undefined && embedRoom < EMBEDDING.sweepBatch
+        ? embedRoom
+        : EMBEDDING.sweepBatch
     );
+    let embedded = 0;
     for (const { id, generation } of stale) {
+      if (calls && !calls.take("indexing")) break;
       await enqueueEmbed(env, { id, indexGeneration: generation });
+      embedded += 1;
     }
-    if (stale.length) console.log(`indexing: re-embedding ${stale.length}`);
+    if (embedded) console.log(`indexing: re-embedding ${embedded}`);
   } finally {
     await close();
   }

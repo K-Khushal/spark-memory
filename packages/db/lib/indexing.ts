@@ -502,7 +502,8 @@ export function indexingStore(db: Database) {
      */
     async stalled(
       minutes = 60,
-      limit = 500
+      limit = 500,
+      freshOnly = false
     ): Promise<
       {
         id: string;
@@ -527,7 +528,8 @@ export function indexingStore(db: Database) {
               sql`now() - make_interval(mins => ${minutes})`
             ),
             unleased,
-            allStored
+            allStored,
+            freshOnly ? eq(memory.indexPriority, "fresh") : undefined
           )
         )
         .orderBy(memory.updatedAt)
