@@ -255,6 +255,13 @@ export function newClient(origin = ORIGIN) {
   return Object.assign(call, { cookie: () => cookie });
 }
 
+/** `POST /api/search`: words and chips travel in the body, never in a URL. */
+export const postSearch = (
+  call: ReturnType<typeof newClient>,
+  body: Record<string, unknown>,
+  bindings?: ReturnType<typeof env>
+) => call("/api/search", { method: "POST", json: body }, bindings);
+
 export const email = () => `person-${crypto.randomUUID()}@example.com`;
 
 export function sendCode(

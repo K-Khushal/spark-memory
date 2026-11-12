@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMBEDDING, INDEXING } from "@spark/core";
+import { EMBEDDING, INDEXING, SEARCH_PAGE_SIZE } from "@spark/core";
 import { ProviderError, type AiCall, type Embedder } from "@spark/indexing";
 import {
   createSearch,
@@ -14,13 +14,15 @@ type Hit = { id: string; matched: string[]; distance: number | null };
 /** The Library's search as a stub: records each call, answers `hits`. */
 function library(hits: Hit[] = []) {
   const calls: { query: string; probe?: Probe }[] = [];
+  const asked: Record<string, unknown>[] = [];
   const find = vi.fn(
     async (query: string, options: { probe?: Probe }): Promise<Hit[]> => {
       calls.push({ query, ...(options.probe && { probe: options.probe }) });
+      asked.push(options);
       return hits;
     }
   );
-  return { find, calls };
+  return { find, calls, asked };
 }
 
 function embedder(fail?: ProviderError): Embedder & {
@@ -320,5 +322,157 @@ describe("search", () => {
     await pending;
     expect(searchesTracked()).toBe(0);
     expect(queryVectorsCached("tracked-ana")).toBe(1);
+  });
+
+  describe("understanding the query", () => {
+    const NOW = Date.UTC(2026, 10, 12, 12);
+
+    it("searches the words that are left, narrowed by what it understood", async () => {
+      const { search, lib, model } = setup({ now: () => NOW });
+      await search.search("pdfs from instagram last month", "full", {
+        timezone: "UTC",
+      });
+      expect(lib.calls[0]!.query).toBe("");
+      expect(lib.asked[0]).toMatchObject({
+        kinds: ["pdf"],
+        filters: {
+          hosts: ["instagram.com"],
+          after: "2026-10-01T00:00:00.000Z",
+          before: "2026-11-01T00:00:00.000Z",
+        },
+      });
+      // Nothing to look for by meaning: no provider call, no cost.
+      expect(model!.embed).not.toHaveBeenCalled();
+    });
+
+    it("embeds only the words, not the filters", async () => {
+      const { search, model } = setup({ now: () => NOW });
+      await search.search("videos from youtube about tardigrades", "full");
+      expect(model!.embed).toHaveBeenCalledWith(
+        [{ text: "task: search result | query: about tardigrades" }],
+        { timeoutMs: EMBEDDING.queryTimeoutMs }
+      );
+    });
+
+    it("gives a colour in the words as a preference, and a colour chip as a requirement", async () => {
+      const { search, lib } = setup({ now: () => NOW });
+      await search.search("orange animations", "instant");
+      await search.search("animations", "instant", {
+        chips: { colour: "blue" },
+      });
+      expect(lib.asked[0]!.filters).toEqual({ prefer: "#EE7A1C" });
+      expect(lib.asked[1]!.filters).toEqual({ colour: "#2F6FE0" });
+    });
+
+    it("requires a colour when the words are nothing but filters", async () => {
+      const { search, lib } = setup({ now: () => NOW });
+      await search.search("orange pdfs from last month", "instant");
+      expect(lib.asked[0]).toMatchObject({
+        kinds: ["pdf"],
+        filters: { colour: "#EE7A1C" },
+      });
+    });
+
+    it("lets a chip override the same filter in the words", async () => {
+      const { search, lib } = setup({ now: () => NOW });
+      await search.search("links from reddit last week", "instant", {
+        chips: { kind: "image", source: "youtube", when: "this year" },
+      });
+      expect(lib.asked[0]).toMatchObject({
+        kinds: ["image"],
+        filters: {
+          hosts: ["youtube.com", "youtu.be"],
+          after: "2026-01-01T00:00:00.000Z",
+          before: "2027-01-01T00:00:00.000Z",
+        },
+      });
+    });
+
+    it("browses with chips alone, and returns nothing for no words and no chips", async () => {
+      const { search, lib } = setup({ now: () => NOW });
+      expect(await search.search("  ", "full")).toEqual({
+        results: [],
+        mode: "instant",
+      });
+      expect(lib.find).not.toHaveBeenCalled();
+      await search.search("", "full", {
+        chips: { colour: "orange" },
+        page: "o:40",
+      });
+      expect(lib.asked[0]).toMatchObject({
+        filters: { colour: "#EE7A1C" },
+        offset: 40,
+      });
+    });
+
+    it("calls a result found by filters a Direct match", async () => {
+      const { search } = setup({
+        hits: [{ id: "a", matched: ["filter"], distance: null }],
+      });
+      const { results } = await search.search("", "instant", {
+        chips: { source: "instagram" },
+      });
+      expect(results[0]).toMatchObject({ id: "a", match: "direct" });
+    });
+
+    it("keeps a colour word that is the whole query as a word too", async () => {
+      const { search, lib } = setup({ now: () => NOW });
+      await search.search("orange", "instant");
+      expect(lib.calls[0]!.query).toBe("orange");
+      expect(lib.asked[0]!.filters).toEqual({ prefer: "#EE7A1C" });
+    });
+  });
+
+  describe("pages", () => {
+    const hits = (n: number): Hit[] =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `m${i}`,
+        matched: ["filter"],
+        distance: null,
+      }));
+    const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+    it("asks for one page, and says where the next begins", async () => {
+      const { search, lib } = setup({ hits: hits(SEARCH_PAGE_SIZE) });
+      // Newest first with no colour: after the last Memory shown.
+      const browse = await search.search("", "instant", {
+        chips: { kind: "image" },
+      });
+      expect(browse.next).toBe(`c:m${SEARCH_PAGE_SIZE - 1}`);
+      expect(lib.asked[0]).toMatchObject({ limit: SEARCH_PAGE_SIZE });
+      expect(lib.asked[0]).not.toHaveProperty("cursor");
+      // Ranked by a score (words, or colour): by how many came before.
+      expect((await search.search("budget", "instant")).next).toBe(
+        `o:${SEARCH_PAGE_SIZE}`
+      );
+      expect(
+        (await search.search("", "instant", { chips: { colour: "blue" } })).next
+      ).toBe(`o:${SEARCH_PAGE_SIZE}`);
+    });
+
+    it("has no next page after a short one", async () => {
+      const { search } = setup({ hits: hits(SEARCH_PAGE_SIZE - 1) });
+      expect(
+        await search.search("", "instant", { chips: { kind: "image" } })
+      ).not.toHaveProperty("next");
+    });
+
+    it("continues from the page it is given", async () => {
+      const { search, lib } = setup({ hits: hits(3) });
+      await search.search("", "instant", {
+        chips: { kind: "image" },
+        page: `c:${ID}`,
+      });
+      await search.search("budget", "instant", { page: "o:80" });
+      expect(lib.asked[0]).toMatchObject({ cursor: ID });
+      expect(lib.asked[1]).toMatchObject({ offset: 80 });
+      expect(lib.asked[1]).not.toHaveProperty("cursor");
+    });
+
+    it("ignores a cursor where there is nothing to browse", async () => {
+      const { search, lib } = setup({ hits: hits(3) });
+      await search.search("budget", "instant", { page: `c:${ID}` });
+      expect(lib.asked[0]).not.toHaveProperty("cursor");
+    });
   });
 });

@@ -11,3 +11,4 @@ export {
   type Ranked,
   type Search,
 } from "./lib/search";
+export { understandQuery } from "./lib/query";

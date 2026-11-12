@@ -9,6 +9,7 @@ import {
   drainDeepFetch,
   env,
   fakeTurnstile,
+  postSearch,
   signedIn,
 } from "./worker";
 
@@ -71,7 +72,7 @@ const read = async (call: Call, id: string) =>
   (await (await call(`/api/memories/${id}`)).json()) as Memory;
 const searchIds = async (call: Call, q: string) =>
   (
-    (await (await call(`/api/search?q=${encodeURIComponent(q)}`)).json()) as {
+    (await (await postSearch(call, { q })).json()) as {
       results: { id: string }[];
     }
   ).results.map((m) => m.id);

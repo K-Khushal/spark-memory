@@ -63,7 +63,7 @@ If a search needs a Memory that is not in the sample Library, add it to `evals/l
 
 Skipped on purpose, until they can be Captured: **YouTube** (needs transcripts, whose licence is each uploader's; no YouTube Capture exists yet), **PDFs and links** (the Library has text and image Capture only; M3 adds them). Book excerpts and articles stand in for PDFs as long text. Add those kinds here when their Capture lands.
 
-Not yet covered: **date filters** ("last month") and **colour filters**, which search does not have yet (M2). The `date` searches here find a date written inside a Memory.
+The `date` searches find a date written inside a Memory. `searches/filters.json` holds searches whose kind, colour and capture date are read out of the words (#12); every sample Memory is captured when the set is built, so "this year" and "since last year" hold the whole Library, and "last month" would hold none. Colour and Source browsing with chips is covered by the database tests, because it has no words to score.
 
 To rebuild after changing `scripts/sources.json`, `notes.json` or `screens.ts`: `pnpm --filter @spark/evals assemble` (needs network and Playwright's Chromium; never runs in CI).
 

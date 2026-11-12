@@ -16,7 +16,7 @@ describe("ending a session", () => {
   });
 
   it("forgets every search answer this tab holds", () => {
-    searchCache.set("ana|1|q:purple", []);
+    searchCache.set("ana|1|q:purple", { hits: [] });
     clearSearchCache();
     expect(searchCache.size).toBe(0);
   });

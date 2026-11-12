@@ -103,4 +103,23 @@ export {
   type DeepFetchState,
   type DeepFetchView,
 } from "./lib/deep-fetch";
+export {
+  SEARCH_COLOURS,
+  SEARCH_COLOUR_NAMES,
+  SEARCH_SOURCES,
+  SEARCH_KINDS,
+  SEARCH_WHEN,
+  SearchChips,
+  SearchEvent,
+  SearchPage,
+  SearchRequest,
+  SEARCH_PAGE_SIZE,
+  MAX_QUERY_CHARS,
+  sourceHosts,
+  sourceOf,
+  type SearchColour,
+  type SearchFilters,
+  type SearchKind,
+  type SearchWhen,
+} from "./lib/search-filters";
 export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";
