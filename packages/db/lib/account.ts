@@ -523,12 +523,16 @@ export function accountJobs(db: Database) {
         on conflict do nothing`);
       let removed = 0;
       for (;;) {
+        // Skip pending keys a recording transaction is consuming. A plain
+        // SELECT could see the old row and sweep a newly stored screenshot.
+        // This autocommit statement releases its locks before storage I/O.
         const due = await db
           .select({ key: objectRemoval.key })
           .from(objectRemoval)
           .where(sql`${objectRemoval.dueAt} <= now()`)
           .orderBy(objectRemoval.dueAt)
-          .limit(batch);
+          .limit(batch)
+          .for("update", { skipLocked: true });
         if (!due.length) return removed;
         if (allowCall && !allowCall()) return removed;
         const keys = due.map((d) => d.key);

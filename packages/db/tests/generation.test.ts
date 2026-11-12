@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { embeddingSpace, type IndexingOutput } from "@spark/core";
+import { INDEXING, embeddingSpace, type IndexingOutput } from "@spark/core";
 import {
   createIndexer,
   type Embedder,
@@ -288,6 +288,33 @@ describe.skipIf(!databaseUrl)(
       expect(
         await store().load(fresh.id, 1, fresh.indexGeneration)
       ).toMatchObject({ userId: ben, generation: fresh.indexGeneration });
+    });
+
+    it("ignores a legacy message's last attempt on a recreated Memory", async () => {
+      const old = await capture(ana, "Old words");
+      const fresh = await recreate(old.id, ana, ana);
+      const { index } = createIndexer({
+        store: store(),
+        providers: [
+          {
+            name: "fake",
+            model: "down",
+            extract: async () => {
+              throw new Error("offline");
+            },
+          },
+        ],
+        readFile: async () => undefined,
+      });
+      expect(
+        await index({
+          memoryId: fresh.id,
+          run: 1,
+          priority: "fresh",
+          attempt: INDEXING.maxAttempts,
+        })
+      ).toMatchObject({ result: "retry", delaySeconds: 30 });
+      expect(await row(fresh.id)).toMatchObject({ state: "indexing" });
     });
 
     it("gives every existing row its own generation", async () => {

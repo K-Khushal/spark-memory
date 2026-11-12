@@ -481,8 +481,9 @@ export const libraryExport = pgTable("library_export", {
 
 /**
  * Objects to remove from storage once `dueAt` has passed: a replaced or
- * expired export's ZIP. Written in the same transaction that lets go of the
- * object, and removed only after storage confirms, so a crash in between
+ * expired export's ZIP, a deleted Memory's files, or an unfinished screenshot.
+ * Written before uploading or in the transaction that lets go of the object,
+ * and removed only after storage confirms, so a crash in between
  * never leaves an object nobody points at (the hourly sweep drains it).
  */
 export const objectRemoval = pgTable("object_removal", {
