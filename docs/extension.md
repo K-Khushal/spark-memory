@@ -178,3 +178,23 @@ prompts remain owner release checks.
 The #88 stale-refusal, update retry and unused status-handler fixes are
 included. A successful new Capture takes precedence over an old notice.
 Install/update recreates context menus and retries queued rows.
+
+### Review round 1
+
+Selection Sources retain hash-router fragments while replacing an older text
+directive. Region selection removes its overlay and waits two paint frames
+before capturing pixels.
+
+When an image or cross-origin frame needs host access, an extension page opens.
+Click **Grant Access** there to request the exact host, then resume Capture in
+the original tab. Denial or API failure offers **Grant Access** or **Try Again**;
+Cancel discards the pending action. The pending descriptor lives only in
+session storage, expires after five minutes and is replaced by the next request.
+No permission request runs in the background.
+
+Only YouTube watch pages and youtu.be video URLs receive playback timestamps.
+Duplicate detection ignores their time parameter, and a new Capture updates
+the existing Memory's Source to the latest timestamp. Other Sources keep their
+time parameters. Successful Captures clear the failure badge; background retry
+completion and Discard Outbox clear stale queued feedback. Image byte writes
+are insert-once per Capture ID, including across worker restarts.

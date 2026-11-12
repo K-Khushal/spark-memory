@@ -9,6 +9,7 @@ import {
   LinkCapture,
   MemoryEdit,
   normaliseUrl,
+  isYouTubeVideo,
   SCREENSHOT_MAX_BYTES,
   TextCapture,
   type LinkMetadata,
@@ -412,6 +413,7 @@ export function openLibrary(
         .update(memory)
         .set({
           lastSavedAt: sql`now()`,
+          ...(isYouTubeVideo(url) && { sourceUrl: url }),
           captureNote: sql`coalesce(${memory.captureNote}, ${note}::text)`,
           // A new note is new text for the vectors: the sweep embeds it again.
           revision: sql`${memory.revision} + (${noteAdded})::int`,

@@ -5,13 +5,16 @@ import background from "../entrypoints/background";
 const browser = vi.hoisted(() => ({
   action: { setBadgeText: vi.fn(), setTitle: vi.fn() },
   commands: { onCommand: { addListener: vi.fn() } },
-  permissions: { request: vi.fn() },
+  permissions: { request: vi.fn(), contains: vi.fn() },
   contextMenus: {
     removeAll: vi.fn(),
     create: vi.fn(),
     onClicked: { addListener: vi.fn() },
   },
-  storage: { local: { get: vi.fn(), set: vi.fn(), setAccessLevel: vi.fn() } },
+  storage: {
+    session: { get: vi.fn(), set: vi.fn(), remove: vi.fn() },
+    local: { get: vi.fn(), set: vi.fn(), setAccessLevel: vi.fn() },
+  },
   alarms: {
     create: vi.fn(),
     clear: vi.fn(),
@@ -25,7 +28,12 @@ const browser = vi.hoisted(() => ({
     onInstalled: { addListener: vi.fn() },
     onStartup: { addListener: vi.fn() },
   },
-  tabs: { query: vi.fn(), captureVisibleTab: vi.fn() },
+  tabs: {
+    query: vi.fn(),
+    captureVisibleTab: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+  },
   scripting: { executeScript: vi.fn() },
 }));
 vi.mock("wxt/browser", () => ({ browser }));
@@ -41,6 +49,7 @@ beforeEach(() => {
   browser.storage.local.set.mockImplementation(async (value) => {
     Object.assign(stored, structuredClone(value));
   });
+  browser.storage.session.get.mockResolvedValue({});
   browser.alarms.get.mockResolvedValue(undefined);
   browser.alarms.clear.mockResolvedValue(true);
   request = vi
@@ -289,4 +298,96 @@ it("captures the context-menu frame's selection with its own Source", async () =
   ).toMatchObject({
     source: { url: "https://garden.test/frame#:~:text=Basil" },
   });
+});
+
+it("offers a user-gesture permission page instead of requesting from the background", async () => {
+  background.main();
+  browser.permissions.contains.mockResolvedValue(false);
+  await browser.contextMenus.onClicked.addListener.mock.calls[0]![0](
+    {
+      menuItemId: "image",
+      srcUrl: "https://images.test/basil.png",
+      frameId: 0,
+    },
+    tab
+  );
+  expect(browser.permissions.request).not.toHaveBeenCalled();
+  expect(browser.storage.session.set).toHaveBeenCalledWith({
+    permissionCapture: expect.objectContaining({
+      origin: "https://images.test",
+      tabId: 1,
+    }),
+  });
+  expect(browser.tabs.create).toHaveBeenCalledWith({
+    url: expect.stringContaining("/permission.html#"),
+  });
+  expect(browser.action.setTitle).toHaveBeenLastCalledWith({
+    title: "Grant Access",
+  });
+});
+it("handles a rejected permission check without an unhandled menu rejection", async () => {
+  background.main();
+  browser.permissions.contains.mockRejectedValue(
+    new Error("permission unavailable")
+  );
+  await expect(
+    browser.contextMenus.onClicked.addListener.mock.calls[0]![0](
+      { menuItemId: "image", srcUrl: "https://images.test/basil.png" },
+      tab
+    )
+  ).resolves.toMatchObject({ state: "error", label: "Try Again" });
+  expect(browser.action.setTitle).toHaveBeenLastCalledWith({
+    title: "Try Again",
+  });
+});
+it("clears an old badge when the queued state is resolved by an alarm", async () => {
+  stored.outbox = [{ owner: "ana", capture: { id: "capture", url: tab.url } }];
+  background.main();
+  await alarm();
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
+  expect(browser.action.setTitle).toHaveBeenLastCalledWith({ title: "Spark" });
+});
+it("clears stale failure feedback when the outbox is discarded", async () => {
+  background.main();
+  await message("capture");
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "!" });
+  await message("clear");
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
+  expect(browser.action.setTitle).toHaveBeenLastCalledWith({ title: "Spark" });
+});
+it("resumes a pending frame Capture only after an explicit page grant", async () => {
+  captureTab();
+  browser.permissions.contains.mockResolvedValue(true);
+  browser.storage.session.get.mockResolvedValue({
+    permissionCapture: {
+      id: "grant",
+      mode: "selection",
+      tabId: 1,
+      frameId: 7,
+      origin: "https://garden.test",
+      expiresAt: Date.now() + 60_000,
+    },
+  });
+  browser.scripting.executeScript.mockResolvedValue([
+    {
+      result: {
+        text: "Basil",
+        context: "Basil grows",
+        title: "Garden",
+        url: "https://garden.test/frame",
+      },
+    },
+  ]);
+  background.main();
+  const result = await browser.runtime.onMessage.addListener.mock.calls[0]![0](
+    { type: "permission-capture", id: "grant" },
+    { id: "spark", url: "chrome-extension://spark/permission.html#grant" }
+  );
+  expect(result).toMatchObject({ state: "duplicate" });
+  expect(browser.permissions.request).not.toHaveBeenCalled();
+  expect(browser.tabs.update).toHaveBeenCalledWith(1, { active: true });
+  expect(browser.storage.session.remove).toHaveBeenCalledWith(
+    "permissionCapture"
+  );
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
 });

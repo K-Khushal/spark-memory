@@ -23,8 +23,19 @@ export function imageStore() {
   return {
     get: (id: string) =>
       transaction<ImageBytes | undefined>("readonly", (store) => store.get(id)),
-    put: (id: string, bytes: ImageBytes) =>
-      transaction("readwrite", (store) => store.put(bytes, id)),
+    async put(id: string, bytes: ImageBytes) {
+      const db = await opened;
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("images", "readwrite");
+        const store = tx.objectStore("images");
+        const existing = store.count(id);
+        existing.onsuccess = () => {
+          if (existing.result === 0) store.put(bytes, id);
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = tx.onabort = () => reject(new Error("Try Again"));
+      });
+    },
     async retain(ids: string[]) {
       const keys = await transaction<IDBValidKey[]>("readonly", (store) =>
         store.getAllKeys()

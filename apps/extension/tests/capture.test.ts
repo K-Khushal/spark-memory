@@ -11,7 +11,7 @@ it("keeps selected text, context and an escaped text-fragment Source", () => {
   ).toMatchObject({
     body: "A-B & C",
     source: {
-      url: "https://example.com/p#:~:text=A%2DB%20%26%20C",
+      url: "https://example.com/p#old:~:text=A%2DB%20%26%20C",
       context: "Before A-B & C after",
     },
   });
@@ -37,4 +37,26 @@ it("disambiguates repeated selected text with surrounding text-fragment context"
       suffix: " grows",
     }).source?.url
   ).toBe("https://example.com/p#:~:text=Then-,Basil,-grows");
+});
+it("preserves hash-router locations while replacing an old text directive", () => {
+  for (const url of [
+    "https://example.com/app/#/notes/42",
+    "https://example.com/app/#/notes/42:~:text=old",
+  ])
+    expect(selectionCapture(url, "Basil", "", "").source?.url).toBe(
+      "https://example.com/app/#/notes/42:~:text=Basil"
+    );
+});
+it("only anchors YouTube video Sources, never channels, home, or shorts", () => {
+  for (const url of [
+    "https://youtube.com/",
+    "https://youtube.com/@basil",
+    "https://youtube.com/shorts/abc",
+    "https://youtube.com/watch",
+    "https://youtu.be/",
+  ])
+    expect(videoSource(url, 42)).toBe(url);
+  expect(videoSource("https://youtu.be/abc", 42)).toBe(
+    "https://youtu.be/abc?t=42s"
+  );
 });

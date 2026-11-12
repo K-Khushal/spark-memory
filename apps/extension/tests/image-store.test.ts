@@ -15,3 +15,21 @@ it("keeps image bytes across worker instances and removes discarded owners' byte
     vi.unstubAllGlobals();
   }
 });
+it("stores immutable image bytes only once, including after worker restart", async () => {
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  try {
+    const first = imageStore();
+    await first.put("capture", { original: "first bytes", thumbnail: "thumb" });
+    const restarted = imageStore();
+    await restarted.put("capture", {
+      original: "replacement",
+      thumbnail: "other",
+    });
+    expect(await restarted.get("capture")).toEqual({
+      original: "first bytes",
+      thumbnail: "thumb",
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

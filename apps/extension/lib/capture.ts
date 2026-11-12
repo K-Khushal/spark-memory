@@ -1,4 +1,4 @@
-import { TextCapture } from "@spark/core";
+import { TextCapture, isYouTubeVideo } from "@spark/core";
 export function selectionCapture(
   url: string,
   text: string,
@@ -12,6 +12,7 @@ export function selectionCapture(
   const prefix = surrounding?.prefix.trim(),
     suffix = surrounding?.suffix.trim();
   source.hash =
+    source.hash.slice(1).split(":~:")[0] +
     ":~:text=" +
     [
       prefix ? escape(prefix) + "-" : "",
@@ -30,9 +31,7 @@ export function selectionCapture(
 export function videoSource(url: string, time?: number) {
   const source = new URL(url);
   if (
-    ["www.youtube.com", "youtube.com", "m.youtube.com", "youtu.be"].includes(
-      source.hostname
-    ) &&
+    isYouTubeVideo(url) &&
     time !== undefined &&
     Number.isFinite(time) &&
     time >= 0

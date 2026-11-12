@@ -71,5 +71,6 @@ export {
   type LinkMetadata,
   linkFromPaste,
   normaliseUrl,
+  isYouTubeVideo,
   sourceHost,
 } from "./lib/link";

@@ -64,3 +64,17 @@ page HTML is never mounted as Spark UI. Real Firefox session sharing, permission
 prompts, store publication and scalable Firefox runtime-origin provisioning
 remain release follow-ups. No new issues were created, as the cook brief
 requires follow-ups in the PR body.
+
+## Round 1 fixes
+
+S1 preserves the pre-existing fragment; S2 waits two animation frames after
+overlay removal. S3 runs the merged search baseline without updating it.
+S4 moves host requests to an explicit extension-page click and handles API
+rejection and denial. S5 limits playback timestamps to video URLs and keeps the
+latest Source when resurfacing a video. S6 makes IndexedDB writes insert-once;
+S7 clears badges when their queued/error state resolves.
+
+Regression coverage includes router fragments, the two-frame fence, permission
+handoff/rejection/resumption, video duplicate identity/latest Source, immutable
+image bytes and badge cleanup. Chromium smoke checks an actual cropped pixel
+against the page and exercises the Grant Access page with a click.

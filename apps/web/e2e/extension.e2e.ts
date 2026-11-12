@@ -138,6 +138,58 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
       )
     ).toMatchObject({ body: expect.stringContaining("Basil") });
 
+    const grantId = "permission-e2e";
+    await worker.evaluate(async (grantId) => {
+      const chrome = (
+        globalThis as unknown as {
+          chrome: {
+            tabs: { query(q: unknown): Promise<{ id: number }[]> };
+            storage: { session: { set(value: unknown): Promise<void> } };
+          };
+        }
+      ).chrome;
+      const [tab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+      await chrome.storage.session.set({
+        permissionCapture: {
+          id: grantId,
+          mode: "selection",
+          tabId: tab!.id,
+          frameId: 0,
+          origin: "https://fixture.test",
+          expiresAt: Date.now() + 60_000,
+        },
+      });
+    }, grantId);
+    const permission = await context.newPage();
+    await permission.goto(
+      `chrome-extension://${id}/permission.html#${grantId}`
+    );
+    await expect(
+      permission.getByRole("button", { name: "Grant Access" })
+    ).toBeEnabled();
+    const permissionFolder =
+      process.env.EXTENSION_SCREENSHOTS_DIR ??
+      test.info().outputPath("permission");
+    await mkdir(permissionFolder, { recursive: true });
+    for (const colorScheme of ["light", "dark"] as const)
+      for (const width of [1440, 390]) {
+        await permission.emulateMedia({ colorScheme });
+        await permission.setViewportSize({ width, height: 700 });
+        await permission.reload();
+        await expect(
+          permission.getByRole("button", { name: "Grant Access" })
+        ).toBeEnabled();
+        await permission.screenshot({
+          path: `${permissionFolder}/t18-permission-${width}-${colorScheme}.png`,
+        });
+      }
+    const permissionClosed = permission.waitForEvent("close");
+    await permission.getByRole("button", { name: "Grant Access" }).click();
+    await permissionClosed;
+    await fixture.setViewportSize({ width: 1280, height: 720 });
     const textMemory = selectionData.memories.find(
       (m: { kind: string; sourceUrl?: string }) =>
         m.kind === "text" && m.sourceUrl?.includes("#:~:text=")
@@ -179,6 +231,13 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     await fixture.mouse.click(1200, 35);
     expect(await keyboardCancel).toMatchObject({ label: "Cancelled" });
 
+    await fixture.evaluate(() => {
+      const patch = document.createElement("div");
+      patch.style.cssText =
+        "position:fixed;left:40px;top:100px;width:200px;height:140px;background:rgb(20,100,180)";
+      patch.id = "crop-pixel-fixture";
+      document.body.append(patch);
+    });
     const region = popup.evaluate(() =>
       (
         globalThis as unknown as {
@@ -203,6 +262,31 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
           m.kind === "image" && m.preservation === "preserved"
       )
     ).toBe(true);
+    const cropped = images.memories.find(
+      (m: { kind: string }) => m.kind === "image"
+    );
+    const pixel = await dashboard.evaluate(async (url: string) => {
+      const bitmap = await createImageBitmap(await (await fetch(url)).blob());
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(bitmap, 0, 0);
+      const value = [
+        ...ctx.getImageData(
+          Math.floor(bitmap.width / 2),
+          Math.floor(bitmap.height / 2),
+          1,
+          1
+        ).data,
+      ];
+      bitmap.close();
+      return value;
+    }, cropped.image.url);
+    expect(pixel).toEqual([20, 100, 180, 255]);
+    await fixture.evaluate(() =>
+      document.getElementById("crop-pixel-fixture")?.remove()
+    );
     const folder =
       process.env.EXTENSION_SCREENSHOTS_DIR ?? test.info().outputPath("popup");
     await mkdir(folder, { recursive: true });

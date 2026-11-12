@@ -8,6 +8,7 @@ type WhatwgUrl = {
   username: string;
   password: string;
   hostname: string;
+  pathname: string;
   hash: string;
   search: string;
   searchParams: Iterable<[string, string]>;
@@ -69,6 +70,22 @@ function parse(input: string): WhatwgUrl | undefined {
   return url;
 }
 
+/** Only actual YouTube video Sources carry a playback timestamp. */
+export function isYouTubeVideo(input: string): boolean {
+  const url = parse(input);
+  if (!url) return false;
+  if (url.hostname === "youtu.be") return /^\/[^/]+\/?$/.test(url.pathname);
+  return (
+    ["youtube.com", "www.youtube.com", "m.youtube.com"].includes(
+      url.hostname
+    ) &&
+    url.pathname === "/watch" &&
+    [...url.searchParams].some(
+      ([name, value]) => name === "v" && value.length > 0
+    )
+  );
+}
+
 /**
  * The form two Captures of the same page share (PLAN.md §5.2): http(s)
  * only, host lowercased, default port, fragment and tracking parameters
@@ -78,7 +95,10 @@ export function normaliseUrl(input: string): string | undefined {
   const url = parse(input);
   if (!url) return undefined;
   url.hash = "";
-  const kept = [...url.searchParams].filter(([name]) => !isTracker(name));
+  const video = isYouTubeVideo(input);
+  const kept = [...url.searchParams].filter(
+    ([name]) => !isTracker(name) && !(video && name === "t")
+  );
   kept.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   url.search = new URLSearchParams(kept).toString();
   return url.toString();

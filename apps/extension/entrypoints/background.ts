@@ -3,6 +3,7 @@ import { defineBackground } from "wxt/utils/define-background";
 import { THEMES } from "@spark/ui/tokens";
 import { selectRegion } from "../lib/region";
 import { selectionCapture, videoSource } from "../lib/capture";
+import type { PermissionCapture } from "../lib/permission";
 import { imageStore } from "../lib/image-store";
 import { fetchImage, prepareCapture } from "../lib/image";
 import { LinkCapture, PageExtract, SCREENSHOT_MAX_BYTES } from "@spark/core";
@@ -91,10 +92,22 @@ export default defineBackground(() => {
     await browser.storage.local.set({ owner: me.id });
     return me.id;
   };
+  let feedback: Result["state"] | undefined;
+  async function clearFeedback() {
+    feedback = undefined;
+    await browser.action.setBadgeText({ text: "" });
+    await browser.action.setTitle({ title: "Spark" });
+  }
   async function retry() {
     if (!(await box.reconcile())) return;
     try {
-      await box.flush(await identity());
+      const sent = await box.flush(await identity());
+      if (
+        sent.length &&
+        !(await box.takeStatus(false)).hasRows &&
+        (feedback === undefined || feedback === "queued")
+      )
+        await clearFeedback();
     } catch {
       /* Retain until explicit retry/sign-in. */
     }
@@ -141,38 +154,41 @@ export default defineBackground(() => {
       hasRows,
     };
   }
+  async function showFeedback(result: Awaited<ReturnType<typeof present>>) {
+    feedback = result.state;
+    const label =
+      result.state === "saved"
+        ? "Captured"
+        : result.state === "duplicate"
+          ? "Already in Your Library"
+          : result.state === "queued"
+            ? "Waiting to Send"
+            : result.state === "signed-out"
+              ? "Sign In"
+              : (("label" in result ? result.label : undefined) ?? "Try Again");
+    await browser.action.setBadgeText({
+      text: result.state === "saved" || result.state === "duplicate" ? "" : "!",
+    });
+    await browser.action.setTitle({ title: label });
+    return result;
+  }
   let running: Promise<Awaited<ReturnType<typeof present>>> | undefined;
   function dispatch(
     mode: string,
     imageUrl?: string,
     tabId?: number,
-    frameId = 0
+    frameId = 0,
+    failure?: Result
   ) {
     if (running) return running;
-    running = capture(mode, imageUrl, tabId, frameId)
+    running = (
+      failure
+        ? Promise.resolve(failure)
+        : capture(mode, imageUrl, tabId, frameId)
+    )
       .catch((error) => failed(error, "error"))
       .then(present)
-      .then(async (result) => {
-        const label =
-          result.state === "saved"
-            ? "Captured"
-            : result.state === "duplicate"
-              ? "Already in Your Library"
-              : result.state === "queued"
-                ? "Waiting to Send"
-                : result.state === "signed-out"
-                  ? "Sign In"
-                  : (("label" in result ? result.label : undefined) ??
-                    "Try Again");
-        await browser.action.setBadgeText({
-          text:
-            result.state === "saved" || result.state === "duplicate"
-              ? "✓"
-              : "!",
-        });
-        await browser.action.setTitle({ title: label });
-        return result;
-      })
+      .then(showFeedback)
       .finally(() => {
         running = undefined;
       });
@@ -182,33 +198,56 @@ export default defineBackground(() => {
     dispatch(command.replace("save-", ""))
   );
   browser.contextMenus.onClicked.addListener(async (info, tab) => {
-    const resource =
-      info.menuItemId === "image"
-        ? info.srcUrl
-        : info.menuItemId === "selection" &&
-            info.frameId !== 0 &&
-            info.frameUrl &&
-            new URL(info.frameUrl).origin !==
-              new URL(tab?.url ?? info.frameUrl).origin
-          ? info.frameUrl
-          : undefined;
-    if (resource) {
-      let origin: string;
-      try {
-        origin = new URL(resource).origin;
-      } catch {
-        return;
+    if (running) return running;
+    try {
+      const resource =
+        info.menuItemId === "image"
+          ? info.srcUrl
+          : info.menuItemId === "selection" &&
+              info.frameId !== 0 &&
+              info.frameUrl &&
+              new URL(info.frameUrl).origin !==
+                new URL(tab?.url ?? info.frameUrl).origin
+            ? info.frameUrl
+            : undefined;
+      if (resource) {
+        const origin = new URL(resource).origin;
+        if (!/^https?:/.test(origin) || tab?.id === undefined)
+          throw new Error("Unsupported Source");
+        if (
+          !(await browser.permissions.contains({ origins: [origin + "/*"] }))
+        ) {
+          const job: PermissionCapture = {
+            id: crypto.randomUUID(),
+            mode: String(info.menuItemId),
+            imageUrl: info.srcUrl,
+            tabId: tab.id,
+            frameId: info.frameId ?? 0,
+            origin,
+            expiresAt: Date.now() + 5 * 60_000,
+          };
+          await browser.storage.session.set({ permissionCapture: job });
+          await browser.tabs.create({
+            url: browser.runtime.getURL("/permission.html") + "#" + job.id,
+          });
+          return dispatch(job.mode, undefined, undefined, 0, {
+            state: "error",
+            label: "Grant Access",
+          });
+        }
       }
-      if (!/^https?:/.test(origin)) return;
-      if (!(await browser.permissions.request({ origins: [origin + "/*"] })))
-        return;
+      return dispatch(
+        String(info.menuItemId),
+        info.srcUrl,
+        tab?.id,
+        info.frameId
+      );
+    } catch {
+      return dispatch("page", undefined, undefined, 0, {
+        state: "error",
+        label: "Try Again",
+      });
     }
-    return dispatch(
-      String(info.menuItemId),
-      info.srcUrl,
-      tab?.id,
-      info.frameId
-    );
   });
   async function capture(
     mode = "page",
@@ -431,6 +470,47 @@ export default defineBackground(() => {
       }
       return;
     }
+    if (
+      sender.url?.split("#")[0] ===
+        browser.runtime.getURL("/permission.html") &&
+      (message?.type === "permission-capture" ||
+        message?.type === "permission-cancel")
+    ) {
+      return (async () => {
+        const { permissionCapture: job } = await browser.storage.session.get<{
+          permissionCapture?: PermissionCapture;
+        }>("permissionCapture");
+        if (!job || job.id !== message.id)
+          return { state: "error", label: "Try Again" };
+        if (
+          message.type === "permission-cancel" ||
+          job.expiresAt < Date.now()
+        ) {
+          await browser.storage.session.remove("permissionCapture");
+          await clearFeedback();
+          return { state: "error", label: "Cancelled" };
+        }
+        try {
+          if (
+            !(await browser.permissions.contains({
+              origins: [job.origin + "/*"],
+            }))
+          )
+            return dispatch(job.mode, undefined, undefined, 0, {
+              state: "error",
+              label: "Grant Access",
+            });
+          await browser.tabs.update(job.tabId, { active: true });
+          await browser.storage.session.remove("permissionCapture");
+          return dispatch(job.mode, job.imageUrl, job.tabId, job.frameId);
+        } catch {
+          return dispatch(job.mode, undefined, undefined, 0, {
+            state: "error",
+            label: "Try Again",
+          });
+        }
+      })();
+    }
     if (sender.url !== browser.runtime.getURL("/popup.html")) return;
     if (["capture", "selection", "region"].includes(message?.type)) {
       return dispatch(message.type === "capture" ? "page" : message.type);
@@ -455,7 +535,8 @@ export default defineBackground(() => {
             : { state: "queued" };
         })
         .catch((error) => failed(error, "queued"))
-        .then(present);
-    if (message?.type === "clear") return box.clear();
+        .then(present)
+        .then(showFeedback);
+    if (message?.type === "clear") return box.clear().then(clearFeedback);
   });
 });

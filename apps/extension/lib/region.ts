@@ -40,22 +40,29 @@ export async function selectRegion(themes: typeof THEMES) {
     const width = innerWidth,
       height = innerHeight,
       scroll = [scrollX, scrollY];
+    let finished = false;
     const finish = (b?: { x: number; y: number }) => {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
       window.removeEventListener("resize", invalidated);
       window.removeEventListener("scroll", invalidated, true);
       host.remove();
       if (previous instanceof HTMLElement)
         previous.focus({ preventScroll: true });
-      resolve(
-        a &&
-          b &&
-          innerWidth === width &&
-          innerHeight === height &&
-          scroll[0] === scrollX &&
-          scroll[1] === scrollY
-          ? { a, b, width, height }
-          : undefined
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          resolve(
+            a &&
+              b &&
+              innerWidth === width &&
+              innerHeight === height &&
+              scroll[0] === scrollX &&
+              scroll[1] === scrollY
+              ? { a, b, width, height }
+              : undefined
+          )
+        )
       );
     };
     const invalidated = () => finish();
