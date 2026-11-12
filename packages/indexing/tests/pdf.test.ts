@@ -622,3 +622,28 @@ describe("Gemini's inline limit in bytes", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("the embedding size check", () => {
+  it("counts only what is sent: text wins over an image on the same input", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            embeddings: [{ values: Array.from({ length: 8 }, () => 0.1) }],
+          })
+        )
+    );
+    const embedder = geminiEmbedding({
+      apiKey: "k",
+      paidTier: true,
+      dimensions: 8,
+      fetch: fetch as never,
+    });
+    const input = {
+      text: "ok",
+      image: { bytes: new Uint8Array(15 * 1024 * 1024), mime: "image/jpeg" },
+    } as unknown as Parameters<typeof embedder.embed>[0][number];
+    await embedder.embed([input]);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+});

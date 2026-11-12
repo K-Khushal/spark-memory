@@ -80,9 +80,11 @@ BEGIN
 END $$;
 --> statement-breakpoint
 
--- As 0013, except a Visual vector's part carries its anchor: the page of a
--- PDF it is the image of, and a word in a PDF's text says its page (pdf_part).
--- Passages already carry theirs (now with a page).
+-- As 0013, except: a Visual vector's part carries its anchor (the page of
+-- a PDF it is the image of); a word in a PDF's text says its page
+-- (pdf_part); and a Memory's equally close vectors are settled by kind, not
+-- by the order their rows happen to be read in. Passages already carry
+-- their anchor (now with a page).
 CREATE OR REPLACE FUNCTION search_memories(
   p_user_id text,
   p_query text,
@@ -188,7 +190,10 @@ AS $$
       AND v.dimensions = p_dimensions
       AND v.memory_id IS DISTINCT FROM p_like
       AND d.distance <= p_max_distance
-    ORDER BY v.memory_id, d.distance
+    -- Equally close (a short text's Passage often says what its Overview
+    -- does): the Overview, then a Visual, then a Passage, never by row order.
+    ORDER BY v.memory_id, d.distance,
+      CASE v.kind WHEN 'overview' THEN 0 WHEN 'visual' THEN 1 ELSE 2 END
   ),
   vector AS (
     SELECT n.id, n.kind, n.anchor, n.distance,

@@ -50,7 +50,10 @@ export function geminiEmbedding({
     async embed(inputs, { timeoutMs = EMBEDDING.timeoutMs } = {}) {
       // Too big to send, as its sizes alone say: refused before encoding it.
       if (
-        overInlineLimit(inputs.flatMap((i) => ("image" in i ? [i.image] : [])))
+        overInlineLimit(
+          // As serialised below: an input's text, when it has one, is what is sent.
+          inputs.flatMap((i) => ("text" in i ? [] : [i.image]))
+        )
       ) {
         throw new ProviderError("unsupported");
       }
