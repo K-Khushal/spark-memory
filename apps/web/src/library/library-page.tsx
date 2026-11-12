@@ -1,3 +1,7 @@
+import type { SearchChips } from "@spark/core";
+import { isWordless } from "./search-session";
+import { LibraryFilters, useFilterOptions } from "./library-filters";
+import { recordSearch } from "./search-history";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Link,
@@ -17,7 +21,12 @@ import { LibraryOverlaysHost } from "./overlays-host";
 import { pdfMatch, type PdfMatch } from "./pdf-match";
 import { MOD, useFileDrop } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
-import { useSearch, type Found, type Results } from "./use-search";
+import {
+  useMoreResults,
+  useSearch,
+  type Found,
+  type Results,
+} from "./use-search";
 import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
 
 /**
@@ -40,8 +49,11 @@ export function LibraryPage({
   const [searchOpen, setSearchOpen] = useState(desk === "search");
   const [overlaysEpoch, setOverlaysEpoch] = useState(0);
   const [overlaysDown, setOverlaysDown] = useState(false);
+  const previousSearch = useRef("");
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
+  /** The filter chips, one choice per group; they work with no words. */
+  const [chips, setChips] = useState<SearchChips>({});
   const [pasteOpen, setPasteOpen] = useState(desk === "capture");
   /** Set when this page was opened to show Capture or Search, then cleared on close. */
   const deskReturn = useRef<"capture" | "search" | null>(
@@ -64,13 +76,29 @@ export function LibraryPage({
   );
   // The wall: instant and full at once (often straight from the cache the
   // menu filled), and the last results stay up until new ones land.
-  const results = useSearch(
-    like ? { like: like.id } : { query },
-    library.memories,
-    library.version,
-    { userId: session.user.id, pauseMs: 0, keepPrevious: true }
+  const filtering = Object.keys(chips).length > 0;
+  const request = like
+    ? { like: like.id }
+    : { query, ...(filtering && { chips }) };
+  const first = useSearch(request, library.memories, library.version, {
+    userId: session.user.id,
+    pauseMs: 0,
+    keepPrevious: true,
+  });
+  const more = useMoreResults(request, first, library.memories);
+  const results = useMemo(
+    () =>
+      first && first !== "failed" && (more.direct.length || more.related.length)
+        ? {
+            ...first,
+            direct: [...first.direct, ...more.direct],
+            related: [...first.related, ...more.related],
+          }
+        : first,
+    [first, more.direct, more.related]
   );
-  const searching = !!like || !!query;
+  const searching = !!like || !!query || filtering;
+  const filterOptions = useFilterOptions(library.memories);
   const opened = library.memories.find((m) => m.id === openId);
   // The viewer steps through the images of the wall on screen.
   const images = useMemo(() => {
@@ -136,6 +164,13 @@ export function LibraryPage({
     )
       activate(memory.id);
     metrics.found();
+    if ((query || filtering) && results && results !== "failed") {
+      const hits = [...results.direct, ...results.related];
+      recordSearch(query, {
+        memoryId: memory.id,
+        position: hits.findIndex((m) => m.id === memory.id) + 1,
+      });
+    }
     reveal(memory);
   };
   const openFromSearch = (memory: Memory) => {
@@ -145,6 +180,14 @@ export function LibraryPage({
         related: instant.related.length,
       });
     }
+    const hits =
+      instant && instant !== "failed"
+        ? [...instant.direct.slice(0, 6), ...instant.related.slice(0, 4)]
+        : [];
+    recordSearch(draft, {
+      memoryId: memory.id,
+      position: hits.findIndex((m) => m.id === memory.id) + 1,
+    });
     if (
       draft.trim() &&
       instant &&
@@ -173,6 +216,12 @@ export function LibraryPage({
         related: instant.related.length,
       });
     }
+    recordSearch(
+      trimmed,
+      undefined,
+      !!previousSearch.current && previousSearch.current !== trimmed
+    );
+    previousSearch.current = trimmed;
     setQuery(trimmed);
     setLike(undefined);
     setSearchOpen(false);
@@ -186,7 +235,12 @@ export function LibraryPage({
     setLike(memory);
     window.scrollTo({ top: 0 });
   };
+  const changeChips = (next: SearchChips) => {
+    setChips(next);
+    setLike(undefined);
+  };
   const clearSearch = () => {
+    setChips({});
     setQuery("");
     setLike(undefined);
   };
@@ -260,33 +314,53 @@ export function LibraryPage({
         searchLabel={searchLabel}
         searchActive={searching}
         onClearSearch={clearSearchClick}
+        filters={
+          library.memories.length > 0 && (
+            <LibraryFilters
+              layout="sidebar"
+              options={filterOptions}
+              chips={chips}
+              onChange={changeChips}
+            />
+          )
+        }
       />
 
       <main className="min-w-0 flex-1">
-        <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden">
-          <Wordmark />
-          {admin && (
-            <Link to="/admin" className="text-sm text-ink-muted">
-              Admin
-            </Link>
-          )}
-          <div className="min-w-0 flex-1">
-            <DeskSearchField
-              label={searchLabel}
-              active={searching}
-              onSearch={openSearch}
-              onClear={clearSearchClick}
-            />
+        <div className="sticky top-0 z-20 border-b border-line bg-canvas md:hidden">
+          <div className="flex items-center gap-2 px-4 py-2">
+            <Wordmark />
+            {admin && (
+              <Link to="/admin" className="text-sm text-ink-muted">
+                Admin
+              </Link>
+            )}
+            <div className="min-w-0 flex-1">
+              <DeskSearchField
+                label={searchLabel}
+                active={searching}
+                onSearch={openSearch}
+                onClear={clearSearchClick}
+              />
+            </div>
+            <Button
+              variant="primary"
+              size="icon"
+              aria-label="Capture"
+              data-desk="capture"
+              onClick={openPasteBox}
+            >
+              <PlusIcon aria-hidden />
+            </Button>
           </div>
-          <Button
-            variant="primary"
-            size="icon"
-            aria-label="Capture"
-            data-desk="capture"
-            onClick={openPasteBox}
-          >
-            <PlusIcon aria-hidden />
-          </Button>
+          {library.memories.length > 0 && (
+            <LibraryFilters
+              layout="row"
+              options={filterOptions}
+              chips={chips}
+              onChange={changeChips}
+            />
+          )}
         </div>
         <h1 className="sr-only">Library</h1>
         {library.state === "ready" && (
@@ -342,6 +416,17 @@ export function LibraryPage({
                 onOpen={openMemory}
                 tiles={tiles}
               />
+            )}
+            {more.canLoad && (
+              <div className="mt-6 flex justify-center">
+                <Button
+                  variant="outline"
+                  disabled={more.busy}
+                  onClick={() => void more.load()}
+                >
+                  Show More
+                </Button>
+              </div>
             )}
           </div>
         )}
@@ -550,6 +635,32 @@ function SearchResults({
         <ResultWall
           label="More Like This"
           found={found}
+          glideKey={results.key}
+          query=""
+          onOpen={onOpen}
+          tiles={tiles}
+        />
+      </div>
+    );
+  }
+  // Filters alone: one wall of what they found, each with why it did, and
+  // no Direct and Related to tell apart.
+  if (isWordless(results.key)) {
+    const found = [...results.direct, ...results.related];
+    return (
+      <div data-search={results.mode}>
+        {!found.length && (
+          <Landing
+            key={results.key}
+            className="text-sm font-medium text-ink-muted"
+          >
+            No Memories Match
+          </Landing>
+        )}
+        <ResultWall
+          label="Filtered Memories"
+          found={found}
+          direct={false}
           glideKey={results.key}
           query=""
           onOpen={onOpen}

@@ -98,6 +98,14 @@ _Avoid_: quick search, deep search, semantic search (in UI copy)
 The few words under a search result that say what matched: a field, the passage, or the image.
 _Avoid_: reason, explanation, score
 
+**Filter chip**:
+A one-tap narrowing of the Library by kind, Source, when it was saved, colour or (later) Category. It works with an empty search box, and the same filters can be typed ("pdfs from last month").
+_Avoid_: facet, tag filter
+
+**Recent searches**:
+The few searches a person has run, offered when Search opens, each deletable. Kept thirty days.
+_Avoid_: search history, queries
+
 **More Like This**:
 Search with a Memory itself as the query, for the Memories nearest it in meaning and look.
 _Avoid_: similar items, recommendations

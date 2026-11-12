@@ -1,7 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { FREE_ALLOWANCE } from "@spark/core";
-import { databaseUrl, fakeTurnstile, newClient, signedIn } from "./worker";
+import {
+  databaseUrl,
+  fakeTurnstile,
+  newClient,
+  postSearch,
+  signedIn,
+} from "./worker";
 
 // The Memory API through the Worker, against real Postgres.
 fakeTurnstile();
@@ -23,10 +29,10 @@ describe.skipIf(!databaseUrl)("the Memory API", () => {
       ["GET", `/api/memories/${id}`],
       ["PATCH", `/api/memories/${id}`],
       ["DELETE", `/api/memories/${id}`],
-      ["GET", "/api/search?q=soup"],
+      ["POST", "/api/search"],
     ];
     for (const [method, path] of requests) {
-      const json = method === "GET" ? undefined : { body: "x" };
+      const json = method === "GET" ? undefined : { body: "x", q: "soup" };
       const res = await call(path, { method, json });
       expect(res.status, `${method} ${path}`).toBe(401);
     }
@@ -58,7 +64,7 @@ describe.skipIf(!databaseUrl)("the Memory API", () => {
     });
     expect(await edit.json()).toMatchObject({ id, title: "Buns" });
 
-    const found = await (await call("/api/search?q=cardamon")).json();
+    const found = await (await postSearch(call, { q: "cardamon" })).json();
     expect(found).toMatchObject({ results: [{ id, matched: ["typo"] }] });
 
     const del = await call(`/api/memories/${id}`, { method: "DELETE" });
@@ -141,7 +147,7 @@ describe.skipIf(!databaseUrl)("the Memory API", () => {
     expect(taken.status).toBe(409);
     const list = await (await ben.call("/api/memories")).json();
     expect(list).toEqual({ memories: [], unfinished: [] });
-    const search = await (await ben.call("/api/search?q=locker")).json();
+    const search = await (await postSearch(ben.call, { q: "locker" })).json();
     expect(search).toEqual({ mode: "instant", results: [] });
 
     expect(await (await ana.call(path)).json()).toMatchObject({

@@ -496,6 +496,16 @@ export function accountJobs(db: Database) {
       return rows.map((r) => r.id);
     },
 
+    /** Recent searches and search events past their thirty days (see search-history.ts). */
+    async sweepSearchHistory() {
+      await db.execute(
+        sql`delete from recent_search where searched_at <= now() - interval '30 days'`
+      );
+      await db.execute(
+        sql`delete from search_event where occurred_at <= now() - interval '30 days'`
+      );
+    },
+
     /**
      * Exports past their time let go of their ZIP (row deleted, removal
      * recorded, in one statement); then due removals are drained a batch at

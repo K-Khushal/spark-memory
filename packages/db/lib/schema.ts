@@ -528,6 +528,46 @@ export const objectRemoval = pgTable("object_removal", {
   dueAt: instant("due_at"),
 });
 
+/** Explicit searches, retained for thirty days; owner deletion cascades. */
+export const recentSearch = pgTable(
+  "recent_search",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    query: text("query").notNull(),
+    searchedAt: timestamp("searched_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("recent_search_user_id_query_key").on(t.userId, t.query),
+    index("recent_search_expiry").on(t.searchedAt),
+  ]
+);
+export const searchEvent = pgTable(
+  "search_event",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    query: text("query").notNull(),
+    memoryId: uuid("memory_id").references(() => memory.id, {
+      onDelete: "set null",
+    }),
+    position: integer("position"),
+    reformulation: boolean("reformulation").notNull().default(false),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("search_event_owner_time").on(t.userId, t.occurredAt),
+    index("search_event_expiry").on(t.occurredAt),
+  ]
+);
 /** First-run state belongs to the person, across devices. */
 export const onboarding = pgTable("onboarding", {
   userId: text("user_id")
