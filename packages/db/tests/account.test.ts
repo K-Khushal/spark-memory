@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import type { ImageCapture } from "@spark/core";
@@ -359,6 +360,83 @@ describe.skipIf(!databaseUrl)("an account", () => {
         memoryGeneration: null,
       });
       expect(await count("ai_call", "user_id", ana)).toBe(1);
+    });
+
+    it("clears Memory ids an earlier deletion already stored under the anonymised owner", async () => {
+      const memoryId = crypto.randomUUID();
+      const generation = crypto.randomUUID();
+      const model = `leftover-${memoryId}`;
+      await db.insert(schema.aiCall).values({
+        userId: ANONYMISED_USER,
+        memoryId,
+        memoryGeneration: generation,
+        day: "2026-11-11",
+        provider: "gemini",
+        model,
+        inputTokens: 1,
+        outputTokens: 1,
+        costMicros: 1,
+      });
+      const ben = await person();
+      const bensMemory = crypto.randomUUID();
+      await db.insert(schema.aiCall).values({
+        userId: ben,
+        memoryId: bensMemory,
+        memoryGeneration: bensMemory,
+        day: "2026-11-11",
+        provider: "gemini",
+        model: `live-${ben}`,
+        inputTokens: 1,
+        outputTokens: 1,
+        costMicros: 1,
+      });
+
+      const ana = await person();
+      await openAccount(db, ana).requestDeletion();
+      await age(ana);
+      expect(await accountJobs(db).continueDeletion(ana, async () => {})).toBe(
+        "done"
+      );
+
+      expect(await callByModel(model)).toEqual({
+        userId: ANONYMISED_USER,
+        memoryId: null,
+        memoryGeneration: null,
+      });
+      expect(await callByModel(`live-${ben}`)).toEqual({
+        userId: ben,
+        memoryId: bensMemory,
+        memoryGeneration: bensMemory,
+      });
+    });
+
+    it("backfills Memory ids off calls already anonymised, from the migration", async () => {
+      const memoryId = crypto.randomUUID();
+      const model = `backfill-${memoryId}`;
+      await db.insert(schema.aiCall).values({
+        userId: ANONYMISED_USER,
+        memoryId,
+        memoryGeneration: memoryId,
+        day: "2026-11-11",
+        provider: "gemini",
+        model,
+        inputTokens: 1,
+        outputTokens: 1,
+        costMicros: 1,
+      });
+      const statement = readFileSync(
+        new URL(
+          "../migrations/0016_clear_deleted_memory_ids.sql",
+          import.meta.url
+        ),
+        "utf8"
+      ).replaceAll("--> statement-breakpoint", "");
+      await db.execute(sql.raw(statement));
+      expect(await callByModel(model)).toEqual({
+        userId: ANONYMISED_USER,
+        memoryId: null,
+        memoryGeneration: null,
+      });
     });
 
     it("keeps an admin's setting changes, without their id", async () => {

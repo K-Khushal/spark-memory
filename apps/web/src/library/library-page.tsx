@@ -8,11 +8,11 @@ import { PlusIcon, SearchIcon } from "lucide-react";
 import { Button, Kbd, Masonry, Toaster, cn, toast } from "@spark/ui";
 import { startAnalytics, track } from "../analytics";
 import { authClient, endSession, type AppSession } from "../auth";
-import { DeskSearchField, DeskSidebar } from "../shell";
+import { DeskSearchField, DeskSidebar, focusDeskControl } from "../shell";
 import { productMetrics } from "./product-metrics";
 import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
 import { LibraryOverlaysHost } from "./overlays-host";
-import { MOD, useFileDrop, useLibraryShortcuts } from "./shortcuts";
+import { MOD, useFileDrop } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
 import { useSearch, type Found, type Results } from "./use-search";
 import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
@@ -39,6 +39,10 @@ export function LibraryPage({
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
   const [pasteOpen, setPasteOpen] = useState(desk === "capture");
+  /** Set when this page was opened to show Capture or Search, then cleared on close. */
+  const deskReturn = useRef<"capture" | "search" | null>(
+    desk === "capture" || desk === "search" ? desk : null
+  );
   const [openId, setOpenId] = useState<string>();
   const [imageId, setImageId] = useState<string>();
   /** The Memory the wall shows More Like This of, instead of a query. */
@@ -154,23 +158,29 @@ export function LibraryPage({
     void navigate({ to: "/", search: {}, replace: true });
   }, [desk, metrics, navigate]);
 
-  useLibraryShortcuts({
-    onSearch: openSearch,
-    onToggleSearch: () => {
-      if (overlaysDown) {
-        openSearch();
-        return;
-      }
-      if (searchOpen) setSearchOpen(false);
-      else openSearch();
-    },
-    // Office apps put a picture of copied text beside it: text wins.
-    onPaste: (data) => {
-      const text = data.getData("text/plain");
-      if (data.files.length && !text.trim()) captureFiles([...data.files]);
-      else void library.capture(text);
-    },
-  });
+  useEffect(() => {
+    const which = deskReturn.current;
+    if (!which) return;
+    if (which === "search" ? searchOpen : pasteOpen) return;
+    deskReturn.current = null;
+    const frame = requestAnimationFrame(() => focusDeskControl(which));
+    return () => cancelAnimationFrame(frame);
+  }, [searchOpen, pasteOpen]);
+
+  const toggleSearch = () => {
+    if (overlaysDown) {
+      openSearch();
+      return;
+    }
+    if (searchOpen) setSearchOpen(false);
+    else openSearch();
+  };
+  // Office apps put a picture of copied text beside it: text wins.
+  const pasteOntoWall = (data: DataTransfer) => {
+    const text = data.getData("text/plain");
+    if (data.files.length && !text.trim()) captureFiles([...data.files]);
+    else void library.capture(text);
+  };
 
   const signOut = async () => {
     setSearchOpen(false);
@@ -206,6 +216,8 @@ export function LibraryPage({
         }}
         onCapture={openPasteBox}
         onSearch={openSearch}
+        onToggleSearch={toggleSearch}
+        onPaste={pasteOntoWall}
         searchLabel={searchLabel}
         searchActive={searching}
         onClearSearch={clearSearchClick}
@@ -231,6 +243,7 @@ export function LibraryPage({
             variant="primary"
             size="icon"
             aria-label="Capture"
+            data-desk="capture"
             onClick={openPasteBox}
           >
             <PlusIcon aria-hidden />

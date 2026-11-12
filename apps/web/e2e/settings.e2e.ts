@@ -21,10 +21,47 @@ test("see this device, export the Library, delete the account", async ({
   await expect(page.getByRole("dialog", { name: "Capture" })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await sidebar.getByRole("button", { name: "Search" }).click();
   await expect(page.getByPlaceholder("Search…")).toBeVisible();
   await page.keyboard.press("Escape");
   await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+  // ⌘K and / live on the desk, so they open Search from Settings too.
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByPlaceholder("Search…")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("complementary").getByRole("button", { name: "Search" })
+  ).toBeFocused();
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.keyboard.press("/");
+  await expect(page.getByPlaceholder("Search…")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("complementary").getByRole("button", { name: "Search" })
+  ).toBeFocused();
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData("text/plain", "From settings");
+    document.body.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: data, bubbles: true })
+    );
+  });
+  await expect(page.getByRole("dialog", { name: "Capture" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("complementary").getByRole("button", { name: "Capture" })
+  ).toBeFocused();
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 
   const sessions = page.getByRole("list", { name: "Sessions" });
   await expect(sessions.getByText("This Device")).toBeVisible();

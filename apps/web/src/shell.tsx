@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Button, cn, Kbd, toast } from "@spark/ui";
 import { authClient, endSession } from "./auth";
-import { MOD } from "./library/shortcuts";
+import { MOD, useLibraryShortcuts } from "./library/shortcuts";
 
 /** A sidebar destination. The current one is the raised surface. */
 export function DeskNavLink({
@@ -59,6 +59,7 @@ export function DeskSearchField({
     <div className="flex min-w-0 items-center gap-1">
       <button
         type="button"
+        data-desk="search"
         onClick={onSearch}
         className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-[transform,color] duration-(--duration-press) ease-out hover:text-ink active:scale-[0.97]"
       >
@@ -99,6 +100,8 @@ export function DeskSidebar({
   onLibrary,
   onCapture,
   onSearch,
+  onToggleSearch,
+  onPaste,
   searchLabel = "Search",
   searchActive = false,
   onClearSearch,
@@ -110,11 +113,24 @@ export function DeskSidebar({
   onLibrary?: () => void;
   onCapture: () => void;
   onSearch: () => void;
+  /** ⌘K. Defaults to opening Search; the Library passes its toggle. */
+  onToggleSearch?: () => void;
+  /** ⌘V outside a field. Defaults to opening Capture. */
+  onPaste?: (data: DataTransfer) => void;
   /** What Search shows: "Search", the query, or "More Like This". */
   searchLabel?: string;
   searchActive?: boolean;
   onClearSearch?: () => void;
 }) {
+  useLibraryShortcuts({
+    onSearch,
+    onToggleSearch: onToggleSearch ?? onSearch,
+    onPaste: (data) => {
+      if (onPaste) onPaste(data);
+      else onCapture();
+    },
+  });
+
   return (
     <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 border-r border-line bg-sunken p-3 md:flex">
       <div className="flex h-8 items-center justify-between pl-2">
@@ -123,6 +139,7 @@ export function DeskSidebar({
           variant="quiet"
           size="icon-sm"
           aria-label="Capture"
+          data-desk="capture"
           onClick={onCapture}
         >
           <PlusIcon aria-hidden />
@@ -178,6 +195,15 @@ export function DeskSidebar({
       </div>
     </aside>
   );
+}
+
+/** The visible Capture or Search control, after a desk shortcut closes. */
+export function focusDeskControl(which: "capture" | "search") {
+  const nodes = document.querySelectorAll<HTMLElement>(
+    `[data-desk="${which}"]`
+  );
+  const visible = [...nodes].find((node) => node.getClientRects().length > 0);
+  (visible ?? nodes[0])?.focus();
 }
 
 /** Capture and Search from a desk page other than the Library: open them there. */

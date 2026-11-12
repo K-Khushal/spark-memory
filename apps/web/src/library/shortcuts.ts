@@ -76,9 +76,9 @@ const isTyping = (target: EventTarget | null) =>
     target.closest('[role="dialog"]') !== null);
 
 /**
- * The Library's global shortcuts (DESIGN.md → Interaction baseline):
- * ⌘K or Ctrl K toggles Search, `/` opens it; ⌘V outside a text field
- * Captures (text, or the images on the clipboard).
+ * Desk shortcuts (DESIGN.md → Interaction baseline), registered once by the
+ * sidebar so Settings and Admin share them with the Library: ⌘K or Ctrl K
+ * toggles Search, `/` opens it; ⌘V outside a text field Captures.
  */
 export function useLibraryShortcuts(handlers: {
   onSearch: () => void;

@@ -338,7 +338,20 @@ export function accountJobs(db: Database) {
             sql`starts_with(${objectRemoval.key}, ${ownerPrefix(userId)})`
           );
         await tx.delete(user).where(eq(user.id, userId));
-        await anonymise(tx);
+        // The waiting pass only rewrites this person's rows. Calls already
+        // stored as the anonymised owner (an earlier deletion, or a call
+        // that landed after the owner was gone) can still name a Memory,
+        // and a finished deletion is not run again.
+        await tx
+          .update(aiCall)
+          .set({
+            userId: ANONYMISED_USER,
+            memoryId: null,
+            memoryGeneration: null,
+          })
+          .where(
+            or(eq(aiCall.userId, userId), eq(aiCall.userId, ANONYMISED_USER))
+          );
         // An admin's setting changes stay (values and history), not their id.
         await tx
           .update(appSetting)
