@@ -128,7 +128,7 @@ export function openAdmin(db: Database) {
           .select({
             id: user.id,
             email: user.email,
-            memories: sql<string>`(select count(*) from memory m where m.user_id = ${ownerId})`,
+            memories: sql<string>`(select count(*) from memory m where m.user_id = ${ownerId} and not m.sample)`,
             storageBytes: sql<string>`${storage}`,
             costMicros: sql<string>`${cost}`,
           })

@@ -90,3 +90,4 @@ export {
   type VideoMetadata,
   type TranscriptSegment,
 } from "./lib/link";
+export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";

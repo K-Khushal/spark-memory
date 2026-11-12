@@ -148,7 +148,7 @@ export function tileLabel(memory: WallMemory) {
   if (memory.indexState === "indexing") return `${name}, Indexing`;
   if (memory.indexState === "failed") return `${name}, Indexing Failed`;
   if (isReferenceOnly(memory)) return `${name}, Reference Only`;
-  return name;
+  return memory.sample ? `${name}, Sample` : name;
 }
 
 /** One Memory on the wall, landing with DESIGN.md's Capture motion. */
@@ -163,15 +163,21 @@ export function MemoryTile(props: {
 }) {
   const { memory } = props;
   // Inside the tile's frame, so it moves with the tile on press.
-  const badge = !memory.upload && (
-    <IndexBadge
-      memory={memory}
-      onRetry={() => props.onRetryIndexing(memory)}
-      // One tab stop per wall: the keyboard retries from Memory detail.
-      focusable={false}
-      plate={!!memory.image}
-      className="absolute right-2 bottom-2"
-    />
+  const badge = memory.sample ? (
+    <span className="absolute right-2 bottom-2 rounded-chip bg-surface px-2 py-1 text-xs text-ink-muted">
+      Sample
+    </span>
+  ) : (
+    !memory.upload && (
+      <IndexBadge
+        memory={memory}
+        onRetry={() => props.onRetryIndexing(memory)}
+        // One tab stop per wall: the keyboard retries from Memory detail.
+        focusable={false}
+        plate={!!memory.image}
+        className="absolute right-2 bottom-2"
+      />
+    )
   );
   return (
     <div className={cn("h-full w-full", memory.fresh && "spark-capture-in")}>
