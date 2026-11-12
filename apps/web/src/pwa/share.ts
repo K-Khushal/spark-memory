@@ -71,18 +71,21 @@ export function planShare(share: PendingShare): SharePlan {
   return { images, pdfs, other, text: text || undefined };
 }
 
-export function applyShare(
+/** The part of the Library a share needs. */
+export type ShareLibrary = {
+  capture: (text: string) => boolean;
+  captureImages: (files: File[]) => Promise<void>;
+};
+
+export async function applyShare(
   plan: SharePlan,
-  library: {
-    capture: (text: string) => boolean;
-    captureImages: (files: File[]) => Promise<void>;
-  },
+  library: ShareLibrary,
   notify: (message: string) => void
 ) {
   if (plan.pdfs.length) notify("PDFs Can't Be Captured Yet");
   if (plan.other.length) notify("This Can't Be Captured");
   if (plan.images.length) {
-    void library.captureImages(plan.images);
+    await library.captureImages(plan.images);
     return;
   }
   if (plan.link) {

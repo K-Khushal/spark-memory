@@ -98,13 +98,13 @@ describe("planShare", () => {
 });
 
 describe("applyShare", () => {
-  it("sends images, refuses PDFs, and does not Capture leftover text", () => {
+  it("sends images, refuses PDFs, and does not Capture leftover text", async () => {
     const png = file("shot.png", "image/png");
     const pdf = file("doc.pdf", "application/pdf");
     const capture = vi.fn();
     const captureImages = vi.fn(async () => {});
     const notify = vi.fn();
-    applyShare(
+    await applyShare(
       planShare(share({ files: [png, pdf], text: "hello" })),
       { capture, captureImages },
       notify
@@ -114,17 +114,17 @@ describe("applyShare", () => {
     expect(notify).toHaveBeenCalledWith("PDFs Can't Be Captured Yet");
   });
 
-  it("Captures a link, or text when there is no link", () => {
+  it("Captures a link, or text when there is no link", async () => {
     const capture = vi.fn(() => true);
     const captureImages = vi.fn(async () => {});
-    applyShare(
+    await applyShare(
       planShare(share({ url: "https://example.com" })),
       { capture, captureImages },
       vi.fn()
     );
     expect(capture).toHaveBeenCalledWith("https://example.com");
     capture.mockClear();
-    applyShare(
+    await applyShare(
       planShare(share({ text: "Lemon tart" })),
       { capture, captureImages },
       vi.fn()
@@ -132,9 +132,9 @@ describe("applyShare", () => {
     expect(capture).toHaveBeenCalledWith("Lemon tart");
   });
 
-  it("names a file Spark cannot Capture", () => {
+  it("names a file Spark cannot Capture", async () => {
     const notify = vi.fn();
-    applyShare(
+    await applyShare(
       planShare(share({ files: [file("clip.mp4", "video/mp4")] })),
       { capture: vi.fn(), captureImages: vi.fn(async () => {}) },
       notify

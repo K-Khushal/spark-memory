@@ -19,9 +19,15 @@
   animation: spark-capture-in var(--duration-panel) var(--ease-out) both;
 }
 
-/* Installed, the page runs edge to edge: keep content out of a notch. */
+/* The page runs edge to edge (viewport-fit=cover): keep content out of a
+   notch. Installed, a pull down must not reload the app. */
 body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right)
     env(safe-area-inset-bottom) env(safe-area-inset-left);
-  overscroll-behavior: none;
+}
+
+@media (display-mode: standalone) {
+  body {
+    overscroll-behavior: none;
+  }
 }
