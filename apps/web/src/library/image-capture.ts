@@ -54,6 +54,14 @@ export type ImageTransport = {
   preload: (url: string) => Promise<void>;
 };
 
+/**
+ * How a Capture ended: the server has it, Capture refused it for good, the
+ * account is full ("full": freeing space would let it in), or the person took
+ * it back. A failed upload is none of these: it stays open, and Try Again can
+ * still finish it.
+ */
+export type CaptureOutcome = "stored" | "refused" | "full" | "dropped";
+
 /** An image upload as the wall shows it. Stored images have none. */
 export type UploadState =
   | { step: "sending"; progress: number }
@@ -98,6 +106,13 @@ export function imageCapture({
     failed: boolean;
   };
   const entries = new Map<string, Entry>();
+  /** Per Memory: how its Capture ended (see CaptureOutcome), once it has. */
+  const outcomes = new Map<
+    string,
+    { ended: Promise<CaptureOutcome>; end: (outcome: CaptureOutcome) => void }
+  >();
+  const end = (id: string, outcome: CaptureOutcome) =>
+    outcomes.get(id)?.end(outcome);
   /** Bytes being Captured now, counted against storage before the server knows. */
   const reserved = () =>
     [...entries.values()].reduce(
@@ -189,6 +204,7 @@ export function imageCapture({
       const saved = await transport.confirm(id);
       if (!current()) return;
       entries.delete(id);
+      end(id, "stored");
       // The server's copy, but the local files stay on screen (no reload
       // flash) until the stored thumbnail has loaded; then they are freed.
       const urls = entry.urls;
@@ -232,7 +248,10 @@ export function imageCapture({
       entry.abort?.abort();
       if (error instanceof Refused || error === "unreadable") {
         const pdf = isPdfCapture(prepared);
-        drop(id);
+        // Only a full account keeps a share: freeing space makes it fit.
+        const full =
+          error instanceof Refused && error.reason === "storage_full";
+        drop(id, full ? "full" : "refused");
         refuse(error instanceof Refused ? error.reason : "unreadable", pdf);
         return;
       }
@@ -247,10 +266,11 @@ export function imageCapture({
     }
   }
 
-  function drop(id: string) {
+  function drop(id: string, outcome: CaptureOutcome = "dropped") {
     const entry = entries.get(id);
     if (!entry) return false;
     entries.delete(id);
+    end(id, outcome);
     entry.abort?.abort();
     if (isPdfCapture(entry.prepared)) entry.prepared.release();
     removeLocal(id);
@@ -276,45 +296,54 @@ export function imageCapture({
    * Captures `files` as image Memories. Each is checked against the Free
    * allowance first; a refused one never reaches the wall. The rest land as
    * soon as they are decoded, newest first, and upload in the background.
-   * Returns the ids that landed, for Undo.
+   * Returns the ids that landed, for Undo. `ids[i]` is the Memory id for
+   * `files[i]`, for a Capture that must send the same id again if it is
+   * repeated (a share held until the server has it); otherwise one is made.
    */
-  async function capture(files: File[]): Promise<string[]> {
-    const { usedBytes } = await transport
-      .storage()
-      .catch(() => ({ usedBytes: 0 }));
-    let used = usedBytes + reserved();
-    const accepted: File[] = [];
-    for (const file of files) {
+  async function capture(files: File[], ids?: string[]): Promise<string[]> {
+    // A replayed share (it has ids): the server's count already holds what an
+    // earlier attempt reserved, so charging it again here could turn the only
+    // copy away. The server alone judges storage and answers Refused.
+    const replay = !!ids;
+    let used = replay
+      ? 0
+      : (await transport.storage().catch(() => ({ usedBytes: 0 }))).usedBytes +
+        reserved();
+    const accepted: { file: File; id: string }[] = [];
+    files.forEach((file, i) => {
       const refusal = isPdf(file)
         ? checkPdf(file, used)
         : checkImage(file, used);
       if (refusal) refuse(refusal, isPdf(file));
       else {
-        accepted.push(file);
-        used += file.size;
+        accepted.push({ file, id: ids?.[i] ?? crypto.randomUUID() });
+        if (!replay) used += file.size;
       }
-    }
-    const ids: string[] = [];
+    });
+    const landed: string[] = [];
     // Decoding is heavy: two at a time.
     const queue = [...accepted];
     const worker = async () => {
-      for (let file = queue.shift(); file; file = queue.shift()) {
-        const pdf = isPdf(file);
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const pdf = isPdf(next.file);
         const prepared = await (
-          pdf ? preparePdf(file) : prepareImage(file)
+          pdf ? preparePdf(next.file) : prepareImage(next.file)
         ).catch((reason: unknown) => {
           refuse(reason === "file_too_large" ? reason : "unreadable", pdf);
         });
-        if (prepared) ids.push(land(prepared));
+        if (prepared) landed.push(land(prepared, next.id));
       }
     };
     await Promise.all([worker(), worker()]);
-    return ids;
+    return landed;
   }
 
-  function land(prepared: Prepared) {
+  function land(prepared: Prepared, id: string) {
     const pdf = isPdfCapture(prepared);
-    const id = crypto.randomUUID();
+    if (entries.has(id)) return id; // this Memory is already on its way
+    let end!: (outcome: CaptureOutcome) => void;
+    const ended = new Promise<CaptureOutcome>((resolve) => (end = resolve));
+    outcomes.set(id, { ended, end });
     const urls = {
       url: URL.createObjectURL(prepared.file),
       thumbnailUrl: URL.createObjectURL(prepared.thumbnail),
@@ -360,7 +389,9 @@ export function imageCapture({
     capture,
     retry,
     /** Stops an upload and takes its tile away; false when none was running. */
-    cancel: drop,
+    cancel: (id: string) => drop(id),
+    /** Resolves when the Capture of `id` ends; undefined when it never landed (refused up front). */
+    outcome: (id: string) => outcomes.get(id)?.ended,
     isUploading: (id: string) => entries.has(id),
   };
 }

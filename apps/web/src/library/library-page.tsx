@@ -8,6 +8,7 @@ import { PlusIcon, SearchIcon } from "lucide-react";
 import { Button, Kbd, Masonry, Toaster, cn, toast } from "@spark/ui";
 import { startAnalytics, track } from "../analytics";
 import { authClient, endSession, type AppSession } from "../auth";
+import { ShareTarget } from "../pwa/share-target";
 import { DeskSearchField, DeskSidebar, focusDeskControl } from "../shell";
 import { productMetrics } from "./product-metrics";
 import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
@@ -359,6 +360,7 @@ export function LibraryPage({
         </div>
       )}
       <Toaster />
+      <ShareTarget library={library.edits} />
     </div>
   );
 }

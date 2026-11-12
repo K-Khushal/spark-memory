@@ -19,6 +19,19 @@
   animation: spark-capture-in var(--duration-panel) var(--ease-out) both;
 }
 
+/* The page runs edge to edge (viewport-fit=cover): keep content out of a
+   notch. Installed, a pull down must not reload the app. */
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+@media (display-mode: standalone) {
+  body {
+    overscroll-behavior: none;
+  }
+}
+
 /* Sonner's unlayered button reset overrides the shared focus outline.
    Toasts use ink, so their focus ring uses the contrasting canvas token. */
 [data-sonner-toast][data-styled="true"] [data-button]:focus-visible {

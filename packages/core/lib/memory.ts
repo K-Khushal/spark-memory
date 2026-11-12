@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { FREE_ALLOWANCE } from "./allowance";
+import { FREE_ALLOWANCE, IMAGE_TYPES } from "./allowance";
 import { normaliseUrl } from "./link";
 import { Palette } from "./indexing";
 
@@ -83,17 +83,7 @@ export type AccountDeletion = z.infer<typeof AccountDeletion>;
 export const confirmsDeletion = (typed: string, email: string) =>
   typed.trim().toLowerCase() === email.toLowerCase();
 
-/**
- * Image types Spark keeps as the Preserved copy. HEIC and HEIF are converted
- * to JPEG in the browser, so they never reach the server.
- */
-export const IMAGE_TYPES = [
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
-  "image/avif",
-] as const;
+export { IMAGE_TYPES };
 export const ImageType = z.enum(IMAGE_TYPES);
 export type ImageType = z.infer<typeof ImageType>;
 
