@@ -96,6 +96,8 @@ export function normaliseUrl(input: string): string | undefined {
   if (!url) return undefined;
   const id = youtubeId(input);
   if (id) return `https://www.youtube.com/watch?v=${id}`;
+  const post = socialPostUrl(url);
+  if (post) return post;
   url.hash = "";
   const video = isYouTubeVideo(input);
   const kept = [...url.searchParams].filter(
@@ -104,6 +106,49 @@ export function normaliseUrl(input: string): string | undefined {
   kept.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   url.search = new URLSearchParams(kept).toString();
   return url.toString();
+}
+
+const SOCIAL_HOSTS: [SocialPlatform, RegExp][] = [
+  ["x", /^((www|mobile)\.)?(x|twitter)\.com$/],
+  ["tiktok", /^((www|m|vm|vt)\.)?tiktok\.com$/],
+  ["instagram", /^(www\.)?instagram\.com$/],
+];
+
+/** The platforms whose posts get a site reader in the extension and oEmbed on the server. */
+export type SocialPlatform = "x" | "tiktok" | "instagram";
+
+/** X, TikTok or Instagram by the URL's real host (never a look-alike), else undefined. */
+export function socialPlatform(input: string): SocialPlatform | undefined {
+  const url = parse(input);
+  return url && SOCIAL_HOSTS.find(([, host]) => host.test(url.hostname))?.[0];
+}
+
+/** An Instagram reel's shortcode, from `/reel/`, `/reels/` or `/user/reel/`; undefined for anything else. */
+export function instagramReel(input: string): string | undefined {
+  const url = parse(input);
+  if (!url || socialPlatform(input) !== "instagram") return undefined;
+  const code = /^\/(?:[\w.]+\/)?reels?\/([\w-]+)\/?$/.exec(url.pathname)?.[1];
+  return code;
+}
+
+/**
+ * One post, one URL: the same tweet, TikTok or reel shared from the app, the
+ * web or an old twitter.com link dedupes to the same Memory. Undefined for
+ * any other page on these hosts (and short links, which only redirect).
+ */
+function socialPostUrl(url: WhatwgUrl): string | undefined {
+  const platform = socialPlatform(url.toString());
+  const path = url.pathname;
+  if (platform === "x") {
+    const m = /^\/(\w{1,15})\/status\/(\d+)(?:\/|$)/.exec(path);
+    return m ? `https://x.com/${m[1]}/status/${m[2]}` : undefined;
+  }
+  if (platform === "tiktok" && /^(www\.|m\.)?tiktok\.com$/.test(url.hostname)) {
+    const m = /^\/(@[\w.-]+)\/video\/(\d+)\/?$/.exec(path);
+    return m ? `https://www.tiktok.com/${m[1]}/video/${m[2]}` : undefined;
+  }
+  const reel = instagramReel(url.toString());
+  return reel ? `https://www.instagram.com/reel/${reel}/` : undefined;
 }
 
 /** The link when a paste is exactly one http(s) URL, else undefined (it is text). */
@@ -264,6 +309,7 @@ export function isVideoUrl(input: string): boolean {
   const url = parse(input);
   return (
     !!youtubeId(input) ||
+    !!instagramReel(input) ||
     (!!url &&
       /^(www\.)?vimeo\.com$/.test(url.hostname) &&
       /^\/\d+(?:\/|$)/.test(url.pathname))
