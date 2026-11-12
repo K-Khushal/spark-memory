@@ -85,7 +85,7 @@ async function pool<T>(
  * SQL break on the id, so random ids would make the order, and the baseline,
  * change from run to run. (Version 8, "custom" UUID.)
  */
-function memoryId(sampleId: string) {
+export function memoryId(sampleId: string) {
   const h = createHash("sha256").update(`spark-evals:${sampleId}`).digest();
   h[6] = (h[6]! & 0x0f) | 0x80;
   h[8] = (h[8]! & 0x3f) | 0x80;
@@ -163,7 +163,8 @@ async function persistedDocuments(
  * Loads the sample Library into a throwaway person's Library through the
  * real Capture (text and image), Indexing and search code, runs every
  * search in full mode and reports where the right Memory landed. The
- * person, and with them every Memory, is deleted at the end.
+ * person, and with them every Memory, is deleted at the end (and at the
+ * start, if an earlier run was stopped before it could).
  */
 export async function runEvals({
   db,
@@ -175,6 +176,19 @@ export async function runEvals({
   rerank,
   log = () => {},
 }: RunOptions): Promise<Report> {
+  // Memory ids are fixed per sample id, so a run stopped before its `finally`
+  // leaves rows that would make this Capture conflict: remove the throwaway
+  // people that still own any of them (their Libraries go with them).
+  const ids = memories.map((sample) => memoryId(sample.id));
+  if (ids.length)
+    await db.execute(sql`
+      delete from "user"
+      where email like 'evals-%@example.com'
+        and id in (select user_id from memory where id in (${sql.join(
+          ids.map((id) => sql`${id}::uuid`),
+          sql`, `
+        )}))
+    `);
   const userId = crypto.randomUUID();
   await db
     .insert(schema.user)
