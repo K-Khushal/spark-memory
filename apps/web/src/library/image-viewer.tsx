@@ -1,3 +1,4 @@
+import { restoreLibraryFocus } from "./focus";
 import { useState, type KeyboardEvent } from "react";
 import {
   AnimatePresence,
@@ -91,6 +92,7 @@ export function ImageViewer({
       <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
         {memory?.image && (
           <DialogContent
+            onCloseAutoFocus={restoreLibraryFocus}
             data-theme="dark"
             aria-describedby={undefined}
             onKeyDown={onKeyDown}
@@ -100,7 +102,7 @@ export function ImageViewer({
               e.preventDefault();
               (e.currentTarget as HTMLElement | null)?.focus();
             }}
-            className="h-dvh w-screen max-w-none overflow-hidden rounded-none bg-canvas shadow-none"
+            className="h-dvh w-screen max-w-none overflow-hidden rounded-none bg-canvas shadow-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
             closeClassName="z-10 size-11 bg-transparent"
           >
             <DialogTitle className="sr-only">{memoryName(memory)}</DialogTitle>
@@ -123,7 +125,7 @@ export function ImageViewer({
                 dragSnapToOrigin
                 onDragEnd={onDragEnd}
                 className={cn(
-                  "absolute inset-0 grid touch-pan-y justify-items-center px-4 pt-16 pb-20 md:px-16 md:pb-6",
+                  "absolute inset-0 grid touch-pan-y justify-items-center px-4 pt-32 pb-20 md:px-16 md:pt-16 md:pb-6",
                   tall ? "items-start overflow-y-auto" : "items-center"
                 )}
               >
@@ -140,7 +142,7 @@ export function ImageViewer({
                 upload={memory.upload}
                 onRetry={() => onRetry(memory.id)}
                 onDelete={() => remove(memory)}
-                className="absolute top-3 left-3 h-11"
+                className="absolute top-16 left-3 h-11 md:top-3"
               />
             ) : (
               <IndexBadge
@@ -148,7 +150,7 @@ export function ImageViewer({
                 onRetry={() => onRetryIndexing(memory)}
                 // No Memory detail for images: the viewer says why.
                 withReason
-                className="absolute top-5.5 left-3"
+                className="absolute top-16 left-3 max-w-[calc(100%-1.5rem)] md:top-5.5"
               />
             )}
             {!stranded && (

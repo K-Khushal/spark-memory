@@ -1,3 +1,4 @@
+import { restoreLibraryFocus } from "./focus";
 import { useRef, useState, type FormEvent } from "react";
 import { PaperclipIcon } from "lucide-react";
 import { FREE_ALLOWANCE, IMAGE_TYPES, PDF_TYPE } from "@spark/core";
@@ -48,7 +49,11 @@ export function PasteBox({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent aria-describedby={undefined} className="max-w-xl p-6">
+      <DialogContent
+        onCloseAutoFocus={restoreLibraryFocus}
+        aria-describedby={undefined}
+        className="max-h-[90dvh] max-w-xl overflow-y-auto p-6"
+      >
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogTitle>Capture</DialogTitle>
           <Textarea

@@ -1,3 +1,4 @@
+import { restoreLibraryFocus } from "./focus";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUpRightIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
 import { FREE_ALLOWANCE } from "@spark/core";
@@ -127,6 +128,7 @@ function Fields({
 
   return (
     <DialogContent
+      onCloseAutoFocus={restoreLibraryFocus}
       aria-describedby={undefined}
       // Focus the dialog, not the title: focusing the title would select it.
       onOpenAutoFocus={(e) => {
@@ -134,7 +136,7 @@ function Fields({
         (e.currentTarget as HTMLElement | null)?.focus();
       }}
       onKeyDown={onKeyDown}
-      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col gap-3 p-6"
+      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col gap-3 overflow-y-auto p-6 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
     >
       <DialogTitle className="sr-only">Memory</DialogTitle>
       <input
@@ -145,7 +147,7 @@ function Fields({
         placeholder="Title"
         aria-label="Title"
         dir="auto"
-        className="mr-8 min-w-0 rounded-chip bg-transparent text-ellipsis font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
+        className="mr-8 min-h-11 min-w-0 shrink-0 rounded-chip bg-transparent text-ellipsis font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
       />
       {memory.kind === "link" ? (
         <Reader memory={memory} />
@@ -166,9 +168,9 @@ function Fields({
         placeholder="Capture Note"
         aria-label="Capture Note"
         dir="auto"
-        className="h-10 min-w-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
+        className="h-10 min-w-0 shrink-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
       />
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pt-1">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Button
             variant="quiet"
