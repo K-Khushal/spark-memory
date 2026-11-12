@@ -1,6 +1,15 @@
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useRecentSearches } from "./search-history";
 import { restoreLibraryFocus } from "./focus";
-import { useRef, type ReactNode } from "react";
-import { LogOutIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import {
+  ClockIcon,
+  LogOutIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
 import {
   CommandDialog,
   CommandGroup,
@@ -13,7 +22,8 @@ import { useFlip } from "./flip";
 import { MOD } from "./shortcuts";
 import { memoryName } from "./memory-tile";
 import type { Memory } from "./use-library";
-import type { Results } from "./use-search";
+import type { Found, Results } from "./use-search";
+import { whyLabel } from "./why";
 
 /** The ⌘K palette: instant results, or Capture / Settings / Sign Out. */
 export function SearchCommand({
@@ -39,7 +49,29 @@ export function SearchCommand({
   onSettings: () => void;
   onSignOut: () => void;
 }) {
+  const { recent, forget } = useRecentSearches(open);
   const listRef = useRef<HTMLDivElement>(null);
+  // The highlighted row. With nothing typed, Recent searches open on their
+  // first one (arriving after the menu opened), so Delete has something to act on.
+  const [highlight, setHighlight] = useState("");
+  const firstRecent = recent[0] && `recent:${recent[0].id}`;
+  const [opened, setOpened] = useState<string>();
+  const opening = open && !draft ? firstRecent : undefined;
+  if (opening !== opened) {
+    // Adjusted while rendering, once per change (React's pattern for state
+    // that follows props): the first Recent search is highlighted when it arrives.
+    setOpened(opening);
+    if (opening) setHighlight(opening);
+  }
+  /** Delete or ⌘⌫ forgets the highlighted Recent search (the box is empty then, so they delete nothing else). */
+  const forgetHighlighted = (event: KeyboardEvent<HTMLInputElement>) => {
+    const keys =
+      event.key === "Delete" ||
+      (event.key === "Backspace" && (event.metaKey || event.ctrlKey));
+    if (!keys || draft || !highlight.startsWith("recent:")) return;
+    event.preventDefault();
+    void forget(highlight.slice("recent:".length));
+  };
   useFlip(
     listRef,
     instant && instant !== "failed"
@@ -55,10 +87,13 @@ export function SearchCommand({
       open={open}
       onOpenChange={onOpenChange}
       shouldFilter={false}
+      value={highlight}
+      onValueChange={setHighlight}
     >
       <CommandInput
         value={draft}
         onValueChange={onDraft}
+        onKeyDown={forgetHighlighted}
         placeholder="Search…"
         className="text-[1rem] md:text-md"
       />
@@ -100,17 +135,66 @@ export function SearchCommand({
             )
           )
         ) : (
-          <CommandGroup>
-            <Action icon={<PlusIcon />} hint={`${MOD}V`} onSelect={onCapture}>
-              Capture
-            </Action>
-            <Action icon={<SettingsIcon />} onSelect={onSettings}>
-              Settings
-            </Action>
-            <Action icon={<LogOutIcon />} onSelect={onSignOut}>
-              Sign Out
-            </Action>
-          </CommandGroup>
+          <>
+            {recent.length > 0 && (
+              <CommandGroup heading="Recent Searches">
+                {recent.map((s) => (
+                  <CommandItem
+                    key={s.id}
+                    value={`recent:${s.id}`}
+                    className="group/recent min-w-0"
+                    aria-keyshortcuts="Delete Control+Backspace Meta+Backspace"
+                    onSelect={() => onShowOnWall(s.query)}
+                  >
+                    <ClockIcon
+                      className="size-4 shrink-0 text-ink-muted"
+                      aria-hidden
+                    />
+                    <span
+                      className="min-w-0 flex-1 truncate"
+                      dir="auto"
+                      title={s.query}
+                    >
+                      {s.query}
+                    </span>
+                    {/* For the mouse only: the keyboard deletes the highlighted
+                        row (onKeyDown below), so this is not an extra control
+                        inside the list. */}
+                    <span
+                      aria-hidden
+                      data-delete-recent
+                      className="grid size-6 shrink-0 place-items-center rounded-control text-ink-muted opacity-0 group-hover/recent:opacity-100 group-data-[selected=true]/recent:opacity-100 pointer-coarse:opacity-100 hover:bg-line hover:text-ink [&_svg]:size-4"
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void forget(s.id);
+                      }}
+                    >
+                      <XIcon />
+                    </span>
+                  </CommandItem>
+                ))}
+                <CommandItem
+                  value="__clear_recent"
+                  onSelect={() => void forget()}
+                >
+                  <Trash2Icon className="size-4 text-ink-muted" aria-hidden />
+                  Clear Recent Searches
+                </CommandItem>
+              </CommandGroup>
+            )}
+            <CommandGroup>
+              <Action icon={<PlusIcon />} hint={`${MOD}V`} onSelect={onCapture}>
+                Capture
+              </Action>
+              <Action icon={<SettingsIcon />} onSelect={onSettings}>
+                Settings
+              </Action>
+              <Action icon={<LogOutIcon />} onSelect={onSignOut}>
+                Sign Out
+              </Action>
+            </CommandGroup>
+          </>
         )}
       </CommandList>
     </CommandDialog>
@@ -132,7 +216,7 @@ function ResultGroup({
   onOpen,
 }: {
   heading: string;
-  memories: Memory[];
+  memories: Found[];
   onOpen: (memory: Memory) => void;
 }) {
   if (!memories.length) return null;
@@ -147,6 +231,12 @@ function ResultGroup({
         >
           <span className="min-w-0 flex-1 truncate" dir="auto">
             {memoryName(memory)}
+          </span>
+          <span
+            className="max-w-32 truncate text-xs text-ink-muted"
+            title={whyLabel(memory)}
+          >
+            {whyLabel(memory)}
           </span>
         </CommandItem>
       ))}

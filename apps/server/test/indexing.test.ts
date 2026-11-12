@@ -13,6 +13,7 @@ import {
   ORIGIN,
   queues,
   signedIn,
+  postSearch,
 } from "./worker";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -104,7 +105,7 @@ const read = async (call: Call, id: string) =>
   (await (await call(`/api/memories/${id}`)).json()) as Memory;
 const search = async (call: Call, q: string) =>
   (
-    (await (await call(`/api/search?q=${encodeURIComponent(q)}`)).json()) as {
+    (await (await postSearch(call, { q })).json()) as {
       results: Memory[];
     }
   ).results.map((m) => m.id);

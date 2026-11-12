@@ -1,0 +1,23 @@
+[
+  {
+    "id": "filter-photos-lavender",
+    "query": "photos of purple flowers in rows",
+    "expect": ["img-lavender"],
+    "kind": "filter",
+    "note": "Kind (image) and colour read out of the words."
+  },
+  {
+    "id": "filter-screens-sidebar",
+    "query": "dashboard screenshots with the purple sidebar since last year",
+    "expect": ["shot-dashboard-purple"],
+    "kind": "filter",
+    "note": "Kind, colour and a capture date read out of the words."
+  },
+  {
+    "id": "filter-yellow-cab",
+    "query": "yellow cab photos from this year",
+    "expect": ["img-yellow-taxi"],
+    "kind": "filter",
+    "note": "Everything is captured when the set is built, so this year holds the whole Library."
+  }
+]

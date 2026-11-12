@@ -12,6 +12,7 @@ import {
   queues,
   recordingQueue,
   signedIn,
+  postSearch,
 } from "./worker";
 
 // The daily AI budget, spent: only this file spends it, and only for its
@@ -134,7 +135,7 @@ describe.skipIf(!databaseUrl)("past the daily AI budget", () => {
     expect(vectors.rowCount).toBeGreaterThan(0);
     const full = async (q: string) =>
       (
-        (await (await call(`/api/search?q=${q}&mode=full`)).json()) as {
+        (await (await postSearch(call, { q, mode: "full" })).json()) as {
           results: { id: string }[];
         }
       ).results.map((r) => r.id);
