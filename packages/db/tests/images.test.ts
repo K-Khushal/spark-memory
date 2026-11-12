@@ -369,12 +369,15 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
         return input.id;
       })
     );
+    // Long enough that running the checks one by one (30 × 300 ms) stays far
+    // beyond the bound even when a loaded machine slows the database work.
+    const CHECK_MS = 300;
     let current = 0;
     let max = 0;
     const check = async () => {
       current += 1;
       max = Math.max(max, current);
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, CHECK_MS));
       current -= 1;
       return "stored" as const;
     };
@@ -382,12 +385,14 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     const stored = await Promise.all(
       ids.map((id) => library(owner).markStored(id, check))
     );
-    // One owner's confirms used to run the check under the lock: 30 × 100 ms.
-    expect(Date.now() - started).toBeLessThan(2_000);
+    // One owner's confirms used to run the check under the lock: 30 × 300 ms.
+    expect(Date.now() - started).toBeLessThan((30 * CHECK_MS) / 2);
     expect(max).toBeGreaterThanOrEqual(30);
     expect(stored.every((m) => m && typeof m !== "string")).toBe(true);
     await removeUser(db, owner);
-  });
+    // Sixty database round trips of setup before the timed part: give a loaded
+    // machine room. The time bound above covers the timed part alone.
+  }, 60_000);
 
   it("does not mark a Memory stored once its account is being deleted", async () => {
     const owner = await newUser(db);
