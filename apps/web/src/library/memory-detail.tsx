@@ -136,7 +136,7 @@ function Fields({
         (e.currentTarget as HTMLElement | null)?.focus();
       }}
       onKeyDown={onKeyDown}
-      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col gap-3 overflow-y-auto p-6 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col gap-3 overflow-y-auto p-4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:p-6 [&_label]:whitespace-normal"
     >
       <DialogTitle className="sr-only">Memory</DialogTitle>
       <input
@@ -186,7 +186,7 @@ function Fields({
           <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isReferenceOnly(memory) && (
               <ReferenceOnlyBadge className="text-sm" />
             )}
