@@ -9,7 +9,9 @@ import {
   MemoryEdit,
   normaliseUrl,
   TextCapture,
+  type LinkMetadata,
   type MemoryKind,
+  type Preservation,
 } from "@spark/core";
 import type { Database } from "./client";
 import {
@@ -231,6 +233,10 @@ export type ExportedMemory = {
   body: string | null;
   captureNote: string | null;
   aiOptOut: boolean;
+  /** A link's Source as the person gave it, whether a copy was kept, and what gathering found. */
+  sourceUrl: string | null;
+  preservation: Preservation;
+  metadata: LinkMetadata | null;
   capturedAt: Date;
   updatedAt: Date;
   index: {
@@ -826,6 +832,9 @@ export function openLibrary(
           body: memory.body,
           captureNote: memory.captureNote,
           aiOptOut: memory.aiOptOut,
+          sourceUrl: memory.sourceUrl,
+          preservation: memory.preservation,
+          metadata: memory.metadata,
           capturedAt: memory.capturedAt,
           updatedAt: memory.updatedAt,
           index: sql<

@@ -8,8 +8,6 @@ export type ScannedPage = {
   title?: string;
   /** `property` or `name` (lowercased) → content; the first one wins. */
   meta: Map<string, string>;
-  /** A discovered JSON oEmbed endpoint, as written. */
-  oembed?: string;
   jsonLd: string[];
   text: string;
 };
@@ -228,7 +226,7 @@ export function scanHtml(html: string, maxText = 200_000): ScannedPage {
     }
     // Only these tags carry anything that is kept.
     const attrs =
-      name === "meta" || name === "link" || name === "script"
+      name === "meta" || name === "script"
         ? attributesOf(html.slice(NAME.lastIndex, end))
         : NO_ATTRIBUTES;
 
@@ -256,16 +254,9 @@ export function scanHtml(html: string, maxText = 200_000): ScannedPage {
       if (key && content && !meta.has(key)) meta.set(key, content);
       continue;
     }
-    if (name === "link") {
-      const rel = attrs.get("rel")?.toLowerCase().split(/\s+/) ?? [];
-      if (
-        rel.includes("alternate") &&
-        attrs.get("type")?.toLowerCase() === "application/json+oembed"
-      ) {
-        page.oembed ??= attrs.get("href");
-      }
-      continue;
-    }
+    // An oEmbed link the page names is never followed (gather.ts), so a
+    // <link> carries nothing kept.
+    if (name === "link") continue;
     // Void and self-closed elements never open a region.
     if (
       html[end - 1] === "/" ||

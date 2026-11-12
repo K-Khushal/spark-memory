@@ -5,7 +5,6 @@ import {
   isTransient,
   publicFetch,
   type PublicResponse,
-  type Refusal,
   type Resolve,
 } from "./public-fetch";
 
@@ -21,11 +20,22 @@ export type Gathered = {
 };
 
 export type Gatherer = {
-  /** `reader: false` (AI opt-out) never sends the link to a reader service. */
-  gather(url: string, options?: { reader?: boolean }): Promise<Gathered>;
+  /**
+   * `thirdParty` is asked right before each call to someone other than the
+   * Source (oEmbed, Jina Reader); false (AI opt-out, or the run moved on)
+   * skips it. It is never asked unless the Source was confirmed public.
+   */
+  gather(
+    url: string,
+    options?: { thirdParty?: () => Promise<boolean> }
+  ): Promise<Gathered>;
 };
 
-/** oEmbed endpoints of sites whose pages say little to a server (PLAN.md §5.3.1). */
+/**
+ * oEmbed endpoints of sites whose pages say little to a server (PLAN.md
+ * §5.3.1). The only oEmbed calls made: built here from the Source's host,
+ * never taken from a page.
+ */
 const OEMBED: [RegExp, string][] = [
   [
     /^(www\.|m\.)?youtube\.com$|^youtu\.be$/,
@@ -41,15 +51,6 @@ const OEMBED: [RegExp, string][] = [
   [/^(www\.|old\.)?reddit\.com$/, "https://www.reddit.com/oembed?url="],
 ];
 
-/** Refusals that mean the link is not for the public web: no reader is asked either. */
-const NOT_PUBLIC = new Set<Refusal>([
-  "scheme",
-  "credentials",
-  "port",
-  "private_address",
-  "unresolved",
-  "too_many_redirects",
-]);
 /** What the person can edit later (FREE_ALLOWANCE), so a page title is never too long to keep. */
 const MAX_CHARS: Partial<Record<keyof LinkMetadata, number>> = {
   title: FREE_ALLOWANCE.titleMaxChars,
@@ -155,8 +156,8 @@ const parseJson = (res: PublicResponse): Ld | undefined => {
 /**
  * Gathers a pasted link on the server (ADR-0006's fallback): the page's
  * Open Graph and JSON-LD metadata and readable text, then oEmbed, then Jina
- * Reader when configured and the text is thin. Every request, including
- * oEmbed links the page names, goes through `publicFetch`. Never throws.
+ * Reader when configured and the text is thin. Every request goes through
+ * `publicFetch`; oEmbed endpoints come only from OEMBED. Never throws.
  */
 export function createGatherer({
   fetch,
@@ -173,38 +174,33 @@ export function createGatherer({
     opts: Partial<Parameters<typeof publicFetch>[1]> = {}
   ) => publicFetch(url, { fetch, resolve, ...opts });
 
-  async function gather(url: string, { reader: allowReader = true } = {}) {
+  async function gather(
+    url: string,
+    {
+      thirdParty = async () => true,
+    }: { thirdParty?: () => Promise<boolean> } = {}
+  ) {
     const metadata: LinkMetadata = {};
     let text = "";
-    let transient = false;
-    let discovered: string | undefined;
-    let notPublic = false;
 
     const page = await get(url);
     if (page.ok) {
-      const scanned = scanHtml(page.text, FREE_ALLOWANCE.textMaxChars);
-      const found = fromPage(scanned);
+      const found = fromPage(scanHtml(page.text, FREE_ALLOWANCE.textMaxChars));
       fill(metadata, found.metadata);
       text = found.text;
       if (page.url !== url) metadata.finalUrl = page.url;
-      if (scanned.oembed) {
-        try {
-          discovered = new URL(scanned.oembed, page.url).href;
-        } catch {
-          // An unusable link is no link.
-        }
-      }
-    } else {
-      transient = isTransient(page.reason);
-      notPublic = NOT_PUBLIC.has(page.reason);
     }
+    // Only a Source shown to be public (it answered, or every address on
+    // the way checked public) is ever named to a third party. A failed
+    // name lookup proves nothing: the link waits for another attempt.
+    const confirmed = page.ok || page.confirmed === true;
+    const transient = !page.ok && isTransient(page.reason);
 
     const host = new URL(url).hostname;
     const known = OEMBED.find(([pattern]) => pattern.test(host));
-    const endpoint = known ? known[1] + encodeURIComponent(url) : discovered;
-    if (endpoint && !notPublic) {
+    if (confirmed && known && (await thirdParty())) {
       const o = parseJson(
-        await get(endpoint, {
+        await get(known[1] + encodeURIComponent(url), {
           accept: JSON_TYPES,
           maxBytes: GATHER.maxJsonBytes,
         })
@@ -225,10 +221,10 @@ export function createGatherer({
     }
 
     if (
-      text.length < GATHER.minPreservedChars &&
+      confirmed &&
       reader &&
-      allowReader &&
-      !notPublic
+      text.length < GATHER.minPreservedChars &&
+      (await thirdParty())
     ) {
       const res = await get(GATHER.readerUrl + url, {
         accept: ["application/json"],

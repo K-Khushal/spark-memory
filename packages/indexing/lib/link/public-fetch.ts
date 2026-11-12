@@ -7,12 +7,14 @@ export const GATHER = {
   readerTimeoutMs: 15_000,
   dnsTimeoutMs: 3_000,
   /**
-   * HTML read per page: metadata sits in the head, an article well inside
-   * this. Scanning takes about 24 ms of V8 CPU per MB (measured on Node
-   * 22), so this keeps the worst page near 12 ms and a typical one
-   * (about 100 KB) near 2 ms.
+   * HTML read per page: metadata sits in the head, most articles well
+   * inside this. The scan (html.ts) measured about 24 ms of V8 CPU per MB
+   * on Node 22 (a 990 KB article page, 10 runs after warm-up), so 256 KB
+   * costs about 6 ms: inside Workers Free's 10 ms with room for the rest
+   * of Indexing. A typical page (about 100 KB) costs about 2 ms.
+   * ADR-0006, Amendment.
    */
-  maxHtmlBytes: 512_000,
+  maxHtmlBytes: 256_000,
   maxJsonBytes: 256_000,
   /** Less readable text than this is a login wall or an app shell, not a Preserved copy. */
   minPreservedChars: 280,
@@ -37,9 +39,15 @@ export type Refusal =
   | "timeout"
   | "network";
 
+/**
+ * `confirmed`: the failure came after every address on the way was checked
+ * public and the request went out (the Source answered badly or dropped
+ * the connection). Without it the Source was never shown to be public, and
+ * nothing may tell a third party about it.
+ */
 export type PublicResponse =
   | { ok: true; url: string; type: string; text: string; truncated: boolean }
-  | { ok: false; reason: Refusal };
+  | { ok: false; reason: Refusal; confirmed?: true };
 
 export const isTransient = (reason: Refusal) =>
   reason === "unavailable" || reason === "timeout" || reason === "network";
@@ -255,7 +263,8 @@ export async function publicFetch(
         },
       });
     } catch {
-      return { ok: false, reason: signal.aborted ? "timeout" : "network" };
+      const reason = signal.aborted ? "timeout" : "network";
+      return { ok: false, reason, confirmed: true };
     }
     const location = res.headers.get("location");
     if (res.status >= 300 && res.status < 400 && location) {
@@ -269,20 +278,25 @@ export async function publicFetch(
     if (!res.ok || !res.body) {
       await res.body?.cancel().catch(() => {});
       const down = res.status >= 500 || res.status === 429;
-      return { ok: false, reason: down ? "unavailable" : "status" };
+      return {
+        ok: false,
+        reason: down ? "unavailable" : "status",
+        confirmed: true,
+      };
     }
     const header = res.headers.get("content-type") ?? "";
     const type = header.split(";")[0]!.trim().toLowerCase();
     if (!accept.includes(type)) {
       await res.body.cancel().catch(() => {});
-      return { ok: false, reason: "content_type" };
+      return { ok: false, reason: "content_type", confirmed: true };
     }
     try {
       const { bytes, truncated } = await readCapped(res.body, maxBytes);
       const text = charsetOf(header, bytes).decode(bytes);
       return { ok: true, url: url.href, type, text, truncated };
     } catch {
-      return { ok: false, reason: signal.aborted ? "timeout" : "network" };
+      const reason = signal.aborted ? "timeout" : "network";
+      return { ok: false, reason, confirmed: true };
     }
   }
 }

@@ -580,7 +580,7 @@ describe("index(job) for a link", () => {
     });
     expect(await index(job())).toEqual({ result: "searchable" });
     expect(g.gather).toHaveBeenCalledWith("https://garden.test/basil", {
-      reader: true,
+      thirdParty: expect.any(Function),
     });
     const sent = gemma.requests[0]!.user;
     expect(sent).toContain('<memory kind="link">');
@@ -614,11 +614,30 @@ describe("index(job) for a link", () => {
       readFile: noFiles,
     });
     expect(await index(job())).toEqual({ result: "searchable" });
-    expect(g.gather).toHaveBeenCalledWith(expect.any(String), {
-      reader: false,
-    });
+    const { thirdParty } = g.gather.mock.calls[0]![1]!;
+    expect(await thirdParty!()).toBe(false);
     expect(store.gathered).toHaveLength(1);
     expect(gemma.extract).not.toHaveBeenCalled();
+  });
+
+  it("asks the store whether the run is still current, opt-out off, right before a third party", async () => {
+    const store = memoryStore(linkMemory());
+    const g = gatherer();
+    let allowed: boolean | undefined;
+    g.gather.mockImplementationOnce(async (_url, options) => {
+      // AI opt-out switched on while the page was being fetched.
+      store.memory = { ...store.memory!, aiOptOut: true };
+      allowed = await options!.thirdParty!();
+      return { metadata: {}, text: null, transient: false };
+    });
+    const { index } = createIndexer({
+      store,
+      providers: [scripted("workers-ai", json())],
+      gatherer: g,
+      readFile: noFiles,
+    });
+    await index(job());
+    expect(allowed).toBe(false);
   });
 
   it("tries again later when the Source is down, then keeps it Reference only", async () => {

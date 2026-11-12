@@ -248,6 +248,41 @@ describe.skipIf(!databaseUrl)("link Memories", () => {
     expect(rows).toHaveLength(1);
   });
 
+  it("exports a link with its Source, Preservation and what gathering found", async () => {
+    const { memory } = await link({
+      url: "https://export.test/a?utm_source=x",
+    });
+    await store().saveGathered(
+      await claimOf(memory.id),
+      gathered({ contentHash: "e".repeat(64) })
+    );
+    const thin = await link({ url: "https://export.test/thin" });
+    const all: Awaited<ReturnType<ReturnType<typeof library>["exportPage"]>> =
+      [];
+    for (let after: string | undefined; ;) {
+      const page = await library().exportPage(after);
+      if (!page.length) break;
+      all.push(...page);
+      after = page.at(-1)!.id;
+    }
+    expect(all.find((m) => m.id === memory.id)).toMatchObject({
+      kind: "link",
+      sourceUrl: "https://export.test/a?utm_source=x",
+      preservation: "preserved",
+      body: ARTICLE,
+      metadata: {
+        title: "Growing Basil Indoors",
+        description: "A short guide to light",
+        siteName: "Garden Weekly",
+      },
+    });
+    expect(all.find((m) => m.id === thin.memory.id)).toMatchObject({
+      sourceUrl: "https://export.test/thin",
+      preservation: "reference_only",
+      metadata: null,
+    });
+  });
+
   it("never lets a link's text be edited", async () => {
     const { memory } = await link({ url: "https://edit.test/" });
     expect(

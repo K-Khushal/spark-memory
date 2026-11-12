@@ -501,12 +501,16 @@ export function createIndexer({
   ): Promise<IndexOutcome> {
     let work = loaded;
     // A link's Source first (not an AI call, so AI opt-out too, but then
-    // never through a third-party reader). Kept once; a Source that is down
-    // is asked again, and after the last attempt the link stays Reference only.
+    // never through oEmbed or a reader: `isCurrent` is false for it). Kept
+    // once; a Source that is down, or whose name could not be looked up,
+    // is asked again, and after the last attempt it stays Reference only.
     if (work.kind === "link" && work.gathered === false && work.sourceUrl) {
       if (gatherer) {
+        const claim = work;
         const { transient, ...found } = await gatherer.gather(work.sourceUrl, {
-          reader: !work.aiOptOut,
+          // Asked again right before each third party: the run may have
+          // moved on, or AI opt-out been switched on, while the page loaded.
+          thirdParty: () => store.isCurrent(claim),
         });
         if (transient && job.attempt < INDEXING.maxAttempts) {
           return { result: "retry", delaySeconds: backoffSeconds(job.attempt) };

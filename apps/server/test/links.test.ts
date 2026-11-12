@@ -28,7 +28,10 @@ type Memory = {
 const ARTICLE = "Basil wants six hours of light and warm soil. ".repeat(12);
 
 /** The public web as a few pages; DNS says every name is public unless listed. */
-function stubWeb(pages: Record<string, string>, privateNames: string[] = []) {
+function stubWeb(
+  pages: Record<string, string | (() => Promise<string>)>,
+  privateNames: string[] = []
+) {
   const asked: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -42,9 +45,9 @@ function stubWeb(pages: Record<string, string>, privateNames: string[] = []) {
     }
     asked.push(url.href);
     const page = pages[url.href];
-    return page === undefined
-      ? new Response("", { status: 404 })
-      : new Response(page, { headers: { "content-type": "text/html" } });
+    if (page === undefined) return new Response("", { status: 404 });
+    const body = typeof page === "string" ? page : await page();
+    return new Response(body, { headers: { "content-type": "text/html" } });
   });
   return asked;
 }
@@ -150,5 +153,49 @@ describe.skipIf(!databaseUrl)("link Capture", () => {
     const asked2 = stubWeb({ "https://app2.test/": page("App", "") });
     await drain(second.memory.id, env({ LINK_READER: "jina" }));
     expect(asked2).toContain(`https://r.jina.ai/https://app2.test/`);
+  });
+
+  it("never asks Jina once AI opt-out is switched on while the page is fetched", async () => {
+    const { call } = await signedIn();
+    const { memory } = await captureLink(call, "https://late.test/");
+    const asked = stubWeb({
+      "https://late.test/": async () => {
+        const res = await call(`/api/memories/${memory.id}/ai-opt-out`, {
+          method: "PUT",
+          json: { aiOptOut: true },
+        });
+        expect(res.status).toBe(200);
+        return page("Late", "");
+      },
+    });
+    await drain(memory.id, env({ LINK_READER: "jina" }));
+    expect(asked).toEqual(["https://late.test/"]);
+  });
+
+  it("calls no third party when DNS fails, and tries again later", async () => {
+    const { call } = await signedIn();
+    const { memory } = await captureLink(
+      call,
+      "https://x.com/someone/status/1"
+    );
+    const asked: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.hostname === "cloudflare-dns.com") {
+        // Only the Source's lookup fails; the third parties' would work.
+        return url.searchParams.get("name") === "x.com"
+          ? new Response("", { status: 503 })
+          : Response.json({ Answer: [{ type: 1, data: "93.184.215.14" }] });
+      }
+      asked.push(url.href);
+      return Response.json({ html: "<p>post</p>" });
+    });
+    const [message] = await drain(memory.id, env({ LINK_READER: "jina" }));
+    expect(asked).toEqual([]);
+    expect(message!.retry).toHaveBeenCalled();
+    expect(await read(call, memory.id)).toMatchObject({
+      indexState: "indexing",
+      preservation: "reference_only",
+    });
   });
 });

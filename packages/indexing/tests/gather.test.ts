@@ -147,7 +147,7 @@ describe("publicFetch refuses what is not the public web", () => {
         fetch: pdf.fetch,
         resolve: resolve(),
       })
-    ).toEqual({ ok: false, reason: "content_type" });
+    ).toEqual({ ok: false, reason: "content_type", confirmed: true });
   });
 
   it("reads at most maxBytes and says it was cut", async () => {
@@ -175,7 +175,7 @@ describe("publicFetch refuses what is not the public web", () => {
       resolve: resolve(),
       timeoutMs: 20,
     });
-    expect(res).toEqual({ ok: false, reason: "timeout" });
+    expect(res).toEqual({ ok: false, reason: "timeout", confirmed: true });
   });
 
   it("sends no cookies or credentials, and says who it is", async () => {
@@ -214,11 +214,25 @@ describe("publicFetch refuses what is not the public web", () => {
     expect(await publicFetch("https://a.test/5", opts)).toEqual({
       ok: false,
       reason: "unavailable",
+      confirmed: true,
     });
     expect(await publicFetch("https://a.test/4", opts)).toEqual({
       ok: false,
       reason: "status",
+      confirmed: true,
     });
+  });
+
+  it("calls a resolver that fails a network failure, never a public address", async () => {
+    const site = web({ "https://a.test/": html("<p>hi</p>") });
+    const res = await publicFetch("https://a.test/", {
+      fetch: site.fetch,
+      resolve: async () => {
+        throw new Error("dns down");
+      },
+    });
+    expect(res).toEqual({ ok: false, reason: "network" });
+    expect(site.requests).toEqual([]);
   });
 });
 
@@ -363,11 +377,16 @@ describe("gather", () => {
     });
   });
 
-  it("follows a discovered oEmbed link only to the public web", async () => {
+  it.each([
+    "http://169.254.169.254/oembed",
+    "https://unlisted.test/action?url=http://127.0.0.1",
+    // Even a listed provider's endpoint: only the server builds oEmbed URLs.
+    "https://www.youtube.com/oembed?format=json&url=http://127.0.0.1",
+  ])("never calls an oEmbed endpoint the page names (%s)", async (href) => {
     const site = web({
       "https://blog.test/post": html(
         "",
-        `<link rel="alternate" type="application/json+oembed" href="http://169.254.169.254/oembed">`
+        `<link rel="alternate" type="application/json+oembed" href="${href}">`
       ),
     });
     const { gather } = createGatherer({
@@ -435,9 +454,59 @@ describe("gather", () => {
 
     // AI opt-out: nothing goes to a third party.
     site.requests.length = 0;
-    await gather("https://spa.test/", { reader: false });
+    await gather("https://spa.test/", { thirdParty: async () => false });
     expect(site.requests.map((r) => r.url)).toEqual(["https://spa.test/"]);
   });
+
+  it("asks for permission again right before each third party, after the page came back", async () => {
+    const page = "https://www.youtube.com/watch?v=abc";
+    const asked: string[] = [];
+    let optedOut = false;
+    const site = web({
+      [page]: () => {
+        // AI opt-out switched on while the page is being fetched.
+        optedOut = true;
+        return new Response(html("<div></div>"), {
+          headers: { "content-type": "text/html" },
+        });
+      },
+    });
+    const { gather } = createGatherer({
+      fetch: site.fetch,
+      resolve: resolve(),
+      reader: {},
+    });
+    await gather(page, {
+      thirdParty: async () => {
+        asked.push(String(site.requests.length));
+        return !optedOut;
+      },
+    });
+    // Asked after the page request (one request made), and nothing else went out.
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((n) => n === "1")).toBe(true);
+    expect(site.requests.map((r) => r.url)).toEqual([page]);
+  });
+
+  it.each(["https://x.com/someone/status/1", "https://spa.test/"])(
+    "calls no third party when the Source's own name cannot be resolved (%s)",
+    async (url) => {
+      const site = web({});
+      const source = new URL(url).hostname;
+      const { gather } = createGatherer({
+        fetch: site.fetch,
+        // Only the Source's lookup fails: oEmbed and Jina hosts resolve.
+        resolve: async (host) => {
+          if (host === source) throw new Error("dns down");
+          return ["93.184.215.14"];
+        },
+        reader: {},
+      });
+      const found = await gather(url);
+      expect(found).toMatchObject({ text: null, transient: true });
+      expect(site.requests).toEqual([]);
+    }
+  );
 
   it("never asks a reader or oEmbed about a link that is not on the public web", async () => {
     const site = web({});
