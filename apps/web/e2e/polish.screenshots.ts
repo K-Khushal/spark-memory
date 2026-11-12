@@ -153,7 +153,7 @@ test("M1 surfaces and worst-case local Library", async ({ page, context }) => {
     document.addEventListener("DOMContentLoaded", () => {
       const style = document.createElement("style");
       style.textContent =
-        'body:has([role="dialog"][data-state="open"]) nav[aria-label="Polish Test Data"] { display: none; }';
+        'body:has([role="dialog"][data-state="open"]) nav[aria-label="Polish Test Data"] { display: none !important; }';
       document.head.append(style);
       const nav = document.createElement("nav");
       nav.ariaLabel = "Polish Test Data";

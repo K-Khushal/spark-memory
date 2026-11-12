@@ -10,6 +10,16 @@ export function restoreLibraryFocus(event: Event) {
     // Search can hand directly to Memory detail or Capture. Its closing
     // scope must leave the new dialog's focus trap in charge.
     if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+    const active = document.activeElement;
+    // A route handoff may already have restored its own control. Do not
+    // replace that focus with the Library fallback when this scope exits.
+    if (
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      active.isConnected &&
+      !active.closest('[role="dialog"]')
+    )
+      return;
     const tile = document.querySelector<HTMLElement>(
       'main [role="listitem"][tabindex="0"]'
     );
