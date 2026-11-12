@@ -6,6 +6,12 @@ export type ExtractRequest = {
   /** The Memory, delimited; never part of `system`. */
   user: string;
   image?: { bytes: Uint8Array; mime: string };
+  /**
+   * A scanned PDF's page images, in order: the reply follows
+   * PDF_SCAN_OUTPUT_JSON_SCHEMA, with each page's text. Only providers that
+   * `readsPages` are asked.
+   */
+  pages?: { bytes: Uint8Array; mime: string }[];
   /** Set on the one corrective retry: the answer that failed and why. */
   correction?: { previous: string; errors: string };
 };
@@ -23,6 +29,8 @@ export type ProviderReply = { text: string; usage: Usage };
 export type Provider = {
   name: ProviderName;
   model: string;
+  /** Reads a scanned PDF's page images in one call (ExtractRequest.pages). */
+  readsPages?: boolean;
   extract(request: ExtractRequest): Promise<ProviderReply>;
 };
 
@@ -62,7 +70,7 @@ export const CORRECTION = (errors: string) =>
  * image costs, and every output token it was allowed.
  */
 export function lostCall(
-  { system, user, image, correction }: ExtractRequest,
+  { system, user, image, pages, correction }: ExtractRequest,
   {
     imageTokens,
     maxOutputTokens,
@@ -75,7 +83,9 @@ export function lostCall(
       ? correction.previous.length + CORRECTION(correction.errors).length
       : 0);
   return {
-    inputTokens: guessTokens(chars) + (image ? imageTokens : 0),
+    inputTokens:
+      guessTokens(chars) +
+      ((image ? 1 : 0) + (pages?.length ?? 0)) * imageTokens,
     outputTokens: maxOutputTokens,
   };
 }

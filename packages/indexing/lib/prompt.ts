@@ -14,6 +14,11 @@ Reply with one JSON object only, with these fields:
 - tags: up to 12 short descriptive labels.
 - language: the BCP-47 tag of its main language, or "und".`;
 
+/** For a scanned PDF, whose page images follow the Memory, each after its number. */
+export const SCAN_SYSTEM = `${SYSTEM}
+- ocrText: empty.
+- pages: the text of each page image, verbatim, one entry per image, in order.`;
+
 export type MemoryContent = {
   kind: string;
   title: string | null;
@@ -88,7 +93,7 @@ export function memoryPart(memory: MemoryContent): string {
     return `<${tag}>\n${text}\n</${tag}>\n`;
   };
   return (
-    `<memory kind="${memory.kind === "image" || memory.kind === "link" ? memory.kind : "text"}">\n` +
+    `<memory kind="${["image", "link", "pdf"].includes(memory.kind) ? memory.kind : "text"}">\n` +
     field("title", memory.title ?? memory.pageTitle ?? null) +
     field("source", memory.sourceUrl ?? null) +
     field("description", memory.description ?? null) +

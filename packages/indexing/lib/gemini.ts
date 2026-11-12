@@ -1,4 +1,8 @@
-import { INDEXING, INDEXING_OUTPUT_JSON_SCHEMA } from "@spark/core";
+import {
+  INDEXING,
+  INDEXING_OUTPUT_JSON_SCHEMA,
+  PDF_SCAN_OUTPUT_JSON_SCHEMA,
+} from "@spark/core";
 import {
   base64,
   CORRECTION,
@@ -52,8 +56,12 @@ export function gemini({
   return {
     name: "gemini",
     model,
+    readsPages: true,
     async extract(request) {
-      const { system, user, image, correction } = request;
+      const { system, user, image, pages, correction } = request;
+      const maxOutputTokens = pages
+        ? INDEXING.scanMaxOutputTokens
+        : MAX_OUTPUT_TOKENS;
       // Lost after sending (timed out, the connection dropped, the reply
       // cut off): Google may still bill it, so the budget counts it at its
       // most, like a Workers AI timeout.
@@ -62,7 +70,7 @@ export function gemini({
           "failed",
           lostCall(request, {
             imageTokens: IMAGE_TOKENS,
-            maxOutputTokens: MAX_OUTPUT_TOKENS,
+            maxOutputTokens,
           })
         );
       const parts: unknown[] = [{ text: user }];
@@ -71,6 +79,13 @@ export function gemini({
           inlineData: { mimeType: image.mime, data: base64(image.bytes) },
         });
       }
+      // Each page image after its number, so the reply's pages line up.
+      pages?.forEach((page, i) => {
+        parts.push(
+          { text: `Page ${i + 1}` },
+          { inlineData: { mimeType: page.mime, data: base64(page.bytes) } }
+        );
+      });
       const contents: unknown[] = [{ role: "user", parts }];
       if (correction) {
         contents.push(
@@ -92,8 +107,10 @@ export function gemini({
             contents,
             generationConfig: {
               responseMimeType: "application/json",
-              responseJsonSchema: INDEXING_OUTPUT_JSON_SCHEMA,
-              maxOutputTokens: MAX_OUTPUT_TOKENS,
+              responseJsonSchema: pages
+                ? PDF_SCAN_OUTPUT_JSON_SCHEMA
+                : INDEXING_OUTPUT_JSON_SCHEMA,
+              maxOutputTokens,
               thinkingConfig: { thinkingLevel: "MINIMAL" },
             },
           }),
@@ -107,7 +124,7 @@ export function gemini({
       if (res.status === 504) throw lost();
       if (res.status === 429) throw new ProviderError("overflow");
       if (res.status === 400 || res.status === 413) {
-        throw new ProviderError(image ? "unsupported" : "failed");
+        throw new ProviderError(image || pages ? "unsupported" : "failed");
       }
       if (!res.ok) throw new ProviderError("failed");
       let reply: Reply;

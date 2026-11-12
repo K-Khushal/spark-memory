@@ -22,10 +22,16 @@ export {
   type ProviderReply,
   type Usage,
 } from "./lib/provider";
-export { embedderFor, providerChain, type ChainOptions } from "./lib/chain";
+export {
+  embedderFor,
+  pdfReaderFor,
+  providerChain,
+  type ChainOptions,
+} from "./lib/chain";
 export {
   embedCostMicros,
   embeddingInputs,
+  pagePassages,
   passages,
   queryText,
   type EmbedInput,
@@ -37,7 +43,16 @@ export { geminiEmbedding } from "./lib/gemini-embedding";
 export { workersAi, type AiBinding } from "./lib/workers-ai";
 export { gemini, type GeminiOptions } from "./lib/gemini";
 export { fakeEmbedder, fakeProvider, FAKE_WORD } from "./lib/fake";
-export { SYSTEM } from "./lib/prompt";
+export { SCAN_SYSTEM, SYSTEM } from "./lib/prompt";
+export {
+  fakePdfReader,
+  isScan,
+  markdownPages,
+  pdfBody,
+  workersAiPdf,
+  type MarkdownBinding,
+  type PdfReader,
+} from "./lib/pdf";
 export {
   createGatherer,
   type Gathered,

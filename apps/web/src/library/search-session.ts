@@ -5,10 +5,18 @@ export type Mode = "instant" | "full";
 export type SearchRequest = { query: string } | { like: string };
 
 /** What matched in a result (migrations/0013_hybrid_search.sql). */
+/** What matched (packages/db MatchedPart); `page` is a PDF's page. */
 export type MatchedPart =
-  | { kind: "field"; field?: string }
-  | { kind: "passage"; field: "body" | "ocr"; start: number; end: number }
-  | { kind: "overview" | "visual" };
+  | { kind: "field"; field?: string; page?: number }
+  | {
+      kind: "passage";
+      field: "body" | "ocr";
+      start: number;
+      end: number;
+      page?: number;
+    }
+  | { kind: "overview" }
+  | { kind: "visual"; page?: number };
 
 export type Hit = {
   id: string;

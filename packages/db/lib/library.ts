@@ -5,6 +5,9 @@ import {
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
+  PAGE_IMAGE,
+  PDF_TYPE,
+  PdfCapture,
   LinkCapture,
   MemoryEdit,
   normaliseUrl,
@@ -52,6 +55,11 @@ const image = sql<MemoryImage | null>`(
     on t.memory_id = o.memory_id and t.role = 'thumbnail'
   where o.memory_id = ${memory.id} and o.role = 'original')`;
 
+/** A PDF's page count; null for any other Memory. */
+const pages = sql<number | null>`(
+  select o.pages from memory_file o
+  where o.memory_id = ${memory.id} and o.role = 'original')`;
+
 /** The title Indexing gave a Memory, never shown for one with AI opt-out. */
 const indexTitle = sql<string | null>`(
   select i.title from ${memoryIndex} i
@@ -81,6 +89,7 @@ const baseColumns = {
   pageTitle: sql<string | null>`${memory.metadata}->>'title'`,
   description: sql<string | null>`${memory.metadata}->>'description'`,
   image,
+  pages,
 };
 
 /** A Memory as the API reads it; routes turn `image` keys into signed URLs. */
@@ -88,10 +97,12 @@ export type Memory = Pick<
   typeof memory.$inferSelect,
   Exclude<
     keyof typeof baseColumns,
-    "image" | "indexTitle" | "pageTitle" | "description"
+    "image" | "indexTitle" | "pageTitle" | "description" | "pages"
   >
 > & {
+  /** An image's files, or a PDF's: the PDF and its first page's thumbnail. */
   image: MemoryImage | null;
+  pages: number | null;
   indexTitle: string | null;
   pageTitle: string | null;
   description: string | null;
@@ -108,6 +119,8 @@ const allStored = sql`not exists (select 1 from memory_file f where f.memory_id 
 /** A file the browser still has to upload, to `key`, with exactly this type and size. */
 export type FileUpload = {
   role: FileRole;
+  /** A PDF page image's page (1, 2…); 0 for every other file. */
+  page: number;
   key: string;
   mime: string;
   bytes: number;
@@ -122,6 +135,24 @@ export type ImageCaptureResult =
   | { created: boolean; memory: Memory; uploads: FileUpload[] }
   | { conflict: true }
   | { refused: "file_too_large" | "storage_full" };
+export type PdfCaptureResult = ImageCaptureResult;
+
+/** A PDF's page image, for the viewer. */
+export type PageImage = {
+  page: number;
+  key: string;
+  width: number;
+  height: number;
+};
+
+/** A file a Capture creates, with what the wall needs to know of it. */
+type NewFile = Omit<FileUpload, "key"> & {
+  width?: number;
+  height?: number;
+  thumbhash?: string;
+  palette?: string[] | null;
+  pages?: number;
+};
 
 /**
  * Uploads that have not finished count towards storage for this long (so
@@ -154,8 +185,13 @@ const keyFor = (
   userId: string,
   memoryId: string,
   generation: string,
-  role: FileRole
-) => `${ownerPrefix(userId)}${memoryId}/${generation}/${role}`;
+  { role, page }: Pick<FileUpload, "role" | "page">
+) =>
+  `${ownerPrefix(userId)}${memoryId}/${generation}/${role === "page" ? `page-${page}` : role}`;
+
+/** One file of a Memory, by role and page. */
+const fileId = (file: Pick<FileUpload, "role" | "page">) =>
+  `${file.role}:${file.page}`;
 
 /** Every generation of one Memory. The sweep deletes this prefix, not one key. */
 const memoryPrefix = (userId: string, memoryId: string) =>
@@ -163,6 +199,7 @@ const memoryPrefix = (userId: string, memoryId: string) =>
 
 const fileColumns = {
   role: memoryFile.role,
+  page: memoryFile.page,
   key: memoryFile.key,
   mime: memoryFile.mime,
   bytes: memoryFile.bytes,
@@ -318,6 +355,142 @@ export function openLibrary(
     return Number(row?.bytes ?? 0);
   }
 
+  /**
+   * A file Memory (image or PDF) created before its files are uploaded,
+   * within the Free allowance (`upload` is the file it checks; every file
+   * takes storage). A retry with the same `id` returns the same Memory and
+   * only the uploads still missing, under new keys. Storage is checked
+   * under a per-owner lock, so parallel Captures queue.
+   */
+  function captureFiles(capture: {
+    id: string;
+    kind: "image" | "pdf";
+    contentHash: string;
+    title: string | null;
+    productAnalytics?: boolean;
+    upload: number;
+    files: NewFile[];
+  }): Promise<ImageCaptureResult> {
+    const { id } = capture;
+    return db.transaction(async (tx) => {
+      await lockOwner(tx, userId);
+      // An account being deleted takes no new uploads (account.ts).
+      if (await deletionRequested(tx, userId)) return { conflict: true };
+      const [taken] = await tx
+        .select({ userId: memory.userId, kind: memory.kind })
+        .from(memory)
+        .where(eq(memory.id, id));
+      if (taken && (taken.userId !== userId || taken.kind !== capture.kind)) {
+        return { conflict: true };
+      }
+      if (taken) {
+        // An expired upload no longer holds its storage: it must fit again.
+        const [own] = await tx
+          .select({
+            bytes: sql<string>`coalesce(sum(${memoryFile.bytes}), 0)`,
+            expired: sql<boolean>`coalesce(bool_or(${expiredUpload}), false)`,
+          })
+          .from(memoryFile)
+          .where(eq(memoryFile.memoryId, id));
+        if (
+          own?.expired &&
+          (await usedStorage(tx, id)) + Number(own.bytes) >
+            FREE_ALLOWANCE.storageBytes
+        ) {
+          return { refused: "storage_full" };
+        }
+        // A retry is a new upload: a new generation and new keys, so a
+        // confirm that already checked the previous objects cannot accept
+        // this one. The previous keys stay until the presigned PUT can no
+        // longer land, then the object sweep removes them. An abandoned
+        // upload's sweep deletes them with the Memory, by those exact keys.
+        const pending = await tx
+          .select({
+            role: memoryFile.role,
+            page: memoryFile.page,
+            key: memoryFile.key,
+          })
+          .from(memoryFile)
+          .where(
+            and(
+              eq(memoryFile.memoryId, id),
+              sql`${memoryFile.storedAt} is null`
+            )
+          );
+        if (pending.length) {
+          const generation = crypto.randomUUID();
+          await tx
+            .insert(objectRemoval)
+            .values(
+              pending.map((file) => ({
+                key: file.key,
+                dueAt: sql`now() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
+              }))
+            )
+            .onConflictDoNothing();
+          for (const file of pending) {
+            await tx
+              .update(memoryFile)
+              .set({
+                createdAt: sql`now()`,
+                generation,
+                key: keyFor(userId, id, generation, file),
+              })
+              .where(
+                and(
+                  eq(memoryFile.memoryId, id),
+                  eq(memoryFile.role, file.role),
+                  eq(memoryFile.page, file.page)
+                )
+              );
+          }
+        }
+        const files = await tx
+          .select(fileColumns)
+          .from(memoryFile)
+          .where(eq(memoryFile.memoryId, id))
+          .orderBy(asc(memoryFile.role), asc(memoryFile.page));
+        const [row] = await tx.select(columns).from(memory).where(owned(id));
+        if (!row?.image) return { conflict: true };
+        const uploads = files
+          .filter((f) => !f.stored)
+          .map(({ stored: _, ...f }) => f);
+        return { created: false, memory: row, uploads };
+      }
+
+      const others = capture.files.reduce((n, f) => n + f.bytes, 0);
+      const allowed = isFileWithinAllowance({
+        fileBytes: capture.upload,
+        usedStorageBytes: (await usedStorage(tx)) + others - capture.upload,
+      });
+      if (!allowed.ok) return { refused: allowed.reason };
+
+      await tx.insert(memory).values({
+        id,
+        userId,
+        kind: capture.kind,
+        title: capture.title,
+        contentHash: capture.contentHash,
+        indexState: "indexing",
+        indexPriority: "fresh",
+        productAnalytics: capture.productAnalytics === true,
+      });
+      const generation = crypto.randomUUID();
+      const rows = capture.files.map((file) => ({
+        ...file,
+        memoryId: id,
+        generation,
+        key: keyFor(userId, id, generation, file),
+      }));
+      await tx.insert(memoryFile).values(rows);
+      const uploads: FileUpload[] = rows.map(
+        ({ role, page, key, mime, bytes }) => ({ role, page, key, mime, bytes })
+      );
+      const [row] = await tx.select(columns).from(memory).where(owned(id));
+      return { created: true, memory: row!, uploads };
+    });
+  }
+
   return {
     get,
 
@@ -423,135 +596,66 @@ export function openLibrary(
      * Creates an image Memory before its files are uploaded, within the Free
      * allowance, and says which files to upload where. A retry with the same
      * `id` returns the same Memory and only the uploads still missing.
-     * Storage is checked under a per-owner lock, so parallel Captures queue.
      */
-    async captureImage(input: ImageCapture): Promise<ImageCaptureResult> {
+    captureImage(input: ImageCapture): Promise<ImageCaptureResult> {
       const capture = ImageCapture.parse(input);
-      const { id } = capture;
-      return db.transaction(async (tx) => {
-        await lockOwner(tx, userId);
-        // An account being deleted takes no new uploads (account.ts).
-        if (await deletionRequested(tx, userId)) return { conflict: true };
-        const [taken] = await tx
-          .select({ userId: memory.userId })
-          .from(memory)
-          .where(eq(memory.id, id));
-        if (taken && taken.userId !== userId) return { conflict: true };
-        if (taken) {
-          // An expired upload no longer holds its storage: it must fit again.
-          const [own] = await tx
-            .select({
-              bytes: sql<string>`coalesce(sum(${memoryFile.bytes}), 0)`,
-              expired: sql<boolean>`coalesce(bool_or(${expiredUpload}), false)`,
-            })
-            .from(memoryFile)
-            .where(eq(memoryFile.memoryId, id));
-          if (
-            own?.expired &&
-            (await usedStorage(tx, id)) + Number(own.bytes) >
-              FREE_ALLOWANCE.storageBytes
-          ) {
-            return { refused: "storage_full" };
-          }
-          // A retry is a new upload: a new generation and new keys, so a
-          // confirm that already checked the previous objects cannot accept
-          // this one. The previous keys stay until the presigned PUT can no
-          // longer land, then the object sweep removes them. An abandoned
-          // upload's sweep deletes them with the Memory, by those exact keys.
-          const pending = await tx
-            .select({ role: memoryFile.role, key: memoryFile.key })
-            .from(memoryFile)
-            .where(
-              and(
-                eq(memoryFile.memoryId, id),
-                sql`${memoryFile.storedAt} is null`
-              )
-            );
-          if (pending.length) {
-            const generation = crypto.randomUUID();
-            await tx
-              .insert(objectRemoval)
-              .values(
-                pending.map((file) => ({
-                  key: file.key,
-                  dueAt: sql`now() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
-                }))
-              )
-              .onConflictDoNothing();
-            for (const file of pending) {
-              await tx
-                .update(memoryFile)
-                .set({
-                  createdAt: sql`now()`,
-                  generation,
-                  key: keyFor(userId, id, generation, file.role),
-                })
-                .where(
-                  and(
-                    eq(memoryFile.memoryId, id),
-                    eq(memoryFile.role, file.role)
-                  )
-                );
-            }
-          }
-          const files = await tx
-            .select(fileColumns)
-            .from(memoryFile)
-            .where(eq(memoryFile.memoryId, id))
-            .orderBy(asc(memoryFile.role));
-          const [row] = await tx.select(columns).from(memory).where(owned(id));
-          if (!row?.image) return { conflict: true };
-          const uploads = files
-            .filter((f) => !f.stored)
-            .map(({ stored: _, ...f }) => f);
-          return { created: false, memory: row, uploads };
-        }
-
-        // The thumbnail takes storage too, but only the original is the upload.
-        const allowed = isFileWithinAllowance({
-          fileBytes: capture.bytes,
-          usedStorageBytes: (await usedStorage(tx)) + capture.thumbnail.bytes,
-        });
-        if (!allowed.ok) return { refused: allowed.reason };
-
-        await tx.insert(memory).values({
-          id,
-          userId,
-          kind: "image",
-          contentHash: capture.contentHash,
-          indexState: "indexing",
-          indexPriority: "fresh",
-          productAnalytics: capture.productAnalytics === true,
-        });
-        const generation = crypto.randomUUID();
-        const uploads: FileUpload[] = [
+      return captureFiles({
+        id: capture.id,
+        kind: "image",
+        contentHash: capture.contentHash,
+        title: null,
+        productAnalytics: capture.productAnalytics,
+        upload: capture.bytes,
+        files: [
           {
             role: "original",
-            key: keyFor(userId, id, generation, "original"),
+            page: 0,
             mime: capture.mime,
             bytes: capture.bytes,
-          },
-          {
-            role: "thumbnail",
-            key: keyFor(userId, id, generation, "thumbnail"),
-            mime: capture.thumbnail.mime,
-            bytes: capture.thumbnail.bytes,
-          },
-        ];
-        await tx.insert(memoryFile).values([
-          {
-            memoryId: id,
-            generation,
-            ...uploads[0]!,
             width: capture.width,
             height: capture.height,
             thumbhash: capture.thumbhash,
             palette: capture.palette ?? null,
           },
-          { memoryId: id, generation, ...uploads[1]! },
-        ]);
-        const [row] = await tx.select(columns).from(memory).where(owned(id));
-        return { created: true, memory: row!, uploads };
+          { role: "thumbnail", page: 0, ...capture.thumbnail },
+        ],
+      });
+    },
+
+    /**
+     * Creates a PDF Memory the same way: the PDF (the upload the Free
+     * allowance checks), its first page's thumbnail and an image of each
+     * Indexed page, all counted towards storage.
+     */
+    capturePdf(input: PdfCapture): Promise<PdfCaptureResult> {
+      const capture = PdfCapture.parse(input);
+      return captureFiles({
+        id: capture.id,
+        kind: "pdf",
+        contentHash: capture.contentHash,
+        title: capture.title ?? null,
+        productAnalytics: capture.productAnalytics,
+        upload: capture.bytes,
+        files: [
+          {
+            role: "original",
+            page: 0,
+            mime: PDF_TYPE,
+            bytes: capture.bytes,
+            width: capture.width,
+            height: capture.height,
+            thumbhash: capture.thumbhash,
+            palette: capture.palette ?? null,
+            pages: capture.pages,
+          },
+          { role: "thumbnail", page: 0, ...capture.thumbnail },
+          ...capture.pageImages.map((image, i) => ({
+            role: "page" as const,
+            page: i + 1,
+            mime: PAGE_IMAGE.mime,
+            ...image,
+          })),
+        ],
       });
     },
 
@@ -562,7 +666,28 @@ export function openLibrary(
         .select(fileColumns)
         .from(memoryFile)
         .where(eq(memoryFile.memoryId, id))
-        .orderBy(asc(memoryFile.role));
+        .orderBy(asc(memoryFile.role), asc(memoryFile.page));
+    },
+
+    /** A stored PDF's page images, in order, for the viewer. Undefined for no such Memory. */
+    async pageImages(id: string): Promise<PageImage[] | undefined> {
+      if (!(await get(id))) return undefined;
+      return db
+        .select({
+          page: memoryFile.page,
+          key: memoryFile.key,
+          width: sql<number>`coalesce(${memoryFile.width}, 0)`,
+          height: sql<number>`coalesce(${memoryFile.height}, 0)`,
+        })
+        .from(memoryFile)
+        .where(
+          and(
+            eq(memoryFile.memoryId, id),
+            eq(memoryFile.role, "page"),
+            sql`${memoryFile.storedAt} is not null`
+          )
+        )
+        .orderBy(asc(memoryFile.page));
     },
 
     /**
@@ -584,6 +709,7 @@ export function openLibrary(
       const pending = await db
         .select({
           role: memoryFile.role,
+          page: memoryFile.page,
           key: memoryFile.key,
           mime: memoryFile.mime,
           bytes: memoryFile.bytes,
@@ -592,7 +718,7 @@ export function openLibrary(
         .from(memoryFile)
         .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
         .where(and(owned(id), sql`${memoryFile.storedAt} is null`));
-      const checked = new Map(pending.map((file) => [file.role, file]));
+      const checked = new Map(pending.map((file) => [fileId(file), file]));
       const checks = await Promise.all(pending.map((file) => check(file)));
       if (checks.includes("mismatch")) return "mismatch";
       if (checks.includes("missing")) return "missing";
@@ -615,6 +741,7 @@ export function openLibrary(
         const still = await tx
           .select({
             role: memoryFile.role,
+            page: memoryFile.page,
             key: memoryFile.key,
             mime: memoryFile.mime,
             bytes: memoryFile.bytes,
@@ -628,7 +755,7 @@ export function openLibrary(
             )
           );
         const same = still.every((file) => {
-          const seen = checked.get(file.role);
+          const seen = checked.get(fileId(file));
           return (
             seen !== undefined &&
             seen.generation === file.generation &&

@@ -13,6 +13,7 @@
   "dependencies": {
     "@spark/core": "workspace:*",
     "heic-to": "1.6.7",
+    "pdfjs-dist": "6.4.299",
     "thumbhash": "0.1.1"
   },
   "devDependencies": {

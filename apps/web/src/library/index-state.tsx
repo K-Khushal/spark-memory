@@ -18,7 +18,10 @@ const FAILURE_LABEL: Record<IndexFailure, string> = {
 
 /** Why Indexing failed, as Retry and Memory detail say it. */
 export const failureReason = (memory: Memory) =>
-  FAILURE_LABEL[memory.indexError as IndexFailure] ?? FAILURE_LABEL.unavailable;
+  memory.kind === "pdf" && memory.indexError === "unreadable"
+    ? "PDF Could Not Be Read"
+    : (FAILURE_LABEL[memory.indexError as IndexFailure] ??
+      FAILURE_LABEL.unavailable);
 
 /**
  * Index state while it is not Searchable (DESIGN.md → Colour): Indexing, or

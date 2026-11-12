@@ -302,6 +302,7 @@ describe("presigned URLs on R2", () => {
   const store = fileStore(r2, "https://spark.example.com/api/memories");
   const file = {
     role: "original" as const,
+    page: 0,
     key: "users/u1/m1/original",
     mime: "image/png",
     bytes: 1234,

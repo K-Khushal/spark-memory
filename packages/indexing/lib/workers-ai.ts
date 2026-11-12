@@ -1,4 +1,5 @@
 import { INDEXING, INDEXING_OUTPUT_JSON_SCHEMA } from "@spark/core";
+import type { MarkdownBinding } from "./pdf";
 import {
   base64,
   CORRECTION,
@@ -11,6 +12,8 @@ import {
 /** The part of the Workers AI binding (`env.AI`) this adapter uses. */
 export type AiBinding = {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
+  /** Markdown Conversion (lib/pdf.ts): a PDF's text. */
+  toMarkdown?: MarkdownBinding["toMarkdown"];
 };
 
 type Reply = {
@@ -28,7 +31,7 @@ const JSON_MODE = /json mode/i;
 /** The binding takes no signal: a call that outlives `ms` is given up on. */
 class TimedOut extends Error {}
 
-function withTimeout<T>(ms: number, call: Promise<T>): Promise<T> {
+export function withTimeout<T>(ms: number, call: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     call,
@@ -56,7 +59,9 @@ export function workersAi(
     name: "workers-ai",
     model,
     async extract(request) {
-      const { system, user, image, correction } = request;
+      const { system, user, image, pages, correction } = request;
+      // One image a call: a scan's pages go to a provider that reads them.
+      if (pages) throw new ProviderError("unsupported");
       const content = image
         ? [
             { type: "text", text: user },

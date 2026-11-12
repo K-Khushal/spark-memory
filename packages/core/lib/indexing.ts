@@ -38,6 +38,16 @@ export const INDEXING = {
   /** Originals up to this size (and of a type every provider reads) go as they are; else the thumbnail. */
   maxImageBytes: 4 * 1024 * 1024,
   modelImageTypes: ["image/png", "image/jpeg", "image/webp"] as const,
+  /**
+   * A PDF with fewer readable characters than this per Indexed page
+   * (spaces aside) is a scan: its page images go to Gemini, which reads
+   * them (ADR-0005, PLAN.md §5.3).
+   */
+  scanCharsPerPage: 100,
+  /** Longest wait for a PDF's text (Workers AI `toMarkdown`). */
+  pdfTextTimeoutMs: 30_000,
+  /** Output room for a scan's text, page by page: about 2,000 characters a page. */
+  scanMaxOutputTokens: 16_384,
 } as const;
 
 export type ProviderName = keyof typeof INDEXING.models;
@@ -70,6 +80,8 @@ export const EMBEDDING = {
   passageOverlapChars: 200,
   /** Passages per Memory; the rest of a very long text is not embedded. */
   maxPassages: 30,
+  /** A PDF's Indexed pages hold about two Passages each. */
+  maxPdfPassages: 60,
   /** One call for a Memory's vectors. */
   timeoutMs: 30_000,
   /** A query waits this long, then full search goes on without vectors. */
@@ -141,6 +153,15 @@ export const IndexingOutput = z.object({
 });
 export type IndexingOutput = z.output<typeof IndexingOutput>;
 
+/**
+ * What Extraction returns for a scanned PDF: the usual fields, and the
+ * text of each page image, in order, so a Passage knows its page.
+ */
+export const PdfScanOutput = IndexingOutput.extend({
+  pages: z.array(text(8_000)).max(60),
+});
+export type PdfScanOutput = z.output<typeof PdfScanOutput>;
+
 /** The JSON Schema given to providers that constrain output to one. */
 export const INDEXING_OUTPUT_JSON_SCHEMA = {
   type: "object",
@@ -171,6 +192,25 @@ export const INDEXING_OUTPUT_JSON_SCHEMA = {
   },
   required: ["title", "description", "ocrText", "entities", "tags", "language"],
   additionalProperties: false,
+} as const;
+
+/** The scan's schema: the usual one, plus each page's text. */
+export const PDF_SCAN_OUTPUT_JSON_SCHEMA = {
+  ...INDEXING_OUTPUT_JSON_SCHEMA,
+  properties: {
+    ...INDEXING_OUTPUT_JSON_SCHEMA.properties,
+    ocrText: {
+      type: "string",
+      description: "Empty: the text goes in pages",
+    },
+    pages: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "The text of each page image, verbatim, one entry per image, in order",
+    },
+  },
+  required: [...INDEXING_OUTPUT_JSON_SCHEMA.required, "pages"],
 } as const;
 
 const HEX = /^#[\da-f]{6}$/;

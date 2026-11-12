@@ -10,9 +10,16 @@ import {
   ImageCapture,
   LinkCapture,
   MemoryEditRequest,
+  PdfCapture,
   TextCapture,
 } from "@spark/core";
-import { indexingStore, openLibrary, type Library } from "@spark/db";
+import {
+  indexingStore,
+  openLibrary,
+  type FileUpload,
+  type Library,
+  type Memory,
+} from "@spark/db";
 import { embedderFor } from "@spark/indexing";
 import { createSearch } from "@spark/search";
 import type { AppEnv } from "./env";
@@ -106,6 +113,29 @@ const limitImageBody = bodyLimit({
   maxSize: 4096,
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
 });
+/** A PDF Capture describes up to 30 page images too. */
+const limitPdfBody = bodyLimit({
+  maxSize: 16_384,
+  onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
+});
+
+/** A new file Memory as the browser gets it, with where to PUT each file. */
+const signedCapture = async (
+  files: FileStore,
+  result: { memory: Memory; uploads: FileUpload[] }
+) => {
+  const [memory, uploads] = await Promise.all([
+    forClient(files, result.memory),
+    Promise.all(
+      result.uploads.map(async (u) => ({
+        role: u.role,
+        page: u.page,
+        ...(await files.signUpload(u)),
+      }))
+    ),
+  ]);
+  return { memory, uploads };
+};
 
 /** A Memory's files; undefined for an id that is not one of the owner's. */
 const filesOf = async (library: Library, id: string) =>
@@ -198,17 +228,40 @@ export const memories = new Hono<AppEnv>()
     if ("refused" in result) {
       return c.json({ ok: false, error: result.refused } as const, 413);
     }
-    const { files } = c.var;
-    const [memory, uploads] = await Promise.all([
-      forClient(files, result.memory),
-      Promise.all(
-        result.uploads.map(async (u) => ({
-          role: u.role,
-          ...(await files.signUpload(u)),
+    const { memory, uploads } = await signedCapture(c.var.files, result);
+    return c.json({ memory, uploads }, result.created ? 201 : 200);
+  })
+  /**
+   * Step one of a PDF Capture, as for an image: the Memory, and a
+   * presigned PUT for the PDF, its thumbnail and each Indexed page's image.
+   * Step two is the same `stored`.
+   */
+  .post("/memories/pdfs", limitPdfBody, json(PdfCapture), async (c) => {
+    const result = await c.var.library.capturePdf(c.req.valid("json"));
+    if ("conflict" in result) {
+      return c.json({ ok: false, error: "conflict" } as const, 409);
+    }
+    if ("refused" in result) {
+      return c.json({ ok: false, error: result.refused } as const, 413);
+    }
+    const { memory, uploads } = await signedCapture(c.var.files, result);
+    return c.json({ memory, uploads }, result.created ? 201 : 200);
+  })
+  /** A PDF's page images for the viewer, signed, in order. */
+  .get("/memories/:id/pages", async (c) => {
+    const id = c.req.param("id");
+    const pages = UUID.test(id)
+      ? await c.var.library.pageImages(id)
+      : undefined;
+    if (!pages) return c.json(notFound, 404);
+    return c.json({
+      pages: await Promise.all(
+        pages.map(async ({ key, ...page }) => ({
+          ...page,
+          url: await c.var.files.signDownload(key),
         }))
       ),
-    ]);
-    return c.json({ memory, uploads }, result.created ? 201 : 200);
+    });
   })
   /** Step two: the files are checked in storage, and the Memory shows. */
   .post("/memories/:id/stored", async (c) => {

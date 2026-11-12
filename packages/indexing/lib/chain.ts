@@ -2,6 +2,7 @@ import { INDEXING } from "@spark/core";
 import type { Embedder } from "./embedder";
 import { fakeEmbedder, fakeProvider } from "./fake";
 import { gemini } from "./gemini";
+import { fakePdfReader, workersAiPdf, type PdfReader } from "./pdf";
 import { geminiEmbedding } from "./gemini-embedding";
 import type { Provider } from "./provider";
 import { workersAi, type AiBinding } from "./workers-ai";
@@ -30,6 +31,20 @@ export function providerChain(options: ChainOptions): Provider[] {
     }
   }
   return chain;
+}
+
+/**
+ * How this environment reads a PDF's text: the fake reader locally,
+ * Workers AI `toMarkdown` where the AI binding has it, else none (every
+ * PDF then reads as a scan).
+ */
+export function pdfReaderFor(options: ChainOptions): PdfReader | undefined {
+  if (options.fake) return fakePdfReader();
+  const ai = options.ai;
+  if (ai?.toMarkdown) {
+    return workersAiPdf({ toMarkdown: (...args) => ai.toMarkdown!(...args) });
+  }
+  return undefined;
 }
 
 /**
