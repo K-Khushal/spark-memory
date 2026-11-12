@@ -57,8 +57,8 @@ async function signOutHere(c: {
 
 /** Account settings (sessions, export, deletion), signed in only. */
 export const account = new Hono<AppEnv>()
-  .use("/account", sameOrigin, withAuth, requireUser, withAccount, noStore)
-  .use("/account/*", sameOrigin, withAuth, requireUser, withAccount, noStore)
+  .use("/account", sameOrigin(), withAuth, requireUser, withAccount, noStore)
+  .use("/account/*", sameOrigin(), withAuth, requireUser, withAccount, noStore)
   .get("/account/sessions", async (c) => {
     // This device first, then the most recently active.
     const sessions = (await c.var.account.sessions()).sort(

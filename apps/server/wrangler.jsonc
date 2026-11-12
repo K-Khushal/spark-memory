@@ -21,6 +21,7 @@
     "SPARK_ENV": "local",
     "INDEXING_PROVIDER": "fake",
     "BETTER_AUTH_URL": "http://localhost:5173",
+    "EXTENSION_ORIGIN": "chrome-extension://nibnigchkjjmpoolklhjgmlkancbmncm",
     "BETTER_AUTH_SECRET": "local-only-insecure-secret-never-deployed-0000",
     "TURNSTILE_SITE_KEY": "1x00000000000000000000AA",
     "TURNSTILE_SECRET_KEY": "1x0000000000000000000000000000000AA",
@@ -91,6 +92,7 @@
       "vars": {
         "SPARK_ENV": "dev",
         "BETTER_AUTH_URL": "PLACEHOLDER_DEV_BETTER_AUTH_URL",
+        "EXTENSION_ORIGIN": "",
         "TURNSTILE_SITE_KEY": "PLACEHOLDER_DEV_TURNSTILE_SITE_KEY",
         "EMAIL_FROM": "Spark <onboarding@resend.dev>",
         "R2_BUCKET": "spark-files-dev",
@@ -140,6 +142,7 @@
       "vars": {
         "SPARK_ENV": "production",
         "BETTER_AUTH_URL": "PLACEHOLDER_PROD_BETTER_AUTH_URL",
+        "EXTENSION_ORIGIN": "",
         "TURNSTILE_SITE_KEY": "PLACEHOLDER_PROD_TURNSTILE_SITE_KEY",
         "EMAIL_FROM": "Spark <onboarding@resend.dev>",
         "R2_BUCKET": "spark-files-prod",

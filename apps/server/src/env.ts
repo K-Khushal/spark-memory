@@ -16,6 +16,11 @@ export type Bindings = {
   BETTER_AUTH_SECRET: string;
   /** Var. The public https origin; required outside local development. */
   BETTER_AUTH_URL?: string;
+  /**
+   * Var. The pinned extension origin, `chrome-extension://` plus its 32
+   * character id. Anything else is ignored. Unset trusts no extension.
+   */
+  EXTENSION_ORIGIN?: string;
   /** Var (public) and secret. Cloudflare's test keys locally and in CI. */
   TURNSTILE_SITE_KEY: string;
   TURNSTILE_SECRET_KEY: string;

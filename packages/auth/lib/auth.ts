@@ -22,6 +22,12 @@ export type AuthConfig = {
   baseURL?: string;
   /** Secure cookies regardless of the request. On everywhere but local. */
   secureCookies: boolean;
+  /**
+   * The pinned extension origin (`chrome-extension://<id>`), when this
+   * deployment has one. Never a wildcard. Better Auth then answers that
+   * origin's credentialed session requests and no other extension's.
+   */
+  extensionOrigin?: string;
   turnstileSecretKey: string;
   google?: { clientId?: string; clientSecret?: string };
   github?: { clientId?: string; clientSecret?: string };
@@ -73,6 +79,9 @@ export function createAuth({
     secret: config.secret,
     baseURL: config.baseURL,
     basePath: BASE_PATH,
+    ...(config.extensionOrigin
+      ? { trustedOrigins: [config.extensionOrigin] }
+      : {}),
     logger: redactingLogger,
     // Unexpected errors propagate to the caller (Hono's redacted onError)
     // instead of Better Call printing them raw; APIErrors keep their status.

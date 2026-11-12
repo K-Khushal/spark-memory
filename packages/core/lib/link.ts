@@ -19,7 +19,7 @@ declare const URLSearchParams: new (init: [string, string][]) => {
 };
 
 /** The longest link Spark keeps; longer ones are almost always tracking junk. */
-const LINK_MAX_CHARS = 2048;
+export const LINK_MAX_CHARS = 2048;
 
 /** Query parameters that only say who sent the click, never what the page is. */
 const TRACKERS = new Set([
@@ -97,7 +97,87 @@ export function sourceHost(url: string): string | undefined {
   return parsed?.hostname.replace(/^www\./, "");
 }
 
-/** A link Capture (paste or paste box). `id` lets clients insert optimistically and retry safely. */
+/**
+ * Shorter readable text than this is a login wall or an app shell, not a
+ * Preserved copy. The same bar as server gathering (`GATHER.minPreservedChars`).
+ */
+export const MIN_PRESERVED_CHARS = 280;
+
+/** A visible-area screenshot is a small JPEG, never a full upload. */
+export const SCREENSHOT_MAX_BYTES = 400_000;
+
+const line = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .transform((s) => s || undefined);
+
+/** An http(s) URL with no credentials, or undefined. */
+function httpUrl(input: string | undefined): string | undefined {
+  if (!input) return undefined;
+  try {
+    const url = new URL(input);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (url.username || url.password) return undefined;
+    return input;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What the extension read on the page (ADR-0006): the page's own metadata
+ * and its readable text. Empty strings are dropped. A bad image URL is
+ * dropped rather than refusing the Capture.
+ */
+export const PageExtract = z.object({
+  title: line(FREE_ALLOWANCE.titleMaxChars).optional(),
+  description: line(2000).optional(),
+  siteName: line(200).optional(),
+  author: line(200).optional(),
+  publishedAt: line(80).optional(),
+  imageUrl: z
+    .string()
+    .trim()
+    .max(LINK_MAX_CHARS)
+    .optional()
+    .transform((value) => httpUrl(value)),
+  text: line(FREE_ALLOWANCE.textMaxChars).optional(),
+});
+export type PageExtract = z.output<typeof PageExtract>;
+
+const oneLine = (value: string | undefined) =>
+  value?.replace(/\s+/g, " ").trim() || undefined;
+
+/**
+ * The part of a page extract worth keeping. Undefined when there is nothing
+ * (no metadata and no Preserved text), so a pasted link still gathers on
+ * the server. Text shorter than {@link MIN_PRESERVED_CHARS} is not a
+ * Preserved copy; metadata alone still counts, so a page the person could
+ * see is not fetched again.
+ */
+export function keptPage(
+  page: PageExtract
+): { metadata: LinkMetadata; text: string | null } | undefined {
+  const metadata: LinkMetadata = {};
+  const put = (key: keyof LinkMetadata, value: string | undefined) => {
+    const clean = oneLine(value);
+    if (clean) metadata[key] = clean;
+  };
+  put("title", page.title);
+  put("description", page.description);
+  put("siteName", page.siteName);
+  put("author", page.author);
+  put("publishedAt", page.publishedAt);
+  put("imageUrl", page.imageUrl);
+  const text = oneLine(page.text) ?? "";
+  const preserved = text.length >= MIN_PRESERVED_CHARS ? text : null;
+  if (!preserved && Object.keys(metadata).length === 0) return undefined;
+  return { metadata, text: preserved };
+}
+
+/** A link Capture (paste, paste box, or the extension). `id` lets clients insert optimistically and retry safely. */
 export const LinkCapture = z.object({
   id: z.uuid().optional(),
   url: z
@@ -114,6 +194,8 @@ export const LinkCapture = z.object({
     .optional(),
   /** As for a text Capture: time to Searchable is sent only when true. */
   productAnalytics: z.boolean().optional(),
+  /** Present when the client already read the page (the extension). */
+  page: PageExtract.optional(),
 });
 export type LinkCapture = z.input<typeof LinkCapture>;
 

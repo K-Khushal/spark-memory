@@ -243,7 +243,7 @@ export const memory = pgTable(
   ]
 );
 
-export type FileRole = "original" | "thumbnail" | "page";
+export type FileRole = "original" | "thumbnail" | "screenshot" | "page";
 
 /**
  * A file of a Memory in object storage (PLAN.md §4): the original (its
