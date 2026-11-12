@@ -85,3 +85,17 @@ describe("LinkCapture", () => {
     expect(LinkCapture.safeParse({ url: "javascript:1" }).success).toBe(false);
   });
 });
+it("ignores playback time only for YouTube video duplicate detection", () => {
+  expect(normaliseUrl("https://www.youtube.com/watch?v=abc&t=42s")).toBe(
+    "https://www.youtube.com/watch?v=abc"
+  );
+  expect(normaliseUrl("https://youtu.be/abc?t=99")).toBe(
+    "https://youtu.be/abc"
+  );
+  expect(normaliseUrl("https://youtube.com/@basil?t=99")).toBe(
+    "https://youtube.com/@basil?t=99"
+  );
+  expect(normaliseUrl("https://example.com/watch?v=abc&t=42")).toBe(
+    "https://example.com/watch?t=42&v=abc"
+  );
+});

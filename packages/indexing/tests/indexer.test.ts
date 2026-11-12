@@ -112,6 +112,11 @@ function memoryStore(
         description: description ?? null,
       };
     }),
+    savePdfText: vi.fn(async ({ run }: Claim, text: string) => {
+      if (run !== store.memory?.run || store.memory.body !== null) return false;
+      store.memory = { ...store.memory, body: text };
+      return true;
+    }),
     loadForEmbedding: async () => undefined,
     stillEmbeddable: async () => false,
     writeVectors: async () => false,

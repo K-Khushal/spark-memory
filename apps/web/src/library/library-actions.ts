@@ -171,7 +171,7 @@ export function libraryActions({
   notify: typeof toast;
   onSaved: () => void;
   /** The server accepted a new Memory. Kind only, for the product event. */
-  onCaptured?: (kind: "text" | "image" | "link") => void;
+  onCaptured?: (kind: "text" | "image" | "link" | "pdf") => void;
 }) {
   /** Deletes waiting out their Undo window: id → send it now. */
   const pendingDeletes = new Map<string, () => void>();
@@ -316,6 +316,7 @@ export function libraryActions({
         sourceUrl: url ?? null,
         pageTitle: null,
         description: null,
+        pages: null,
         captureNote: captureNote?.trim() || null,
         // A link keeps nothing until gathering does.
         preservation: url ? "reference_only" : "preserved",
@@ -352,7 +353,7 @@ export function libraryActions({
     transport,
     notify,
     onSaved,
-    onCaptured: () => onCaptured?.("image"),
+    onCaptured: (kind) => onCaptured?.(kind),
     inOrder,
   });
 
@@ -372,12 +373,12 @@ export function libraryActions({
     }
   }
 
-  /** Captures image files: each lands and uploads on its own; Undo takes the batch back. */
-  async function captureImages(files: File[]) {
-    await landImages(files);
+  /** Captures image and PDF files: each lands and uploads on its own; Undo takes the batch back. */
+  async function captureFiles(files: File[]) {
+    await landFiles(files);
   }
 
-  async function landImages(files: File[], ids?: string[]) {
+  async function landFiles(files: File[], ids?: string[]) {
     const landed = await images.capture(files, ids);
     if (!landed.length) return landed;
     notify("Captured", {
@@ -387,11 +388,11 @@ export function libraryActions({
     return landed;
   }
 
-  /** Image files the share target held, each under its own id; see captureShared. */
-  async function captureSharedImages(
+  /** Image and PDF files the share target held, each under its own id; see captureShared. */
+  async function captureSharedFiles(
     held: { id: string; file: File }[]
   ): Promise<CaptureOutcome[]> {
-    await landImages(
+    await landFiles(
       held.map(({ file }) => file),
       held.map(({ id }) => id)
     );
@@ -797,8 +798,8 @@ export function libraryActions({
   return {
     capture,
     captureShared,
-    captureImages,
-    captureSharedImages,
+    captureFiles,
+    captureSharedFiles,
     retryUpload: images.retry,
     /** A request for this Memory (Capture, Try Again, edit, delete) is still out. */
     isPending: (id: string) => queues.has(id),

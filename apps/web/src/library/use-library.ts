@@ -29,6 +29,24 @@ async function ok(request: Promise<Response>) {
   return res;
 }
 
+/** A new image or PDF Memory and its uploads; Refused over the Free allowance. */
+async function created(request: Promise<Response>) {
+  const res = await request;
+  const status: number = res.status;
+  if (status === 413) {
+    const { error } = (await res.json()) as { error: string };
+    if (error === "file_too_large" || error === "storage_full") {
+      throw new Refused(error);
+    }
+  }
+  // The server refused what was sent: the same request would fail again.
+  if (status === 400 || status === 413) throw new Refused("invalid");
+  return (await (await ok(Promise.resolve(res))).json()) as {
+    memory: Memory;
+    uploads: Upload[];
+  };
+}
+
 /** The Memory API, as the Library actions need it. */
 const transport: Transport = {
   create: async (json) =>
@@ -50,22 +68,8 @@ const transport: Transport = {
     return res.ok ? ((await res.json()) as Memory) : undefined;
   },
   storage: async () => (await ok(api.api.storage.$get())).json(),
-  createImage: async (json) => {
-    const res = await api.api.memories.images.$post({ json });
-    const status: number = res.status;
-    if (status === 413) {
-      const { error } = (await res.json()) as { error: string };
-      if (error === "file_too_large" || error === "storage_full") {
-        throw new Refused(error);
-      }
-    }
-    // The server refused what was sent: the same request would fail again.
-    if (status === 400 || status === 413) throw new Refused("invalid");
-    return (await (await ok(Promise.resolve(res))).json()) as {
-      memory: Memory;
-      uploads: Upload[];
-    };
-  },
+  createImage: async (json) => created(api.api.memories.images.$post({ json })),
+  createPdf: async (json) => created(api.api.memories.pdfs.$post({ json })),
   preload: (url) =>
     new Promise((done) => {
       const image = new Image();

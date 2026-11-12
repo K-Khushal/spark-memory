@@ -117,3 +117,84 @@ single-purpose/permission disclosures. Edge uses a separate listing and ID;
 configure that deployment's exact origin before testing. One deployment trusts
 one extension ID in v1; multi-store concurrent trust needs an explicit bounded
 allowlist change. No wildcard or remote-loaded code.
+
+## V2 Capture
+
+- **Save Selection** in the context menu or **Alt+Shift+T** Captures text
+  with a text-fragment Source and up to 2,000 characters of surrounding
+  context. The server never fetches that Source for a text Capture.
+- **Save Image** fetches original bytes in the extension without page cookies,
+  with a 15-second timeout, a 25 MB streaming cap and no redirects.
+  Grant only that image host when asked; protected/redirecting images can
+  instead be Captured as a region. Unsupported types are refused.
+- **Save Region** opens a cancellable overlay. Drag in either direction;
+  Escape or Cancel discards it. Arrow keys resize a keyboard selection,
+  Shift+Arrow adjusts one pixel, Enter Captures. A scroll, resize or tab
+  switch cancels rather than saving mismatched pixels. Only cropped pixels
+  enter the existing image upload path.
+- **Alt+Shift+P** saves without the popup. YouTube Sources include the current
+  playback second. Remap shortcuts in the browser's extension settings.
+  Save Region has no default shortcut to avoid taking another global key.
+- Completion sets the toolbar badge and accessible title: Saved,
+  Waiting to Send, Sign In or Try Again.
+- Image bytes live in extension-origin IndexedDB, with only owner-bound
+  descriptors in trusted local storage. This supports the 25 MB allowance.
+  Discard, successful sends, permanent refusals and confirmed account
+  changes remove the bytes. Storage failure never reports Saved.
+
+### Permissions and deployment
+
+V2 adds contextMenus. Optional HTTP(S) host patterns enable an on-demand
+request for the **exact image host** selected by the person; no page host
+is granted at install. activeTab still gates extraction and screenshots.
+There is no tabs, cookies, downloads, offscreen or unlimitedStorage permission.
+
+For production image uploads set WXT_UPLOAD_ORIGIN to the exact R2 account
+endpoint (https://ACCOUNT.r2.cloudflarestorage.com); it adds only that
+storage host to the release manifest. Local uploads reuse the API host.
+Credentials go only to the fixed API; signed PUTs omit them. Configure R2
+CORS for the released exact extension origins, including PUT, content-type
+and cache-control.
+
+EXTENSION_ORIGIN accepts up to eight comma-separated exact Chrome/Edge
+or Firefox origins. Chrome IDs have 32 letters a–p; Firefox uses the runtime
+moz-extension UUID. An invalid entry invalidates the entire list. No wildcard,
+path or trailing slash is accepted. Memory and /me remain the only opt-in
+routes; account/admin/auth routes retain their dashboard scope.
+
+### Firefox
+
+Build with pnpm --filter @spark/extension build:firefox; lint with
+pnpm dlx web-ext lint --source-dir apps/extension/.output/firefox-mv3.
+WXT emits MV3 background scripts on Firefox and a service worker on Chromium.
+The signing ID is spark@sparkmemory.xyz; content transmission is declared as
+websiteContent. Minimum Firefox is 142. Runtime moz-extension UUIDs differ
+from the signing ID and may differ per profile. Pin the exact runtime origin
+before testing that profile. A public Firefox release needs scalable
+session/origin provisioning rather than relaxing this allowlist.
+Store publishing, real Firefox cookie sharing and user-gesture permission
+prompts remain owner release checks.
+
+The #88 stale-refusal, update retry and unused status-handler fixes are
+included. A successful new Capture takes precedence over an old notice.
+Install/update recreates context menus and retries queued rows.
+
+### Review round 1
+
+Selection Sources retain hash-router fragments while replacing an older text
+directive. Region selection removes its overlay and waits two paint frames
+before capturing pixels.
+
+When an image or cross-origin frame needs host access, an extension page opens.
+Click **Grant Access** there to request the exact host, then resume Capture in
+the original tab. Denial or API failure offers **Grant Access** or **Try Again**;
+Cancel discards the pending action. The pending descriptor lives only in
+session storage, expires after five minutes and is replaced by the next request.
+No permission request runs in the background.
+
+Only YouTube watch pages and youtu.be video URLs receive playback timestamps.
+Duplicate detection ignores their time parameter, and a new Capture updates
+the existing Memory's Source to the latest timestamp. Other Sources keep their
+time parameters. Successful Captures clear the failure badge; background retry
+completion and Discard Outbox clear stale queued feedback. Image byte writes
+are insert-once per Capture ID, including across worker restarts.

@@ -3,18 +3,24 @@ import type { AppEnv } from "./env";
 
 const READS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-/**
- * A pinned extension id (Chrome and Edge). Anything wider, including
- * `chrome-extension://*`, is ignored so a bad var cannot trust every
- * extension. Firefox's `moz-extension://` id is a different shape and
- * arrives with #18.
- */
-const CHROME_EXTENSION_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
-
-/** The one extension origin this deployment trusts, or undefined. */
-export function extensionOrigin(value: string | undefined): string | undefined {
-  return value && CHROME_EXTENSION_ORIGIN.test(value) ? value : undefined;
+/** At most eight exact store origins; malformed configuration trusts none. */
+export function extensionOrigins(value: string | undefined): string[] {
+  if (!value) return [];
+  const origins = value.split(",").map((origin) => origin.trim());
+  if (
+    origins.length > 8 ||
+    origins.some(
+      (origin) =>
+        !/^(?:chrome-extension:\/\/[a-p]{32}|moz-extension:\/\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.test(
+          origin
+        )
+    )
+  )
+    return [];
+  return [...new Set(origins)];
 }
+const isExtension = (origin: string | undefined) =>
+  /^(chrome|moz)-extension:/.test(origin ?? "");
 
 const dashboardOrigin = (c: {
   env: AppEnv["Bindings"];
@@ -33,18 +39,12 @@ export const sameOrigin = ({
 }: { extension?: boolean } = {}) =>
   createMiddleware<AppEnv>(async (c, next) => {
     const origin = c.req.header("origin");
-    const pinned = extension
-      ? extensionOrigin(c.env.EXTENSION_ORIGIN)
-      : undefined;
-    if (origin?.startsWith("chrome-extension://") && origin !== pinned) {
+    const pinned = extension ? extensionOrigins(c.env.EXTENSION_ORIGIN) : [];
+    if (isExtension(origin) && !pinned.includes(origin!)) {
       return c.json({ ok: false, error: "forbidden" } as const, 403);
     }
     if (READS.has(c.req.method)) return next();
-    const allowed = new Set(
-      [dashboardOrigin(c), pinned].filter(
-        (value): value is string => value !== undefined
-      )
-    );
+    const allowed = new Set([dashboardOrigin(c), ...pinned]);
     if (!origin || !allowed.has(origin)) {
       return c.json({ ok: false, error: "forbidden" } as const, 403);
     }
@@ -57,13 +57,13 @@ export const sameOrigin = ({
  * auth, and does not widen what `sameOrigin` allows.
  */
 export const extensionCors = createMiddleware<AppEnv>(async (c, next) => {
-  const allowed = extensionOrigin(c.env.EXTENSION_ORIGIN);
+  const allowed = extensionOrigins(c.env.EXTENSION_ORIGIN);
   const origin = c.req.header("origin");
-  if (origin?.startsWith("chrome-extension://") && origin !== allowed) {
+  if (isExtension(origin) && !allowed.includes(origin!)) {
     return c.json({ ok: false, error: "forbidden" } as const, 403);
   }
-  if (!allowed || origin !== allowed) return next();
-  c.header("Access-Control-Allow-Origin", allowed);
+  if (!origin || !allowed.includes(origin)) return next();
+  c.header("Access-Control-Allow-Origin", origin);
   c.header("Access-Control-Allow-Credentials", "true");
   c.header("Vary", "Origin");
   if (c.req.method !== "OPTIONS") return next();

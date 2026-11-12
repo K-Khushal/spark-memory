@@ -24,7 +24,35 @@ vi.mock("@spark/capture", async (original) => ({
     thumbnail: new Blob([new Uint8Array(4)], { type: "image/webp" }),
     thumbnailMime: "image/webp",
   }),
+  preparePdf: async (file: File) => ({
+    file,
+    contentHash: "1".repeat(64),
+    title: file.name.replace(/\.pdf$/, ""),
+    pages: 40,
+    width: 1024,
+    height: 1325,
+    thumbhash: "1QcSHQRnh493V4dIh4eXh1h4kJUI",
+    palette: [],
+    thumbnail: new Blob([new Uint8Array(4)], { type: "image/webp" }),
+    thumbnailMime: "image/webp",
+    pageImages: pdfPages.draw,
+    release: pdfPages.release,
+  }),
 }));
+
+/** How the faked PDF draws its pages, per test. */
+const pdfPages = {
+  draw: vi.fn(async () =>
+    [1, 2].map((n) => ({
+      blob: new Blob([new Uint8Array(10 + n)], { type: "image/jpeg" }),
+      width: 1024,
+      height: 1325,
+    }))
+  ),
+  release: vi.fn(),
+};
+const pdfFile = () =>
+  new File([new Uint8Array(20)], "Lease.pdf", { type: "application/pdf" });
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const png = (bytes = 8) =>
@@ -47,6 +75,7 @@ const serverCopy = (id: string): Memory => ({
   id,
   kind: "image",
   title: null,
+  pages: null,
   body: null,
   captureNote: null,
   preservation: "preserved",
@@ -80,6 +109,7 @@ function setup(transport: Partial<Transport> = {}) {
   const full: Transport = {
     create: vi.fn(),
     createLink: vi.fn(),
+    createPdf: vi.fn(),
     patch: vi.fn(),
     get: vi.fn(),
     remove: vi.fn(async (id) => void calls.push(`remove ${id}`)),
@@ -121,7 +151,7 @@ describe("image Capture", () => {
     const loaded = later();
     const revoke = vi.spyOn(URL, "revokeObjectURL");
     const { actions, wall, calls } = setup({ preload: () => loaded.promise });
-    await actions.captureImages([png()]);
+    await actions.captureFiles([png()]);
     const [landed] = wall();
     expect(landed).toMatchObject({ kind: "image", fresh: true });
     expect(landed!.image!.url).toMatch(/^blob:/);
@@ -153,7 +183,7 @@ describe("image Capture", () => {
         calls.push(`remove ${id}`);
       },
     });
-    await actions.captureImages([png()]);
+    await actions.captureFiles([png()]);
     await settle();
     const id = wall()[0]!.id;
     expect(wall()[0]!.image!.url).toMatch(/^blob:/);
@@ -173,7 +203,7 @@ describe("image Capture", () => {
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValue(undefined);
     const { actions, wall, notify, transport } = setup({ put });
-    await actions.captureImages([png()]);
+    await actions.captureFiles([png()]);
     await settle();
     expect(wall()[0]!.upload).toEqual({ step: "failed" });
 
@@ -194,7 +224,7 @@ describe("image Capture", () => {
       createImage: () => created.promise,
       remove: async (id) => void calls.push(`remove ${id}`),
     });
-    await actions.captureImages([png()]);
+    await actions.captureFiles([png()]);
     const id = wall()[0]!.id;
     toastAction(notify, "Undo")();
     expect(wall()).toEqual([]);
@@ -210,7 +240,7 @@ describe("image Capture", () => {
     const { actions, wall, notify, calls } = setup({
       confirm: () => confirmed.promise,
     });
-    await actions.captureImages([png()]);
+    await actions.captureFiles([png()]);
     await settle();
     const memory = wall()[0]!;
     actions.remove(memory);
@@ -229,7 +259,7 @@ describe("image Capture", () => {
       }),
     });
     const big = png(FREE_ALLOWANCE.maxUploadBytes + 1);
-    await actions.captureImages([big, png(60), png(60)]);
+    await actions.captureFiles([big, png(60), png(60)]);
     expect(notify).toHaveBeenCalledWith(
       "Images Over 25 MB Can't Be Captured",
       expect.anything()
@@ -256,7 +286,7 @@ describe("image Capture", () => {
           throw new Refused(reason);
         },
       });
-      await actions.captureImages([png()]);
+      await actions.captureFiles([png()]);
       await settle();
       expect(wall()).toEqual([]);
       expect(notify).toHaveBeenCalledWith(message, expect.anything());
@@ -274,7 +304,7 @@ describe("image Capture", () => {
             })
           : Promise.reject(new Error("offline")),
     });
-    await actions.captureImages([png()]);
+    await actions.captureFiles([png()]);
     await settle();
     expect(signal?.aborted).toBe(true);
     expect(wall()[0]!.upload).toEqual({ step: "failed" });
@@ -293,7 +323,7 @@ describe("image Capture", () => {
         onProgress(body.size);
       },
     });
-    await actions.captureImages([png(8)]);
+    await actions.captureFiles([png(8)]);
     await settle();
     // 4 of 12 bytes (8 original + 4 thumbnail), then the thumbnail's 4.
     expect(progress[0]).toBeCloseTo(4 / 12);
@@ -315,7 +345,7 @@ describe("Capture from a share", () => {
     const id = crypto.randomUUID();
     let outcome: string | undefined;
     void actions
-      .captureSharedImages([held(id)])
+      .captureSharedFiles([held(id)])
       .then(([first]) => (outcome = first));
     await settle();
     expect(wall()[0]!.id).toBe(id);
@@ -335,7 +365,7 @@ describe("Capture from a share", () => {
     const { actions, notify } = setup({ put });
     let outcome: string | undefined;
     void actions
-      .captureSharedImages([held(crypto.randomUUID())])
+      .captureSharedFiles([held(crypto.randomUUID())])
       .then(([first]) => (outcome = first));
     await settle();
     expect(outcome).toBeUndefined();
@@ -349,7 +379,7 @@ describe("Capture from a share", () => {
     const { actions, notify } = setup({ put: async () => sent.promise });
     let outcome: string | undefined;
     void actions
-      .captureSharedImages([held(crypto.randomUUID())])
+      .captureSharedFiles([held(crypto.randomUUID())])
       .then(([first]) => (outcome = first));
     await settle();
     toastAction(notify, "Undo")();
@@ -359,17 +389,43 @@ describe("Capture from a share", () => {
 
   it("ends as refused for a file the Free allowance turns away", async () => {
     const { actions } = setup();
-    const outcomes = await actions.captureSharedImages([
+    const outcomes = await actions.captureSharedFiles([
       held(crypto.randomUUID(), FREE_ALLOWANCE.maxUploadBytes + 1),
     ]);
     expect(outcomes).toEqual(["refused"]);
   });
 
+  it("replays a held share without charging its own reservation again", async () => {
+    // The server's count already includes this image's pending upload.
+    const nearlyFull = FREE_ALLOWANCE.storageBytes - 4;
+    const { actions, calls } = setup({
+      storage: async () => ({ usedBytes: nearlyFull }),
+    });
+    const id = crypto.randomUUID();
+    expect(await actions.captureSharedFiles([held(id)])).toEqual(["stored"]);
+    expect(calls).toEqual([`create ${id}`, `confirm ${id}`]);
+  });
+
+  it("keeps a share when the server says the account is full", async () => {
+    const createImage = vi.fn(async () => {
+      throw new Refused("storage_full");
+    });
+    const { actions, notify } = setup({ createImage });
+    const outcomes = await actions.captureSharedFiles([
+      held(crypto.randomUUID()),
+    ]);
+    expect(outcomes).toEqual(["full"]);
+    expect(notify).toHaveBeenCalledWith(
+      "Your 1 GB Free Allowance Is Full",
+      expect.anything()
+    );
+  });
+
   it("sends the same id again when the same share comes back", async () => {
     const { actions, transport } = setup();
     const id = crypto.randomUUID();
-    await actions.captureSharedImages([held(id)]);
-    await actions.captureSharedImages([held(id)]);
+    await actions.captureSharedFiles([held(id)]);
+    await actions.captureSharedFiles([held(id)]);
     const ids = vi.mocked(transport.createImage).mock.calls.map(([i]) => i.id);
     expect(ids).toEqual([id, id]);
   });
@@ -452,5 +508,83 @@ describe("Capture from a share", () => {
       await settle();
       expect(outcome).toBe("dropped");
     });
+  });
+});
+
+describe("PDF Capture", () => {
+  const pdfUploads: Upload[] = [
+    { role: "original", page: 0, url: "/o", headers: {} },
+    { role: "thumbnail", page: 0, url: "/t", headers: {} },
+    { role: "page", page: 1, url: "/p1", headers: {} },
+    { role: "page", page: 2, url: "/p2", headers: {} },
+  ];
+
+  it("lands at once, draws its pages, then uploads each to its own URL", async () => {
+    const sent: [string, number][] = [];
+    const createPdf = vi.fn(async (input: { id: string }) => ({
+      memory: { ...serverCopy(input.id), kind: "pdf" as const, pages: 40 },
+      uploads: pdfUploads,
+    }));
+    const { actions, wall } = setup({
+      createPdf,
+      put: vi.fn(async (u, body, onProgress) => {
+        sent.push([u.url, body.size]);
+        onProgress(body.size);
+      }),
+    });
+    await actions.captureFiles([pdfFile()]);
+    expect(wall()[0]).toMatchObject({
+      kind: "pdf",
+      title: "Lease",
+      pages: 40,
+      image: { mime: "application/pdf" },
+      upload: { step: "sending" },
+    });
+    await settle();
+    expect(createPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Lease",
+        pages: 40,
+        pageImages: [
+          { bytes: 11, width: 1024, height: 1325 },
+          { bytes: 12, width: 1024, height: 1325 },
+        ],
+      })
+    );
+    expect(sent).toEqual([
+      ["/o", 20],
+      ["/t", 4],
+      ["/p1", 11],
+      ["/p2", 12],
+    ]);
+    expect(wall()[0]!.upload).toBeUndefined();
+  });
+
+  it("takes a PDF whose pages cannot be drawn off the wall, and says so", async () => {
+    pdfPages.draw.mockRejectedValueOnce("unreadable");
+    const createPdf = vi.fn();
+    const { actions, wall, notify } = setup({ createPdf });
+    await actions.captureFiles([pdfFile()]);
+    await settle();
+    expect(wall()).toEqual([]);
+    expect(createPdf).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith("PDF Can't Be Read", expect.anything());
+    expect(pdfPages.release).toHaveBeenCalled();
+  });
+
+  it("refuses a PDF over the upload limit before any work", async () => {
+    const { actions, wall, notify } = setup();
+    const big = new File([new Uint8Array(1)], "big.pdf", {
+      type: "application/pdf",
+    });
+    Object.defineProperty(big, "size", {
+      value: FREE_ALLOWANCE.maxUploadBytes + 1,
+    });
+    await actions.captureFiles([big]);
+    expect(wall()).toEqual([]);
+    expect(notify).toHaveBeenCalledWith(
+      "PDFs Over 25 MB Can't Be Captured",
+      expect.anything()
+    );
   });
 });

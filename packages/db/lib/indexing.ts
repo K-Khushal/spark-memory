@@ -20,7 +20,7 @@ import {
   memoryVector,
   spendDay,
   user,
-  type PassageAnchor,
+  type VectorAnchor,
   type VectorKind,
 } from "./schema";
 
@@ -51,7 +51,7 @@ export type Embedding = {
   model: string;
   dimensions: number;
   revision: number;
-  vectors: { kind: VectorKind; anchor?: PassageAnchor; embedding: number[] }[];
+  vectors: { kind: VectorKind; anchor?: VectorAnchor; embedding: number[] }[];
 };
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -177,6 +177,45 @@ export function indexingStore(db: Database) {
     };
   }
 
+  /** A PDF's file and its stored page images, in order, for Indexing to read. */
+  async function pdfOf(id: string) {
+    const files = await db
+      .select({
+        role: memoryFile.role,
+        page: memoryFile.page,
+        key: memoryFile.key,
+        mime: memoryFile.mime,
+        bytes: memoryFile.bytes,
+        pages: memoryFile.pages,
+      })
+      .from(memoryFile)
+      .where(eq(memoryFile.memoryId, id))
+      .orderBy(memoryFile.page);
+    const original = files.find((f) => f.role === "original");
+    if (!original) return undefined;
+    return {
+      key: original.key,
+      bytes: original.bytes,
+      pages: original.pages ?? 0,
+      pageImages: files
+        .filter((f) => f.role === "page")
+        .map(({ page, key, mime }) => ({ page, key, mime })),
+    };
+  }
+
+  /** A file Memory's files, as Indexing reads them. */
+  async function filesOf(id: string, kind: MemoryKind) {
+    if (kind === "image") {
+      const image = await imageOf(id);
+      return image && { image };
+    }
+    if (kind === "pdf") {
+      const pdf = await pdfOf(id);
+      return pdf && { pdf };
+    }
+    return undefined;
+  }
+
   return {
     /**
      * Takes a Memory waiting for Indexing (at `run` and `generation`, when
@@ -208,9 +247,30 @@ export function indexingStore(db: Database) {
           aiOptOut: memory.aiOptOut,
           ...linkColumns,
         });
-      if (!row || row.kind !== "image") return row;
-      const image = await imageOf(id);
-      return image ? { ...row, image } : row;
+      if (!row) return row;
+      return { ...row, ...(await filesOf(id, row.kind)) };
+    },
+
+    /**
+     * A PDF's own text, as `toMarkdown` read it (pages apart by form
+     * feeds), kept once as its Preserved text for the Claim's run: like a
+     * link's, it is the document's words, not a model's, so it stays with
+     * AI opt-out. False when the run moved on or it was kept already.
+     */
+    async savePdfText(claim: Claim, text: string) {
+      const rows = await db
+        .update(memory)
+        .set({ body: text })
+        .where(
+          and(
+            claimed(claim),
+            indexing,
+            eq(memory.kind, "pdf"),
+            sql`${memory.body} is null`
+          )
+        )
+        .returning({ id: memory.id });
+      return rows.length > 0;
     },
 
     /**
@@ -358,8 +418,7 @@ export function indexingStore(db: Database) {
         .from(memoryIndex)
         .where(eq(memoryIndex.memoryId, id));
       if (!found) return undefined;
-      const image = row.kind === "image" ? await imageOf(id) : undefined;
-      return { ...row, found, ...(image && { image }) };
+      return { ...row, found, ...(await filesOf(id, row.kind)) };
     },
 
     /**

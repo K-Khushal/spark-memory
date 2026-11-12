@@ -8,6 +8,7 @@ import {
   type HeldShare,
   type PendingShare,
 } from "./hold";
+import { REFUSAL_COPY } from "./refusal";
 import { planShare, type ShareLibrary } from "./share";
 
 const hold = { held: heldShares, get: heldShare, drop: dropShares };
@@ -20,15 +21,26 @@ export function previewOf(share: PendingShare): string {
   return files.length ? files.join(", ") : (plan.link ?? plan.text ?? "");
 }
 
+/** A failure of the hold is said once, with Try Again. */
+const retryable = (message: string, retry: () => void) =>
+  toast(message, {
+    id: "share-hold",
+    duration: 8000,
+    action: { label: "Try Again", onClick: retry },
+  });
+
 /**
  * Captures held shares once the Library is on screen, and only while it is:
  * an effect that was cleaned up before its turn does nothing, so Strict Mode
  * cannot start one twice. A share that a web page could have sent waits here
- * for the person to Capture or Discard it (closing the question keeps it). See drainShares for how tabs
- * share the work.
+ * for the person to Capture or Discard it (closing the question keeps it),
+ * whatever the other Captures are doing. A hold that cannot be read or
+ * written keeps the share and says so. See drainShares for how tabs share
+ * the work.
  */
 export function ShareTarget({ library }: { library: ShareLibrary }) {
   const [asked, setAsked] = useState<HeldShare[]>([]);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -38,26 +50,27 @@ export function ShareTarget({ library }: { library: ShareLibrary }) {
       library,
       notify,
       live: () => live,
-    })
-      .then((unsure) => live && setAsked(unsure))
-      .catch(() => {});
+      ask: (unsure) => live && setAsked(unsure),
+    }).catch(() =>
+      retryable(REFUSAL_COPY.unreadable, () => setAttempt((n) => n + 1))
+    );
     return () => {
       live = false;
     };
-  }, [library]);
+  }, [library, attempt]);
+
+  const decide = (key: IDBValidKey, capture: boolean) =>
+    decideShare({ hold, locks: navigator.locks, library, notify, key, capture })
+      .then(() => {})
+      .catch(() =>
+        retryable(REFUSAL_COPY.storage, () => void decide(key, capture))
+      );
 
   const next = asked[0];
   const answer = (capture: boolean) => {
     if (!next) return;
     setAsked((all) => all.slice(1));
-    void decideShare({
-      hold,
-      locks: navigator.locks,
-      library,
-      notify,
-      key: next.key,
-      capture,
-    });
+    void decide(next.key, capture);
   };
 
   return (

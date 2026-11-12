@@ -18,20 +18,26 @@ const FIELD: Record<string, string> = {
  * was found in, the words of the passage that matched, or the image.
  * Undefined when nothing can be said.
  */
-export function whyLabel({ part, body }: Pick<Found, "part" | "body">) {
+export function whyLabel({
+  part,
+  body,
+  kind,
+}: Pick<Found, "part" | "body" | "kind">) {
   if (!part) return undefined;
+  // A scanned PDF's text is read from its pages, not an image.
+  const ocr = kind === "pdf" ? FIELD.text : FIELD.ocr;
   switch (part.kind) {
     case "field":
-      return part.field && FIELD[part.field];
+      return part.field === "ocr" ? ocr : part.field && FIELD[part.field];
     case "passage": {
-      if (part.field === "ocr") return FIELD.ocr;
+      if (part.field === "ocr") return part.page ? `Page ${part.page}` : ocr;
       const words = (body ?? "").slice(part.start, part.end).trim();
       return words
         ? `“${words.replace(/\s+/g, " ").slice(0, 120)}”`
         : undefined;
     }
     case "visual":
-      return "Image";
+      return part.page ? `Page ${part.page}` : "Image";
     case "overview":
       return "Overview";
   }

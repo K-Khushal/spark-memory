@@ -1,9 +1,10 @@
 import type { HeldShare, PendingShare } from "./hold";
+import { REFUSAL_COPY } from "./refusal";
 import { applyShare, planShare, type ShareLibrary } from "./share";
 
 /** The hold, as the drain needs it (hold.ts holds the IndexedDB one). */
 export type Hold = {
-  held: () => Promise<HeldShare[]>;
+  held: () => Promise<{ shares: HeldShare[]; unreadable: number }>;
   get: (key: IDBValidKey) => Promise<PendingShare | undefined>;
   drop: (keys: IDBValidKey[]) => Promise<void>;
 };
@@ -28,18 +29,20 @@ const claim = <T>(
 
 /**
  * Captures one held share under its lock and drops it only when the server
- * has it, or, with `capture: false`, drops it unseen. The lock queues tabs;
- * the check that the share is still held means a tab that waited finds it
- * already done. A tab that closes mid-Capture frees the lock and leaves the
- * share held, so the next tab sends it again under the same Capture id and
- * the server's idempotent create makes no second Memory. Without Web Locks
- * two claims can both run; the stable id covers that too.
+ * has it, or, with `capture: false`, drops it unseen. A share Capture turned
+ * away for want of room stays held. The lock queues tabs; the check that the
+ * share is still held means a tab that waited finds it already done. A tab
+ * that closes mid-Capture frees the lock and leaves the share held, so the
+ * next tab sends it again under the same Capture id and the server's
+ * idempotent create makes no second Memory. Without Web Locks two claims can
+ * both run; the stable id covers that too.
+ *
+ * Rejects when the hold cannot be read or written; the share is still held.
  */
 export function decideShare({
   hold,
   locks,
   library,
-  notify,
   key,
   capture,
   live = () => true,
@@ -53,27 +56,37 @@ export function decideShare({
     if (!live()) return;
     const share = await hold.get(key);
     if (!share) return;
+    let done = true;
     try {
-      if (capture) await applyShare(planShare(share), library, notify);
-      await hold.drop([key]);
+      if (capture) done = await applyShare(planShare(share), library);
     } catch {
-      // Kept: the next time the Library opens sends it again.
+      return; // kept: the next time the Library opens sends it again
     }
+    if (done) await hold.drop([key]);
   });
 }
 
 /**
  * Captures every held share that is sure to be a share, each once across
- * all open tabs. Returns the ones that are not sure, which wait for the
- * person (see judgeShare).
+ * all open tabs. The ones that are not sure go to `ask` as soon as they are
+ * read, whatever the others are doing, and wait for the person (see
+ * judgeShare). Rejects when the hold cannot be read or written.
  */
 export async function drainShares(
-  deps: Deps & { live: () => boolean }
-): Promise<HeldShare[]> {
-  const held = await deps.hold.held();
-  const sure = held.filter(({ share }) => share.verified);
-  await Promise.all(
-    sure.map(({ key }) => decideShare({ ...deps, key, capture: true }))
+  deps: Deps & {
+    live: () => boolean;
+    ask: (unsure: HeldShare[]) => void;
+  }
+): Promise<void> {
+  const { shares, unreadable } = await deps.hold.held();
+  if (unreadable) deps.notify(REFUSAL_COPY.unreadable);
+  deps.ask(shares.filter(({ share }) => !share.verified));
+  const results = await Promise.allSettled(
+    shares
+      .filter(({ share }) => share.verified)
+      .map(({ key }) => decideShare({ ...deps, key, capture: true }))
   );
-  return held.filter(({ share }) => !share.verified);
+  if (results.some(({ status }) => status === "rejected")) {
+    throw new Error("The share hold could not be read or written");
+  }
 }

@@ -11,7 +11,8 @@ import { Button } from "@spark/ui";
 import { api } from "./api";
 import { redirectIfSignedIn, requireSession } from "./auth";
 import { LibraryPage } from "./library/library-page";
-import { isShareRefusal, ShareRefused } from "./pwa/share-refused";
+import { isShareRefusal } from "./pwa/refusal";
+import { ShareRefused } from "./pwa/share-refused";
 import type { ShareRefusal } from "./pwa/validate";
 import { DATA_SETS, type DataSet } from "./prototypes/data-sets";
 

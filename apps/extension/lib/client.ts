@@ -1,4 +1,5 @@
-import type { LinkCapture } from "@spark/core";
+import type { LinkCapture, TextCapture, ImageCapture } from "@spark/core";
+import { decodeData, type ImageBytes } from "./image";
 
 export class ApiError extends Error {
   constructor(readonly status: number) {
@@ -28,14 +29,56 @@ export function captureClient(origin: string, request: typeof fetch = fetch) {
   }
   return {
     me: async (): Promise<{ id: string }> => (await call("me")).json(),
-    save: async (owner: string, capture: LinkCapture): Promise<SavedMemory> =>
-      (
-        await call("memories/links", owner, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(capture),
-        })
-      ).json(),
+    save: async (
+      owner: string,
+      capture: LinkCapture | TextCapture | ImageCapture,
+      image?: ImageBytes
+    ): Promise<SavedMemory> => {
+      const result = await (
+        await call(
+          "mime" in capture
+            ? "memories/images"
+            : "body" in capture
+              ? "memories"
+              : "memories/links",
+          owner,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(capture),
+          }
+        )
+      ).json();
+      if (!image) return result;
+      for (const upload of result.uploads as {
+        role: "original" | "thumbnail";
+        url: string;
+        headers: Record<string, string>;
+      }[]) {
+        const response = await request(new URL(upload.url, origin).href, {
+          method: "PUT",
+          credentials: "omit",
+          redirect: "error",
+          signal: AbortSignal.timeout(30_000),
+          headers: upload.headers,
+          body: decodeData(image[upload.role]),
+        });
+        if (!response.ok)
+          throw new ApiError(response.status >= 500 ? response.status : 503);
+      }
+      try {
+        return (
+          await call(`memories/${result.memory.id}/stored`, owner, {
+            method: "POST",
+          })
+        ).json();
+      } catch (error) {
+        // Missing/expired storage can recover by obtaining fresh generation URLs.
+        if (error instanceof ApiError && error.status === 409)
+          throw new ApiError(503);
+        throw error;
+      }
+    },
     screenshot: async (owner: string, id: string, data: string) => {
       const bytes = Uint8Array.from(atob(data.split(",")[1]!), (c) =>
         c.charCodeAt(0)

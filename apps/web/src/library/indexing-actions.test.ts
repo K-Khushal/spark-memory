@@ -12,6 +12,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   id: crypto.randomUUID(),
   kind: "text",
   title: null,
+  pages: null,
   body: "Some text",
   captureNote: null,
   preservation: "preserved",
@@ -295,6 +296,26 @@ describe("a link while it Indexes", () => {
       body: "The article",
       // The person's own fields stay as the wall has them.
       title: null,
+    });
+  });
+});
+
+describe("a PDF while it Indexes", () => {
+  it("takes the text Indexing kept from the poll, so a search opens it at the right page", async () => {
+    const pdf = memory({ kind: "pdf", body: null, pages: 3 });
+    const found = {
+      ...pdf,
+      indexState: "searchable" as const,
+      body: "One\fTwo\fThree",
+    };
+    const { actions, wall } = setup(
+      { poll: vi.fn().mockResolvedValue([found]) },
+      [pdf]
+    );
+    await actions.poll([pdf.id]);
+    expect(wall()[0]).toMatchObject({
+      indexState: "searchable",
+      body: "One\fTwo\fThree",
     });
   });
 });

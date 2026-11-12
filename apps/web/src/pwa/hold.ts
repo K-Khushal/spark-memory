@@ -27,13 +27,70 @@ export type PendingShare = {
 const DB_NAME = "spark-share";
 const STORE = "pending";
 
+/** Version 2 added the Capture ids and the verified flag to every row. */
+const DB_VERSION = 2;
+
+function isFile(value: unknown): value is File {
+  return value instanceof File;
+}
+
+/** A stored row as a share, or undefined when it is not one (damaged, or an old build's). */
+export function readShare(row: unknown): PendingShare | undefined {
+  if (!row || typeof row !== "object") return undefined;
+  const r = row as Record<string, unknown>;
+  const text = (key: string) => typeof r[key] === "string";
+  if (!text("id") || !text("title") || !text("text") || !text("url")) return;
+  if (typeof r.verified !== "boolean" || !Array.isArray(r.files)) return;
+  const sound = r.files.every(
+    (f: unknown) =>
+      !!f &&
+      typeof (f as HeldFile).id === "string" &&
+      isFile((f as HeldFile).file)
+  );
+  return sound ? (row as PendingShare) : undefined;
+}
+
+/**
+ * Version 1 rows had no ids, no verified flag and bare files. They are kept
+ * as shares that ask first (nothing says where they came from); a row that
+ * is not a share at all is undefined (heldShares removes it and says so).
+ */
+export function upgradeRow(row: unknown): PendingShare | undefined {
+  if (readShare(row)) return row as PendingShare;
+  if (!row || typeof row !== "object") return undefined;
+  const r = row as Record<string, unknown>;
+  const { title, text, url, files } = r;
+  if (typeof title !== "string" || typeof text !== "string") return undefined;
+  if (typeof url !== "string" || !Array.isArray(files)) return undefined;
+  if (!files.every(isFile)) return undefined;
+  return {
+    id: crypto.randomUUID(),
+    verified: false,
+    title,
+    text,
+    url,
+    files: files.map((file) => ({ id: crypto.randomUUID(), file })),
+  };
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () =>
-      req.result.createObjectStore(STORE, {
-        autoIncrement: true,
-      });
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (event) => {
+      if (event.oldVersion < 1) {
+        req.result.createObjectStore(STORE, { autoIncrement: true });
+        return;
+      }
+      const cursor = req.transaction!.objectStore(STORE).openCursor();
+      cursor.onsuccess = () => {
+        const at = cursor.result;
+        if (!at) return;
+        const share = upgradeRow(at.value);
+        // A row that is no share stays: the first read removes it and says so.
+        if (share) at.update(share);
+        at.continue();
+      };
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
@@ -99,21 +156,33 @@ export async function holdShare(
 
 export type HeldShare = { key: IDBValidKey; share: PendingShare };
 
-/** Everything held, left in place: drop each one only after Capture has it. */
-export function heldShares(): Promise<HeldShare[]> {
-  return inStore("readonly", async (store) => {
-    const [keys, shares] = await Promise.all([
+/**
+ * Everything held, left in place: drop each one only after Capture has it.
+ * A row that is not a share (damaged) is removed here and counted.
+ */
+export function heldShares(): Promise<{
+  shares: HeldShare[];
+  unreadable: number;
+}> {
+  return inStore("readwrite", async (store) => {
+    const [keys, rows] = await Promise.all([
       request(store.getAllKeys()),
-      request(store.getAll() as IDBRequest<PendingShare[]>),
+      request(store.getAll() as IDBRequest<unknown[]>),
     ]);
-    return keys.map((key, i) => ({ key, share: shares[i]! }));
+    const shares: HeldShare[] = [];
+    keys.forEach((key, i) => {
+      const share = readShare(rows[i]);
+      if (share) shares.push({ key, share });
+      else store.delete(key);
+    });
+    return { shares, unreadable: keys.length - shares.length };
   });
 }
 
 /** One held share, or nothing when another tab has already dropped it. */
 export function heldShare(key: IDBValidKey): Promise<PendingShare | undefined> {
-  return inStore("readonly", (store) =>
-    request(store.get(key) as IDBRequest<PendingShare | undefined>)
+  return inStore("readonly", async (store) =>
+    readShare(await request(store.get(key)))
   );
 }
 

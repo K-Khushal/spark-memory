@@ -49,32 +49,34 @@ export function planShare(share: PendingShare): SharePlan {
 
 /**
  * How a Capture ended. Only these end it: a failed one stays open, and Try
- * Again on its toast can still finish it.
+ * Again on its toast can still finish it. "full" means the account is out of
+ * room: the share is kept, not lost.
  */
-export type CaptureOutcome = "stored" | "refused" | "dropped";
+export type CaptureOutcome = "stored" | "refused" | "full" | "dropped";
 
 /** The part of the Library a share needs. Each id is the Memory's id. */
 export type ShareLibrary = {
   /** Resolves once the server has the text or link, or Capture refused it. */
   captureShared: (text: string, id: string) => Promise<CaptureOutcome>;
   /** One outcome per file, once each is stored on the server or refused. */
-  captureSharedImages: (files: HeldFile[]) => Promise<CaptureOutcome[]>;
+  captureSharedFiles: (files: HeldFile[]) => Promise<CaptureOutcome[]>;
 };
 
 /**
- * Captures a share and resolves when the server has every part of it, which
- * is when the hold may let it go.
+ * Captures a share and resolves when the server has every part of it (or the
+ * person took it back, or a part can never be Captured): true, which is when
+ * the hold may let it go. False keeps it: the account was full.
  */
 export async function applyShare(
   plan: SharePlan,
-  library: ShareLibrary,
-  notify: (message: string) => void
-): Promise<void> {
-  if (plan.pdfs.length) notify("PDFs Can't Be Captured Yet");
-  if (plan.images.length) {
-    await library.captureSharedImages(plan.images);
-    return;
+  library: ShareLibrary
+): Promise<boolean> {
+  const files = [...plan.images, ...plan.pdfs];
+  if (files.length) {
+    const outcomes = await library.captureSharedFiles(files);
+    return !outcomes.includes("full");
   }
   const text = plan.link ?? plan.text;
-  if (text) await library.captureShared(text, plan.id);
+  if (!text) return true;
+  return (await library.captureShared(text, plan.id)) !== "full";
 }

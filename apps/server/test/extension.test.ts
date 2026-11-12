@@ -230,3 +230,53 @@ describe.skipIf(!databaseUrl)("extension route scope", () => {
     }
   });
 });
+describe.skipIf(!databaseUrl)("extension v2", () => {
+  it("preserves selection text and Source context through the text Capture API", async () => {
+    const { call } = await signedIn();
+    const source = {
+      url: "https://garden.test#:~:text=Basil",
+      context: "Growing Basil indoors",
+    };
+    const response = await call("/api/memories", {
+      method: "POST",
+      json: { body: "Basil", source },
+    });
+    expect(response.status).toBe(201);
+    const saved = (await response.json()) as { id: string };
+    expect(
+      await (await call(`/api/memories/${saved.id}`)).json()
+    ).toMatchObject({
+      kind: "text",
+      body: "Basil",
+      sourceUrl: source.url,
+    });
+  });
+  it("allows exact Chrome and Firefox origins together only on Memory and identity routes", async () => {
+    const { call } = await signedIn();
+    const firefox = "moz-extension://12345678-1234-1234-1234-123456789abc";
+    const config = env({ EXTENSION_ORIGIN: extension + "," + firefox });
+    for (const origin of [extension, firefox]) {
+      for (const path of [
+        "/api/me",
+        "/api/memories",
+        "/api/account/sessions",
+        "/api/admin/overview",
+      ]) {
+        const response = await worker.fetch(
+          new Request("http://localhost:8787" + path, {
+            headers: { origin, cookie: call.cookie() },
+          }),
+          config,
+          ctx
+        );
+        expect(response.status).toBe(
+          path === "/api/me" || path === "/api/memories" ? 200 : 403
+        );
+        if (response.ok)
+          expect(response.headers.get("access-control-allow-origin")).toBe(
+            origin
+          );
+      }
+    }
+  });
+});

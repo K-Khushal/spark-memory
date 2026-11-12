@@ -96,37 +96,35 @@ describe("planShare", () => {
 describe("applyShare", () => {
   const library = () => {
     const captureShared = vi.fn(async () => "stored" as const);
-    const captureSharedImages = vi.fn(async (files: HeldFile[]) =>
+    const captureSharedFiles = vi.fn(async (files: HeldFile[]) =>
       files.map(() => "stored" as const)
     );
-    return { captureShared, captureSharedImages } satisfies ShareLibrary;
+    return { captureShared, captureSharedFiles } satisfies ShareLibrary;
   };
 
-  it("sends images with their ids, refuses PDFs, and leaves text alone", async () => {
+  it("sends images and PDFs with their ids, and leaves text alone", async () => {
     const png = held("shot.png", "image/png");
     const pdf = held("doc.pdf", "application/pdf");
     const lib = library();
-    const notify = vi.fn();
-    await applyShare(
+    const done = await applyShare(
       planShare(share({ files: [png, pdf], text: "hello" })),
-      lib,
-      notify
+      lib
     );
-    expect(lib.captureSharedImages).toHaveBeenCalledWith([png]);
+    expect(lib.captureSharedFiles).toHaveBeenCalledWith([png, pdf]);
     expect(lib.captureShared).not.toHaveBeenCalled();
-    expect(notify).toHaveBeenCalledWith("PDFs Can't Be Captured Yet");
+    expect(done).toBe(true);
   });
 
   it("Captures a link, or text when there is no link, under the share's id", async () => {
     const lib = library();
     const link = share({ url: "https://example.com" });
-    await applyShare(planShare(link), lib, vi.fn());
+    await applyShare(planShare(link), lib);
     expect(lib.captureShared).toHaveBeenCalledWith(
       "https://example.com",
       link.id
     );
     const text = share({ text: "Lemon tart" });
-    await applyShare(planShare(text), lib, vi.fn());
+    await applyShare(planShare(text), lib);
     expect(lib.captureShared).toHaveBeenCalledWith("Lemon tart", text.id);
   });
 
@@ -138,17 +136,24 @@ describe("applyShare", () => {
         () => new Promise<"stored">((resolve) => (finish = resolve))
       ),
     };
-    let done = false;
-    const applied = applyShare(
-      planShare(share({ text: "hello" })),
-      lib,
-      vi.fn()
-    ).then(() => (done = true));
+    let done: boolean | undefined;
+    const applied = applyShare(planShare(share({ text: "hello" })), lib).then(
+      (result) => (done = result)
+    );
     await Promise.resolve();
     await Promise.resolve();
-    expect(done).toBe(false);
+    expect(done).toBeUndefined();
     finish("stored");
     await applied;
     expect(done).toBe(true);
+  });
+
+  it("is not done when the account is full, so the share is kept", async () => {
+    const lib = {
+      ...library(),
+      captureSharedFiles: vi.fn(async () => ["stored", "full"] as const),
+    } as unknown as ShareLibrary;
+    const files = [held("a.png", "image/png"), held("b.png", "image/png")];
+    expect(await applyShare(planShare(share({ files })), lib)).toBe(false);
   });
 });

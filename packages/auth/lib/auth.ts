@@ -27,7 +27,7 @@ export type AuthConfig = {
    * deployment has one. Never a wildcard. Better Auth then answers that
    * origin's credentialed session requests and no other extension's.
    */
-  extensionOrigin?: string;
+  extensionOrigins?: string[];
   turnstileSecretKey: string;
   google?: { clientId?: string; clientSecret?: string };
   github?: { clientId?: string; clientSecret?: string };
@@ -79,8 +79,8 @@ export function createAuth({
     secret: config.secret,
     baseURL: config.baseURL,
     basePath: BASE_PATH,
-    ...(config.extensionOrigin
-      ? { trustedOrigins: [config.extensionOrigin] }
+    ...(config.extensionOrigins
+      ? { trustedOrigins: config.extensionOrigins }
       : {}),
     logger: redactingLogger,
     // Unexpected errors propagate to the caller (Hono's redacted onError)

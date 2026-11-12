@@ -154,9 +154,11 @@ const memories = async (page: Page) =>
 async function holdText(page: Page, text: string) {
   await page.evaluate(async (text) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open("spark-share", 1);
-      req.onupgradeneeded = () =>
-        req.result.createObjectStore("pending", { autoIncrement: true });
+      const req = indexedDB.open("spark-share", 2);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains("pending"))
+          req.result.createObjectStore("pending", { autoIncrement: true });
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -181,7 +183,7 @@ const heldCount = (page: Page) =>
   page.evaluate(
     () =>
       new Promise<number>((resolve, reject) => {
-        const req = indexedDB.open("spark-share", 1);
+        const req = indexedDB.open("spark-share", 2);
         req.onsuccess = () => {
           const count = req.result
             .transaction("pending")
@@ -248,7 +250,10 @@ test("a form that hides its site waits for the person, and Discard drops it", as
   await expect(attacker.getByText("Free money")).toBeVisible();
   expect(await memories(page)).toEqual([]);
 
-  await attacker.getByRole("button", { name: "Discard", exact: true }).click();
+  await attacker
+    .getByRole("dialog")
+    .getByRole("button", { name: "Discard" })
+    .click();
   await expect.poll(() => heldCount(attacker)).toBe(0);
   await attacker.reload();
   await expect(
@@ -264,7 +269,9 @@ test("a share the person agrees to is Captured once", async ({
   await signIn(page);
   await swReady(page);
   const sheet = await attackerPost(page, baseURL, "no-referrer");
-  await sheet.getByRole("button", { name: "Capture", exact: true }).click();
+  const ask = sheet.getByRole("dialog");
+  await expect(ask).toBeVisible();
+  await ask.getByRole("button", { name: "Capture", exact: true }).click();
   await expect(
     sheet.getByRole("listitem", { name: "Free money" })
   ).toBeVisible();
@@ -329,4 +336,47 @@ test("a share stays held until the server has it, then Captures once", async ({
   expect((await memories(page)).map((m) => m.body)).toEqual([
     "Survives a bad connection",
   ]);
+});
+
+test("a share an older build held is upgraded, and asks first", async ({
+  page,
+}) => {
+  await signIn(page);
+  await swReady(page);
+  // The version 1 hold: bare files, no ids, no verified flag; one damaged row.
+  await page.evaluate(async () => {
+    await new Promise((done) => {
+      const gone = indexedDB.deleteDatabase("spark-share");
+      gone.onsuccess = gone.onerror = gone.onblocked = () => done(null);
+    });
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const req = indexedDB.open("spark-share", 1);
+      req.onupgradeneeded = () =>
+        req.result.createObjectStore("pending", { autoIncrement: true });
+      req.onsuccess = () => resolve(req.result);
+    });
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction("pending", "readwrite");
+      const store = tx.objectStore("pending");
+      store.add({ title: "", text: "From an older build", url: "", files: [] });
+      store.add("damaged");
+      tx.oncomplete = () => resolve();
+    });
+    db.close();
+  });
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Capture This Share?" })
+  ).toBeVisible();
+  await expect(page.getByText("From an older build")).toBeVisible();
+  await expect(page.getByText("This Share Can't Be Read")).toBeVisible();
+  expect(await memories(page)).toEqual([]);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Capture", exact: true })
+    .click();
+  await expect(
+    page.getByRole("listitem", { name: "From an older build" })
+  ).toBeVisible();
+  await expect.poll(() => heldCount(page)).toBe(0);
 });

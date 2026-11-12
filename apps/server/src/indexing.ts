@@ -11,6 +11,7 @@ import {
   createIndexer,
   dohResolver,
   embedderFor,
+  pdfReaderFor,
   providerChain,
   type ChainOptions,
   type IndexOutcome,
@@ -137,10 +138,12 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     }
     const options = providers(env);
     const embedder = embedderFor(options);
+    const readPdf = pdfReaderFor(options);
     const { index } = createIndexer({
       store,
       providers: providerChain(options),
       ...(embedder && { embedder }),
+      ...(readPdf && { readPdf }),
       gatherer: gathererFor(env),
       readFile: async (key) => {
         const object = await env.FILES.get(key);

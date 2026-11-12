@@ -114,11 +114,11 @@ const day = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
  * (an image before Indexing names it) "Image" and its Capture day.
  */
 export function memoryName(memory: WallMemory) {
-  if (memory.kind === "image") {
+  if (memory.kind === "image" || memory.kind === "pdf") {
     return (
       memory.title ||
       memory.indexTitle ||
-      `Image, ${day.format(new Date(memory.capturedAt))}`
+      `${memory.kind === "pdf" ? "PDF" : "Image"}, ${day.format(new Date(memory.capturedAt))}`
     );
   }
   if (memory.kind === "link") {
@@ -137,7 +137,10 @@ export const isReferenceOnly = (memory: WallMemory) =>
 
 /** A tile's accessible name: its Memory's, then its upload or Index state while they last. */
 export function tileLabel(memory: WallMemory) {
-  const name = memoryName(memory);
+  const name =
+    memory.kind === "pdf" && memory.title
+      ? `${memoryName(memory)}, PDF`
+      : memoryName(memory);
   if (memory.upload) {
     return `${name}, ${memory.upload.step === "sending" ? "Uploading" : "Failed"}`;
   }
@@ -224,6 +227,7 @@ function ImageTile({
             )}
           />
         )}
+        {memory.kind === "pdf" && <KindPlate>PDF</KindPlate>}
         {memory.upload && (
           <UploadBadge
             upload={memory.upload}
@@ -237,6 +241,22 @@ function ImageTile({
         {badge}
       </div>
     </figure>
+  );
+}
+
+/**
+ * What a tile's image is when the image alone does not say: a PDF. The
+ * fixed ink plate badges over imagery use (DESIGN.md → Colour).
+ */
+function KindPlate({ children }: { children: string }) {
+  return (
+    <span
+      data-theme="dark"
+      aria-hidden
+      className="absolute bottom-2 left-2 inline-flex h-6 items-center rounded-chip bg-canvas/80 px-1.5 text-2xs font-medium text-ink"
+    >
+      {children}
+    </span>
   );
 }
 
