@@ -105,7 +105,9 @@ export default defineBackground(() => {
       if (
         sent.length &&
         !(await box.takeStatus(false)).hasRows &&
-        (feedback === undefined || feedback === "queued")
+        (feedback === undefined ||
+          feedback === "queued" ||
+          feedback === "signed-out")
       )
         await clearFeedback();
     } catch {
@@ -155,6 +157,10 @@ export default defineBackground(() => {
     };
   }
   async function showFeedback(result: Awaited<ReturnType<typeof present>>) {
+    if (result.state === "queued" && !result.hasRows) {
+      await clearFeedback();
+      return result;
+    }
     feedback = result.state;
     const label =
       result.state === "saved"

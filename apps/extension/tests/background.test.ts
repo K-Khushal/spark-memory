@@ -391,3 +391,17 @@ it("resumes a pending frame Capture only after an explicit page grant", async ()
   );
   expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
 });
+it("clears Sign In feedback when an alarm sends the queue after reauthentication", async () => {
+  stored.outbox = [{ owner: "ana", capture: { id: "capture", url: tab.url } }];
+  request.mockResolvedValueOnce(new Response(null, { status: 401 }));
+  background.main();
+  expect(await message("retry")).toMatchObject({ state: "signed-out" });
+  await alarm();
+  expect(stored.outbox).toEqual([]);
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
+});
+it("clears feedback when retry confirms that the outbox is already empty", async () => {
+  background.main();
+  expect(await message("retry")).toMatchObject({ hasRows: false });
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
+});
