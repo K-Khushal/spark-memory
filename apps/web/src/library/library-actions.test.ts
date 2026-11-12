@@ -13,6 +13,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   id: crypto.randomUUID(),
   kind: "text",
   title: null,
+  pages: null,
   body: "Some text",
   captureNote: null,
   preservation: "preserved",

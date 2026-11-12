@@ -1,8 +1,11 @@
 import {
   EMBEDDING,
   embeddingSpace,
+  FREE_ALLOWANCE,
+  indexedPages,
   INDEXING,
   IndexingOutput,
+  PdfScanOutput,
   type IndexFailure,
   type ProviderName,
 } from "@spark/core";
@@ -12,9 +15,11 @@ import {
   type EmbedSource,
   type Embedder,
   type Embedding,
+  type Visual,
 } from "./embedder";
 import type { Gathered, Gatherer } from "./link/gather";
-import { memoryPart, SYSTEM, type MemoryContent } from "./prompt";
+import { isScan, pdfBody, type PdfReader } from "./pdf";
+import { memoryPart, SCAN_SYSTEM, SYSTEM, type MemoryContent } from "./prompt";
 import {
   ProviderError,
   type ExtractRequest,
@@ -74,6 +79,16 @@ export type PendingMemory = MemoryContent & {
     thumbnailKey: string;
     thumbnailMime: string;
   };
+  /** Storage keys of a PDF Memory's file and its Indexed pages' images. */
+  pdf?: PdfKeys;
+};
+
+/** A PDF and its page images in storage; `pages` is the PDF's page count. */
+type PdfKeys = {
+  key: string;
+  bytes: number;
+  pages: number;
+  pageImages: { page: number; key: string; mime: string }[];
 };
 
 type ImageKeys = NonNullable<PendingMemory["image"]>;
@@ -86,6 +101,7 @@ export type EmbedMemory = EmbedSource & {
   run: number;
   revision: number;
   image?: ImageKeys;
+  pdf?: PdfKeys;
 };
 
 /** A loaded Memory and the id it was loaded by. */
@@ -138,6 +154,11 @@ export type IndexStore = {
   /** Replaces the vectors if nothing changed since loading; gives the lease back. */
   writeVectors(claim: Claim, embedding: Embedding): Promise<boolean>;
   fail(claim: Claim, reason: IndexFailure): Promise<boolean>;
+  /**
+   * Keeps a PDF's own text (pages apart by form feeds) once, if the Claim
+   * is still current. False otherwise.
+   */
+  savePdfText(claim: Claim, text: string): Promise<boolean>;
   /**
    * Keeps what gathering a link found, once, if the Claim is still current:
    * its content as Extraction should now see it, else undefined.
@@ -211,7 +232,10 @@ const describeIssues = (error: {
     .map((i) => `${i.path.join(".") || "root"}: ${i.message}`)
     .join("; ");
 
-function parse(text: string) {
+function parse(
+  text: string,
+  schema: Pick<typeof IndexingOutput, "safeParse"> = IndexingOutput
+) {
   const json = text
     .trim()
     .replace(/^```(?:json)?\s*|\s*```$/g, "")
@@ -222,7 +246,7 @@ function parse(text: string) {
   } catch {
     return { ok: false as const, errors: "not valid JSON" };
   }
-  const parsed = IndexingOutput.safeParse(value);
+  const parsed = schema.safeParse(value);
   return parsed.success
     ? { ok: true as const, output: parsed.data }
     : { ok: false as const, errors: describeIssues(parsed.error) };
@@ -259,6 +283,7 @@ export function createIndexer({
   providers,
   embedder,
   gatherer,
+  readPdf,
   readFile,
   now = () => new Date(),
 }: {
@@ -269,6 +294,8 @@ export function createIndexer({
   gatherer?: Gatherer;
   /** Makes the vectors; without one, Memories are found by keyword only. */
   embedder?: Embedder;
+  /** Reads a PDF's text; without one, every PDF reads as a scan. */
+  readPdf?: PdfReader;
   /** An object's bytes from storage; undefined when it is not there. */
   readFile: (key: string) => Promise<Uint8Array | undefined>;
   now?: () => Date;
@@ -319,17 +346,39 @@ export function createIndexer({
     work: Work,
     request: ExtractRequest
   ): Promise<IndexingOutput> {
+    // A scan's reply has one text per page image, or every page after a
+    // missing one would be anchored to the wrong page.
+    const count = request.pages?.length;
+    const schema = count
+      ? PdfScanOutput.refine((o) => o.pages.length === count, {
+          message: `expected ${count} pages`,
+          path: ["pages"],
+        })
+      : IndexingOutput;
     const first = await ask(provider, work, request);
-    const parsed = parse(first);
-    if (parsed.ok) return parsed.output;
+    const parsed = parse(first, schema);
+    if (parsed.ok) return scanned(parsed.output);
     const second = await ask(provider, work, {
       ...request,
       correction: { previous: first.slice(0, 8000), errors: parsed.errors },
     });
-    const again = parse(second);
-    if (again.ok) return again.output;
+    const again = parse(second, schema);
+    if (again.ok) return scanned(again.output);
     throw new InvalidOutput();
   }
+
+  /** A scan's text is its pages', apart by form feeds, so each Passage knows its page. */
+  const scanned = (output: IndexingOutput | PdfScanOutput): IndexingOutput => {
+    if (!("pages" in output)) return output;
+    const { pages, ...rest } = output;
+    return {
+      ...rest,
+      ocrText: pages
+        .map((p) => p.replace(/\f/g, " "))
+        .join("\f")
+        .slice(0, FREE_ALLOWANCE.textMaxChars),
+    };
+  };
 
   /**
    * The Memory's vectors, or undefined without an embedder or when it
@@ -342,9 +391,10 @@ export function createIndexer({
       Claim & {
         revision: number;
         image?: ImageKeys;
+        pdf?: PdfKeys;
       },
     current: () => Promise<boolean>,
-    loaded?: Image
+    loaded?: Visual[]
   ): Promise<Embedding | undefined> {
     if (!embedder) return undefined;
     const record = (
@@ -362,9 +412,12 @@ export function createIndexer({
         costMicros: embedCostMicros(embedder.model, usage),
         ...(estimated && { estimated }),
       });
-    let visual = work.image && (await visualOf(work.image, loaded));
+    let visuals = loaded ?? (await visualsOf(work));
     for (;;) {
-      const { inputs, parts } = embeddingInputs(work, visual);
+      const { inputs, parts } = embeddingInputs(
+        { ...work, pages: work.pdf?.pages ?? null },
+        visuals
+      );
       if (!(await current())) throw new Superseded();
       try {
         const { vectors, usage } = await embedder.embed(inputs);
@@ -388,16 +441,41 @@ export function createIndexer({
           );
         }
         // An image the model will not read still leaves the text to embed.
-        if (error.kind !== "unsupported" || !visual) return undefined;
-        visual = undefined;
+        if (error.kind !== "unsupported" || !visuals.length) return undefined;
+        visuals = [];
       }
     }
   }
 
+  const embedderReads = (mime: string) =>
+    (EMBEDDING.imageTypes as readonly string[]).includes(mime);
+
+  /** What the embedding model reads for the Memory's Visuals: its image, or each PDF page's. */
+  async function visualsOf(work: {
+    image?: ImageKeys;
+    pdf?: PdfKeys;
+  }): Promise<Visual[]> {
+    if (work.pdf) return (await pagesOf(work.pdf)) ?? [];
+    const image = work.image && (await visualOf(work.image));
+    return image ? [{ image }] : [];
+  }
+
+  /** A PDF's page images, in order; undefined when one is not in storage. */
+  async function pagesOf(pdf: PdfKeys): Promise<Visual[] | undefined> {
+    const pages = await Promise.all(
+      pdf.pageImages
+        .filter((p) => embedderReads(p.mime))
+        .map(async ({ page, key, mime }) => {
+          const bytes = await readFile(key);
+          return bytes && { image: { bytes, mime }, page };
+        })
+    );
+    return pages.every(Boolean) ? (pages as Visual[]) : undefined;
+  }
+
   /** The image the embedding model reads (PNG or JPEG), if the Memory has one. */
   async function visualOf(image: ImageKeys, loaded?: Image) {
-    const reads = (mime: string) =>
-      (EMBEDDING.imageTypes as readonly string[]).includes(mime);
+    const reads = embedderReads;
     if (loaded && reads(loaded.mime)) return loaded;
     const [key, mime] =
       reads(image.mime) && image.bytes <= INDEXING.maxImageBytes
@@ -533,16 +611,30 @@ export function createIndexer({
         ? { result: "failed", reason }
         : { result: "skipped" };
 
-    const image = work.image ? await imageOf(work.image) : undefined;
-    if (work.image && !image) return finish("unreadable");
-    const request: ExtractRequest = {
-      system: SYSTEM,
-      user: memoryPart(work),
-      ...(image && { image }),
-    };
+    let request: ExtractRequest;
+    let chain = providers;
+    let visuals: Visual[] | undefined;
+    if (work.pdf) {
+      const read = await pdfRequest(job, work, work.pdf);
+      if ("result" in read) return read;
+      if (read.failed) return finish(read.failed);
+      ({ request, visuals } = read);
+      work = read.work;
+      // A scan's pages go only to a provider that reads them (Gemini, ADR-0005).
+      if (request.pages) chain = providers.filter((p) => p.readsPages);
+    } else {
+      const image = work.image ? await imageOf(work.image) : undefined;
+      if (work.image && !image) return finish("unreadable");
+      request = {
+        system: SYSTEM,
+        user: memoryPart(work),
+        ...(image && { image }),
+      };
+      if (image) visuals = embedderReads(image.mime) ? [{ image }] : undefined;
+    }
 
     const seen = new Set<"invalid" | "unsupported" | "unavailable">();
-    for (const provider of providers) {
+    for (const provider of chain) {
       try {
         const output = await extractWith(provider, work, request);
         // Extraction may have spent the rest of the budget: a background
@@ -554,7 +646,7 @@ export function createIndexer({
             : await embed(
                 { ...work, found: output },
                 () => store.isCurrent(work),
-                image
+                visuals
               );
         const written = await store.complete(
           work,
@@ -578,6 +670,69 @@ export function createIndexer({
         : finish("unavailable");
     }
     return finish(seen.has("invalid") ? "invalid_output" : "unreadable");
+  }
+
+  /**
+   * A PDF's Extraction request. Its text first, once (`toMarkdown`, free
+   * and not a model, but never for AI opt-out, which never gets here): kept
+   * as the Memory's own text. A text PDF is described from that text; a
+   * scan (too few characters a page) from its page images, which are then
+   * its Visuals too. The PDF unread after the last attempt reads as a scan.
+   */
+  async function pdfRequest(
+    job: IndexJob,
+    loaded: Work,
+    pdf: PdfKeys
+  ): Promise<
+    | IndexOutcome
+    | { failed: IndexFailure }
+    | {
+        failed?: undefined;
+        work: Work;
+        request: ExtractRequest;
+        visuals?: Visual[];
+      }
+  > {
+    let work = loaded;
+    const indexed = indexedPages(pdf.pages);
+    if (work.body === null && readPdf) {
+      if (!(await store.isCurrent(work))) return { result: "skipped" };
+      const bytes = await readFile(pdf.key);
+      if (!bytes) return { failed: "unreadable" };
+      // Asked again right before the call: AI opt-out may have been
+      // switched on, or the Memory replaced, while the PDF was read.
+      if (!(await store.isCurrent(work))) return { result: "skipped" };
+      let text = "";
+      try {
+        text = pdfBody(await readPdf(bytes), { pages: pdf.pages, indexed });
+      } catch {
+        if (job.attempt < INDEXING.maxAttempts) {
+          return { result: "retry", delaySeconds: backoffSeconds(job.attempt) };
+        }
+      }
+      if (text) {
+        if (!(await store.savePdfText(work, text)))
+          return { result: "skipped" };
+        work = { ...work, body: text };
+      }
+    }
+    if (!isScan(work.body ?? "", indexed)) {
+      return {
+        work,
+        request: { system: SYSTEM, user: memoryPart(work) },
+      };
+    }
+    const pages = await pagesOf(pdf);
+    if (!pages?.length) return { failed: "unreadable" };
+    return {
+      work,
+      request: {
+        system: SCAN_SYSTEM,
+        user: memoryPart(work),
+        pages: pages.map((p) => p.image),
+      },
+      visuals: pages,
+    };
   }
 
   return { index };

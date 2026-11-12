@@ -1,18 +1,25 @@
 import type { Dispatch, SetStateAction } from "react";
 import {
   checkImage,
+  checkPdf,
+  isPdf,
   prepareImage,
+  preparePdf,
   type ImageRefusal,
+  type PageImage,
   type PreparedImage,
+  type PreparedPdf,
 } from "@spark/capture";
-import type { ImageCapture } from "@spark/core";
+import { PDF_TYPE, type ImageCapture, type PdfCapture } from "@spark/core";
 import type { toast } from "@spark/ui";
 import { captureProductAnalytics } from "../product-analytics";
 import type { Memory, WallMemory } from "./library-actions";
 
 /** A presigned upload: PUT the file's bytes to `url` with exactly `headers`. */
 export type Upload = {
-  role: "original" | "thumbnail";
+  role: "original" | "thumbnail" | "page";
+  /** A PDF page image's page (1, 2…); 0 for the others. */
+  page?: number;
   url: string;
   headers: Record<string, string>;
 };
@@ -30,6 +37,10 @@ export type ImageTransport = {
   /** Creates the Memory (idempotent by id); rejects with Refused over the Free allowance. */
   createImage: (
     input: ImageCapture
+  ) => Promise<{ memory: Memory; uploads: Upload[] }>;
+  /** The same for a PDF and its page images. */
+  createPdf: (
+    input: PdfCapture
   ) => Promise<{ memory: Memory; uploads: Upload[] }>;
   put: (
     upload: Upload,
@@ -50,10 +61,14 @@ export type UploadState =
   /** Its upload stopped on an earlier page (a reload): the file is gone, only Delete helps. */
   | { step: "stranded" };
 
+/** A file being Captured: an image, or a PDF (whose pages are drawn while it uploads). */
+type Prepared = PreparedImage | PreparedPdf;
+const isPdfCapture = (p: Prepared): p is PreparedPdf => "pageImages" in p;
+
 /**
- * One state machine per image Memory, from Capture until its files are
- * stored. A run is one attempt: create (or find) the Memory, PUT each file
- * the server still lacks, then confirm. Every await checks the run is still
+ * One state machine per image or PDF Memory, from Capture until its files
+ * are stored. A run is one attempt: (for a PDF, draw its pages, once) create
+ * (or find) the Memory, PUT each file the server still lacks, then confirm. Every await checks the run is still
  * the Memory's current one, so a cancelled or superseded run never touches
  * the wall. Try Again starts a new run with the same id; the server answers
  * it idempotently. Runs go through `inOrder`, the Memory's request queue,
@@ -71,11 +86,11 @@ export function imageCapture({
   transport: ImageTransport;
   notify: typeof toast;
   onSaved: () => void;
-  onCaptured?: () => void;
+  onCaptured?: (kind: "image" | "pdf") => void;
   inOrder: <T>(id: string, task: () => Promise<T>) => Promise<T>;
 }) {
   type Entry = {
-    prepared: PreparedImage;
+    prepared: Prepared;
     /** Object URLs of the local files, shown until the page closes. */
     urls: { url: string; thumbnailUrl: string };
     run: number;
@@ -109,25 +124,50 @@ export function imageCapture({
     const current = () => entries.get(id) === entry && entry.run === run;
     if (!current()) return;
     const { prepared } = entry;
+    const described = {
+      id,
+      bytes: prepared.file.size,
+      width: prepared.width,
+      height: prepared.height,
+      contentHash: prepared.contentHash,
+      thumbhash: prepared.thumbhash,
+      palette: prepared.palette,
+      thumbnail: {
+        mime: prepared.thumbnailMime,
+        bytes: prepared.thumbnail.size,
+      },
+      productAnalytics: captureProductAnalytics(),
+    };
     try {
-      const { uploads } = await transport.createImage({
-        id,
-        mime: prepared.mime,
-        bytes: prepared.file.size,
-        width: prepared.width,
-        height: prepared.height,
-        contentHash: prepared.contentHash,
-        thumbhash: prepared.thumbhash,
-        palette: prepared.palette,
-        thumbnail: {
-          mime: prepared.thumbnailMime,
-          bytes: prepared.thumbnail.size,
-        },
-        productAnalytics: captureProductAnalytics(),
-      });
+      let pages: PageImage[] = [];
+      let created;
+      if (isPdfCapture(prepared)) {
+        pages = await prepared.pageImages();
+        if (!current()) return;
+        created = await transport.createPdf({
+          ...described,
+          title: prepared.title,
+          pages: prepared.pages,
+          pageImages: pages.map(({ blob, width, height }) => ({
+            bytes: blob.size,
+            width,
+            height,
+          })),
+        });
+      } else {
+        created = await transport.createImage({
+          ...described,
+          mime: prepared.mime,
+        });
+      }
+      const { uploads } = created;
       if (!current()) return;
       const body = (u: Upload) =>
-        u.role === "original" ? prepared.file : prepared.thumbnail;
+        u.role === "original"
+          ? prepared.file
+          : u.role === "thumbnail"
+            ? prepared.thumbnail
+            : pages[(u.page ?? 0) - 1]!.blob;
       const total = uploads.reduce((n, u) => n + body(u).size, 0);
       const sent = new Map<string, number>();
       await Promise.all(
@@ -137,7 +177,7 @@ export function imageCapture({
             body(u),
             (bytes) => {
               if (!current()) return;
-              sent.set(u.role, bytes);
+              sent.set(`${u.role}:${u.page ?? 0}`, bytes);
               const done = [...sent.values()].reduce((a, b) => a + b, 0);
               show(id, { step: "sending", progress: done / total });
             },
@@ -165,7 +205,7 @@ export function imageCapture({
         )
       );
       onSaved();
-      onCaptured?.();
+      onCaptured?.(isPdfCapture(prepared) ? "pdf" : "image");
       const release = () => {
         URL.revokeObjectURL(urls.url);
         URL.revokeObjectURL(urls.thumbnailUrl);
@@ -188,11 +228,12 @@ export function imageCapture({
         });
     } catch (error) {
       if (!current()) return;
-      // One file failed: stop the other, so no PUT outlives its run.
+      // One file failed: stop the others, so no PUT outlives its run.
       entry.abort?.abort();
-      if (error instanceof Refused) {
+      if (error instanceof Refused || error === "unreadable") {
+        const pdf = isPdfCapture(prepared);
         drop(id);
-        refuse(error.reason);
+        refuse(error instanceof Refused ? error.reason : "unreadable", pdf);
         return;
       }
       entry.failed = true;
@@ -211,14 +252,16 @@ export function imageCapture({
     if (!entry) return false;
     entries.delete(id);
     entry.abort?.abort();
+    if (isPdfCapture(entry.prepared)) entry.prepared.release();
     removeLocal(id);
     URL.revokeObjectURL(entry.urls.url);
     URL.revokeObjectURL(entry.urls.thumbnailUrl);
     return true;
   }
 
-  function refuse(reason: ImageRefusal | "invalid") {
-    notify(REFUSALS[reason], { id: `refused-${reason}` });
+  function refuse(reason: ImageRefusal | "invalid", pdf = false) {
+    const message = (pdf && PDF_REFUSALS[reason]) || REFUSALS[reason];
+    notify(message, { id: `refused-${reason}` });
   }
 
   /** Try Again on a failed upload: a new run, same Memory id. */
@@ -242,8 +285,10 @@ export function imageCapture({
     let used = usedBytes + reserved();
     const accepted: File[] = [];
     for (const file of files) {
-      const refusal = checkImage(file, used);
-      if (refusal) refuse(refusal);
+      const refusal = isPdf(file)
+        ? checkPdf(file, used)
+        : checkImage(file, used);
+      if (refusal) refuse(refusal, isPdf(file));
       else {
         accepted.push(file);
         used += file.size;
@@ -254,8 +299,11 @@ export function imageCapture({
     const queue = [...accepted];
     const worker = async () => {
       for (let file = queue.shift(); file; file = queue.shift()) {
-        const prepared = await prepareImage(file).catch((reason: unknown) => {
-          refuse(reason === "file_too_large" ? reason : "unreadable");
+        const pdf = isPdf(file);
+        const prepared = await (
+          pdf ? preparePdf(file) : prepareImage(file)
+        ).catch((reason: unknown) => {
+          refuse(reason === "file_too_large" ? reason : "unreadable", pdf);
         });
         if (prepared) ids.push(land(prepared));
       }
@@ -264,7 +312,8 @@ export function imageCapture({
     return ids;
   }
 
-  function land(prepared: PreparedImage) {
+  function land(prepared: Prepared) {
+    const pdf = isPdfCapture(prepared);
     const id = crypto.randomUUID();
     const urls = {
       url: URL.createObjectURL(prepared.file),
@@ -274,8 +323,9 @@ export function imageCapture({
     const now = new Date().toISOString();
     const memory: WallMemory = {
       id,
-      kind: "image",
-      title: null,
+      kind: pdf ? "pdf" : "image",
+      title: pdf ? prepared.title : null,
+      pages: pdf ? prepared.pages : null,
       body: null,
       captureNote: null,
       preservation: "preserved",
@@ -293,7 +343,7 @@ export function imageCapture({
       description: null,
       image: {
         ...urls,
-        mime: prepared.mime,
+        mime: pdf ? PDF_TYPE : prepared.mime,
         bytes: prepared.file.size,
         width: prepared.width,
         height: prepared.height,
@@ -314,6 +364,13 @@ export function imageCapture({
     isUploading: (id: string) => entries.has(id),
   };
 }
+
+/** What differs for a PDF; the rest reads the same. */
+const PDF_REFUSALS: Partial<Record<ImageRefusal | "invalid", string>> = {
+  invalid: "PDF Can't Be Captured",
+  file_too_large: "PDFs Over 25 MB Can't Be Captured",
+  unreadable: "PDF Can't Be Read",
+};
 
 const REFUSALS: Record<ImageRefusal | "invalid", string> = {
   // The server could not accept what the browser made of it: retrying won't help.

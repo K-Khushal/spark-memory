@@ -1,6 +1,8 @@
 import { ImageViewer } from "./image-viewer";
 import { MemoryDetail, type Edits } from "./memory-detail";
 import { PasteBox } from "./paste-box";
+import type { PdfMatch } from "./pdf-match";
+import { PdfViewer } from "./pdf-viewer";
 import { SearchCommand } from "./search-command";
 import type { Memory, WallMemory } from "./use-library";
 import type { Results } from "./use-search";
@@ -19,11 +21,14 @@ export type LibraryOverlaysProps = {
   pasteOpen: boolean;
   onPasteOpenChange: (open: boolean) => void;
   onPasteCapture: (text: string, captureNote: string) => boolean;
-  onImages: (files: File[]) => void;
+  onFiles: (files: File[]) => void;
   images: WallMemory[];
   imageId: string | undefined;
   onImageId: (id: string) => void;
   onImageClose: () => void;
+  pdf: WallMemory | undefined;
+  pdfMatch: PdfMatch;
+  onPdfClose: () => void;
   opened: Memory | undefined;
   edits: Edits;
   onDetailClose: () => void;
@@ -54,11 +59,14 @@ export function LibraryOverlays({
   pasteOpen,
   onPasteOpenChange,
   onPasteCapture,
-  onImages,
+  onFiles,
   images,
   imageId,
   onImageId,
   onImageClose,
+  pdf,
+  pdfMatch,
+  onPdfClose,
   opened,
   edits,
   onDetailClose,
@@ -87,7 +95,7 @@ export function LibraryOverlays({
         open={pasteOpen}
         onOpenChange={onPasteOpenChange}
         onCapture={onPasteCapture}
-        onImages={onImages}
+        onFiles={onFiles}
       />
       <ImageViewer
         memories={images}
@@ -97,6 +105,16 @@ export function LibraryOverlays({
         onDelete={onDelete}
         onRetry={onRetry}
         onBroken={onBroken}
+        onRetryIndexing={onRetryIndexing}
+        onAiOptOut={onAiOptOut}
+        onMoreLikeThis={onMoreLikeThis}
+      />
+      <PdfViewer
+        memory={pdf}
+        match={pdfMatch}
+        onClose={onPdfClose}
+        onDelete={onDelete}
+        onRetry={onRetry}
         onRetryIndexing={onRetryIndexing}
         onAiOptOut={onAiOptOut}
         onMoreLikeThis={onMoreLikeThis}

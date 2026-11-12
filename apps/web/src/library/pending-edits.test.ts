@@ -15,6 +15,7 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 const start: Memory = {
   id: "m1",
   kind: "text",
+  pages: null,
   title: "Start",
   body: "Body",
   captureNote: null,

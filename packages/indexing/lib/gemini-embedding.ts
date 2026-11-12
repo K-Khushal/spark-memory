@@ -1,6 +1,11 @@
-import { EMBEDDING } from "@spark/core";
+import { EMBEDDING, INDEXING } from "@spark/core";
 import type { Embedder } from "./embedder";
-import { base64, guessTokens, ProviderError } from "./provider";
+import {
+  base64,
+  guessTokens,
+  overInlineLimit,
+  ProviderError,
+} from "./provider";
 
 type Reply = {
   embeddings?: { values?: number[] }[];
@@ -43,6 +48,15 @@ export function geminiEmbedding({
     model,
     dimensions,
     async embed(inputs, { timeoutMs = EMBEDDING.timeoutMs } = {}) {
+      // Too big to send, as its sizes alone say: refused before encoding it.
+      if (
+        overInlineLimit(
+          // As serialised below: an input's text, when it has one, is what is sent.
+          inputs.flatMap((i) => ("text" in i ? [] : [i.image]))
+        )
+      ) {
+        throw new ProviderError("unsupported");
+      }
       let textChars = 0;
       let images = 0;
       const requests = inputs.map((input) => {
@@ -76,6 +90,14 @@ export function geminiEmbedding({
           outputTokens: 0,
           imageTokens: estimate.imageTokens,
         });
+      const body = JSON.stringify({ requests });
+      // Past the inline limit Gemini refuses it anyway: not sent, not billed.
+      // In bytes, as Gemini counts it (UTF-8), not characters.
+      if (
+        new TextEncoder().encode(body).byteLength > INDEXING.inlineRequestBytes
+      ) {
+        throw new ProviderError("unsupported");
+      }
       let res: Response;
       try {
         res = await send(url, {
@@ -85,7 +107,7 @@ export function geminiEmbedding({
             "content-type": "application/json",
             "x-goog-api-key": apiKey,
           },
-          body: JSON.stringify({ requests }),
+          body,
         });
       } catch {
         throw billed();

@@ -17,6 +17,11 @@ export {
   THUMBNAIL_TYPES,
   THUMBNAIL_MAX_BYTES,
   ImageCapture,
+  PDF_TYPE,
+  PAGE_IMAGE,
+  PdfCapture,
+  indexedPages,
+  isPartlyIndexed,
 } from "./lib/memory";
 export {
   FREE_ALLOWANCE,
@@ -32,6 +37,8 @@ export {
   INDEX_FAILURES,
   INDEXING_OUTPUT_JSON_SCHEMA,
   IndexingOutput,
+  PDF_SCAN_OUTPUT_JSON_SCHEMA,
+  PdfScanOutput,
   Palette,
   type IndexFailure,
   type ProviderName,

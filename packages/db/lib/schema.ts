@@ -243,11 +243,12 @@ export const memory = pgTable(
   ]
 );
 
-export type FileRole = "original" | "thumbnail" | "screenshot";
+export type FileRole = "original" | "thumbnail" | "screenshot" | "page";
 
 /**
  * A file of a Memory in object storage (PLAN.md §4): the original (its
- * Preserved copy) and its thumbnail. `key` is chosen by the server and starts
+ * Preserved copy), its thumbnail and, for a PDF, an image of each Indexed
+ * page (`page` 1, 2…; 0 for every other file). `key` is chosen by the server and starts
  * with the owner's id. `generation` is one upload attempt: Try Again mints
  * another, and the object key includes it, so a confirm cannot accept a
  * later attempt's row. `storedAt` is set once the upload was checked; a
@@ -261,6 +262,7 @@ export const memoryFile = pgTable(
       .notNull()
       .references(() => memory.id, { onDelete: "cascade" }),
     role: text("role").$type<FileRole>().notNull(),
+    page: integer("page").default(0).notNull(),
     /** One upload attempt. A new one is minted on create and on Try Again. */
     generation: uuid("generation").notNull().defaultRandom(),
     key: text("r2_key").notNull().unique(),
@@ -271,11 +273,13 @@ export const memoryFile = pgTable(
     thumbhash: text("thumbhash"),
     /** An original's dominant colours (hex), most of the image first. */
     palette: text("palette").array(),
+    /** A PDF original's page count (its first FREE_ALLOWANCE.pdfPagesIndexed are Indexed). */
+    pages: integer("pages"),
     createdAt: instant("created_at"),
     storedAt: timestamp("stored_at", { withTimezone: true }),
   },
   (t) => [
-    primaryKey({ columns: [t.memoryId, t.role] }),
+    primaryKey({ columns: [t.memoryId, t.role, t.page] }),
     index("memory_file_unstored_idx")
       .on(t.createdAt)
       .where(sql`${t.storedAt} is null`),
@@ -332,12 +336,18 @@ const halfvec = customType<{ data: number[]; driverData: string }>({
 });
 
 export type VectorKind = "overview" | "visual" | "passage";
-/** Where a Passage sits: character offsets into the Memory's text or the text in its image. */
+/**
+ * Where a Passage sits: character offsets into the Memory's text or the
+ * text in its image, and for a PDF the page they are on.
+ */
 export type PassageAnchor = {
   field: "body" | "ocr";
   start: number;
   end: number;
+  page?: number;
 };
+/** Where a vector sits: a Passage's text, or the PDF page a Visual is of. */
+export type VectorAnchor = PassageAnchor | { page: number };
 
 /**
  * A Memory's vectors (ADR-0004): one Overview, a Visual for an image, and a
@@ -353,7 +363,7 @@ export const memoryVector = pgTable(
       .references(() => memory.id, { onDelete: "cascade" }),
     userId: text("user_id").notNull(),
     kind: text("kind").$type<VectorKind>().notNull(),
-    anchor: jsonb("anchor").$type<PassageAnchor>(),
+    anchor: jsonb("anchor").$type<VectorAnchor>(),
     model: text("model").notNull(),
     dimensions: integer("dimensions").notNull(),
     embedding: halfvec("embedding").notNull(),

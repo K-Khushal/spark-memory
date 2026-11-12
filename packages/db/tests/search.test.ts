@@ -130,6 +130,65 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       expect(top!.distance).toBeCloseTo(0, 2);
     });
 
+    it("says the Overview matched when a Passage is exactly as close, whatever order the rows were written in", async () => {
+      // The same point twice: a short text's Passage often says what its Overview says.
+      const same = mix({ 30: 1, 31: 1 });
+      for (const vectors of [
+        [
+          { kind: "overview" as const, embedding: same },
+          {
+            kind: "passage" as const,
+            anchor: { field: "body" as const, start: 0, end: 4 },
+            embedding: same,
+          },
+        ],
+        [
+          {
+            kind: "passage" as const,
+            anchor: { field: "body" as const, start: 0, end: 4 },
+            embedding: same,
+          },
+          { kind: "overview" as const, embedding: same },
+        ],
+      ]) {
+        const id = await save({ body: "Tied" }, { vectors });
+        const hits = await search("", same);
+        expect(hits.find((m) => m.id === id)?.part).toEqual({
+          kind: "overview",
+        });
+      }
+    });
+
+    it("settles equally close vectors of one kind by page, then place, whatever order they were written in", async () => {
+      const same = mix({ 40: 1, 41: 1 });
+      const visual = (page: number) => ({
+        kind: "visual" as const,
+        anchor: { page },
+        embedding: same,
+      });
+      const passage = (start: number) => ({
+        kind: "passage" as const,
+        anchor: { field: "body" as const, start, end: start + 2 },
+        embedding: same,
+      });
+      for (const [vectors, part] of [
+        [[visual(3), visual(1)], { kind: "visual", page: 1 }],
+        [[visual(1), visual(3)], { kind: "visual", page: 1 }],
+        [
+          [passage(2), passage(0)],
+          { kind: "passage", field: "body", start: 0, end: 2 },
+        ],
+        [
+          [passage(0), passage(2)],
+          { kind: "passage", field: "body", start: 0, end: 2 },
+        ],
+      ] as const) {
+        const id = await save({ body: "Tie" }, { vectors: [...vectors] });
+        const hits = await search("", same);
+        expect(hits.find((m) => m.id === id)?.part).toEqual(part);
+      }
+    });
+
     it("says an image matched when its Visual vector was closest", async () => {
       const [top] = await search("sunset at the harbour", mix({ 9: 1, 10: 1 }));
       expect(top).toMatchObject({ id: pier, part: { kind: "visual" } });

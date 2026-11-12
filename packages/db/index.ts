@@ -18,6 +18,8 @@ export {
   type FileCheck,
   type FileUpload,
   type ImageCaptureResult,
+  type PageImage,
+  type PdfCaptureResult,
   type LinkCaptureResult,
   type MemoryFileInfo,
   type MemoryImage,

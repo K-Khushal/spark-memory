@@ -14,7 +14,10 @@ export const PRODUCT_EVENTS = {
 } as const;
 
 export type ProductEvent =
-  | { event: "save_success"; properties: { kind: "text" | "image" | "link" } }
+  | {
+      event: "save_success";
+      properties: { kind: "text" | "image" | "link" | "pdf" };
+    }
   | {
       event: "time_to_searchable";
       properties: { kind: MemoryKind; milliseconds: number };

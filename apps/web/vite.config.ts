@@ -31,6 +31,9 @@ function heicChunkAllowance(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), heicChunkAllowance()],
+  // Found only when the first PDF is Captured: optimised up front, so the
+  // dev server does not reload the page mid-Capture to add it.
+  optimizeDeps: { include: ["@spark/capture > pdfjs-dist"] },
   server: {
     port: Number(env.SPARK_WEB_PORT ?? 5173),
     strictPort: true,
