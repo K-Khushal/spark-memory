@@ -32,6 +32,8 @@ export type Refusal =
   | "private_address"
   | "unresolved"
   | "too_many_redirects"
+  /** The caller's `permitted` said no right before a request (AI opt-out). */
+  | "not_permitted"
   | "content_type"
   | "status"
   /** These may pass: the Source or the network is down for now. */
@@ -234,6 +236,7 @@ export async function publicFetch(
     maxBytes = GATHER.maxHtmlBytes,
     timeoutMs = GATHER.timeoutMs,
     headers = {},
+    permitted,
   }: {
     fetch: typeof globalThis.fetch;
     resolve: Resolve;
@@ -241,6 +244,11 @@ export async function publicFetch(
     maxBytes?: number;
     timeoutMs?: number;
     headers?: Record<string, string>;
+    /**
+     * For a request to a third party: asked after each hop's name lookup,
+     * immediately before it is sent (redirects included). False sends nothing.
+     */
+    permitted?: () => Promise<boolean>;
   }
 ): Promise<PublicResponse> {
   const signal = AbortSignal.timeout(timeoutMs);
@@ -250,6 +258,10 @@ export async function publicFetch(
     if (typeof url === "string") return { ok: false, reason: url };
     // Name lookups count towards the time limit too.
     if (signal.aborted) return { ok: false, reason: "timeout" };
+    // Nothing awaits between this answer and the request going out.
+    if (permitted && !(await permitted())) {
+      return { ok: false, reason: "not_permitted" };
+    }
     let res: Response;
     try {
       res = await fetch(url.href, {

@@ -205,6 +205,49 @@ describe("publicFetch refuses what is not the public web", () => {
     expect(hops.requests[1]!.headers.get("authorization")).toBeNull();
   });
 
+  it("asks permission after resolving the name, right before sending", async () => {
+    const site = web({ "https://third.test/": html("<p>hi</p>") });
+    let permitted = true;
+    const res = await publicFetch("https://third.test/", {
+      fetch: site.fetch,
+      // Permission withdrawn while the name is being looked up.
+      resolve: async () => {
+        permitted = false;
+        return ["93.184.215.14"];
+      },
+      permitted: async () => permitted,
+    });
+    expect(res).toEqual({ ok: false, reason: "not_permitted" });
+    expect(site.requests).toEqual([]);
+  });
+
+  it("asks permission again before following each redirect", async () => {
+    let permitted = true;
+    const hops = web({
+      "https://third.test/a": () => {
+        // Withdrawn while the first hop is answering.
+        permitted = false;
+        return new Response(null, {
+          status: 302,
+          headers: { location: "https://third.test/b" },
+        });
+      },
+      "https://third.test/b": html("<p>hi</p>"),
+    });
+    const asked: number[] = [];
+    const res = await publicFetch("https://third.test/a", {
+      fetch: hops.fetch,
+      resolve: resolve(),
+      permitted: async () => {
+        asked.push(hops.requests.length);
+        return permitted;
+      },
+    });
+    expect(res).toEqual({ ok: false, reason: "not_permitted" });
+    expect(hops.requests.map((r) => r.url)).toEqual(["https://third.test/a"]);
+    expect(asked).toEqual([0, 1]);
+  });
+
   it("calls a 5xx unavailable and a 4xx refused", async () => {
     const down = web({
       "https://a.test/5": () => new Response("", { status: 503 }),
@@ -487,6 +530,28 @@ describe("gather", () => {
     expect(asked.every((n) => n === "1")).toBe(true);
     expect(site.requests.map((r) => r.url)).toEqual([page]);
   });
+
+  it.each([
+    ["Jina Reader", "https://spa.test/", "r.jina.ai"],
+    ["oEmbed", "https://x.com/someone/status/1", "publish.twitter.com"],
+  ])(
+    "sends nothing to %s when opt-out is switched on while its name resolves",
+    async (_, url, thirdHost) => {
+      let optedOut = false;
+      const site = web({ [url]: html("<div></div>") });
+      const { gather } = createGatherer({
+        fetch: site.fetch,
+        resolve: async (host) => {
+          if (host === thirdHost) optedOut = true;
+          return ["93.184.215.14"];
+        },
+        reader: {},
+      });
+      await gather(url, { thirdParty: async () => !optedOut });
+      expect(optedOut).toBe(true);
+      expect(site.requests.map((r) => r.url)).toEqual([url]);
+    }
+  );
 
   it.each(["https://x.com/someone/status/1", "https://spa.test/"])(
     "calls no third party when the Source's own name cannot be resolved (%s)",

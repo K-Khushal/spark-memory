@@ -172,6 +172,31 @@ describe.skipIf(!databaseUrl)("link Capture", () => {
     expect(asked).toEqual(["https://late.test/"]);
   });
 
+  it("never asks Jina once AI opt-out is switched on while Jina's name resolves", async () => {
+    const { call } = await signedIn();
+    const { memory } = await captureLink(call, "https://slowdns.test/");
+    const asked: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.hostname === "cloudflare-dns.com") {
+        if (url.searchParams.get("name") === "r.jina.ai") {
+          const res = await call(`/api/memories/${memory.id}/ai-opt-out`, {
+            method: "PUT",
+            json: { aiOptOut: true },
+          });
+          expect(res.status).toBe(200);
+        }
+        return Response.json({ Answer: [{ type: 1, data: "93.184.215.14" }] });
+      }
+      asked.push(url.href);
+      return new Response(page("Thin", ""), {
+        headers: { "content-type": "text/html" },
+      });
+    });
+    await drain(memory.id, env({ LINK_READER: "jina" }));
+    expect(asked).toEqual(["https://slowdns.test/"]);
+  });
+
   it("calls no third party when DNS fails, and tries again later", async () => {
     const { call } = await signedIn();
     const { memory } = await captureLink(

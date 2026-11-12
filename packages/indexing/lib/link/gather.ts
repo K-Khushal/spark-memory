@@ -21,9 +21,11 @@ export type Gathered = {
 
 export type Gatherer = {
   /**
-   * `thirdParty` is asked right before each call to someone other than the
-   * Source (oEmbed, Jina Reader); false (AI opt-out, or the run moved on)
-   * skips it. It is never asked unless the Source was confirmed public.
+   * `thirdParty` is asked before every request to someone other than the
+   * Source (oEmbed, Jina Reader), after that host's name lookup and on
+   * each redirect hop (publicFetch's `permitted`); false (AI opt-out, or
+   * the run moved on) sends nothing. Third parties are only tried once
+   * the Source was confirmed public.
    */
   gather(
     url: string,
@@ -198,11 +200,12 @@ export function createGatherer({
 
     const host = new URL(url).hostname;
     const known = OEMBED.find(([pattern]) => pattern.test(host));
-    if (confirmed && known && (await thirdParty())) {
+    if (confirmed && known) {
       const o = parseJson(
         await get(known[1] + encodeURIComponent(url), {
           accept: JSON_TYPES,
           maxBytes: GATHER.maxJsonBytes,
+          permitted: thirdParty,
         })
       );
       if (o) {
@@ -220,15 +223,11 @@ export function createGatherer({
       }
     }
 
-    if (
-      confirmed &&
-      reader &&
-      text.length < GATHER.minPreservedChars &&
-      (await thirdParty())
-    ) {
+    if (confirmed && reader && text.length < GATHER.minPreservedChars) {
       const res = await get(GATHER.readerUrl + url, {
         accept: ["application/json"],
         timeoutMs: GATHER.readerTimeoutMs,
+        permitted: thirdParty,
         headers: {
           "x-return-format": "text",
           "x-retain-images": "none",
