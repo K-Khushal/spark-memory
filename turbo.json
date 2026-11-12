@@ -40,7 +40,12 @@
       "outputs": ["dist/**"]
     },
     "@spark/extension#build": {
-      "env": ["WXT_API_ORIGIN", "WXT_EXTENSION_KEY", "WXT_E2E"],
+      "env": [
+        "WXT_API_ORIGIN",
+        "WXT_EXTENSION_KEY",
+        "WXT_E2E",
+        "WXT_UPLOAD_ORIGIN"
+      ],
       "outputs": [".output/**"]
     }
   }

@@ -9,7 +9,7 @@ import {
 import { isDeletionRequested, openDatabase, type Database } from "@spark/db";
 import { isVerifiedAdmin, type Plan } from "@spark/core";
 import type { AppEnv, Bindings } from "./env";
-import { extensionOrigin } from "./origin";
+import { extensionOrigins } from "./origin";
 
 export type SignedInUser = {
   id: string;
@@ -26,7 +26,7 @@ export function authConfig(env: Bindings): AuthConfig {
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL || undefined,
     secureCookies: env.SPARK_ENV !== "local",
-    extensionOrigin: extensionOrigin(env.EXTENSION_ORIGIN),
+    extensionOrigins: extensionOrigins(env.EXTENSION_ORIGIN),
     turnstileSecretKey: env.TURNSTILE_SECRET_KEY,
     google: {
       clientId: env.GOOGLE_CLIENT_ID,

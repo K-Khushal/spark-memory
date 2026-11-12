@@ -12,6 +12,7 @@ import {
   LinkCapture,
   MemoryEdit,
   normaliseUrl,
+  isYouTubeVideo,
   SCREENSHOT_MAX_BYTES,
   TextCapture,
   type LinkMetadata,
@@ -368,6 +369,7 @@ export function openLibrary(
   function captureFiles(capture: {
     id: string;
     kind: "image" | "pdf";
+    sourceUrl?: string;
     contentHash: string;
     title: string | null;
     productAnalytics?: boolean;
@@ -472,6 +474,7 @@ export function openLibrary(
         id,
         userId,
         kind: capture.kind,
+        sourceUrl: capture.sourceUrl,
         title: capture.title,
         contentHash: capture.contentHash,
         indexState: "indexing",
@@ -520,6 +523,10 @@ export function openLibrary(
           id,
           userId,
           kind: "text",
+          sourceUrl: parsed.source?.url,
+          metadata: parsed.source
+            ? { selectionContext: parsed.source.context }
+            : undefined,
           body,
           title,
           captureNote,
@@ -581,6 +588,7 @@ export function openLibrary(
         .update(memory)
         .set({
           lastSavedAt: sql`now()`,
+          ...(isYouTubeVideo(url) && { sourceUrl: url }),
           captureNote: sql`coalesce(${memory.captureNote}, ${note}::text)`,
           // A new note is new text for the vectors: the sweep embeds it again.
           revision: sql`${memory.revision} + (${noteAdded})::int`,
@@ -732,6 +740,7 @@ export function openLibrary(
       return captureFiles({
         id: capture.id,
         kind: "image",
+        sourceUrl: capture.sourceUrl,
         contentHash: capture.contentHash,
         title: null,
         productAnalytics: capture.productAnalytics,

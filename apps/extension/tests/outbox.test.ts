@@ -43,7 +43,8 @@ it("does not let a refused Capture block the next one or resurrect discarded row
       rows = value.rows;
     },
     send: async (row) => {
-      if (row.capture.url.endsWith("bad")) throw new ApiError(400);
+      if ("url" in row.capture && row.capture.url.endsWith("bad"))
+        throw new ApiError(400);
       return { id: row.capture.id!, revision: 1, captureNote: null };
     },
   });
@@ -177,7 +178,8 @@ it("sends a new online Capture after flushing a full backlog of refused rows", a
       state = structuredClone(value);
     },
     send: async (pending) => {
-      if (pending.capture.url.endsWith("bad")) throw new ApiError(400);
+      if ("url" in pending.capture && pending.capture.url.endsWith("bad"))
+        throw new ApiError(400);
       return { id: pending.capture.id!, revision: 1, captureNote: null };
     },
   });

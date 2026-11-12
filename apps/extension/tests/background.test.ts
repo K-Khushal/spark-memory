@@ -1,8 +1,20 @@
+import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import background from "../entrypoints/background";
 
 const browser = vi.hoisted(() => ({
-  storage: { local: { get: vi.fn(), set: vi.fn(), setAccessLevel: vi.fn() } },
+  action: { setBadgeText: vi.fn(), setTitle: vi.fn() },
+  commands: { onCommand: { addListener: vi.fn() } },
+  permissions: { request: vi.fn(), contains: vi.fn() },
+  contextMenus: {
+    removeAll: vi.fn(),
+    create: vi.fn(),
+    onClicked: { addListener: vi.fn() },
+  },
+  storage: {
+    session: { get: vi.fn(), set: vi.fn(), remove: vi.fn() },
+    local: { get: vi.fn(), set: vi.fn(), setAccessLevel: vi.fn() },
+  },
   alarms: {
     create: vi.fn(),
     clear: vi.fn(),
@@ -13,9 +25,15 @@ const browser = vi.hoisted(() => ({
     id: "spark",
     getURL: (path: string) => `chrome-extension://spark${path}`,
     onMessage: { addListener: vi.fn() },
+    onInstalled: { addListener: vi.fn() },
     onStartup: { addListener: vi.fn() },
   },
-  tabs: { query: vi.fn(), captureVisibleTab: vi.fn() },
+  tabs: {
+    query: vi.fn(),
+    captureVisibleTab: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+  },
   scripting: { executeScript: vi.fn() },
 }));
 vi.mock("wxt/browser", () => ({ browser }));
@@ -23,6 +41,7 @@ let stored: Record<string, unknown>;
 let request: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubGlobal("indexedDB", new IDBFactory());
   stored = { outbox: [], owner: "ana" };
   browser.storage.local.get.mockImplementation(async () =>
     structuredClone(stored)
@@ -30,6 +49,7 @@ beforeEach(() => {
   browser.storage.local.set.mockImplementation(async (value) => {
     Object.assign(stored, structuredClone(value));
   });
+  browser.storage.session.get.mockResolvedValue({});
   browser.alarms.get.mockResolvedValue(undefined);
   browser.alarms.clear.mockResolvedValue(true);
   request = vi
@@ -87,7 +107,6 @@ it("omits page data when injection fails so the server can gather", async () => 
   expect(JSON.parse(save![1].body)).not.toHaveProperty("page");
 });
 it("uses the paste fallback immediately when the extractor reports failure", async () => {
-  vi.useFakeTimers();
   captureTab();
   browser.scripting.executeScript.mockImplementation(async () => {
     browser.runtime.onMessage.addListener.mock.calls[0]![0](
@@ -134,8 +153,11 @@ it("reports a permanent refusal once even when it occurred during an alarm", asy
   );
   background.main();
   await alarm();
-  expect(await message("status")).toEqual({ hasRows: false, refused: 400 });
-  expect(await message("status")).toEqual({ hasRows: false });
+  expect(await message("retry")).toMatchObject({
+    state: "error",
+    label: "Capture Refused",
+  });
+  expect(await message("retry")).toMatchObject({ state: "queued" });
 });
 it("creates the retry alarm only after adding an offline Capture", async () => {
   captureTab();
@@ -174,7 +196,7 @@ it("does not lose a refusal notice while showing Sign In", async () => {
   request.mockResolvedValue(new Response(null, { status: 401 }));
   background.main();
   expect(await message("capture")).toMatchObject({ state: "signed-out" });
-  expect(await message("status")).toEqual({ hasRows: false, refused: 400 });
+  expect(stored.outboxRefusal).toBe(400);
 });
 it("cannot clear a newly queued alarm using an earlier empty snapshot", async () => {
   let release!: (value: Record<string, unknown>) => void;
@@ -206,4 +228,180 @@ it("cannot clear a newly queued alarm using an earlier empty snapshot", async ()
   await Promise.all([tick, saving]);
   expect(stored.outbox).toHaveLength(1);
   expect(scheduled).toBe(true);
+});
+
+it("does not let an old refusal replace a successful new Capture", async () => {
+  stored.outboxRefusal = 400;
+  captureTab();
+  browser.scripting.executeScript.mockRejectedValue(new Error("restricted"));
+  background.main();
+  expect(await message("capture")).toMatchObject({ state: "duplicate" });
+  expect(stored.outboxRefusal).toBeNull();
+});
+it("retries queued Captures on installation/update", async () => {
+  stored.outbox = [{ owner: "ana", capture: { id: "capture", url: tab.url } }];
+  background.main();
+  await browser.runtime.onInstalled.addListener.mock.calls[0]![0]();
+  expect(stored.outbox).toEqual([]);
+});
+it("dispatches selection Capture through the text API", async () => {
+  captureTab();
+  browser.scripting.executeScript.mockResolvedValue([
+    {
+      result: {
+        text: "Basil",
+        context: "Growing Basil indoors",
+        title: "Garden",
+        url: tab.url,
+      },
+    },
+  ]);
+  background.main();
+  await message("selection");
+  const saved = request.mock.calls.find(([url]) => url.endsWith("/memories"));
+  expect(JSON.parse(saved![1].body)).toMatchObject({
+    body: "Basil",
+    source: {
+      url: tab.url + "#:~:text=Basil",
+      context: "Growing Basil indoors",
+    },
+  });
+});
+it("captures the context-menu frame's selection with its own Source", async () => {
+  captureTab();
+  browser.scripting.executeScript.mockResolvedValue([
+    {
+      result: {
+        text: "Basil",
+        context: "Growing Basil",
+        title: "Frame",
+        url: "https://garden.test/frame",
+      },
+    },
+  ]);
+  background.main();
+  await browser.contextMenus.onClicked.addListener.mock.calls[0]![0](
+    {
+      menuItemId: "selection",
+      frameId: 7,
+      frameUrl: "https://garden.test/frame",
+    },
+    tab
+  );
+  expect(browser.scripting.executeScript).toHaveBeenCalledWith(
+    expect.objectContaining({ target: { tabId: 1, frameIds: [7] } })
+  );
+  expect(
+    JSON.parse(
+      request.mock.calls.find(([url]) => url.endsWith("/memories"))![1].body
+    )
+  ).toMatchObject({
+    source: { url: "https://garden.test/frame#:~:text=Basil" },
+  });
+});
+
+it("offers a user-gesture permission page instead of requesting from the background", async () => {
+  background.main();
+  browser.permissions.contains.mockResolvedValue(false);
+  await browser.contextMenus.onClicked.addListener.mock.calls[0]![0](
+    {
+      menuItemId: "image",
+      srcUrl: "https://images.test/basil.png",
+      frameId: 0,
+    },
+    tab
+  );
+  expect(browser.permissions.request).not.toHaveBeenCalled();
+  expect(browser.storage.session.set).toHaveBeenCalledWith({
+    permissionCapture: expect.objectContaining({
+      origin: "https://images.test",
+      tabId: 1,
+    }),
+  });
+  expect(browser.tabs.create).toHaveBeenCalledWith({
+    url: expect.stringContaining("/permission.html#"),
+  });
+  expect(browser.action.setTitle).toHaveBeenLastCalledWith({
+    title: "Grant Access",
+  });
+});
+it("handles a rejected permission check without an unhandled menu rejection", async () => {
+  background.main();
+  browser.permissions.contains.mockRejectedValue(
+    new Error("permission unavailable")
+  );
+  await expect(
+    browser.contextMenus.onClicked.addListener.mock.calls[0]![0](
+      { menuItemId: "image", srcUrl: "https://images.test/basil.png" },
+      tab
+    )
+  ).resolves.toMatchObject({ state: "error", label: "Try Again" });
+  expect(browser.action.setTitle).toHaveBeenLastCalledWith({
+    title: "Try Again",
+  });
+});
+it("clears an old badge when the queued state is resolved by an alarm", async () => {
+  stored.outbox = [{ owner: "ana", capture: { id: "capture", url: tab.url } }];
+  background.main();
+  await alarm();
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
+  expect(browser.action.setTitle).toHaveBeenLastCalledWith({ title: "Spark" });
+});
+it("clears stale failure feedback when the outbox is discarded", async () => {
+  background.main();
+  await message("capture");
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "!" });
+  await message("clear");
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
+  expect(browser.action.setTitle).toHaveBeenLastCalledWith({ title: "Spark" });
+});
+it("resumes a pending frame Capture only after an explicit page grant", async () => {
+  captureTab();
+  browser.permissions.contains.mockResolvedValue(true);
+  browser.storage.session.get.mockResolvedValue({
+    permissionCapture: {
+      id: "grant",
+      mode: "selection",
+      tabId: 1,
+      frameId: 7,
+      origin: "https://garden.test",
+      expiresAt: Date.now() + 60_000,
+    },
+  });
+  browser.scripting.executeScript.mockResolvedValue([
+    {
+      result: {
+        text: "Basil",
+        context: "Basil grows",
+        title: "Garden",
+        url: "https://garden.test/frame",
+      },
+    },
+  ]);
+  background.main();
+  const result = await browser.runtime.onMessage.addListener.mock.calls[0]![0](
+    { type: "permission-capture", id: "grant" },
+    { id: "spark", url: "chrome-extension://spark/permission.html#grant" }
+  );
+  expect(result).toMatchObject({ state: "duplicate" });
+  expect(browser.permissions.request).not.toHaveBeenCalled();
+  expect(browser.tabs.update).toHaveBeenCalledWith(1, { active: true });
+  expect(browser.storage.session.remove).toHaveBeenCalledWith(
+    "permissionCapture"
+  );
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
+});
+it("clears Sign In feedback when an alarm sends the queue after reauthentication", async () => {
+  stored.outbox = [{ owner: "ana", capture: { id: "capture", url: tab.url } }];
+  request.mockResolvedValueOnce(new Response(null, { status: 401 }));
+  background.main();
+  expect(await message("retry")).toMatchObject({ state: "signed-out" });
+  await alarm();
+  expect(stored.outbox).toEqual([]);
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
+});
+it("clears feedback when retry confirms that the outbox is already empty", async () => {
+  background.main();
+  expect(await message("retry")).toMatchObject({ hasRows: false });
+  expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
 });

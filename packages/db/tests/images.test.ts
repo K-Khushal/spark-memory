@@ -57,6 +57,12 @@ describe.skipIf(!databaseUrl)("image Memories", () => {
     return memory;
   }
 
+  it("keeps the extension image Source through the shared file Capture path", async () => {
+    const sourceUrl = "https://garden.test/extension-image.png";
+    const memory = await stored(ana, { sourceUrl });
+    expect(await library(ana).get(memory.id)).toMatchObject({ sourceUrl });
+  });
+
   const age = (id: string) =>
     db.execute(
       sql`update memory_file set created_at = now() - interval '2 days' where memory_id = ${id}`
