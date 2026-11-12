@@ -2,9 +2,10 @@
 //   (default)          fake providers, print the report
 //   --check            fake providers, fail when top-1 or top-5 fell below baseline.json
 //   --update-baseline  fake providers, write baseline.json (do it on purpose, in the PR)
+//   --detail           also write evals/local/detail.json (queries and titles: git-ignored, local only)
 //   --real             real providers (GEMINI_API_KEY, GEMINI_PAID_TIER=true); spends money
 // No search change merges without this (CLAUDE.md).
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { EVALS_ROOT, loadSet } from "./manifest";
 import { runEvals } from "./run";
@@ -39,6 +40,29 @@ try {
   });
   console.log(formatReport(report));
   if (jsonPath) await writeFile(jsonPath, JSON.stringify(report, null, 1));
+  if (has("--detail")) {
+    // The only place a search's words or a Memory's title are written, for
+    // debugging on this machine: evals/local/ is git-ignored, and neither
+    // stdout nor --json (the CI artifact) ever carries them.
+    const title = new Map(
+      set.memories.map((m) => [m.id, m.title ?? m.extraction?.title ?? ""])
+    );
+    const query = new Map(set.searches.map((s) => [s.id, s.query]));
+    await mkdir(join(EVALS_ROOT, "local"), { recursive: true });
+    await writeFile(
+      join(EVALS_ROOT, "local", "detail.json"),
+      JSON.stringify(
+        report.searches.map((o) => ({
+          ...o,
+          query: query.get(o.id),
+          top: o.top.map((id) => ({ id, title: title.get(id) })),
+        })),
+        null,
+        1
+      )
+    );
+    console.error("evals: wrote evals/local/detail.json (local only)");
+  }
 
   if (has("--update-baseline")) {
     // The fake run repeats almost exactly: take the worst of a few runs, so

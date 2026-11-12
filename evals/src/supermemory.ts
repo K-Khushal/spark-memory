@@ -105,7 +105,6 @@ try {
     outcomes.push({
       id: c.id,
       kind: c.kind,
-      query: c.query,
       rank: at < 0 ? null : at + 1,
       top: order.slice(0, 5),
       matchedBy: [],

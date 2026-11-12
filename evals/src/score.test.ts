@@ -9,7 +9,6 @@ const outcome = (
 ): SearchOutcome => ({
   id,
   kind,
-  query: `q ${id}`,
   rank,
   top: [],
   matchedBy: [],
@@ -111,6 +110,31 @@ describe("compare to the baseline", () => {
   });
 });
 
+describe("gate holes", () => {
+  const baseline = toBaseline([outcome("a", 1), outcome("b", 2)]);
+
+  it("fails when a baseline search is missing from the run, and names it", () => {
+    const result = compare([outcome("a", 1)], baseline);
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual(["b"]);
+    expect(result.messages.join("\n")).toMatch(/missing/);
+  });
+
+  it("fails an empty comparison, so no search can pass for lack of searches", () => {
+    expect(compare([], baseline).ok).toBe(false);
+    expect(compare([outcome("x", 1)], baseline).ok).toBe(false);
+    expect(compare([], { tolerance: 0.02, ranks: {} }).ok).toBe(false);
+  });
+
+  it("still allows extra searches, reported as new", () => {
+    const run = [outcome("a", 1), outcome("b", 2), outcome("o1", null)];
+    expect(compare(run, baseline)).toMatchObject({
+      ok: true,
+      newSearches: ["o1"],
+    });
+  });
+});
+
 describe("formatReport", () => {
   it("prints the totals, each kind and every search with where it landed", () => {
     const text = formatReport({
@@ -122,5 +146,22 @@ describe("formatReport", () => {
     expect(text).toContain("top-5  1/2");
     expect(text).toMatch(/a\s+#1/);
     expect(text).toMatch(/b\s+not found/);
+  });
+
+  it("never prints what a search or a Memory says: ids, ranks and counts only", () => {
+    const secret = "my private query about dentist";
+    const text = formatReport({
+      memories: 1,
+      costMicros: 0,
+      searches: [
+        {
+          ...outcome("owner-01", 2),
+          query: secret,
+          top: ["note-x"],
+        } as SearchOutcome,
+      ],
+    });
+    expect(text).not.toContain(secret);
+    expect(JSON.stringify(Object.keys(outcome("a", 1)))).not.toContain("query");
   });
 });

@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { embeddingSpace } from "@spark/core";
-import { indexingStore, openLibrary, schema, type Database } from "@spark/db";
+import {
+  indexingStore,
+  openLibrary,
+  schema,
+  type Database,
+  type Library,
+} from "@spark/db";
 import {
   createIndexer,
+  embeddingInputs,
   type Embedder,
   type IndexOutcome,
   type Provider,
@@ -18,7 +25,6 @@ import {
 export type SearchOutcome = {
   id: string;
   kind: string;
-  query: string;
   /** 1-based position of the first right Memory in the results; null when it is not there. */
   rank: number | null;
   /** The five best results, as sample Library ids. */
@@ -89,6 +95,70 @@ function memoryId(sampleId: string) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+type Part = Awaited<ReturnType<Library["search"]>>[number]["part"];
+
+/**
+ * What a text reranker reads of each Memory: what Indexing persisted
+ * (memory_index through the Library's export), cut into the Overview and
+ * Passages by the same `embeddingInputs` that makes the vectors, so it reads
+ * exactly the text a vector stood for. A result that matched on a Passage
+ * adds that Passage.
+ */
+async function persistedDocuments(
+  library: Library,
+  sampleOf: Map<string, string>
+) {
+  const byId = new Map<
+    string,
+    { overview: string; passages: Map<string, string> }
+  >();
+  /** A reranker reads about this much: past it, a long Memory is cut. */
+  const MAX_CHARS = 6000;
+  for (let after: string | undefined; ;) {
+    const page = await library.exportPage(after, 200);
+    for (const m of page) {
+      if (!m.index) continue;
+      const { inputs, parts } = embeddingInputs({
+        title: m.title,
+        captureNote: m.captureNote,
+        body: m.body,
+        found: m.index,
+      });
+      const passages = new Map<string, string>();
+      parts.forEach((part, i) => {
+        const input = inputs[i]!;
+        if (part.kind === "passage" && "text" in input) {
+          const { field, start, end } = part.anchor;
+          passages.set(`${field}:${start}:${end}`, input.text);
+        }
+      });
+      const overview = inputs[0]!;
+      byId.set(sampleOf.get(m.id) ?? m.id, {
+        overview: "text" in overview ? overview.text : "",
+        passages,
+      });
+    }
+    if (page.length < 200) break;
+    after = page.at(-1)!.id;
+  }
+  return {
+    text(sampleId: string, part: Part) {
+      const doc = byId.get(sampleId);
+      if (!doc) return "";
+      // The Overview, the Passage the search matched on, then the rest.
+      const matched =
+        part.kind === "passage"
+          ? `${part.field}:${part.start}:${part.end}`
+          : undefined;
+      const rest = [...doc.passages].filter(([key]) => key !== matched);
+      const first = matched ? [[matched, doc.passages.get(matched) ?? ""]] : [];
+      return [doc.overview, ...[...first, ...rest].map(([, text]) => text)]
+        .join("\n")
+        .slice(0, MAX_CHARS);
+    },
+  };
+}
+
 /**
  * Loads the sample Library into a throwaway person's Library through the
  * real Capture (text and image), Indexing and search code, runs every
@@ -117,8 +187,6 @@ export async function runEvals({
     const store = indexingStore(db);
     const files = new Map<string, Uint8Array>();
     const sampleOf = new Map<string, string>();
-    /** What a text reranker reads of each Memory: its title and what is in it. */
-    const textOf = new Map<string, string>();
     const jobs: { memoryId: string; run: number }[] = [];
 
     for (const sample of memories) {
@@ -126,7 +194,6 @@ export async function runEvals({
       let run: number;
       if (sample.kind === "text") {
         const body = (await readLibraryFile(sample.text!)).toString("utf8");
-        textOf.set(sample.id, `${sample.title ?? ""}\n${body}`.slice(0, 2000));
         const captured = await library.capture({
           id,
           body,
@@ -139,10 +206,6 @@ export async function runEvals({
       } else {
         const bytes = new Uint8Array(await readLibraryFile(sample.file!));
         const { image } = sample;
-        textOf.set(
-          sample.id,
-          `${sample.extraction?.title ?? ""}\n${sample.extraction?.description ?? ""}\n${sample.extraction?.ocrText ?? ""}`
-        );
         const captured = await library.captureImage({
           id,
           mime: image!.mime,
@@ -199,6 +262,9 @@ export async function runEvals({
     await db.execute(sql`analyze memory_vector`);
     await db.execute(sql`analyze memory_word`);
     log("indexed");
+    const documents = rerank
+      ? await persistedDocuments(library, sampleOf)
+      : undefined;
 
     const search = createSearch({
       userId,
@@ -214,15 +280,21 @@ export async function runEvals({
     const outcomes: SearchOutcome[] = [];
     for (const c of searches) {
       const { results, mode } = await search.search(c.query, "full");
-      let ids = results.map((r) => sampleOf.get(r.id) ?? r.id);
-      if (rerank) {
-        const head = ids.slice(0, RERANK_TOP);
+      const found = results.map((r) => ({
+        id: sampleOf.get(r.id) ?? r.id,
+        matched: r.matched,
+        part: r.part,
+      }));
+      let ids = found.map((r) => r.id);
+      if (rerank && documents) {
+        const head = found.slice(0, RERANK_TOP);
         const order = await rerank(
           c.query,
-          head.map((id) => ({ id, text: textOf.get(id) ?? "" }))
+          head.map((r) => ({ id: r.id, text: documents.text(r.id, r.part) }))
         );
+        const inHead = new Set(head.map((r) => r.id));
         ids = [
-          ...order.filter((id) => head.includes(id)),
+          ...order.filter((id) => inHead.has(id)),
           ...ids.slice(RERANK_TOP),
         ];
       }
@@ -230,10 +302,10 @@ export async function runEvals({
       outcomes.push({
         id: c.id,
         kind: c.kind,
-        query: c.query,
         rank: at < 0 ? null : at + 1,
         top: ids.slice(0, 5),
-        matchedBy: at < 0 ? [] : results[at]!.matched,
+        matchedBy:
+          at < 0 ? [] : (found.find((r) => r.id === ids[at])?.matched ?? []),
         fellBack: embedder !== undefined && mode !== "full",
       });
     }

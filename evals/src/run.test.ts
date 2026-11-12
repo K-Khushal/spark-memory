@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import type { Database } from "@spark/db";
 import { loadSet } from "./manifest";
-import { runEvals } from "./run";
+import { runEvals, type Reranker } from "./run";
 import { fakeSetup, openLocalDatabase } from "./setup";
 
 // The scorer end to end against real Postgres: Capture (text and image),
@@ -54,10 +54,72 @@ describe.skipIf(!process.env.DATABASE_URL)("runEvals", () => {
     expect(report.searches[1]!.matchedBy.length).toBeGreaterThan(0);
   });
 
-  it("leaves nothing behind: the throwaway person and their Memories are gone", async () => {
-    const before = await db.execute<{ n: string }>(
-      sql`select count(*) as n from memory`
+  it("gives a reranker what Indexing persisted, built as the vectors are", async () => {
+    const set = await pick("shot-wifi-card", "note-passport-renewal");
+    const seen: { id: string; text: string }[] = [];
+    await runEvals({
+      db,
+      memories: set.memories,
+      searches: [
+        {
+          id: "b",
+          query: "wifi password orange falcon",
+          expect: ["shot-wifi-card"],
+          kind: "x",
+        },
+      ],
+      ...(await fakeSetup(set.memories)),
+      rerank: async (_query, candidates) => {
+        seen.push(...candidates);
+        return candidates.map((c) => c.id);
+      },
+    });
+    const wifi = seen.find((c) => c.id === "shot-wifi-card")!;
+    // The Overview input: title and description as Indexing stored them,
+    // in the document format the embedder reads, not the manifest's canned text.
+    expect(wifi.text).toContain("title: Guest Wi-Fi card | text:");
+    expect(wifi.text).toContain("guest Wi-Fi card on a teal background");
+    expect(wifi.text).toContain("Lighthouse_5G");
+  });
+
+  it("scores a reranked order by where the right Memory lands after it", async () => {
+    const set = await pick(
+      "note-gym-plan",
+      "note-lisbon-trip",
+      "note-q2-planning-meeting"
     );
+    const run = async (expect: string[], rerank?: Reranker) =>
+      (
+        await runEvals({
+          db,
+          memories: set.memories,
+          searches: [{ id: "p", query: "plan", expect, kind: "x" }],
+          ...(await fakeSetup(set.memories)),
+          rerank,
+        })
+      ).searches[0]!;
+    const first = (await run([])).top[0]!;
+    const plain = await run([first]);
+    // A reranker that puts the first result last.
+    const reranked = await run([first], async (_q, candidates) =>
+      candidates.map((c) => c.id).reverse()
+    );
+    expect(plain.rank).toBe(1);
+    expect(reranked.rank).toBeGreaterThanOrEqual(2);
+    // matchedBy follows the Memory found, not its old position.
+    expect(reranked.matchedBy.length).toBeGreaterThan(0);
+  });
+
+  it("leaves nothing behind: the throwaway person and their Memories are gone", async () => {
+    // Only the scorer's own people: other tests write to this database too.
+    const mine = sql`from "user" u left join memory m on m.user_id = u.id where u.email like 'evals-%@example.com'`;
+    const count = async () =>
+      (
+        await db.execute<{ users: string; memories: string }>(
+          sql`select count(distinct u.id) as users, count(m.id) as memories ${mine}`
+        )
+      ).rows[0]!;
+    const before = await count();
     const set = await pick("note-passport-renewal", "img-red-car");
     await runEvals({
       db,
@@ -65,10 +127,7 @@ describe.skipIf(!process.env.DATABASE_URL)("runEvals", () => {
       searches: [],
       ...(await fakeSetup(set.memories)),
     });
-    const after = await db.execute<{ n: string }>(
-      sql`select count(*) as n from memory`
-    );
-    expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
+    expect(await count()).toEqual(before);
   });
 
   it("still Indexes an image the manifest has no recorded extraction for", async () => {

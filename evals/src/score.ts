@@ -62,11 +62,25 @@ const pct = (n: number, of: number) =>
  */
 export function compare(outcomes: SearchOutcome[], baseline: Baseline) {
   const known = outcomes.filter((o) => o.id in baseline.ranks);
+  const ran = new Set(outcomes.map((o) => o.id));
+  const missing = Object.keys(baseline.ranks).filter((id) => !ran.has(id));
   const newSearches = outcomes
     .filter((o) => !(o.id in baseline.ranks))
     .map((o) => o.id);
   const messages: string[] = [];
   const total = known.length;
+  // A search that did not run cannot have held its place: the gate would pass
+  // for lack of evidence (a search file removed, an id renamed, or no searches).
+  if (!total) {
+    messages.push(
+      "no search in the run is in baseline.json: nothing was compared"
+    );
+  }
+  if (missing.length) {
+    messages.push(
+      `baseline searches missing from the run: ${missing.join(", ")}`
+    );
+  }
   for (const [label, n] of [
     ["top-1", 1],
     ["top-5", 5],
@@ -96,7 +110,7 @@ export function compare(outcomes: SearchOutcome[], baseline: Baseline) {
       `full search fell back to keywords for: ${fellBack.join(", ")}`
     );
   }
-  return { ok: messages.length === 0, messages, lost, newSearches };
+  return { ok: messages.length === 0, messages, lost, missing, newSearches };
 }
 
 export function formatReport(report: Report) {
@@ -117,7 +131,7 @@ export function formatReport(report: Report) {
     ...report.searches.map((o) => {
       const where = o.rank === null ? "not found" : `#${o.rank}`;
       const legs = o.matchedBy.length ? `  (${o.matchedBy.join("+")})` : "";
-      return `  ${o.id.padEnd(26)} ${where.padEnd(10)} ${o.kind.padEnd(14)} ${o.query}${legs}`;
+      return `  ${o.id.padEnd(26)} ${where.padEnd(10)}${legs}`;
     }),
   ];
   if (report.costMicros) {
