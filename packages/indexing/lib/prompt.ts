@@ -93,7 +93,7 @@ export function memoryPart(memory: MemoryContent): string {
     return `<${tag}>\n${text}\n</${tag}>\n`;
   };
   return (
-    `<memory kind="${["image", "link", "pdf"].includes(memory.kind) ? memory.kind : "text"}">\n` +
+    `<memory kind="${["image", "link", "pdf", "video"].includes(memory.kind) ? memory.kind : "text"}">\n` +
     field("title", memory.title ?? memory.pageTitle ?? null) +
     field("source", memory.sourceUrl ?? null) +
     field("description", memory.description ?? null) +

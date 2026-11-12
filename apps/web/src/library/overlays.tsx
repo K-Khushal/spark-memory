@@ -30,6 +30,7 @@ export type LibraryOverlaysProps = {
   pdfMatch: PdfMatch;
   onPdfClose: () => void;
   opened: Memory | undefined;
+  videoSeconds?: number;
   edits: Edits;
   onDetailClose: () => void;
   onDelete: (memory: Memory) => void;
@@ -68,6 +69,7 @@ export function LibraryOverlays({
   pdfMatch,
   onPdfClose,
   opened,
+  videoSeconds,
   edits,
   onDetailClose,
   onDelete,
@@ -121,6 +123,7 @@ export function LibraryOverlays({
       />
       <MemoryDetail
         memory={opened}
+        seconds={videoSeconds}
         edits={edits}
         onClose={onDetailClose}
         onDelete={onDelete}

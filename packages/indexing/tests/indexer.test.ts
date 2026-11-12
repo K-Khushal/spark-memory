@@ -682,3 +682,25 @@ describe("index(job) for a link", () => {
     expect(gemma.extract).not.toHaveBeenCalled();
   });
 });
+
+it("keeps video metadata searchable without sending it to a non-Gemini provider", async () => {
+  const store = memoryStore(
+    textMemory({
+      kind: "video",
+      body: null,
+      gathered: true,
+      sourceUrl: "https://www.youtube.com/watch?v=abcdefghijk",
+    })
+  );
+  const provider = scripted("workers-ai", json());
+  const indexer = createIndexer({
+    store,
+    providers: [provider],
+    readFile: async () => undefined,
+  });
+  expect(
+    await indexer.index({ memoryId: "m1", priority: "fresh", attempt: 1 })
+  ).toEqual({ result: "searchable" });
+  expect(provider.requests).toEqual([]);
+  expect(store.completed).toEqual([null]);
+});

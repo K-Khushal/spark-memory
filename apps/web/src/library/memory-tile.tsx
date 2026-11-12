@@ -101,7 +101,8 @@ const ASPECT = { min: 0.4, max: 2.5 };
 
 /** A tile's height at `width`: an image keeps its shape, text fits its lines. */
 export function tileHeight(memory: WallMemory, width: number) {
-  if (memory.kind === "link") return linkLayout(memory, width).height;
+  if (memory.kind === "link" || memory.kind === "video")
+    return linkLayout(memory, width).height;
   if (!memory.image) return tileLayout(memory, width).height;
   const { width: w, height: h } = memory.image;
   return width * Math.min(ASPECT.max, Math.max(ASPECT.min, h / w));
@@ -121,7 +122,7 @@ export function memoryName(memory: WallMemory) {
       `${memory.kind === "pdf" ? "PDF" : "Image"}, ${day.format(new Date(memory.capturedAt))}`
     );
   }
-  if (memory.kind === "link") {
+  if (memory.kind === "link" || memory.kind === "video") {
     return (
       memory.title || memory.pageTitle || memory.indexTitle || hostOf(memory)
     );
@@ -131,7 +132,7 @@ export function memoryName(memory: WallMemory) {
 
 /** A link that kept no Preserved copy, once Indexing is done saying so. */
 export const isReferenceOnly = (memory: WallMemory) =>
-  memory.kind === "link" &&
+  (memory.kind === "link" || memory.kind === "video") &&
   memory.preservation === "reference_only" &&
   memory.indexState === "searchable";
 
@@ -174,7 +175,7 @@ export function MemoryTile(props: {
   );
   return (
     <div className={cn("h-full w-full", memory.fresh && "spark-capture-in")}>
-      {memory.kind === "link" ? (
+      {memory.kind === "link" || memory.kind === "video" ? (
         <LinkTile {...props} />
       ) : memory.image ? (
         <ImageTile {...props} badge={badge} />

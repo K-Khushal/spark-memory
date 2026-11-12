@@ -1,3 +1,4 @@
+import { formatTimestamp } from "@spark/core";
 import { SparklesIcon } from "lucide-react";
 import { Button, Chip } from "@spark/ui";
 import type { Memory } from "./use-library";
@@ -30,6 +31,8 @@ export function whyLabel({
     case "field":
       return part.field === "ocr" ? ocr : part.field && FIELD[part.field];
     case "passage": {
+      if (part.seconds !== undefined)
+        return `Said at ${formatTimestamp(part.seconds)}`;
       if (part.field === "ocr") return part.page ? `Page ${part.page}` : ocr;
       const words = (body ?? "").slice(part.start, part.end).trim();
       return words
