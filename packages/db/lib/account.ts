@@ -275,8 +275,9 @@ export function accountJobs(db: Database) {
     /**
      * Deletion, step two: every object under the owner's prefix (Memory
      * files, unfinished uploads, exports), then every Memory with its
-     * files, words and index rows; AI calls lose their owner but keep their
-     * cost (the money was spent, and the admin totals stay true). Once the
+     * files, words and index rows; AI calls lose their owner and the Memory
+     * they named, but keep their cost (the money was spent, and the admin
+     * totals stay true). Once the
      * grace period has passed, the pass that started after it ends with
      * the user row, which takes sessions, sign-in accounts, the export and
      * the deletion request with it. "waiting" until then: run it again.
@@ -310,7 +311,11 @@ export function accountJobs(db: Database) {
       const anonymise = (tx: Pick<Database, "update">) =>
         tx
           .update(aiCall)
-          .set({ userId: ANONYMISED_USER })
+          .set({
+            userId: ANONYMISED_USER,
+            memoryId: null,
+            memoryGeneration: null,
+          })
           .where(eq(aiCall.userId, userId));
       await anonymise(db);
       // A sign-in that passed the hook just before the request committed
@@ -333,6 +338,10 @@ export function accountJobs(db: Database) {
             sql`starts_with(${objectRemoval.key}, ${ownerPrefix(userId)})`
           );
         await tx.delete(user).where(eq(user.id, userId));
+        // A call can still arrive under this person's id after the waiting
+        // pass. Rows already stored as the anonymised owner are left alone:
+        // recordCall writes null Memory ids once the owner is gone, and the
+        // backfill migration cleared the older ones.
         await anonymise(tx);
         // An admin's setting changes stay (values and history), not their id.
         await tx

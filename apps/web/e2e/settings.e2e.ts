@@ -5,8 +5,59 @@ test("see this device, export the Library, delete the account", async ({
   page,
 }) => {
   const email = await signIn(page);
+  const libraryMemories = await page
+    .getByRole("link", { name: "All Memories" })
+    .boundingBox();
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page).toHaveURL(/\/settings$/);
+  // The heading arrives with Settings, after the Library has gone.
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  const memories = page.getByRole("link", { name: "All Memories" });
+  await expect(memories).toBeVisible();
+  // Capture and Search stay in the shared head, so All Memories does not jump.
+  expect((await memories.boundingBox())!.y).toBe(libraryMemories!.y);
+  const sidebar = page.getByRole("complementary");
+  await sidebar.getByRole("button", { name: "Capture" }).click();
+  await expect(page.getByRole("dialog", { name: "Capture" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await sidebar.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByPlaceholder("Search…")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+  // ⌘K and / live on the desk, so they open Search from Settings too.
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.getByPlaceholder("Search…")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("complementary").getByRole("button", { name: "Search" })
+  ).toBeFocused();
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.keyboard.press("/");
+  await expect(page.getByPlaceholder("Search…")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("complementary").getByRole("button", { name: "Search" })
+  ).toBeFocused();
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData("text/plain", "From settings");
+    document.body.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: data, bubbles: true })
+    );
+  });
+  // Paste outside a field stays on Settings. The clipboard is not dropped
+  // into an empty Capture.
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole("dialog", { name: "Capture" })).toHaveCount(0);
 
   const sessions = page.getByRole("list", { name: "Sessions" });
   await expect(sessions.getByText("This Device")).toBeVisible();
@@ -42,12 +93,18 @@ test("see this device, export the Library, delete the account", async ({
   ).toBeVisible();
   await page.unroute("**/api/account/export");
 
-  // Deleting needs the address typed.
+  // Deleting needs the address typed. ⌘K in that field stays on Settings.
   await page.getByRole("button", { name: "Delete Account" }).click();
   const dialog = page.getByRole("dialog");
   const confirm = dialog.getByRole("button", { name: "Delete Account" });
   await expect(confirm).toBeDisabled();
-  await dialog.getByRole("textbox", { name: `Type ${email}` }).fill(email);
+  const emailField = dialog.getByRole("textbox", { name: `Type ${email}` });
+  await emailField.fill("keep-this");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(dialog).toBeVisible();
+  await expect(emailField).toHaveValue("keep-this");
+  await emailField.fill(email);
   await confirm.click();
   await expect(page).toHaveURL(/\/sign-in$/);
   await page.goto("/settings");

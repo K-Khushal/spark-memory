@@ -10,7 +10,7 @@ import {
   noteAdminStatus,
   type AppSession,
 } from "../auth";
-import { DeskSidebar } from "../shell";
+import { DeskSidebar, useLibraryDesk } from "../shell";
 import {
   dollarsToMicros,
   formatBytes,
@@ -26,6 +26,7 @@ const PAGE = 50;
 /** Costs, usage and the daily budget. One quiet page of tables. */
 export function AdminPage({ session }: { session: AppSession }) {
   const navigate = useNavigate();
+  const desk = useLibraryDesk();
   const [summary, setSummary] = useState<Summary>();
   const [usage, setUsage] = useState<Usage>();
   const [offset, setOffset] = useState(0);
@@ -113,6 +114,8 @@ export function AdminPage({ session }: { session: AppSession }) {
         current="admin"
         admin
         onSignOut={() => void signOut()}
+        onCapture={desk.onCapture}
+        onSearch={desk.onSearch}
       />
       <div className="min-w-0 flex-1">
         <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-canvas px-4 py-2 md:hidden">

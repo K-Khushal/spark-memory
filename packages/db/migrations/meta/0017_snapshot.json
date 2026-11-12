@@ -1,5 +1,5 @@
 {
-  "id": "74dd837c-60f8-4c11-aa6d-34e05ebff2c0",
+  "id": "07ecc49c-99f1-4396-8c9c-b6081165eb1f",
   "prevId": "7f171362-9359-4f8d-849c-91fee85e74b7",
   "version": "7",
   "dialect": "postgresql",
@@ -101,20 +101,20 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "account_user_id_user_id_fk": {
           "name": "account_user_id_user_id_fk",
           "tableFrom": "account",
-          "tableTo": "user",
           "columnsFrom": ["user_id"],
+          "tableTo": "user",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -146,11 +146,11 @@
         "account_deletion_user_id_user_id_fk": {
           "name": "account_deletion_user_id_user_id_fk",
           "tableFrom": "account_deletion",
-          "tableTo": "user",
           "columnsFrom": ["user_id"],
+          "tableTo": "user",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -251,9 +251,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "ai_call_user_day_idx": {
           "name": "ai_call_user_day_idx",
@@ -272,9 +272,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -389,11 +389,11 @@
         "library_export_user_id_user_id_fk": {
           "name": "library_export_user_id_user_id_fk",
           "tableFrom": "library_export",
-          "tableTo": "user",
           "columnsFrom": ["user_id"],
+          "tableTo": "user",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -623,9 +623,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "memory_search_tsv_idx": {
           "name": "memory_search_tsv_idx",
@@ -638,9 +638,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "gin",
-          "with": {}
+          "concurrently": false
         },
         "memory_user_saved_idx": {
           "name": "memory_user_saved_idx",
@@ -665,9 +665,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "memory_user_source_idx": {
           "name": "memory_user_source_idx",
@@ -686,10 +686,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"memory\".\"source_url_normalised\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"memory\".\"source_url_normalised\" is not null",
+          "concurrently": false
         },
         "memory_user_link_hash_idx": {
           "name": "memory_user_link_hash_idx",
@@ -708,21 +708,21 @@
             }
           ],
           "isUnique": true,
-          "where": "\"memory\".\"kind\" = 'link' and \"memory\".\"content_hash\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"memory\".\"kind\" = 'link' and \"memory\".\"content_hash\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "memory_user_id_user_id_fk": {
           "name": "memory_user_id_user_id_fk",
           "tableFrom": "memory",
-          "tableTo": "user",
           "columnsFrom": ["user_id"],
+          "tableTo": "user",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -746,13 +746,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "page": {
-          "name": "page",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "generation": {
           "name": "generation",
@@ -803,12 +796,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "pages": {
-          "name": "pages",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -835,34 +822,34 @@
             }
           ],
           "isUnique": false,
-          "where": "\"memory_file\".\"stored_at\" is null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"memory_file\".\"stored_at\" is null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "memory_file_memory_id_memory_id_fk": {
           "name": "memory_file_memory_id_memory_id_fk",
           "tableFrom": "memory_file",
-          "tableTo": "memory",
           "columnsFrom": ["memory_id"],
+          "tableTo": "memory",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
-        "memory_file_memory_id_role_page_pk": {
-          "name": "memory_file_memory_id_role_page_pk",
-          "columns": ["memory_id", "role", "page"]
+        "memory_file_memory_id_role_pk": {
+          "name": "memory_file_memory_id_role_pk",
+          "columns": ["memory_id", "role"]
         }
       },
       "uniqueConstraints": {
         "memory_file_r2_key_unique": {
           "name": "memory_file_r2_key_unique",
-          "nullsNotDistinct": false,
-          "columns": ["r2_key"]
+          "columns": ["r2_key"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -928,11 +915,11 @@
         "memory_index_memory_id_memory_id_fk": {
           "name": "memory_index_memory_id_memory_id_fk",
           "tableFrom": "memory_index",
-          "tableTo": "memory",
           "columnsFrom": ["memory_id"],
+          "tableTo": "memory",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1006,9 +993,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "memory_vector_memory_idx": {
           "name": "memory_vector_memory_idx",
@@ -1021,20 +1008,20 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "memory_vector_memory_id_memory_id_fk": {
           "name": "memory_vector_memory_id_memory_id_fk",
           "tableFrom": "memory_vector",
-          "tableTo": "memory",
           "columnsFrom": ["memory_id"],
+          "tableTo": "memory",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1078,9 +1065,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "memory_word_trgm_idx": {
           "name": "memory_word_trgm_idx",
@@ -1094,20 +1081,20 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "gin",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "memory_word_memory_id_memory_id_fk": {
           "name": "memory_word_memory_id_memory_id_fk",
           "tableFrom": "memory_word",
-          "tableTo": "memory",
           "columnsFrom": ["memory_id"],
+          "tableTo": "memory",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -1182,8 +1169,8 @@
       "uniqueConstraints": {
         "rate_limit_key_unique": {
           "name": "rate_limit_key_unique",
-          "nullsNotDistinct": false,
-          "columns": ["key"]
+          "columns": ["key"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -1257,28 +1244,28 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "session_user_id_user_id_fk": {
           "name": "session_user_id_user_id_fk",
           "tableFrom": "session",
-          "tableTo": "user",
           "columnsFrom": ["user_id"],
+          "tableTo": "user",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "session_token_unique": {
           "name": "session_token_unique",
-          "nullsNotDistinct": false,
-          "columns": ["token"]
+          "columns": ["token"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -1436,8 +1423,8 @@
       "uniqueConstraints": {
         "user_email_unique": {
           "name": "user_email_unique",
-          "nullsNotDistinct": false,
-          "columns": ["email"]
+          "columns": ["email"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -1499,9 +1486,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -1514,10 +1501,10 @@
   },
   "enums": {},
   "schemas": {},
+  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
-  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},
