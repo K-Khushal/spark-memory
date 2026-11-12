@@ -1,6 +1,11 @@
 import { EMBEDDING, INDEXING } from "@spark/core";
 import type { Embedder } from "./embedder";
-import { base64, guessTokens, ProviderError } from "./provider";
+import {
+  base64,
+  guessTokens,
+  overInlineLimit,
+  ProviderError,
+} from "./provider";
 
 type Reply = {
   embeddings?: { values?: number[] }[];
@@ -43,6 +48,12 @@ export function geminiEmbedding({
     model,
     dimensions,
     async embed(inputs, { timeoutMs = EMBEDDING.timeoutMs } = {}) {
+      // Too big to send, as its sizes alone say: refused before encoding it.
+      if (
+        overInlineLimit(inputs.flatMap((i) => ("image" in i ? [i.image] : [])))
+      ) {
+        throw new ProviderError("unsupported");
+      }
       let textChars = 0;
       let images = 0;
       const requests = inputs.map((input) => {

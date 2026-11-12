@@ -8,6 +8,7 @@ import {
   CORRECTION,
   guessTokens,
   lostCall,
+  overInlineLimit,
   ProviderError,
   type Provider,
 } from "./provider";
@@ -73,6 +74,10 @@ export function gemini({
             maxOutputTokens,
           })
         );
+      // Too big to send, as its sizes alone say: refused before encoding it.
+      if (overInlineLimit([...(image ? [image] : []), ...(pages ?? [])])) {
+        throw new ProviderError("unsupported");
+      }
       const parts: unknown[] = [{ text: user }];
       if (image) {
         parts.push({

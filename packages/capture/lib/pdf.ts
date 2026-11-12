@@ -1,3 +1,8 @@
+// Wherever this file is compiled (evals, the extension), it brings its own
+// type for the `?url` import, so no consumer needs vite/client. A wildcard
+// module declaration cannot be imported, so this one reference is allowed.
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference
+/// <reference path="./assets.d.ts" />
 import type * as PdfjsModule from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {

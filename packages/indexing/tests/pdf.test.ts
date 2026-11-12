@@ -585,7 +585,8 @@ describe("Gemini's inline request limit", () => {
       pages: Array.from({ length: 30 }, () => page),
     });
     expect(fetch).toHaveBeenCalledOnce();
-  });
+    // It encodes ~16 MB for real: slow on a busy runner.
+  }, 20_000);
 });
 
 describe("Gemini's inline limit in bytes", () => {

@@ -1,4 +1,4 @@
-import type { ProviderName } from "@spark/core";
+import { INDEXING, type ProviderName } from "@spark/core";
 
 /** The part of the Workers AI binding Markdown Conversion needs (lib/pdf.ts). */
 export type MarkdownBinding = {
@@ -57,6 +57,14 @@ export class ProviderError extends Error {
     this.name = "ProviderError";
   }
 }
+
+/**
+ * Whether images alone, base64 as a request carries them, pass Gemini's
+ * inline limit: known from their sizes, before any encoding work.
+ */
+export const overInlineLimit = (images: { bytes: Uint8Array }[]) =>
+  images.reduce((n, i) => n + Math.ceil(i.bytes.byteLength / 3) * 4, 0) >
+  INDEXING.inlineRequestBytes;
 
 export function base64(bytes: Uint8Array): string {
   let binary = "";
