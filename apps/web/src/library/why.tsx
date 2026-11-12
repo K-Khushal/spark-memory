@@ -10,6 +10,7 @@ const FIELD: Record<string, string> = {
   text: "Text",
   ocr: "Text in Image",
   description: "Description",
+  source: "Source",
 };
 
 /**

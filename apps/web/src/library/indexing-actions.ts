@@ -10,14 +10,22 @@ export type IndexingTransport = {
   setAiOptOut: (id: string, on: boolean) => Promise<Memory>;
 };
 
-/** The fields Indexing changes; everything else on the wall stays as the wall has it. */
-const indexFields = ({
-  indexState,
-  indexError,
-  indexTitle,
-  aiOptOut,
-  hasVectors,
-}: Memory) => ({ indexState, indexError, indexTitle, aiOptOut, hasVectors });
+/**
+ * The fields Indexing changes; everything else on the wall stays as the
+ * wall has it. For a link that includes what gathering kept (its text is
+ * never edited, so it cannot clash with an edit in progress).
+ */
+const indexFields = (m: Memory) => ({
+  indexState: m.indexState,
+  indexError: m.indexError,
+  indexTitle: m.indexTitle,
+  aiOptOut: m.aiOptOut,
+  hasVectors: m.hasVectors,
+  preservation: m.preservation,
+  pageTitle: m.pageTitle,
+  description: m.description,
+  ...(m.kind === "link" && { body: m.body }),
+});
 
 /** Poll every 2 s, then back off by half each time nothing changed, up to 30 s. */
 export const POLL = { first: 2000, factor: 1.5, max: 30_000, batch: 100 };
@@ -121,15 +129,21 @@ export function indexingActions({
       if (fresh.some((m) => m.indexState !== "indexing")) onChanged();
     },
 
-    /** The ids worth asking after: Indexing on the wall, and still on the server. */
+    /**
+     * The ids worth asking after: Indexing on the wall, and still on the
+     * server (or sent again). Pure, so the wall can ask while it renders.
+     */
     pollable: (memories: WallMemory[]) =>
       indexingIds(
-        memories.filter((m) => {
-          // Sent again (Try Again): its misses start over.
-          if (isPending(m.id)) misses.delete(m.id);
-          return (misses.get(m.id) ?? 0) < GONE_AFTER;
-        })
+        memories.filter(
+          (m) => isPending(m.id) || (misses.get(m.id) ?? 0) < GONE_AFTER
+        )
       ),
+
+    /** Memories sent again (Try Again) start their misses over: call after a render, not in it. */
+    restartMisses(memories: WallMemory[]) {
+      for (const m of memories) if (isPending(m.id)) misses.delete(m.id);
+    },
 
     async retryIndexing(memory: Memory) {
       patch(memory.id, { indexState: "indexing", indexError: null });

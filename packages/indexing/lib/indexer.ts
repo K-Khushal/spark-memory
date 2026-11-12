@@ -13,6 +13,7 @@ import {
   type Embedder,
   type Embedding,
 } from "./embedder";
+import type { Gathered, Gatherer } from "./link/gather";
 import { memoryPart, SYSTEM, type MemoryContent } from "./prompt";
 import {
   ProviderError,
@@ -25,26 +26,46 @@ import {
 export type Priority = "fresh" | "background";
 
 /**
- * One queue message's worth of work. `attempt` starts at 1. `run` is the
- * run it was sent for: a message for an older run does nothing. `embed`
- * makes only the vectors of a Searchable Memory again (a model change, an
- * edited title, or vectors an earlier run could not make).
+ * One queue message's worth of work. `attempt` starts at 1. `run` and
+ * `generation` are the run and the Memory it was sent for: a message for an
+ * older run, or for an earlier Memory with the same id, does nothing.
+ * `embed` makes only the vectors of a Searchable Memory again (a model
+ * change, an edited title, or vectors an earlier run could not make).
  */
 export type IndexJob = {
   memoryId: string;
   priority: Priority;
   attempt: number;
   run?: number;
+  /** Absent in messages sent before generations were. */
+  generation?: string;
   task?: "index" | "embed";
+};
+
+/**
+ * The row a delivery took, as the store loaded it. Every write names it and
+ * changes nothing once any part differs: the run moved on, or the Memory
+ * was deleted and another saved with its id (a new generation, maybe
+ * another owner's).
+ */
+export type Claim = {
+  memoryId: string;
+  userId: string;
+  /** Set by the server when the row is created; never reused for the id. */
+  generation: string;
+  run: number;
 };
 
 /** A Memory waiting for Indexing, as the store loads it. `run` changes whenever Indexing restarts. */
 export type PendingMemory = MemoryContent & {
   userId: string;
+  generation: string;
   run: number;
   /** The text's revision, so vectors made from it are dropped once it is edited. */
   revision: number;
   aiOptOut: boolean;
+  /** A link Memory: false until its Source has been gathered (once). */
+  gathered?: boolean;
   /** Storage keys of an image Memory's files. */
   image?: {
     key: string;
@@ -61,6 +82,7 @@ type Image = { bytes: Uint8Array; mime: string };
 /** A Searchable Memory whose vectors are to be made again. */
 export type EmbedMemory = EmbedSource & {
   userId: string;
+  generation: string;
   run: number;
   revision: number;
   image?: ImageKeys;
@@ -72,28 +94,32 @@ type Work = PendingMemory & { memoryId: string };
 export type Extraction = { output: IndexingOutput; model: string };
 
 /**
- * Where Indexing reads and writes. Every write names the `run` it was
- * loaded at and does nothing (returns false) when Indexing has moved on.
+ * Where Indexing reads and writes. Every write names the Claim it loaded
+ * and does nothing (returns false) once Indexing has moved on or the
+ * Memory it loaded is gone.
  */
 export type IndexStore = {
   /**
    * Takes the Memory for this delivery (a short lease, so a duplicate
    * delivery skips). Undefined when it is gone, not waiting for Indexing, at
-   * another run than `run`, or already taken.
+   * another run than `run` or generation than `generation`, or taken.
    */
-  load(memoryId: string, run?: number): Promise<PendingMemory | undefined>;
+  load(
+    memoryId: string,
+    run?: number,
+    generation?: string
+  ): Promise<PendingMemory | undefined>;
   /** Gives the lease back for the next attempt. */
-  release(memoryId: string, run: number): Promise<void>;
+  release(claim: Claim): Promise<void>;
   /** Still this run, still without AI opt-out: asked before every provider call. */
-  isCurrent(memoryId: string, run: number): Promise<boolean>;
+  isCurrent(claim: Claim): Promise<boolean>;
   /**
    * Searchable; `extraction` is null for a Memory with AI opt-out. The
    * `embedding` is kept only if its revision is still current; without
    * one, the hourly sweep makes the vectors in the background.
    */
   complete(
-    memoryId: string,
-    run: number,
+    claim: Claim,
     extraction: Extraction | null,
     embedding?: Embedding
   ): Promise<boolean>;
@@ -104,21 +130,33 @@ export type IndexStore = {
    */
   loadForEmbedding(
     memoryId: string,
-    space: string
+    space: string,
+    generation?: string
   ): Promise<EmbedMemory | undefined>;
-  /** Still Searchable at `run` and `revision`, without AI opt-out: asked before the call. */
-  stillEmbeddable(
-    memoryId: string,
-    run: number,
-    revision: number
-  ): Promise<boolean>;
+  /** Still Searchable at the Claim's run and `revision`, without AI opt-out: asked before the call. */
+  stillEmbeddable(claim: Claim, revision: number): Promise<boolean>;
   /** Replaces the vectors if nothing changed since loading; gives the lease back. */
-  writeVectors(
-    memoryId: string,
-    run: number,
-    embedding: Embedding
-  ): Promise<boolean>;
-  fail(memoryId: string, run: number, reason: IndexFailure): Promise<boolean>;
+  writeVectors(claim: Claim, embedding: Embedding): Promise<boolean>;
+  fail(claim: Claim, reason: IndexFailure): Promise<boolean>;
+  /**
+   * Keeps what gathering a link found, once, if the Claim is still current:
+   * its content as Extraction should now see it, else undefined.
+   */
+  saveGathered(
+    claim: Claim,
+    gathered: Omit<Gathered, "transient">
+  ): Promise<
+    | (Pick<
+        PendingMemory,
+        | "title"
+        | "body"
+        | "captureNote"
+        | "sourceUrl"
+        | "pageTitle"
+        | "description"
+      > & { gathered: boolean })
+    | undefined
+  >;
   spentTodayMicros(): Promise<number>;
   /** The effective daily budget (the admin's setting, or the config default). */
   dailyBudgetMicros(): Promise<number>;
@@ -130,6 +168,8 @@ export type AiCall = {
   userId: string;
   /** Null for a search query's embedding. */
   memoryId: string | null;
+  /** The Memory's generation, so the call names it even once the id is reused. */
+  memoryGeneration?: string;
   provider: ProviderName;
   model: string;
   usage: Usage;
@@ -154,6 +194,13 @@ const costMicros = (model: string, { inputTokens, outputTokens }: Usage) => {
   const [input, output] = INDEXING.pricesMicrosPerMTokens[model] ?? [0, 0];
   return Math.ceil((inputTokens * input + outputTokens * output) / 1_000_000);
 };
+
+/** Whose call it was, and which Memory: the one loaded, even if its id is reused since. */
+const callOf = (claim: Claim) => ({
+  userId: claim.userId,
+  memoryId: claim.memoryId,
+  memoryGeneration: claim.generation,
+});
 
 /** "/tags: expected array" style: paths and rules only, never the content. */
 const describeIssues = (error: {
@@ -211,12 +258,15 @@ export function createIndexer({
   store,
   providers,
   embedder,
+  gatherer,
   readFile,
   now = () => new Date(),
 }: {
   store: IndexStore;
   /** In chain order (INDEXING.chain). */
   providers: Provider[];
+  /** Gathers a link's Source; without one, links are found by their URL and note. */
+  gatherer?: Gatherer;
   /** Makes the vectors; without one, Memories are found by keyword only. */
   embedder?: Embedder;
   /** An object's bytes from storage; undefined when it is not there. */
@@ -236,16 +286,14 @@ export function createIndexer({
   /** One provider call for the Memory loaded as `memoryId`, recorded with its cost. */
   async function ask(provider: Provider, work: Work, request: ExtractRequest) {
     // AI opt-out switched on (or an edit, or Retry) since loading: stop here.
-    if (!(await store.isCurrent(work.memoryId, work.run)))
-      throw new Superseded();
+    if (!(await store.isCurrent(work))) throw new Superseded();
     let reply;
     try {
       reply = await provider.extract(request);
     } catch (error) {
       if (error instanceof ProviderError && error.estimate) {
         await recordCall({
-          userId: work.userId,
-          memoryId: work.memoryId,
+          ...callOf(work),
           provider: provider.name,
           model: provider.model,
           usage: error.estimate,
@@ -256,8 +304,7 @@ export function createIndexer({
       throw error;
     }
     await recordCall({
-      userId: work.userId,
-      memoryId: work.memoryId,
+      ...callOf(work),
       provider: provider.name,
       model: provider.model,
       usage: reply.usage,
@@ -291,12 +338,11 @@ export function createIndexer({
    * so AI opt-out or an edit since loading stops it.
    */
   async function embed(
-    memoryId: string,
-    work: EmbedSource & {
-      userId: string;
-      revision: number;
-      image?: ImageKeys;
-    },
+    work: EmbedSource &
+      Claim & {
+        revision: number;
+        image?: ImageKeys;
+      },
     current: () => Promise<boolean>,
     loaded?: Image
   ): Promise<Embedding | undefined> {
@@ -306,8 +352,7 @@ export function createIndexer({
       estimated?: boolean
     ) =>
       recordCall({
-        userId: work.userId,
-        memoryId,
+        ...callOf(work),
         provider: embedder.name,
         model: embedder.model,
         usage: {
@@ -336,8 +381,9 @@ export function createIndexer({
       } catch (error) {
         if (!(error instanceof ProviderError)) throw error;
         if (error.estimate) {
+          const { inputTokens, imageTokens = 0 } = error.estimate;
           await record(
-            { textTokens: error.estimate.inputTokens, imageTokens: 0 },
+            { textTokens: Math.max(0, inputTokens - imageTokens), imageTokens },
             true
           );
         }
@@ -380,9 +426,10 @@ export function createIndexer({
         ? embedder &&
           (await store.loadForEmbedding(
             job.memoryId,
-            embeddingSpace(embedder.model, embedder.dimensions)
+            embeddingSpace(embedder.model, embedder.dimensions),
+            job.generation
           ))
-        : await store.load(job.memoryId, job.run);
+        : await store.load(job.memoryId, job.run, job.generation);
     if (!loaded) return { result: "skipped" };
     const work = { ...loaded, memoryId: job.memoryId };
     try {
@@ -397,11 +444,11 @@ export function createIndexer({
         outcome.result === "paused" ||
         (job.task === "embed" && outcome.result === "skipped")
       ) {
-        await store.release(work.memoryId, work.run);
+        await store.release(work);
       }
       return outcome;
     } catch (error) {
-      await store.release(work.memoryId, work.run).catch(() => {});
+      await store.release(work).catch(() => {});
       throw error;
     }
   }
@@ -431,8 +478,8 @@ export function createIndexer({
     if (paused) return paused;
     let embedding;
     try {
-      embedding = await embed(work.memoryId, work, () =>
-        store.stillEmbeddable(work.memoryId, work.run, work.revision)
+      embedding = await embed(work, () =>
+        store.stillEmbeddable(work, work.revision)
       );
     } catch (error) {
       if (error instanceof Superseded) return { result: "skipped" };
@@ -444,25 +491,45 @@ export function createIndexer({
         ? { result: "retry", delaySeconds: backoffSeconds(job.attempt) }
         : { result: "skipped" };
     }
-    const written = await store.writeVectors(
-      work.memoryId,
-      work.run,
-      embedding
-    );
+    const written = await store.writeVectors(work, embedding);
     return { result: written ? "searchable" : "skipped" };
   }
 
-  async function indexLoaded(job: IndexJob, work: Work): Promise<IndexOutcome> {
+  async function indexLoaded(
+    job: IndexJob,
+    loaded: Work
+  ): Promise<IndexOutcome> {
+    let work = loaded;
+    // A link's Source first (not an AI call, so AI opt-out too, but then
+    // never through oEmbed or a reader: `isCurrent` is false for it). Kept
+    // once; a Source that is down, or whose name could not be looked up,
+    // is asked again, and after the last attempt it stays Reference only.
+    if (work.kind === "link" && work.gathered === false && work.sourceUrl) {
+      if (gatherer) {
+        const claim = work;
+        const { transient, ...found } = await gatherer.gather(work.sourceUrl, {
+          // Asked again right before each third party: the run may have
+          // moved on, or AI opt-out been switched on, while the page loaded.
+          thirdParty: () => store.isCurrent(claim),
+        });
+        if (transient && job.attempt < INDEXING.maxAttempts) {
+          return { result: "retry", delaySeconds: backoffSeconds(job.attempt) };
+        }
+        const saved = await store.saveGathered(work, found);
+        if (!saved) return { result: "skipped" };
+        work = { ...work, ...saved };
+      }
+    }
     // AI opt-out: keyword-indexed from its own text, never sent anywhere.
     if (work.aiOptOut) {
-      await store.complete(work.memoryId, work.run, null);
+      await store.complete(work, null);
       return { result: "searchable" };
     }
     const paused = await overBudget(job);
     if (paused) return paused;
 
     const finish = async (reason: IndexFailure): Promise<IndexOutcome> =>
-      (await store.fail(work.memoryId, work.run, reason))
+      (await store.fail(work, reason))
         ? { result: "failed", reason }
         : { result: "skipped" };
 
@@ -485,14 +552,12 @@ export function createIndexer({
           job.priority === "background" && (await budgetSpent())
             ? undefined
             : await embed(
-                work.memoryId,
                 { ...work, found: output },
-                () => store.isCurrent(work.memoryId, work.run),
+                () => store.isCurrent(work),
                 image
               );
         const written = await store.complete(
-          work.memoryId,
-          work.run,
+          work,
           { output, model: provider.model },
           embedding
         );

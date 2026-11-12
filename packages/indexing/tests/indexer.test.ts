@@ -7,7 +7,10 @@ import {
   ProviderError,
   SYSTEM,
   workersAi,
+  type Claim,
   type ExtractRequest,
+  type Gathered,
+  type Gatherer,
   type IndexStore,
   type PendingMemory,
   type Provider,
@@ -44,6 +47,7 @@ function scripted(
 
 const textMemory = (over: Partial<PendingMemory> = {}): PendingMemory => ({
   userId: "u1",
+  generation: "g1",
   run: 1,
   revision: 1,
   kind: "text",
@@ -73,17 +77,40 @@ function memoryStore(
     release: async () => {
       store.released++;
     },
-    isCurrent: async (_id: string, run: number) =>
+    isCurrent: async ({ run }: Claim) =>
       run === store.memory?.run && !store.memory.aiOptOut,
-    complete: vi.fn(async (_id: string, run: number, extraction: unknown) => {
+    complete: vi.fn(async ({ run }: Claim, extraction: unknown) => {
       if (run !== store.memory?.run) return false;
       store.completed.push(extraction);
       return true;
     }),
-    fail: vi.fn(async (_id: string, run: number, reason: string) => {
+    fail: vi.fn(async ({ run }: Claim, reason: string) => {
       if (run !== store.memory?.run) return false;
       store.failed.push(reason);
       return true;
+    }),
+    gathered: [] as unknown[],
+    saveGathered: vi.fn(async ({ run }: Claim, found: Gathered) => {
+      if (run !== store.memory?.run || store.memory.gathered) return undefined;
+      store.gathered.push(found);
+      store.memory = {
+        ...store.memory,
+        gathered: true,
+        body: found.text,
+        pageTitle: found.metadata.title ?? null,
+        description: found.metadata.description ?? null,
+      };
+      const { title, body, captureNote, sourceUrl, pageTitle, description } =
+        store.memory;
+      return {
+        title,
+        body,
+        captureNote,
+        sourceUrl: sourceUrl ?? null,
+        gathered: true,
+        pageTitle: pageTitle ?? null,
+        description: description ?? null,
+      };
     }),
     loadForEmbedding: async () => undefined,
     stillEmbeddable: async () => false,
@@ -513,5 +540,139 @@ describe("Workers AI adapter", () => {
         new ProviderError("overflow")
       );
     }
+  });
+});
+
+describe("index(job) for a link", () => {
+  const linkMemory = (over: Partial<PendingMemory> = {}) =>
+    textMemory({
+      kind: "link",
+      body: null,
+      sourceUrl: "https://garden.test/basil",
+      gathered: false,
+      pageTitle: null,
+      description: null,
+      ...over,
+    });
+  const ARTICLE = "Basil wants six hours of light. ".repeat(12);
+  const gatherer = (found: Partial<Gathered> = {}) => {
+    const g = {
+      gather: vi.fn<Gatherer["gather"]>(async () => ({
+        metadata: { title: "Growing Basil", description: "A guide" },
+        text: ARTICLE,
+        contentHash: "h",
+        transient: false,
+        ...found,
+      })),
+    };
+    return g;
+  };
+
+  it("gathers the Source first, then sends what it found to Extraction", async () => {
+    const store = memoryStore(linkMemory());
+    const gemma = scripted("workers-ai", json());
+    const g = gatherer();
+    const { index } = createIndexer({
+      store,
+      providers: [gemma],
+      gatherer: g,
+      readFile: noFiles,
+    });
+    expect(await index(job())).toEqual({ result: "searchable" });
+    expect(g.gather).toHaveBeenCalledWith("https://garden.test/basil", {
+      thirdParty: expect.any(Function),
+    });
+    const sent = gemma.requests[0]!.user;
+    expect(sent).toContain('<memory kind="link">');
+    expect(sent).toContain("<title>\nGrowing Basil\n</title>");
+    expect(sent).toContain("<source>\nhttps://garden.test/basil\n</source>");
+    expect(sent).toContain("<description>\nA guide\n</description>");
+    expect(sent).toContain("Basil wants six hours of light.");
+  });
+
+  it("does not gather a link twice", async () => {
+    const store = memoryStore(linkMemory({ gathered: true, body: ARTICLE }));
+    const g = gatherer();
+    const { index } = createIndexer({
+      store,
+      providers: [scripted("workers-ai", json())],
+      gatherer: g,
+      readFile: noFiles,
+    });
+    await index(job());
+    expect(g.gather).not.toHaveBeenCalled();
+  });
+
+  it("gathers with AI opt-out, but never through a third-party reader, and sends nothing to a model", async () => {
+    const store = memoryStore(linkMemory({ aiOptOut: true }));
+    const gemma = scripted("workers-ai", json());
+    const g = gatherer();
+    const { index } = createIndexer({
+      store,
+      providers: [gemma],
+      gatherer: g,
+      readFile: noFiles,
+    });
+    expect(await index(job())).toEqual({ result: "searchable" });
+    const { thirdParty } = g.gather.mock.calls[0]![1]!;
+    expect(await thirdParty!()).toBe(false);
+    expect(store.gathered).toHaveLength(1);
+    expect(gemma.extract).not.toHaveBeenCalled();
+  });
+
+  it("asks the store whether the run is still current, opt-out off, right before a third party", async () => {
+    const store = memoryStore(linkMemory());
+    const g = gatherer();
+    let allowed: boolean | undefined;
+    g.gather.mockImplementationOnce(async (_url, options) => {
+      // AI opt-out switched on while the page was being fetched.
+      store.memory = { ...store.memory!, aiOptOut: true };
+      allowed = await options!.thirdParty!();
+      return { metadata: {}, text: null, transient: false };
+    });
+    const { index } = createIndexer({
+      store,
+      providers: [scripted("workers-ai", json())],
+      gatherer: g,
+      readFile: noFiles,
+    });
+    await index(job());
+    expect(allowed).toBe(false);
+  });
+
+  it("tries again later when the Source is down, then keeps it Reference only", async () => {
+    const store = memoryStore(linkMemory());
+    const g = gatherer({ metadata: {}, text: null, transient: true });
+    const { index } = createIndexer({
+      store,
+      providers: [scripted("workers-ai", json())],
+      gatherer: g,
+      readFile: noFiles,
+    });
+    expect(await index(job())).toMatchObject({ result: "retry" });
+    expect(store.gathered).toEqual([]);
+    expect(store.released).toBe(1);
+    expect(await index(job({ attempt: INDEXING.maxAttempts }))).toEqual({
+      result: "searchable",
+    });
+    expect(store.gathered).toHaveLength(1);
+  });
+
+  it("stops when the run moved on while it gathered", async () => {
+    const store = memoryStore(linkMemory());
+    const gemma = scripted("workers-ai", json());
+    const g = gatherer();
+    g.gather.mockImplementationOnce(async () => {
+      store.memory = { ...store.memory!, run: 2 };
+      return { metadata: {}, text: null, transient: false };
+    });
+    const { index } = createIndexer({
+      store,
+      providers: [gemma],
+      gatherer: g,
+      readFile: noFiles,
+    });
+    expect(await index(job())).toEqual({ result: "skipped" });
+    expect(gemma.extract).not.toHaveBeenCalled();
   });
 });

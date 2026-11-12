@@ -58,6 +58,14 @@ export type Bindings = {
   POSTHOG_HOST?: string;
   /** Var: "true" only once that project's billing is confirmed; Gemini stays out otherwise. */
   GEMINI_PAID_TIER?: string;
+  /**
+   * Var: "jina" lets gathering a pasted link ask Jina Reader for pages that
+   * need a browser. A third party sees the link, so it is off unless set
+   * (docs/research/link-gathering.md). Never used for AI opt-out.
+   */
+  LINK_READER?: string;
+  /** Secret, optional: a Jina Reader key raises its rate limit. */
+  JINA_API_KEY?: string;
   /** Var: "fake" (honoured only when SPARK_ENV is local) Indexes with the fake provider. */
   INDEXING_PROVIDER?: string;
 };
@@ -69,6 +77,8 @@ export type Bindings = {
 export type IndexMessage = {
   memoryId: string;
   run?: number;
+  /** The Memory's `indexGeneration`: a message for an earlier Memory with the id does nothing. */
+  generation?: string;
   priority: Priority;
   task?: "embed";
 };

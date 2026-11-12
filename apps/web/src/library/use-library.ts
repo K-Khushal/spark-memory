@@ -33,6 +33,8 @@ async function ok(request: Promise<Response>) {
 const transport: Transport = {
   create: async (json) =>
     (await (await ok(api.api.memories.$post({ json }))).json()) as Memory,
+  createLink: async (json) =>
+    (await (await ok(api.api.memories.links.$post({ json }))).json()) as Memory,
   patch: async (id, json, init) => {
     const res = await byId.$patch({ param: { id }, json }, { init });
     if (res.status === 409) return "stale";
@@ -157,7 +159,8 @@ export function useLibrary() {
         );
         const page = await res.json();
         if (cancelled) return;
-        // Uploads an earlier page left unfinished show as Failed, to delete.
+        // Uploads an earlier page left unfinished, once their PUT has
+        // expired, show as Failed, to delete.
         const unfinished: Memory[] = page.unfinished ?? [];
         const stranded = unfinished.map((m): WallMemory => ({
           ...m,
@@ -188,6 +191,8 @@ export function useLibrary() {
   // while nothing changes, starting over when something does; never while
   // the page is hidden; not at all once nothing is Indexing.
   const pollKey = indexing.pollable(memories).join(",");
+  // After every render: anything sent again since starts its misses over.
+  useEffect(() => indexing.restartMisses(memories));
   useEffect(() => {
     if (!pollKey) return;
     const ids = pollKey.split(",");

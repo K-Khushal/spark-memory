@@ -9,6 +9,8 @@ export { openDatabase, type Database } from "./lib/client";
 export {
   openLibrary,
   sweepAbandonedUploads,
+  SWEEP_BUDGET_MS,
+  UPLOAD_URL_MINUTES,
   UPLOAD_WINDOW_HOURS,
   type CaptureResult,
   type EditResult,
@@ -16,6 +18,7 @@ export {
   type FileCheck,
   type FileUpload,
   type ImageCaptureResult,
+  type LinkCaptureResult,
   type MemoryFileInfo,
   type MemoryImage,
   type Library,
@@ -44,11 +47,14 @@ export {
   ANONYMISED_USER,
   deletionRequested as isDeletionRequested,
   endSessionIfDeleting,
+  lockOwner,
 } from "./lib/owner";
 export {
   indexingStore,
+  type Claim,
   type Embedding,
   type IndexingStore,
+  type IndexMessageTarget,
 } from "./lib/indexing";
 export {
   ADMIN_USERS_LIMIT,

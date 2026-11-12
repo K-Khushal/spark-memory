@@ -1,5 +1,10 @@
 import { useState, type KeyboardEvent } from "react";
-import { AnimatePresence, motion, type PanInfo } from "motion/react";
+import {
+  AnimatePresence,
+  MotionConfig,
+  motion,
+  type PanInfo,
+} from "motion/react";
 import { ChevronLeftIcon, ChevronRightIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { Button, Dialog, DialogContent, DialogTitle, cn } from "@spark/ui";
@@ -77,89 +82,105 @@ export function ImageViewer({
 
   const tall =
     !!memory?.image && memory.image.width / memory.image.height < TALL;
+  // A stranded upload has no file to show. The ThumbHash stands in; an
+  // image would 404 and refresh the Library once a minute.
+  const stranded = memory?.upload?.step === "stranded";
 
   return (
-    <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
-      {memory?.image && (
-        <DialogContent
-          data-theme="dark"
-          aria-describedby={undefined}
-          onKeyDown={onKeyDown}
-          // Focus the viewer itself, never Delete: the key that opened it
-          // must not press anything.
-          onOpenAutoFocus={(e) => {
-            e.preventDefault();
-            (e.currentTarget as HTMLElement | null)?.focus();
-          }}
-          className="h-dvh w-screen max-w-none overflow-hidden rounded-none bg-canvas shadow-none"
-          closeClassName="z-10 size-11 bg-transparent"
-        >
-          <DialogTitle className="sr-only">{memoryName(memory)}</DialogTitle>
-          <AnimatePresence initial={false} custom={direction} mode="popLayout">
-            <motion.div
-              key={memory.id}
+    <MotionConfig reducedMotion="user">
+      <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
+        {memory?.image && (
+          <DialogContent
+            data-theme="dark"
+            aria-describedby={undefined}
+            onKeyDown={onKeyDown}
+            // Focus the viewer itself, never Delete: the key that opened it
+            // must not press anything.
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              (e.currentTarget as HTMLElement | null)?.focus();
+            }}
+            className="h-dvh w-screen max-w-none overflow-hidden rounded-none bg-canvas shadow-none"
+            closeClassName="z-10 size-11 bg-transparent"
+          >
+            <DialogTitle className="sr-only">{memoryName(memory)}</DialogTitle>
+            <AnimatePresence
+              initial={false}
               custom={direction}
-              variants={slide}
-              initial="enter"
-              animate="centre"
-              exit="leave"
-              drag="x"
-              dragDirectionLock
-              dragConstraints={{ left: 0, right: 0 }}
-              dragElastic={edgeElastic(index, memories.length)}
-              dragSnapToOrigin
-              onDragEnd={onDragEnd}
-              className={cn(
-                "absolute inset-0 grid touch-pan-y justify-items-center px-4 pt-16 pb-20 md:px-16 md:pb-6",
-                tall ? "items-start overflow-y-auto" : "items-center"
-              )}
+              mode="popLayout"
             >
-              <Picture memory={memory} tall={tall} onBroken={onBroken} />
-            </motion.div>
-          </AnimatePresence>
-          {memory.upload ? (
-            <UploadBadge
-              upload={memory.upload}
-              onRetry={() => onRetry(memory.id)}
-              onDelete={() => remove(memory)}
-              className="absolute top-3 left-3 h-11"
+              <motion.div
+                key={memory.id}
+                custom={direction}
+                variants={slide}
+                initial="enter"
+                animate="centre"
+                exit="leave"
+                drag="x"
+                dragDirectionLock
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={edgeElastic(index, memories.length)}
+                dragSnapToOrigin
+                onDragEnd={onDragEnd}
+                className={cn(
+                  "absolute inset-0 grid touch-pan-y justify-items-center px-4 pt-16 pb-20 md:px-16 md:pb-6",
+                  tall ? "items-start overflow-y-auto" : "items-center"
+                )}
+              >
+                <Picture
+                  memory={memory}
+                  tall={tall}
+                  stranded={stranded}
+                  onBroken={onBroken}
+                />
+              </motion.div>
+            </AnimatePresence>
+            {memory.upload ? (
+              <UploadBadge
+                upload={memory.upload}
+                onRetry={() => onRetry(memory.id)}
+                onDelete={() => remove(memory)}
+                className="absolute top-3 left-3 h-11"
+              />
+            ) : (
+              <IndexBadge
+                memory={memory}
+                onRetry={() => onRetryIndexing(memory)}
+                // No Memory detail for images: the viewer says why.
+                withReason
+                className="absolute top-5.5 left-3"
+              />
+            )}
+            {!stranded && (
+              <div className="absolute top-3 right-16 flex items-center gap-3">
+                <MoreLikeThis
+                  memory={memory}
+                  onSelect={onMoreLikeThis}
+                  compact
+                  className="h-11"
+                />
+                <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
+                <Button
+                  variant="quiet"
+                  size="icon"
+                  aria-label="Delete"
+                  className="size-11"
+                  onClick={() => remove(memory)}
+                >
+                  <Trash2Icon aria-hidden />
+                </Button>
+              </div>
+            )}
+            <Step side="left" disabled={index <= 0} onClick={() => go(-1)} />
+            <Step
+              side="right"
+              disabled={index >= memories.length - 1}
+              onClick={() => go(1)}
             />
-          ) : (
-            <IndexBadge
-              memory={memory}
-              onRetry={() => onRetryIndexing(memory)}
-              // No Memory detail for images: the viewer says why.
-              withReason
-              className="absolute top-5.5 left-3"
-            />
-          )}
-          <div className="absolute top-3 right-16 flex items-center gap-3">
-            <MoreLikeThis
-              memory={memory}
-              onSelect={onMoreLikeThis}
-              compact
-              className="h-11"
-            />
-            <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
-            <Button
-              variant="quiet"
-              size="icon"
-              aria-label="Delete"
-              className="size-11"
-              onClick={() => remove(memory)}
-            >
-              <Trash2Icon aria-hidden />
-            </Button>
-          </div>
-          <Step side="left" disabled={index <= 0} onClick={() => go(-1)} />
-          <Step
-            side="right"
-            disabled={index >= memories.length - 1}
-            onClick={() => go(1)}
-          />
-        </DialogContent>
-      )}
-    </Dialog>
+          </DialogContent>
+        )}
+      </Dialog>
+    </MotionConfig>
   );
 }
 
@@ -189,10 +210,13 @@ function edgeElastic(index: number, count: number) {
 function Picture({
   memory,
   tall,
+  stranded,
   onBroken,
 }: {
   memory: WallMemory;
   tall: boolean;
+  /** No stored file: the ThumbHash only, so nothing 404s and refetches. */
+  stranded: boolean;
   onBroken: (id: string) => void;
 }) {
   const image = memory.image!;
@@ -213,21 +237,25 @@ function Picture({
         backgroundImage: placeholder ? `url(${placeholder})` : undefined,
       }}
     >
-      <img
-        src={image.thumbnailUrl}
-        alt=""
-        draggable={false}
-        className="absolute inset-0 h-full w-full object-contain"
-      />
-      <img
-        src={image.url}
-        alt={memoryName(memory)}
-        draggable={false}
-        onLoad={() => setLoaded(true)}
-        onError={() => onBroken(memory.id)}
-        className="absolute inset-0 h-full w-full object-contain transition-opacity duration-(--duration-small) ease-out"
-        style={{ opacity: loaded ? 1 : 0 }}
-      />
+      {!stranded && (
+        <>
+          <img
+            src={image.thumbnailUrl}
+            alt=""
+            draggable={false}
+            className="absolute inset-0 h-full w-full object-contain"
+          />
+          <img
+            src={image.url}
+            alt={memoryName(memory)}
+            draggable={false}
+            onLoad={() => setLoaded(true)}
+            onError={() => onBroken(memory.id)}
+            className="absolute inset-0 h-full w-full object-contain transition-opacity duration-(--duration-small) ease-out"
+            style={{ opacity: loaded ? 1 : 0 }}
+          />
+        </>
+      )}
     </div>
   );
 }

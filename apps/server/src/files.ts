@@ -24,6 +24,7 @@ export type SignedUpload = { url: string; headers: Record<string, string> };
 
 /** Files never change once stored, and only their owner ever has a URL. */
 export const FILE_CACHE_CONTROL = "private, max-age=31536000, immutable";
+/** Keep in step with UPLOAD_URL_MINUTES in @spark/db (what `unfinished` hides). */
 const UPLOAD_SECONDS = 15 * 60;
 /** Download URLs are signed at the start of the hour and last two. */
 const DOWNLOAD_SECONDS = 2 * 60 * 60;
@@ -238,7 +239,7 @@ export async function verifyLocalUrl(
 /** A Memory as clients get it: its files as signed URLs, never as keys. */
 export type ClientMemory = Omit<
   Memory,
-  "image" | "indexRun" | "indexPriority"
+  "image" | "indexRun" | "indexGeneration" | "indexPriority"
 > & {
   image: {
     url: string;
@@ -255,9 +256,16 @@ export async function forClient<M extends Memory>(
   store: FileStore,
   memory: M
 ): Promise<
-  Omit<M, "image" | "indexRun" | "indexPriority"> & Pick<ClientMemory, "image">
+  Omit<M, "image" | "indexRun" | "indexGeneration" | "indexPriority"> &
+    Pick<ClientMemory, "image">
 > {
-  const { image, indexRun: _run, indexPriority: _priority, ...rest } = memory;
+  const {
+    image,
+    indexRun: _run,
+    indexGeneration: _generation,
+    indexPriority: _priority,
+    ...rest
+  } = memory;
   if (!image) return { ...rest, image: null };
   const { key, thumbnailKey, thumbnailMime: _, ...shown } = image;
   const [url, thumbnailUrl] = await Promise.all([

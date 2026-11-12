@@ -13,7 +13,7 @@ const buttonVariants = cva(
         primary: "bg-ink text-canvas hover:bg-ink/85",
         quiet: "text-ink aria-pressed:bg-sunken hover:bg-sunken",
         outline:
-          "border border-line bg-surface text-ink hover:border-line-strong",
+          "border border-line-strong bg-surface text-ink hover:bg-sunken",
       },
       size: {
         sm: "h-8 px-3 text-sm",

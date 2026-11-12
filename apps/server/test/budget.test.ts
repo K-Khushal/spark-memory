@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
 import { DAILY_BUDGET_MAX_MICROS } from "@spark/core";
+import { cronCalls } from "../src/cron-budget";
 import { requeueStalled } from "../src/indexing";
 import {
   databaseUrl,
@@ -62,6 +63,44 @@ describe.skipIf(!databaseUrl)("past the daily AI budget", () => {
     await requeueStalled(env());
     expect(sentFor(fresh.id).map((m) => m.body.priority)).toEqual(["fresh"]);
     expect(sentFor(edited.id)).toEqual([]);
+  });
+
+  it("re-sends only as many stalled Memories as its cron share allows", async () => {
+    const first = await stalledMemory("Cap one");
+    const second = await stalledMemory("Cap two");
+    queues.fresh.sent.length = 0;
+    queues.background.sent.length = 0;
+    await requeueStalled(env(), cronCalls(4));
+    const added = queues.fresh.sent.length + queues.background.sent.length;
+    expect(added).toBe(1);
+    const ours = [first.id, second.id].filter((id) => sentFor(id).length > 0);
+    expect(ours.length).toBeLessThanOrEqual(1);
+  });
+
+  it("re-sends stalled fresh work that sits behind background rows", async () => {
+    const fresh = await stalledMemory("Fresh behind background");
+    const { rows } = await sql.query<{ user_id: string }>(
+      `select user_id from memory where id = $1`,
+      [fresh.id]
+    );
+    const userId = rows[0]!.user_id;
+    const background = crypto.randomUUID();
+    for (let i = 0; i < 10; i++) {
+      await sql.query(
+        `insert into memory (id, user_id, kind, body, index_state, index_priority, updated_at)
+         values ($1, $2, 'text', 'background', 'indexing', 'background', now() - interval '5 hours')`,
+        [i === 0 ? background : crypto.randomUUID(), userId]
+      );
+    }
+    await sql.query(
+      `update memory set updated_at = now() - interval '4 hours', index_priority = 'fresh' where id = $1`,
+      [fresh.id]
+    );
+    queues.fresh.sent.length = 0;
+    queues.background.sent.length = 0;
+    await requeueStalled(env(), cronCalls());
+    expect(sentFor(fresh.id).map((m) => m.body.priority)).toContain("fresh");
+    expect(sentFor(background)).toEqual([]);
   });
 
   it("acks a paused message it could not re-send, so a pause never dead-letters", async () => {

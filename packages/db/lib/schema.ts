@@ -13,12 +13,14 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import {
   DEFAULT_PLAN,
   type IndexFailure,
   type IndexState,
+  type LinkMetadata,
   type MemoryKind,
   type Plan,
   type Preservation,
@@ -131,8 +133,17 @@ export const memory = pgTable(
     /** The text of a text Memory. */
     body: text("body"),
     captureNote: text("capture_note"),
-    /** SHA-256 (hex) of a file Memory's Preserved copy, for duplicate detection later. */
+    /**
+     * SHA-256 (hex) of the Preserved copy: a file Memory's file, a link's
+     * readable text. Unique per person among links.
+     */
     contentHash: text("content_hash"),
+    /** A link Memory's Source, as the person gave it. */
+    sourceUrl: text("source_url"),
+    /** `normaliseUrl` of the Source (@spark/core): unique per person, so a page is saved once. */
+    sourceUrlNormalised: text("source_url_normalised"),
+    /** What gathering a link found (null until it ran): the page's own title, description… */
+    metadata: jsonb("metadata").$type<LinkMetadata>(),
     preservation: text("preservation")
       .$type<Preservation>()
       .default("preserved")
@@ -149,6 +160,14 @@ export const memory = pgTable(
      * queue message can never overwrite newer work.
      */
     indexRun: integer("index_run").default(1).notNull(),
+    /**
+     * Set by the server when the row is created and never changed. A Memory
+     * deleted and created again with the same id (Captures choose their
+     * id) gets a new one, so its run restarting at 1 cannot match work
+     * loaded from the old row: every Indexing write checks it and the owner.
+     * Queue messages only; never sent to clients.
+     */
+    indexGeneration: uuid("index_generation").defaultRandom().notNull(),
     /**
      * Set while one consumer works on the run, so a duplicate delivery skips
      * instead of paying for the same AI call twice. Expires on its own if
@@ -182,6 +201,8 @@ export const memory = pgTable(
     vectorsSpace: text("vectors_space"),
     vectorsRevision: integer("vectors_revision"),
     capturedAt: instant("captured_at"),
+    /** Captured again (a duplicate resurfaces the Memory): the wall's order. */
+    lastSavedAt: instant("last_saved_at"),
     /**
      * The first time Indexing makes this Memory Searchable. Later runs
      * (an edit, Retry, opt-out off) do not move it, so time to Searchable
@@ -208,6 +229,17 @@ export const memory = pgTable(
       t.id.desc()
     ),
     index("memory_search_tsv_idx").using("gin", t.searchTsv),
+    index("memory_user_saved_idx").on(
+      t.userId,
+      t.lastSavedAt.desc(),
+      t.id.desc()
+    ),
+    uniqueIndex("memory_user_source_idx")
+      .on(t.userId, t.sourceUrlNormalised)
+      .where(sql`${t.sourceUrlNormalised} is not null`),
+    uniqueIndex("memory_user_link_hash_idx")
+      .on(t.userId, t.contentHash)
+      .where(sql`${t.kind} = 'link' and ${t.contentHash} is not null`),
   ]
 );
 
@@ -216,7 +248,9 @@ export type FileRole = "original" | "thumbnail";
 /**
  * A file of a Memory in object storage (PLAN.md §4): the original (its
  * Preserved copy) and its thumbnail. `key` is chosen by the server and starts
- * with the owner's id. `storedAt` is set once the upload was checked; a
+ * with the owner's id. `generation` is one upload attempt: Try Again mints
+ * another, and the object key includes it, so a confirm cannot accept a
+ * later attempt's row. `storedAt` is set once the upload was checked; a
  * Memory with a file not yet stored is left off the wall, and swept if it
  * stays that way (sweepAbandonedUploads).
  */
@@ -227,6 +261,8 @@ export const memoryFile = pgTable(
       .notNull()
       .references(() => memory.id, { onDelete: "cascade" }),
     role: text("role").$type<FileRole>().notNull(),
+    /** One upload attempt. A new one is minted on create and on Try Again. */
+    generation: uuid("generation").notNull().defaultRandom(),
     key: text("r2_key").notNull().unique(),
     mime: text("mime").notNull(),
     bytes: integer("bytes").notNull(),
@@ -340,6 +376,12 @@ export const aiCall = pgTable(
     userId: text("user_id").notNull(),
     /** Null for a search query's embedding. */
     memoryId: uuid("memory_id"),
+    /**
+     * The Memory's `indexGeneration` when the call was made: with the id,
+     * it names the one Memory even after a delete and a new one with that
+     * id. Null for a query, and for calls from before it was kept.
+     */
+    memoryGeneration: uuid("memory_generation"),
     /** The UTC day, as the budget counts it. */
     day: date("day").notNull(),
     provider: text("provider").$type<ProviderName>().notNull(),

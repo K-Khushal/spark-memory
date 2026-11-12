@@ -10,10 +10,7 @@ import type { ReactNode } from "react";
 import { Button } from "@spark/ui";
 import { api } from "./api";
 import { redirectIfSignedIn, requireSession } from "./auth";
-import { AdminPage } from "./admin/admin-page";
 import { LibraryPage } from "./library/library-page";
-import { SettingsPage } from "./settings/settings-page";
-import { SignInPage } from "./sign-in/sign-in-page";
 import { DATA_SETS, type DataSet } from "./prototypes/data-sets";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
@@ -21,6 +18,12 @@ const rootRoute = createRootRoute({ component: () => <Outlet /> });
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { desk?: "capture" | "search" } =>
+    search.desk === "capture" || search.desk === "search"
+      ? { desk: search.desk }
+      : {},
   beforeLoad: () => requireSession(),
   component: function Library() {
     const { session, admin } = libraryRoute.useRouteContext();
@@ -36,21 +39,13 @@ const adminRoute = createRoute({
     if (!admin) throw redirect({ to: "/" });
     return { session };
   },
-  component: function Admin() {
-    const { session } = adminRoute.useRouteContext();
-    return <AdminPage session={session} />;
-  },
-});
+}).lazy(() => import("./admin/route").then((m) => m.Route));
 
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
   beforeLoad: () => requireSession(),
-  component: function Settings() {
-    const { session, admin } = settingsRoute.useRouteContext();
-    return <SettingsPage session={session} admin={admin} />;
-  },
-});
+}).lazy(() => import("./settings/route").then((m) => m.Route));
 
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -63,12 +58,7 @@ const signInRoute = createRoute({
     if (!res.ok) throw new Error(`sign-in options: ${res.status}`);
     return res.json();
   },
-  component: function SignIn() {
-    const options = signInRoute.useLoaderData();
-    const { failed } = signInRoute.useSearch();
-    return <SignInPage options={options} failed={failed === 1} />;
-  },
-});
+}).lazy(() => import("./sign-in/route").then((m) => m.Route));
 
 // Reference only: the chosen design direction on fake data (DESIGN.md →
 // Pick). Everything under prototypes/ is deleted once the real Library lands.
@@ -82,6 +72,11 @@ const prototypesRoute = createRoute({
 }).lazy(() => import("./prototypes/route").then((m) => m.Route));
 
 export const router = createRouter({
+  // Slow chunk loads wait 1s, then a blank canvas: no spinner for a fast
+  // click from the Library (DESIGN.md → no flashing chrome).
+  defaultPendingMs: 1000,
+  defaultPendingMinMs: 0,
+  defaultPendingComponent: () => <div className="min-h-dvh bg-canvas" />,
   defaultErrorComponent: ({ error, reset }) => (
     <Notice
       title={

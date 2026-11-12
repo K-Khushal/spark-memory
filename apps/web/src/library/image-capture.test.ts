@@ -57,6 +57,10 @@ const serverCopy = (id: string): Memory => ({
   hasVectors: false,
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
+  lastSavedAt: "2026-11-10T10:00:00.000Z",
+  sourceUrl: null,
+  pageTitle: null,
+  description: null,
   updatedAt: "2026-11-10T10:00:00.000Z",
   image: {
     url: "https://r2/original",
@@ -75,6 +79,7 @@ function setup(transport: Partial<Transport> = {}) {
   const calls: string[] = [];
   const full: Transport = {
     create: vi.fn(),
+    createLink: vi.fn(),
     patch: vi.fn(),
     get: vi.fn(),
     remove: vi.fn(async (id) => void calls.push(`remove ${id}`)),
@@ -136,6 +141,30 @@ describe("image Capture", () => {
     expect(revoke).toHaveBeenCalledWith(landed!.image!.url);
     expect(revoke).toHaveBeenCalledWith(landed!.image!.thumbnailUrl);
     revoke.mockRestore();
+  });
+
+  it("Undo right after a confirm does not wait for the thumbnail to load", async () => {
+    const loaded = later();
+    let removed = false;
+    const { actions, wall, notify, calls } = setup({
+      preload: () => loaded.promise,
+      remove: async (id) => {
+        removed = true;
+        calls.push(`remove ${id}`);
+      },
+    });
+    await actions.captureImages([png()]);
+    await settle();
+    const id = wall()[0]!.id;
+    expect(wall()[0]!.image!.url).toMatch(/^blob:/);
+    toastAction(notify, "Undo")();
+    await settle();
+    expect(removed).toBe(true);
+    expect(calls).toContain(`remove ${id}`);
+    expect(wall()).toEqual([]);
+    loaded.resolve();
+    await settle();
+    expect(wall()).toEqual([]);
   });
 
   it("shows a failed upload on its tile, and Try Again resends the same Memory", async () => {

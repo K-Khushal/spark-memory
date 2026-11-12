@@ -22,6 +22,10 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   hasVectors: false,
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
+  lastSavedAt: "2026-11-10T10:00:00.000Z",
+  sourceUrl: null,
+  pageTitle: null,
+  description: null,
   updatedAt: "2026-11-10T10:00:00.000Z",
   image: null,
   ...over,
@@ -237,9 +241,60 @@ describe("Index state on the wall", () => {
     expect(actions.pollable(wall())).toEqual([]);
     pending = true;
     expect(actions.pollable(wall())).toEqual([m.id]);
+    // After the render that showed it sent again.
+    actions.restartMisses(wall());
     pending = false;
     // Its misses start over: one more is not enough to drop it.
     await actions.poll([m.id]);
     expect(actions.pollable(wall())).toEqual([m.id]);
+  });
+
+  it("changes nothing while the wall renders, however often it asks", async () => {
+    const m = memory();
+    let pending = false;
+    const poll = vi.fn(async (): Promise<Memory[]> => []);
+    const { actions, wall } = setup({ poll }, [m], () => pending);
+    await actions.poll([m.id]);
+    await actions.poll([m.id]);
+    pending = true;
+    // A render (StrictMode renders twice, and may throw one away) asks while
+    // it is pending: asked after, but its misses are not touched.
+    expect(actions.pollable(wall())).toEqual([m.id]);
+    expect(actions.pollable(wall())).toEqual([m.id]);
+    pending = false;
+    expect(actions.pollable(wall())).toEqual([]);
+  });
+});
+
+describe("a link while it Indexes", () => {
+  it("takes what gathering found from the poll: page title, description, text and Preservation", async () => {
+    const link = memory({
+      kind: "link",
+      body: null,
+      sourceUrl: "https://garden.test/",
+      preservation: "reference_only",
+    });
+    const found = {
+      ...link,
+      indexState: "searchable" as const,
+      preservation: "preserved" as const,
+      pageTitle: "Growing Basil",
+      description: "A guide",
+      body: "The article",
+      title: "Changed elsewhere",
+    };
+    const { actions, wall } = setup(
+      { poll: vi.fn().mockResolvedValue([found]) },
+      [link]
+    );
+    await actions.poll([link.id]);
+    expect(wall()[0]).toMatchObject({
+      preservation: "preserved",
+      pageTitle: "Growing Basil",
+      description: "A guide",
+      body: "The article",
+      // The person's own fields stay as the wall has them.
+      title: null,
+    });
   });
 });

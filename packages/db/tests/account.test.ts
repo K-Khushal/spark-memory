@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import type { ImageCapture } from "@spark/core";
@@ -82,9 +83,11 @@ describe.skipIf(!databaseUrl)("an account", () => {
     const img = await library.captureImage(image());
     if (!("memory" in img)) throw new Error("not created");
     await library.markStored(img.memory.id);
+    const generation = crypto.randomUUID();
     await db.insert(schema.aiCall).values({
       userId,
       memoryId: text.memory.id,
+      memoryGeneration: generation,
       day: "2026-11-11",
       provider: "gemini",
       model: "fake",
@@ -93,7 +96,7 @@ describe.skipIf(!databaseUrl)("an account", () => {
       costMicros: 7,
     });
     await signIn(userId);
-    return { text: text.memory.id, image: img.memory.id };
+    return { text: text.memory.id, image: img.memory.id, generation };
   }
 
   /** Holds `userId`'s owner lock in its own connection until `release` runs, as a deletion's transaction does. */
@@ -132,15 +135,29 @@ describe.skipIf(!databaseUrl)("an account", () => {
         .where(eq(schema.aiCall.memoryId, memoryId))
     ).map((r) => r.userId);
 
-  const recordCall = (userId: string, memoryId: string) =>
+  const recordCall = (userId: string, memoryId: string, model: string) =>
     indexingStore(db).recordCall({
       userId,
       memoryId,
+      memoryGeneration: memoryId,
       provider: "gemini",
-      model: "fake",
+      model,
       usage: { inputTokens: 1, outputTokens: 1 },
       costMicros: 3,
     });
+
+  /** The anonymised cost row for one call, found by its model (the id is gone). */
+  const callByModel = async (model: string) => {
+    const [row] = await db
+      .select({
+        userId: schema.aiCall.userId,
+        memoryId: schema.aiCall.memoryId,
+        memoryGeneration: schema.aiCall.memoryGeneration,
+      })
+      .from(schema.aiCall)
+      .where(eq(schema.aiCall.model, model));
+    return row;
+  };
 
   const count = async (table: string, column: string, value: string) => {
     const { rows } = await db.execute<{ n: number }>(
@@ -200,7 +217,7 @@ describe.skipIf(!databaseUrl)("an account", () => {
     it("removes everything of the person and nothing of anyone else", async () => {
       const ana = await person();
       const ben = await person();
-      await fill(ana);
+      const anas = await fill(ana);
       const bens = await fill(ben);
       await db.insert(schema.verification).values({
         id: crypto.randomUUID(),
@@ -247,16 +264,45 @@ describe.skipIf(!databaseUrl)("an account", () => {
       expect(await jobs.deletionsPending()).not.toContain(ana);
       expect(await jobs.continueDeletion(ana, removeObjects)).toBe("none");
 
-      // The money spent stays in the totals, without its owner.
-      const { rows } = await db.execute<{ n: number }>(
-        sql`select count(*)::int as n from ai_call where user_id = ${ANONYMISED_USER} and cost_micros = 7`
-      );
-      expect(rows[0]!.n).toBeGreaterThan(0);
+      // The money spent stays in the totals, without its owner or the Memory.
+      const kept = await db
+        .select({
+          memoryId: schema.aiCall.memoryId,
+          memoryGeneration: schema.aiCall.memoryGeneration,
+        })
+        .from(schema.aiCall)
+        .where(
+          sql`${schema.aiCall.userId} = ${ANONYMISED_USER} and ${schema.aiCall.costMicros} = 7 and ${schema.aiCall.memoryId} is null`
+        );
+      expect(kept.length).toBeGreaterThan(0);
+      expect(
+        await db
+          .select({ id: schema.aiCall.id })
+          .from(schema.aiCall)
+          .where(eq(schema.aiCall.memoryId, anas.text))
+      ).toEqual([]);
+      expect(
+        await db
+          .select({ id: schema.aiCall.id })
+          .from(schema.aiCall)
+          .where(eq(schema.aiCall.memoryGeneration, anas.generation))
+      ).toEqual([]);
 
       // Ben is untouched.
       expect(await openLibrary(db, ben).get(bens.text)).toBeDefined();
       expect(await openLibrary(db, ben).get(bens.image)).toBeDefined();
       expect(await count("ai_call", "user_id", ben)).toBe(1);
+      const [bensCall] = await db
+        .select({
+          memoryId: schema.aiCall.memoryId,
+          memoryGeneration: schema.aiCall.memoryGeneration,
+        })
+        .from(schema.aiCall)
+        .where(eq(schema.aiCall.userId, ben));
+      expect(bensCall).toEqual({
+        memoryId: bens.text,
+        memoryGeneration: bens.generation,
+      });
       expect(await sessionsOf(ben)).toHaveLength(1);
     });
 
@@ -281,17 +327,21 @@ describe.skipIf(!databaseUrl)("an account", () => {
       expect(await sessionsOf(ben)).toEqual([kept]);
     });
 
-    it("records an AI call that finishes after deletion without its owner", async () => {
+    it("records an AI call that finishes after deletion without its owner or its Memory", async () => {
       const ana = await person();
       const memoryId = crypto.randomUUID();
-      await recordCall(ana, memoryId);
+      await recordCall(ana, memoryId, `before-${ana}`);
       expect(await aiCallOwners(memoryId)).toEqual([ana]);
 
-      // Being deleted: no new row names them.
+      // Being deleted: the cost stays, and the row does not name the Memory.
       await openAccount(db, ana).requestDeletion();
       const during = crypto.randomUUID();
-      await recordCall(ana, during);
-      expect(await aiCallOwners(during)).toEqual([ANONYMISED_USER]);
+      await recordCall(ana, during, `during-${ana}`);
+      expect(await callByModel(`during-${ana}`)).toEqual({
+        userId: ANONYMISED_USER,
+        memoryId: null,
+        memoryGeneration: null,
+      });
 
       // The provider answers while the final step holds the owner's lock:
       // the call waits, then finds the person gone.
@@ -299,13 +349,76 @@ describe.skipIf(!databaseUrl)("an account", () => {
       const { release, finished } = await holdOwnerLock(ana, async (tx) => {
         await tx.delete(schema.user).where(eq(schema.user.id, ana));
       });
-      const call = recordCall(ana, late);
+      const call = recordCall(ana, late, `late-${ana}`);
       expect(await stillWaiting(call)).toBe(true);
       release();
       await finished;
       await call;
-      expect(await aiCallOwners(late)).toEqual([ANONYMISED_USER]);
+      expect(await callByModel(`late-${ana}`)).toEqual({
+        userId: ANONYMISED_USER,
+        memoryId: null,
+        memoryGeneration: null,
+      });
       expect(await count("ai_call", "user_id", ana)).toBe(1);
+    });
+
+    it("leaves calls already stored under the anonymised owner untouched", async () => {
+      const memoryId = crypto.randomUUID();
+      const generation = crypto.randomUUID();
+      const model = `leftover-${memoryId}`;
+      await db.insert(schema.aiCall).values({
+        userId: ANONYMISED_USER,
+        memoryId,
+        memoryGeneration: generation,
+        day: "2026-11-11",
+        provider: "gemini",
+        model,
+        inputTokens: 1,
+        outputTokens: 1,
+        costMicros: 1,
+      });
+
+      const ana = await person();
+      await openAccount(db, ana).requestDeletion();
+      await age(ana);
+      expect(await accountJobs(db).continueDeletion(ana, async () => {})).toBe(
+        "done"
+      );
+
+      expect(await callByModel(model)).toEqual({
+        userId: ANONYMISED_USER,
+        memoryId,
+        memoryGeneration: generation,
+      });
+    });
+
+    it("backfills Memory ids off calls already anonymised, from the migration", async () => {
+      const memoryId = crypto.randomUUID();
+      const model = `backfill-${memoryId}`;
+      await db.insert(schema.aiCall).values({
+        userId: ANONYMISED_USER,
+        memoryId,
+        memoryGeneration: memoryId,
+        day: "2026-11-11",
+        provider: "gemini",
+        model,
+        inputTokens: 1,
+        outputTokens: 1,
+        costMicros: 1,
+      });
+      const statement = readFileSync(
+        new URL(
+          "../migrations/0017_clear_deleted_memory_ids.sql",
+          import.meta.url
+        ),
+        "utf8"
+      ).replaceAll("--> statement-breakpoint", "");
+      await db.execute(sql.raw(statement));
+      expect(await callByModel(model)).toEqual({
+        userId: ANONYMISED_USER,
+        memoryId: null,
+        memoryGeneration: null,
+      });
     });
 
     it("keeps an admin's setting changes, without their id", async () => {
@@ -379,6 +492,41 @@ describe.skipIf(!databaseUrl)("an account", () => {
       await age(ana);
       expect(await jobs.continueDeletion(ana, async () => {})).toBe("done");
       expect(await count("user", "id", ana)).toBe(0);
+    });
+
+    it("walks pending deletions oldest first, skipping ones already attempted", async () => {
+      const ana = await person();
+      const ben = await person();
+      const cara = await person();
+      const jobs = accountJobs(db);
+      await openAccount(db, ana).requestDeletion();
+      await openAccount(db, ben).requestDeletion();
+      await openAccount(db, cara).requestDeletion();
+      await db.execute(sql`
+        delete from account_deletion
+        where requested_at < now() - interval '20 days'
+      `);
+      await db
+        .update(schema.accountDeletion)
+        .set({ requestedAt: sql`now() - interval '3 days'` })
+        .where(eq(schema.accountDeletion.userId, ana));
+      await db
+        .update(schema.accountDeletion)
+        .set({ requestedAt: sql`now() - interval '2 days'` })
+        .where(eq(schema.accountDeletion.userId, ben));
+      await db
+        .update(schema.accountDeletion)
+        .set({ requestedAt: sql`now() - interval '1 day'` })
+        .where(eq(schema.accountDeletion.userId, cara));
+      await db.execute(
+        sql`delete from app_setting where key = 'sweep_deletion_cursor'`
+      );
+      expect(await jobs.deletionsPending(1)).toEqual([ana]);
+      expect(await jobs.deletionsPending(1)).toEqual([ben]);
+      expect(await jobs.deletionsPending(1, [ben])).toEqual([cara]);
+      await db.execute(
+        sql`delete from app_setting where key = 'sweep_deletion_cursor'`
+      );
     });
   });
 
@@ -637,6 +785,67 @@ describe.skipIf(!databaseUrl)("an account", () => {
       });
     });
 
+    it("returns only as many stalled exports as the sweep can send", async () => {
+      const first = await claimed();
+      const second = await claimed();
+      await db
+        .update(schema.libraryExport)
+        .set({ leaseUntil: sql`now() - interval '1 minute'` })
+        .where(eq(schema.libraryExport.userId, first.ana));
+      await db
+        .update(schema.libraryExport)
+        .set({ leaseUntil: sql`now() - interval '1 minute'` })
+        .where(eq(schema.libraryExport.userId, second.ana));
+      const capped = await accountJobs(db).stalledExports(1);
+      expect(capped).toHaveLength(1);
+      const all = await accountJobs(db).stalledExports();
+      expect(all.length).toBeGreaterThan(1);
+      expect(all).toEqual(expect.arrayContaining([first.id, second.id]));
+    });
+
+    it("stops removing objects once its share of calls is spent", async () => {
+      const jobs = accountJobs(db);
+      const keys = [crypto.randomUUID(), crypto.randomUUID()].map(
+        (id) => `users/budget/${id}/exports/one.zip`
+      );
+      await db
+        .insert(schema.objectRemoval)
+        .values(
+          keys.map((key) => ({ key, dueAt: sql`now() - interval '1 minute'` }))
+        );
+      let left = 1;
+      let calls = 0;
+      try {
+        await jobs.sweepExports(
+          async () => {
+            calls += 1;
+          },
+          {
+            batch: 1,
+            allowCall: () => {
+              if (left <= 0) return false;
+              left -= 1;
+              return true;
+            },
+          }
+        );
+        expect(calls).toBe(1);
+        const staying = (
+          await Promise.all(
+            keys.map((key) => count("object_removal", "key", key))
+          )
+        ).reduce((sum, n) => sum + n, 0);
+        expect(staying).toBeGreaterThan(0);
+      } finally {
+        await db
+          .delete(schema.objectRemoval)
+          .where(eq(schema.objectRemoval.key, keys[0]!));
+        await db
+          .delete(schema.objectRemoval)
+          .where(eq(schema.objectRemoval.key, keys[1]!));
+      }
+    });
+
     it("never builds for a person being deleted", async () => {
       const ana = await person();
       const request = await openAccount(db, ana).requestExport();
@@ -666,7 +875,12 @@ describe.skipIf(!databaseUrl)("an account", () => {
       });
       expect(all.find((m) => m.id === img)).toMatchObject({
         index: null,
-        original: { key: `users/${ana}/${img}/original`, mime: "image/png" },
+        original: {
+          key: expect.stringMatching(
+            new RegExp(`^users/${ana}/${img}/[0-9a-f-]{36}/original$`)
+          ),
+          mime: "image/png",
+        },
       });
     });
   });

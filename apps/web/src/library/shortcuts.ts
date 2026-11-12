@@ -76,14 +76,18 @@ const isTyping = (target: EventTarget | null) =>
     target.closest('[role="dialog"]') !== null);
 
 /**
- * The Library's global shortcuts (DESIGN.md → Interaction baseline):
- * ⌘K or Ctrl K toggles Search, `/` opens it; ⌘V outside a text field
- * Captures (text, or the images on the clipboard).
+ * Desk shortcuts (DESIGN.md → Interaction baseline), registered once by the
+ * sidebar so Settings and Admin share them with the Library: ⌘K or Ctrl K
+ * toggles Search, `/` opens it. On the Library, ⌘V outside a text field
+ * Captures. Off the Library, ⌘K is ignored in a text field or dialog.
  */
 export function useLibraryShortcuts(handlers: {
   onSearch: () => void;
   onToggleSearch: () => void;
-  onPaste: (data: DataTransfer) => void;
+  /** Absent off the Library, so a paste there is left alone. */
+  onPaste?: (data: DataTransfer) => void;
+  /** Settings and Admin: ⌘K stays in a text field or an open dialog. */
+  keepTyping?: boolean;
 }) {
   const latest = useRef(handlers);
   useEffect(() => {
@@ -95,6 +99,7 @@ export function useLibraryShortcuts(handlers: {
       const k =
         event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey);
       if (k) {
+        if (latest.current.keepTyping && isTyping(event.target)) return;
         event.preventDefault();
         latest.current.onToggleSearch();
       } else if (event.key === "/" && !isTyping(event.target)) {
@@ -103,9 +108,10 @@ export function useLibraryShortcuts(handlers: {
       }
     };
     const onPaste = (event: ClipboardEvent) => {
-      if (isTyping(event.target) || !event.clipboardData) return;
+      const paste = latest.current.onPaste;
+      if (!paste || isTyping(event.target) || !event.clipboardData) return;
       event.preventDefault();
-      latest.current.onPaste(event.clipboardData);
+      paste(event.clipboardData);
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("paste", onPaste);

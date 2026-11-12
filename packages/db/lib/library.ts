@@ -1,23 +1,35 @@
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
 import {
   EMBEDDING,
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
+  LinkCapture,
   MemoryEdit,
+  normaliseUrl,
   TextCapture,
+  type LinkMetadata,
   type MemoryKind,
+  type Preservation,
 } from "@spark/core";
 import type { Database } from "./client";
-import { deletionRequested, lockOwner, ownerPrefix } from "./owner";
+import {
+  deletionRequested,
+  lockOwner,
+  ownerPrefix,
+  tryLockOwner,
+} from "./owner";
 import {
   memory,
   memoryFile,
   memoryIndex,
   memoryVector,
+  objectRemoval,
   type FileRole,
   type PassageAnchor,
 } from "./schema";
+import * as schema from "./schema";
 
 /** An image Memory's files: what the wall needs, and the keys to sign. */
 export type MemoryImage = {
@@ -56,22 +68,33 @@ const baseColumns = {
   revision: memory.revision,
   /** For queue messages only; routes leave these out of answers. */
   indexRun: memory.indexRun,
+  indexGeneration: memory.indexGeneration,
   indexPriority: memory.indexPriority,
   aiOptOut: memory.aiOptOut,
   indexError: memory.indexError,
   indexTitle,
   capturedAt: memory.capturedAt,
+  lastSavedAt: memory.lastSavedAt,
   updatedAt: memory.updatedAt,
+  /** A link's Source, and the page's own title and description once gathered. */
+  sourceUrl: memory.sourceUrl,
+  pageTitle: sql<string | null>`${memory.metadata}->>'title'`,
+  description: sql<string | null>`${memory.metadata}->>'description'`,
   image,
 };
 
 /** A Memory as the API reads it; routes turn `image` keys into signed URLs. */
 export type Memory = Pick<
   typeof memory.$inferSelect,
-  Exclude<keyof typeof baseColumns, "image" | "indexTitle">
+  Exclude<
+    keyof typeof baseColumns,
+    "image" | "indexTitle" | "pageTitle" | "description"
+  >
 > & {
   image: MemoryImage | null;
   indexTitle: string | null;
+  pageTitle: string | null;
+  description: string | null;
   /**
    * It has vectors in the space search uses now, so More Like This can
    * find something; false without an embedder (no paid tier).
@@ -106,12 +129,37 @@ export type ImageCaptureResult =
  */
 export const UPLOAD_WINDOW_HOURS = 24;
 
+/**
+ * A presigned PUT lives this long (apps/server/src/files.ts). An unfinished
+ * Memory stays out of `unfinished` until then, so another tab cannot delete
+ * it while a PUT may still land and leave an object with no row.
+ */
+export const UPLOAD_URL_MINUTES = 15;
+
 /** A file whose upload did not finish within the window. */
 const expiredUpload = sql`${memoryFile.storedAt} is null and ${memoryFile.createdAt} <= now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})`;
 
-/** Object keys are the server's: the owner's id, the Memory's id, the role. */
-const keyFor = (userId: string, memoryId: string, role: FileRole) =>
-  `${ownerPrefix(userId)}${memoryId}/${role}`;
+/** An unstored file whose presigned PUT may still be used. */
+const putStillValid = sql`exists (
+  select 1 from memory_file f
+  where f.memory_id = ${memory.id}
+    and f.stored_at is null
+    and f.created_at > now() - make_interval(mins => ${UPLOAD_URL_MINUTES}))`;
+
+/**
+ * One upload's object key: the owner's id, the Memory, that upload's
+ * generation, the role. A later Try Again is a different key.
+ */
+const keyFor = (
+  userId: string,
+  memoryId: string,
+  generation: string,
+  role: FileRole
+) => `${ownerPrefix(userId)}${memoryId}/${generation}/${role}`;
+
+/** Every generation of one Memory. The sweep deletes this prefix, not one key. */
+const memoryPrefix = (userId: string, memoryId: string) =>
+  `${ownerPrefix(userId)}${memoryId}/`;
 
 const fileColumns = {
   role: memoryFile.role,
@@ -142,7 +190,8 @@ export type MatchedBy = "keyword" | "typo" | "vector";
 export type MatchedPart =
   | {
       kind: "field";
-      field?: "title" | "note" | "tags" | "text" | "ocr" | "description";
+      field?:
+        "title" | "note" | "tags" | "text" | "ocr" | "description" | "source";
     }
   | ({ kind: "passage" } & PassageAnchor)
   | { kind: "overview" | "visual" };
@@ -170,6 +219,10 @@ export type EditResult = Memory | { stale: true } | undefined;
 export type CaptureResult =
   { created: boolean; memory: Memory } | { conflict: true };
 
+/** `duplicate`: the page was already saved, so that Memory came back (moved to the top). */
+export type LinkCaptureResult =
+  { created: boolean; duplicate?: true; memory: Memory } | { conflict: true };
+
 export type Page = { memories: Memory[]; next?: string };
 
 /** A Memory as an export writes it: everything the person gave and Indexing found, and its original's key. */
@@ -180,6 +233,10 @@ export type ExportedMemory = {
   body: string | null;
   captureNote: string | null;
   aiOptOut: boolean;
+  /** A link's Source as the person gave it, whether a copy was kept, and what gathering found. */
+  sourceUrl: string | null;
+  preservation: Preservation;
+  metadata: LinkMetadata | null;
   capturedAt: Date;
   updatedAt: Date;
   index: {
@@ -199,9 +256,9 @@ export type ExportedMemory = {
 };
 
 // A cursor is one shape only, which this module writes: the last Memory's
-// Capture time as UTC microseconds since 1970 (exact, unlike a JS Date) and
+// last-saved time as UTC microseconds since 1970 (exact, unlike a JS Date) and
 // its id. Anything else is refused before it reaches Postgres.
-const capturedAtMicros = sql<string>`(extract(epoch from ${memory.capturedAt}) * 1000000)::bigint::text`;
+const savedAtMicros = sql<string>`(extract(epoch from ${memory.lastSavedAt}) * 1000000)::bigint::text`;
 const fromMicros = (micros: number) =>
   sql`(to_timestamp(0) + ${micros}::bigint * interval '1 microsecond')`;
 
@@ -303,6 +360,66 @@ export function openLibrary(
     },
 
     /**
+     * Saves a pasted link, Indexing and Reference only until gathering keeps
+     * its text; findable by its host at once. The caller enqueues Indexing.
+     * A retry with the same `id` returns the same Memory. A page already in
+     * the Library (same normalised URL) comes back as `duplicate`, moved to
+     * the top, with this Capture note only if it had none.
+     */
+    async captureLink(input: LinkCapture): Promise<LinkCaptureResult> {
+      const { id, url, captureNote, productAnalytics } =
+        LinkCapture.parse(input);
+      const normalised = normaliseUrl(url)!;
+      const [row] = await db
+        .insert(memory)
+        .values({
+          id,
+          userId,
+          kind: "link",
+          sourceUrl: url,
+          sourceUrlNormalised: normalised,
+          captureNote,
+          preservation: "reference_only",
+          indexPriority: "fresh",
+          productAnalytics: productAnalytics === true,
+        })
+        .onConflictDoNothing()
+        .returning(columns);
+      if (row) return { created: true, memory: row };
+      if (id) {
+        const [taken] = await db
+          .select({ userId: memory.userId, url: memory.sourceUrlNormalised })
+          .from(memory)
+          .where(eq(memory.id, id));
+        if (taken?.userId === userId && taken.url === normalised) {
+          const retried = await get(id);
+          if (retried) return { created: false, memory: retried };
+        }
+        if (taken) return { conflict: true };
+      }
+      const note = captureNote ?? null;
+      const noteAdded = sql`(${memory.captureNote} is null and ${note}::text is not null)`;
+      const [existing] = await db
+        .update(memory)
+        .set({
+          lastSavedAt: sql`now()`,
+          captureNote: sql`coalesce(${memory.captureNote}, ${note}::text)`,
+          // A new note is new text for the vectors: the sweep embeds it again.
+          revision: sql`${memory.revision} + (${noteAdded})::int`,
+        })
+        .where(
+          and(
+            eq(memory.userId, userId),
+            eq(memory.sourceUrlNormalised, normalised)
+          )
+        )
+        .returning(columns);
+      return existing
+        ? { created: false, duplicate: true, memory: existing }
+        : { conflict: true };
+    },
+
+    /**
      * Creates an image Memory before its files are uploaded, within the Free
      * allowance, and says which files to upload where. A retry with the same
      * `id` returns the same Memory and only the uploads still missing.
@@ -336,17 +453,47 @@ export function openLibrary(
           ) {
             return { refused: "storage_full" };
           }
-          // A retry starts the upload window again for the files still
-          // missing, so a late Try Again is neither swept nor refused.
-          await tx
-            .update(memoryFile)
-            .set({ createdAt: sql`now()` })
+          // A retry is a new upload: a new generation and new keys, so a
+          // confirm that already checked the previous objects cannot accept
+          // this one. The previous keys stay until the presigned PUT can no
+          // longer land, then the object sweep removes them. An abandoned
+          // upload's sweep deletes them with the Memory, by those exact keys.
+          const pending = await tx
+            .select({ role: memoryFile.role, key: memoryFile.key })
+            .from(memoryFile)
             .where(
               and(
                 eq(memoryFile.memoryId, id),
                 sql`${memoryFile.storedAt} is null`
               )
             );
+          if (pending.length) {
+            const generation = crypto.randomUUID();
+            await tx
+              .insert(objectRemoval)
+              .values(
+                pending.map((file) => ({
+                  key: file.key,
+                  dueAt: sql`now() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
+                }))
+              )
+              .onConflictDoNothing();
+            for (const file of pending) {
+              await tx
+                .update(memoryFile)
+                .set({
+                  createdAt: sql`now()`,
+                  generation,
+                  key: keyFor(userId, id, generation, file.role),
+                })
+                .where(
+                  and(
+                    eq(memoryFile.memoryId, id),
+                    eq(memoryFile.role, file.role)
+                  )
+                );
+            }
+          }
           const files = await tx
             .select(fileColumns)
             .from(memoryFile)
@@ -376,16 +523,17 @@ export function openLibrary(
           indexPriority: "fresh",
           productAnalytics: capture.productAnalytics === true,
         });
+        const generation = crypto.randomUUID();
         const uploads: FileUpload[] = [
           {
             role: "original",
-            key: keyFor(userId, id, "original"),
+            key: keyFor(userId, id, generation, "original"),
             mime: capture.mime,
             bytes: capture.bytes,
           },
           {
             role: "thumbnail",
-            key: keyFor(userId, id, "thumbnail"),
+            key: keyFor(userId, id, generation, "thumbnail"),
             mime: capture.thumbnail.mime,
             bytes: capture.thumbnail.bytes,
           },
@@ -393,13 +541,14 @@ export function openLibrary(
         await tx.insert(memoryFile).values([
           {
             memoryId: id,
+            generation,
             ...uploads[0]!,
             width: capture.width,
             height: capture.height,
             thumbhash: capture.thumbhash,
             palette: capture.palette ?? null,
           },
-          { memoryId: id, ...uploads[1]! },
+          { memoryId: id, generation, ...uploads[1]! },
         ]);
         const [row] = await tx.select(columns).from(memory).where(owned(id));
         return { created: true, memory: row!, uploads };
@@ -418,17 +567,40 @@ export function openLibrary(
 
     /**
      * Marks a Memory's files stored once `check` (the storage side) confirms
-     * each file not yet stored, so it shows on the wall. All under the
-     * owner's lock, so the sweep can never take the objects in between.
-     * "expired" when an upload outlived its window (retry it: that starts a
-     * new one); "missing" or "mismatch" from `check`.
+     * each file not yet stored, so it shows on the wall. The check runs
+     * before the owner's lock, bound to that file's generation, size and
+     * type. Under the lock we reject the confirm if the upload was replaced
+     * (Try Again mints a new generation), the row is gone, the upload has
+     * expired, or the account is being deleted. "expired" when an upload
+     * outlived its window (retry it: that starts a new one); "missing" or
+     * "mismatch" from `check`, and "missing" when the generation, size or
+     * type is no longer the one that was checked. Undefined when there is
+     * no such Memory, or the account is being deleted.
      */
     async markStored(
       id: string,
       check: (file: FileUpload) => Promise<FileCheck> = async () => "stored"
     ): Promise<Memory | "expired" | Exclude<FileCheck, "stored"> | undefined> {
+      const pending = await db
+        .select({
+          role: memoryFile.role,
+          key: memoryFile.key,
+          mime: memoryFile.mime,
+          bytes: memoryFile.bytes,
+          generation: memoryFile.generation,
+        })
+        .from(memoryFile)
+        .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
+        .where(and(owned(id), sql`${memoryFile.storedAt} is null`));
+      const checked = new Map(pending.map((file) => [file.role, file]));
+      const checks = await Promise.all(pending.map((file) => check(file)));
+      if (checks.includes("mismatch")) return "mismatch";
+      if (checks.includes("missing")) return "missing";
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
+        // Account deletion takes this lock too (account.ts): never store
+        // files for an account that is going away.
+        if (await deletionRequested(tx, userId)) return undefined;
         const [row] = await tx.select(columns).from(memory).where(owned(id));
         if (!row) return undefined;
         const late = await tx
@@ -436,8 +608,18 @@ export function openLibrary(
           .from(memoryFile)
           .where(and(eq(memoryFile.memoryId, id), expiredUpload));
         if (late.length) return "expired";
-        const pending = await tx
-          .select(fileColumns)
+        // The files still waiting must be the generation, size and type the
+        // check just saw. A sweep plus Try Again recreates the same id with
+        // a new generation; accepting the old check would store a Memory
+        // whose objects were never there.
+        const still = await tx
+          .select({
+            role: memoryFile.role,
+            key: memoryFile.key,
+            mime: memoryFile.mime,
+            bytes: memoryFile.bytes,
+            generation: memoryFile.generation,
+          })
           .from(memoryFile)
           .where(
             and(
@@ -445,11 +627,17 @@ export function openLibrary(
               sql`${memoryFile.storedAt} is null`
             )
           );
-        const checks = await Promise.all(
-          pending.map(({ stored: _, ...f }) => check(f))
-        );
-        if (checks.includes("mismatch")) return "mismatch";
-        if (checks.includes("missing")) return "missing";
+        const same = still.every((file) => {
+          const seen = checked.get(file.role);
+          return (
+            seen !== undefined &&
+            seen.generation === file.generation &&
+            seen.key === file.key &&
+            seen.mime === file.mime &&
+            seen.bytes === file.bytes
+          );
+        });
+        if (!same) return "missing";
         await tx
           .update(memoryFile)
           .set({ storedAt: sql`coalesce(${memoryFile.storedAt}, now())` })
@@ -463,19 +651,26 @@ export function openLibrary(
     usedStorage: () => usedStorage(db),
 
     /**
-     * Image Memories whose upload has not finished (a page closed midway),
-     * newest first, so the wall can offer to delete them before the sweep.
+     * Image Memories whose upload has not finished and whose presigned PUT
+     * has expired, newest first, so the wall can offer to delete them before
+     * the sweep. Younger ones stay out: another tab may still be uploading.
      */
     unfinished: (limit = 100): Promise<Memory[]> =>
       db
         .select(columns)
         .from(memory)
-        .where(and(eq(memory.userId, userId), sql`not ${allStored}`))
+        .where(
+          and(
+            eq(memory.userId, userId),
+            sql`not ${allStored}`,
+            sql`not (${putStillValid})`
+          )
+        )
         .orderBy(desc(memory.capturedAt), desc(memory.id))
         .limit(limit),
 
     /**
-     * Newest first, `limit` at a time; pass `next` back as `after`.
+     * Last saved first (a duplicate Capture moves a Memory up), `limit` at a time; pass `next` back as `after`.
      * Undefined for a cursor this did not make.
      */
     async list({
@@ -485,7 +680,7 @@ export function openLibrary(
       const cursor = after ? parseCursor(after) : undefined;
       if (after && !cursor) return undefined;
       const rows = await db
-        .select({ ...columns, cursorAt: capturedAtMicros })
+        .select({ ...columns, cursorAt: savedAtMicros })
         .from(memory)
         .where(
           and(
@@ -493,15 +688,15 @@ export function openLibrary(
             allStored,
             cursor &&
               or(
-                sql`${memory.capturedAt} < ${fromMicros(cursor.micros)}`,
+                sql`${memory.lastSavedAt} < ${fromMicros(cursor.micros)}`,
                 and(
-                  sql`${memory.capturedAt} = ${fromMicros(cursor.micros)}`,
+                  sql`${memory.lastSavedAt} = ${fromMicros(cursor.micros)}`,
                   lt(memory.id, cursor.id)
                 )
               )
           )
         )
-        .orderBy(desc(memory.capturedAt), desc(memory.id))
+        .orderBy(desc(memory.lastSavedAt), desc(memory.id))
         .limit(limit + 1);
       const page = rows.slice(0, limit);
       const memories = page.map(({ cursorAt: _, ...m }) => m);
@@ -637,6 +832,9 @@ export function openLibrary(
           body: memory.body,
           captureNote: memory.captureNote,
           aiOptOut: memory.aiOptOut,
+          sourceUrl: memory.sourceUrl,
+          preservation: memory.preservation,
+          metadata: memory.metadata,
           capturedAt: memory.capturedAt,
           updatedAt: memory.updatedAt,
           index: sql<
@@ -722,57 +920,310 @@ export function openLibrary(
 export type Library = ReturnType<typeof openLibrary>;
 
 /**
+ * How long one sweep may run before it stops and leaves the rest for the
+ * next hourly run. The account sweep runs in the same cron and has the
+ * same budget (account.ts).
+ */
+export const SWEEP_BUDGET_MS = 20_000;
+
+/** R2 deletes at most this many keys in one call. A batch is one such call. */
+const R2_DELETE_KEYS = 1_000;
+
+/** Bounds SQL and lock waits in this transaction to the time the sweep has left. */
+const localTimeouts = (tx: Pick<Database, "execute">, ms: number) => {
+  const budget = `${Math.max(1, Math.floor(ms))}ms`;
+  return tx.execute(sql`
+    select set_config('statement_timeout', ${budget}, true),
+           set_config('lock_timeout', ${budget}, true)
+  `);
+};
+
+/**
+ * The abandoned Memories whose keys fit in one bulk delete, oldest id first.
+ * Keys are the current objects (including ones stored before generations)
+ * and any replaced key already queued for that Memory. The set is fixed
+ * here, under the lock: a later Try Again is a different key.
+ */
+async function abandonedBatch(
+  tx: Pick<Database, "select" | "selectDistinct">,
+  userId: string,
+  keysPerDelete: number,
+  step: () => Promise<void>
+): Promise<{ ids: string[]; keys: string[] } | undefined> {
+  await step();
+  const rows = await tx
+    .selectDistinct({ id: memory.id })
+    .from(memory)
+    .innerJoin(memoryFile, eq(memoryFile.memoryId, memory.id))
+    .where(and(eq(memory.userId, userId), expiredUpload))
+    .orderBy(asc(memory.id))
+    .limit(keysPerDelete);
+  if (!rows.length) return undefined;
+  const candidateIds = rows.map((row) => row.id);
+  await step();
+  const files = await tx
+    .select({ memoryId: memoryFile.memoryId, key: memoryFile.key })
+    .from(memoryFile)
+    .where(inArray(memoryFile.memoryId, candidateIds));
+  await step();
+  const replaced = await tx
+    .select({ key: objectRemoval.key })
+    .from(objectRemoval)
+    .where(
+      or(
+        ...candidateIds.map(
+          (id) =>
+            sql`starts_with(${objectRemoval.key}, ${memoryPrefix(userId, id)})`
+        )
+      )
+    );
+  const ids: string[] = [];
+  const keys: string[] = [];
+  for (const id of candidateIds) {
+    const prefix = memoryPrefix(userId, id);
+    const own = [
+      ...new Set([
+        ...files.filter((file) => file.memoryId === id).map((file) => file.key),
+        ...replaced
+          .filter((row) => row.key.startsWith(prefix))
+          .map((row) => row.key),
+      ]),
+    ];
+    if (ids.length && keys.length + own.length > keysPerDelete) break;
+    ids.push(id);
+    keys.push(...own);
+    if (keys.length >= keysPerDelete) break;
+  }
+  return ids.length ? { ids, keys } : undefined;
+}
+
+/** Stops waiting on `work` when `signal` aborts, so a slow delete cannot hold the lock. */
+const untilAborted = (work: Promise<void>, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const fail = () => reject(new Error("sweep: storage delete aborted"));
+    if (signal.aborted) {
+      fail();
+      return;
+    }
+    signal.addEventListener("abort", fail, { once: true });
+    work.then(
+      () => {
+        signal.removeEventListener("abort", fail);
+        if (signal.aborted) fail();
+        else resolve();
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", fail);
+        reject(
+          error instanceof Error
+            ? error
+            : new Error("sweep: storage delete failed")
+        );
+      }
+    );
+  });
+
+/**
  * Removes image Memories whose upload never finished within the upload
- * window (by the database's clock), a batch of owners at a time: their
- * objects first (an upload may have landed without being checked), then the
- * rows. Each owner's Memories go under that owner's lock, so a Try Again or
- * a confirmation waits and then finds the Memory gone, never stored without
- * its objects. If removing objects fails, the rows stay for the next sweep.
- * Returns how many Memories went.
+ * window (by the database's clock). Each run takes up to `owners` of them
+ * in random order, so a failing owner cannot stand in front of the others
+ * hour after hour. A storage failure is skipped for the rest of this run.
+ * Nothing starts once `deadline` (epoch ms) has passed, and every statement
+ * uses only the time still left. Each batch is one bulk delete of at most
+ * `keysPerDelete` exact keys captured under the owner's lock. The delete is
+ * aborted when the time left runs out, the transaction rolls back, and the
+ * rows stay. An owner whose lock another run holds is skipped. `allowCall`
+ * returning false stops the pass before another storage call. Returns how
+ * many Memories went. `orderSeed` fixes the order for tests (`setseed`).
  */
 export async function sweepAbandonedUploads(
   db: Database,
   {
     removeObjects,
     owners = 50,
+    keysPerDelete = R2_DELETE_KEYS,
+    deadline = Date.now() + SWEEP_BUDGET_MS,
+    orderSeed,
+    allowCall,
   }: {
-    removeObjects: (keys: string[]) => Promise<void>;
+    removeObjects: (keys: string[], signal: AbortSignal) => Promise<void>;
     owners?: number;
+    /** Keys in one bulk delete. One call, at most 1,000 (R2's limit). */
+    keysPerDelete?: number;
+    deadline?: number;
+    /** Passed to `setseed` so a test can rely on the order. */
+    orderSeed?: number;
+    /** False once this invocation has spent its storage calls. */
+    allowCall?: () => boolean;
   }
 ): Promise<number> {
-  const due = await db
-    .selectDistinct({ userId: memory.userId })
-    .from(memoryFile)
-    .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
-    .where(expiredUpload)
-    .limit(owners);
+  const skipped = new Set<string>();
   let total = 0;
-  for (const { userId } of due) {
-    total += await db.transaction(async (tx) => {
-      await lockOwner(tx, userId);
-      // Read again under the lock: a retry may have started a new window.
-      const abandoned = tx
-        .selectDistinct({ id: memoryFile.memoryId })
-        .from(memoryFile)
-        .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
-        .where(and(eq(memory.userId, userId), expiredUpload));
-      const files = await tx
-        .select({ memoryId: memoryFile.memoryId, key: memoryFile.key })
-        .from(memoryFile)
-        .where(inArray(memoryFile.memoryId, abandoned));
-      if (!files.length) return 0;
-      // R2 deletes at most 1,000 keys a call.
-      const keys = files.map((f) => f.key);
-      for (let i = 0; i < keys.length; i += 1000) {
-        await removeObjects(keys.slice(i, i + 1000));
+  let stop = false;
+  while (!stop && Date.now() < deadline) {
+    let due: { userId: string }[];
+    try {
+      due = await db.transaction(async (tx) => {
+        const left = deadline - Date.now();
+        if (left <= 0) return [];
+        await localTimeouts(tx, left);
+        if (orderSeed !== undefined) {
+          await tx.execute(
+            sql`select setseed(cast(${orderSeed} as double precision))`
+          );
+        }
+        const except =
+          skipped.size === 0
+            ? sql``
+            : sql`and ${memory.userId} not in (${sql.join(
+                [...skipped].map((id) => sql`${id}`),
+                sql`, `
+              )})`;
+        const { rows } = await tx.execute<{ user_id: string }>(sql`
+          select user_id from (
+            select distinct ${memory.userId} as user_id
+            from ${memoryFile}
+            inner join ${memory} on ${memory.id} = ${memoryFile.memoryId}
+            where ${expiredUpload}
+            ${except}
+          ) due_owner
+          order by random()
+          limit ${owners}
+        `);
+        return rows.map((row) => ({ userId: row.user_id }));
+      });
+    } catch {
+      console.error("sweep: owner query stopped");
+      break;
+    }
+    if (!due.length) break;
+    for (const { userId } of due) {
+      if (Date.now() >= deadline) {
+        stop = true;
+        break;
       }
-      const ids = [...new Set(files.map((f) => f.memoryId))];
-      const removed = await tx
-        .delete(memory)
-        .where(inArray(memory.id, ids))
-        .returning({ id: memory.id });
-      return removed.length;
-    });
+      if (skipped.has(userId)) continue;
+      try {
+        for (;;) {
+          if (Date.now() >= deadline) {
+            stop = true;
+            break;
+          }
+          const removed = await timedBatch(db, deadline, async (tx, step) => {
+            // Do not wait: a confirm already in this lock would run the sweep
+            // past the budget. The next run tries this owner again.
+            await step();
+            if (!(await tryLockOwner(tx, userId))) return null;
+            const batch = await abandonedBatch(tx, userId, keysPerDelete, step);
+            if (!batch) return 0;
+            const nowLeft = deadline - Date.now();
+            if (nowLeft <= 0) return 0;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), nowLeft);
+            try {
+              for (let i = 0; i < batch.keys.length; i += R2_DELETE_KEYS) {
+                if (controller.signal.aborted || Date.now() >= deadline) {
+                  throw new Error("sweep: storage delete aborted");
+                }
+                if (allowCall && !allowCall()) {
+                  throw new Error("sweep: call budget spent");
+                }
+                await untilAborted(
+                  removeObjects(
+                    batch.keys.slice(i, i + R2_DELETE_KEYS),
+                    controller.signal
+                  ),
+                  controller.signal
+                );
+              }
+            } finally {
+              clearTimeout(timer);
+            }
+            if (controller.signal.aborted) {
+              throw new Error("sweep: storage delete aborted");
+            }
+            // Each statement gets only the time still left. One setting at
+            // the start would give every later statement that whole budget.
+            await step();
+            if (batch.keys.length) {
+              await tx
+                .delete(objectRemoval)
+                .where(inArray(objectRemoval.key, batch.keys));
+            }
+            await step();
+            const gone = await tx
+              .delete(memory)
+              .where(inArray(memory.id, batch.ids))
+              .returning({ id: memory.id });
+            return gone.length;
+          });
+          if (removed === null) {
+            skipped.add(userId);
+            break;
+          }
+          total += removed;
+          if (removed === 0 || Date.now() >= deadline) {
+            stop = Date.now() >= deadline;
+            break;
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (message.includes("call budget spent")) {
+          stop = true;
+        } else {
+          // Their rows stay. Skip them for this run so the others still go.
+          skipped.add(userId);
+          console.error("sweep: one owner failed");
+          stop =
+            message.includes("storage delete aborted") ||
+            Date.now() >= deadline;
+        }
+      }
+      if (stop) break;
+    }
   }
   return total;
+}
+
+/**
+ * One batch on a single connection. Time left is measured after checkout,
+ * so a slow pool wait cannot start BEGIN, and the connection is always
+ * released. The session timeout is set before BEGIN and again before each
+ * statement, then reset before the connection returns to the pool.
+ */
+async function timedBatch<T>(
+  db: Database,
+  deadline: number,
+  run: (
+    tx: Parameters<Parameters<Database["transaction"]>[0]>[0],
+    step: () => Promise<void>
+  ) => Promise<T>
+): Promise<T> {
+  const client = await db.$client.connect();
+  try {
+    const left = deadline - Date.now();
+    if (left <= 0) throw new Error("sweep: storage delete aborted");
+    await client.query(
+      `select set_config('statement_timeout', $1, false),
+              set_config('lock_timeout', $1, false)`,
+      [`${Math.max(1, Math.floor(left))}ms`]
+    );
+    const scoped = drizzle({ client, schema });
+    try {
+      return await scoped.transaction(async (tx) => {
+        const step = async () => {
+          const nowLeft = deadline - Date.now();
+          if (nowLeft <= 0) throw new Error("sweep: storage delete aborted");
+          await localTimeouts(tx, nowLeft);
+        };
+        return run(tx, step);
+      });
+    } finally {
+      await client.query("RESET statement_timeout").catch(() => {});
+      await client.query("RESET lock_timeout").catch(() => {});
+    }
+  } finally {
+    client.release();
+  }
 }
