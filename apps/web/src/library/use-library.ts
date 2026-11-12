@@ -247,7 +247,7 @@ export function useLibrary() {
       setAttempt((n) => n + 1);
     },
     ...actions,
-    /** Refresh examples without discarding pending Captures or edits. */
+    /** Refresh Samples without discarding pending Captures or edits. */
     refreshSamples: () => {
       setMemories((all) => all.filter((m) => !m.sample));
       setAttempt((n) => n + 1);

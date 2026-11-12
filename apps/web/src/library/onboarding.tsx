@@ -108,7 +108,7 @@ export function Onboarding({
 
   if (!state && !failed) return null;
   const finished = state?.step === "done" && state.paused;
-  // Finished, with examples left: only the one action that removes them.
+  // Finished, with Samples left: only the one action that removes them.
   if (finished && !sampleCount) return null;
   return (
     <section
@@ -183,8 +183,8 @@ export function Onboarding({
                 {state.step === "disclosure" && (
                   <>
                     <p className="max-w-prose text-sm">
-                      Saved content is processed by AI; turn on AI Opt-Out for a
-                      Memory to keep it from AI.
+                      AI reads your Memories to Index them. Turn on AI Opt-Out
+                      for a Memory to keep it from AI.
                     </p>
                     <Button
                       variant="primary"
@@ -244,7 +244,9 @@ export function Onboarding({
                     )}
                     <Button
                       variant="primary"
-                      disabled={busy || first?.indexState !== "searchable"}
+                      disabled={
+                        busy || !first || first.indexState === "indexing"
+                      }
                       onClick={() => void update("search")}
                     >
                       Try Search

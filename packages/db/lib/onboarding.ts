@@ -10,7 +10,7 @@ const initial = {
   samplesSeeded: false,
   firstSuccessfulSearchAt: null,
 };
-// Authored examples: the database's normal text triggers build the keyword index.
+// Authored Samples: the database's normal text triggers build the keyword index.
 // No queue, provider, vectors, storage objects, or allowance usage.
 const samples = [
   {
@@ -71,19 +71,31 @@ export function openOnboarding(db: Database, userId: string) {
       return read();
     },
     async update(step: OnboardingStep, paused: boolean) {
-      await db
-        .insert(onboarding)
-        .values({ userId, step, paused })
-        .onConflictDoUpdate({
-          target: onboarding.userId,
-          set: { step, paused },
-        });
+      await db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        if (await deletionRequested(tx, userId)) return;
+        const [row] = await tx
+          .select()
+          .from(onboarding)
+          .where(eq(onboarding.userId, userId));
+        // A stale tab cannot skip the first step (it seeds the Samples) or
+        // reopen a finished flow.
+        if (row?.step === "done" && step !== "done") return;
+        if (!row?.samplesSeeded && step !== "disclosure") return;
+        await tx
+          .insert(onboarding)
+          .values({ userId, step, paused })
+          .onConflictDoUpdate({
+            target: onboarding.userId,
+            set: { step, paused },
+          });
+      });
       return read();
     },
     async removeSamples() {
       await db.transaction(async (tx) => {
         await lockOwner(tx, userId);
-        // A later start never recreates examples the person removed.
+        // A later start never recreates Samples the person removed.
         await tx
           .insert(onboarding)
           .values({ userId, samplesSeeded: true })
@@ -98,30 +110,35 @@ export function openOnboarding(db: Database, userId: string) {
     },
     async activate(id: string) {
       // Only an opened Memory from this Library can count. The event stores no
-      // query or Memory content. Unique user row + conditional update wins races.
-      await db.insert(onboarding).values({ userId }).onConflictDoNothing();
-      const rows = await db
-        .update(onboarding)
-        .set({ firstSuccessfulSearchAt: sql`now()` })
-        .where(
-          and(
-            eq(onboarding.userId, userId),
-            sql`${onboarding.firstSuccessfulSearchAt} is null`,
-            sql`exists (select 1 from ${memory} where ${memory.id} = ${id}::uuid and ${memory.userId} = ${userId})`
+      // query or Memory content. The owner lock and the conditional update
+      // let exactly one request win.
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        if (await deletionRequested(tx, userId)) return false;
+        await tx.insert(onboarding).values({ userId }).onConflictDoNothing();
+        const rows = await tx
+          .update(onboarding)
+          .set({ firstSuccessfulSearchAt: sql`now()` })
+          .where(
+            and(
+              eq(onboarding.userId, userId),
+              sql`${onboarding.firstSuccessfulSearchAt} is null`,
+              sql`exists (select 1 from ${memory} where ${memory.id} = ${id}::uuid and ${memory.userId} = ${userId})`
+            )
           )
-        )
-        .returning({ at: onboarding.firstSuccessfulSearchAt });
-      await db
-        .update(onboarding)
-        .set({ step: "done" })
-        .where(
-          and(
-            eq(onboarding.userId, userId),
-            eq(onboarding.step, "search"),
-            sql`${onboarding.firstSuccessfulSearchAt} is not null`
-          )
-        );
-      return rows.length > 0;
+          .returning({ at: onboarding.firstSuccessfulSearchAt });
+        await tx
+          .update(onboarding)
+          .set({ step: "done" })
+          .where(
+            and(
+              eq(onboarding.userId, userId),
+              eq(onboarding.step, "search"),
+              sql`${onboarding.firstSuccessfulSearchAt} is not null`
+            )
+          );
+        return rows.length > 0;
+      });
     },
   };
 }

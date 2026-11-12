@@ -40,6 +40,22 @@ describe.skipIf(!url)("first-run onboarding", () => {
       paused: true,
     });
   });
+  it("ignores a stale tab that skips the first step or reopens a finished flow", async () => {
+    const fresh = await newUser(db);
+    const flow = openOnboarding(db, fresh);
+    expect(await flow.update("search", false)).toMatchObject({
+      step: "disclosure",
+      samplesSeeded: false,
+    });
+    expect((await openLibrary(db, fresh).list())!.memories).toHaveLength(0);
+    await flow.start();
+    await flow.update("done", true);
+    expect(await flow.update("capture", false)).toMatchObject({
+      step: "done",
+      paused: true,
+    });
+    await removeUser(db, fresh);
+  });
   it("keeps samples out of export, AI work and allowance, even after edits or opt-in", async () => {
     const library = openLibrary(db, owner);
     const sample = (await library.list())!.memories[0]!;

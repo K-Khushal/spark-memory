@@ -9,5 +9,6 @@ CREATE TABLE onboarding (
 );
 --> statement-breakpoint
 -- People who signed up before first-run onboarding existed have nothing to onboard.
-INSERT INTO onboarding (user_id, step, paused, samples_seeded)
-SELECT id, 'done', true, true FROM "user";
+-- Their first search is not an activation, so the event must not fire for them.
+INSERT INTO onboarding (user_id, step, paused, samples_seeded, first_successful_search_at)
+SELECT id, 'done', true, true, now() FROM "user";

@@ -9,7 +9,7 @@ test("onboarding resumes, captures, searches samples and removes them together",
   await signIn(page);
   const flow = page.getByRole("region", { name: "Get Started" });
   await expect(
-    flow.getByText(/Saved content is processed by AI/)
+    flow.getByText(/AI reads your Memories to Index them/)
   ).toBeVisible();
   await flow.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(
