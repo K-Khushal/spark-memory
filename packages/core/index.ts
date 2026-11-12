@@ -62,7 +62,12 @@ export {
   type ProductPayload,
 } from "./lib/product-events";
 export {
+  keptPage,
+  LINK_MAX_CHARS,
   LinkCapture,
+  MIN_PRESERVED_CHARS,
+  PageExtract,
+  SCREENSHOT_MAX_BYTES,
   type LinkMetadata,
   linkFromPaste,
   normaliseUrl,

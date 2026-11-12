@@ -1,0 +1,1 @@
+An app that reminds you to water houseplants based on the weather and the season rather than a fixed schedule. Photo of the plant identifies the species, then it knows how thirsty it is. Skip a reminder when it rained or the room is humid. Maybe a shared household mode so two people do not both water the same fern.

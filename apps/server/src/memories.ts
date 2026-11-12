@@ -10,6 +10,7 @@ import {
   ImageCapture,
   LinkCapture,
   MemoryEditRequest,
+  SCREENSHOT_MAX_BYTES,
   TextCapture,
 } from "@spark/core";
 import { indexingStore, openLibrary, type Library } from "@spark/db";
@@ -17,8 +18,13 @@ import { embedderFor } from "@spark/indexing";
 import { createSearch } from "@spark/search";
 import type { AppEnv } from "./env";
 import { requireUser, withAuth, type UserVariables } from "./auth";
-import { fileStore, forClient, type FileStore } from "./files";
-import { sameOrigin } from "./origin";
+import {
+  FILE_CACHE_CONTROL,
+  fileStore,
+  forClient,
+  type FileStore,
+} from "./files";
+import { extensionCors, sameOrigin } from "./origin";
 import { enqueue, enqueueEmbed, providers } from "./indexing";
 
 /** The signed-in person's Library, for every route below. */
@@ -86,8 +92,9 @@ const MAX_BODY_BYTES =
   4 *
     (FREE_ALLOWANCE.textMaxChars +
       FREE_ALLOWANCE.titleMaxChars +
-      FREE_ALLOWANCE.captureNoteMaxChars) +
-  4096;
+      FREE_ALLOWANCE.captureNoteMaxChars +
+      2000) +
+  8192;
 const limitBody = bodyLimit({
   maxSize: MAX_BODY_BYTES,
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
@@ -112,13 +119,32 @@ const filesOf = async (library: Library, id: string) =>
   UUID.test(id) ? library.files(id) : undefined;
 
 const signedIn = [
-  sameOrigin,
+  extensionCors,
+  sameOrigin({ extension: true }),
   withAuth,
   requireUser,
+  createMiddleware<AppEnv & { Variables: UserVariables }>(async (c, next) => {
+    const owner = c.req.header("x-spark-user");
+    if (owner && owner !== c.var.user.id) {
+      return c.json({ ok: false, error: "account_changed" } as const, 409);
+    }
+    return next();
+  }),
   withLibrary,
   withFiles,
   noStore,
 ] as const;
+
+const limitScreenshot = bodyLimit({
+  maxSize: SCREENSHOT_MAX_BYTES,
+  onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
+});
+
+const dimension = (value: string | undefined) => {
+  if (!value || !/^\d{1,4}$/.test(value)) return undefined;
+  const n = Number(value);
+  return n > 0 && n <= 8000 ? n : undefined;
+};
 
 /** The Memory API (Capture, read, edit, delete, instant search), signed in only. */
 export const memories = new Hono<AppEnv>()
@@ -180,11 +206,68 @@ export const memories = new Hono<AppEnv>()
     if ("conflict" in result) {
       return c.json({ ok: false, error: "conflict" } as const, 409);
     }
-    if (result.memory.indexState === "indexing" && !result.duplicate) {
+    if (
+      result.memory.indexState === "indexing" &&
+      (!result.duplicate || result.indexAgain)
+    ) {
       await enqueue(c.env, result.memory);
     }
     const memory = await forClient(c.var.files, result.memory);
     return c.json(memory, result.created ? 201 : 200);
+  })
+  /**
+   * The extension's visible-area screenshot, already a small JPEG. The
+   * bytes are stored and the file row is written as stored in this
+   * request, so a lost upload cannot leave an unstored file (that would
+   * hide the link, and the sweep would delete it). A second send is a
+   * no-op once one is kept.
+   */
+  .get("/memories/:id/screenshot", async (c) => {
+    const files = await filesOf(c.var.library, c.req.param("id"));
+    const file = files?.find((file) => file.role === "screenshot");
+    return file
+      ? c.json({ url: await c.var.files.signDownload(file.key) })
+      : c.json(notFound, 404);
+  })
+  .post("/memories/:id/screenshot", limitScreenshot, async (c) => {
+    const id = c.req.param("id");
+    if (!UUID.test(id)) return c.json(notFound, 404);
+    const type = c.req.header("content-type")?.split(";")[0]?.trim();
+    if (type !== "image/jpeg") {
+      return c.json({ ok: false, error: "invalid" } as const, 400);
+    }
+    const body = await c.req.arrayBuffer();
+    const bytes = new Uint8Array(body);
+    if (bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+      return c.json({ ok: false, error: "invalid" } as const, 400);
+    }
+    const slot = await c.var.library.prepareScreenshot(id, bytes.byteLength);
+    if (!slot) return c.json(notFound, 404);
+    if ("refused" in slot) {
+      return c.json({ ok: false, error: slot.refused } as const, 413);
+    }
+    if ("already" in slot) return c.json({ ok: true } as const);
+    try {
+      await c.env.FILES.put(slot.key, body, {
+        httpMetadata: {
+          contentType: "image/jpeg",
+          cacheControl: FILE_CACHE_CONTROL,
+        },
+      });
+    } catch {
+      return c.json({ ok: false, error: "unavailable" } as const, 503);
+    }
+    const recorded = await c.var.library.recordScreenshot(id, {
+      key: slot.key,
+      bytes: bytes.byteLength,
+      width: dimension(c.req.header("x-spark-width")),
+      height: dimension(c.req.header("x-spark-height")),
+    });
+    if (!recorded) {
+      await c.env.FILES.delete(slot.key).catch(() => {});
+      return c.json({ ok: false, error: "unavailable" } as const, 503);
+    }
+    return c.json({ ok: true } as const);
   })
   /**
    * Step one of an image Capture: the Memory is created (within the Free

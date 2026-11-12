@@ -15,3 +15,6 @@ coverage/
 .claude/worktrees/
 test-results/
 playwright-report/
+
+# Search test set: per-search detail with query text, local only
+evals/local/

@@ -1,0 +1,90 @@
+[
+  {
+    "id": "note-dal-tadka-hinglish",
+    "title": "Nani ki dal tadka",
+    "captureNote": "nani wali recipe, sunday ko banani hai",
+    "language": "hi-Latn",
+    "tags": ["recipe", "dal", "hinglish"],
+    "body": "Pehle toor dal ko dho ke pressure cooker mein 3 seeti tak pakao, haldi aur namak ke saath. Alag kadhai mein ghee garam karo, usme jeera, hing aur sukhi lal mirch daalo. Lehsun ko halka brown hone do. Ye tadka dal ke upar daalo aur upar se hara dhaniya aur thoda nimbu nichod do. Chawal ya jeera rice ke saath garam garam khao. Nani kehti thi ki tadka aakhir mein hi daalna chahiye, warna khushboo chali jaati hai."
+  },
+  {
+    "id": "note-flat-hunting-hinglish",
+    "title": "Flat dekhna hai Baner mein",
+    "language": "hi-Latn",
+    "tags": ["flat", "rent", "hinglish"],
+    "body": "Baner ya Aundh mein 2BHK dekhna hai. Budget 25k se zyada nahi. Society mein parking aur lift zaroor honi chahiye. Broker ne bola Saturday 11 baje Sai Heights dikhayega. Deposit do mahine ka maang rahe hain, negotiate karna hai. Office se 20 minute ke andar hona chahiye."
+  },
+  {
+    "id": "note-q2-planning-meeting",
+    "title": "Q2 planning meeting notes",
+    "tags": ["meeting", "planning", "work"],
+    "body": "Q2 planning, 20 June. Decisions: hiring freeze until the pricing page ships. Anita owns the database migration, target 28 June. Pricing page goes live by 5 July. Open question: do we drop the legacy export format? Follow up with Sam on support volume before the next meeting."
+  },
+  {
+    "id": "note-gym-plan",
+    "title": "Gym plan, 12 weeks",
+    "tags": ["fitness", "plan"],
+    "body": "Mon: squats 5x5, bench press 4x8, rows 4x10. Wed: deadlift 3x5, overhead press 4x8, pull-ups to failure. Fri: lunges, dips, planks 3x60 seconds. Sunday: 5 km easy run. Add 2.5 kg to the main lifts every week if form stays clean. Sleep 8 hours and eat 150 g of protein a day."
+  },
+  {
+    "id": "note-reading-list",
+    "title": "Books to read this year",
+    "tags": ["books", "list"],
+    "body": "The Overstory by Richard Powers. Braiding Sweetgrass by Robin Wall Kimmerer. The Soul of an Octopus by Sy Montgomery. A Fire Upon the Deep by Vernor Vinge. The Pragmatic Programmer. Someone recommended Piranesi: read it with no spoilers."
+  },
+  {
+    "id": "note-lisbon-trip",
+    "title": "Lisbon trip plan",
+    "tags": ["travel", "plan", "lisbon"],
+    "body": "14 to 18 September. Flight lands 08:50, take the metro to Baixa. Stay in Alfama, a small guesthouse with a roof terrace. Must do: tram 28 early before the crowds, pastel de nata at the famous bakery in Belem, sunset at Miradouro da Senhora do Monte, day trip to Sintra by train. Book the Sintra palace tickets online in advance."
+  },
+  {
+    "id": "note-passport-renewal",
+    "title": "Passport renewal appointment",
+    "tags": ["passport", "appointment", "documents"],
+    "body": "Appointment on 3 May at 10:30, Passport Seva Kendra, Koregaon Park. Bring: old passport, two photos with white background, address proof (electricity bill), printed application receipt. Fee is paid online beforehand. Reach 15 minutes early."
+  },
+  {
+    "id": "note-plant-app-idea",
+    "title": "App idea: plant watering nudges",
+    "tags": ["idea", "app", "plants"],
+    "body": "An app that reminds you to water houseplants based on the weather and the season rather than a fixed schedule. Photo of the plant identifies the species, then it knows how thirsty it is. Skip a reminder when it rained or the room is humid. Maybe a shared household mode so two people do not both water the same fern."
+  },
+  {
+    "id": "note-car-service",
+    "title": "Car service and tyre notes",
+    "tags": ["car", "maintenance"],
+    "body": "Next service due at 42,000 km. Tyre pressure: front 33 psi, rear 35 psi. Mechanic is Ravi bhai at Speedwell Garage, he does honest quotes. Last time the brake pads were at 30 percent. Engine oil 5W-30, change every 10,000 km."
+  },
+  {
+    "id": "note-sleep-reading",
+    "title": "What I learned about sleep",
+    "tags": ["sleep", "health"],
+    "body": "Adults need seven to nine hours. A consistent wake-up time matters more than the exact bedtime. Morning light within an hour of waking anchors the body clock. Caffeine has a half-life of about five to six hours, so a coffee at 4 pm is still half there at 10 pm. A cool, dark room helps more than any supplement."
+  },
+  {
+    "id": "note-movie-watchlist",
+    "title": "Movie watchlist",
+    "tags": ["movies", "list"],
+    "body": "Spirited Away (rewatch with the kids), Parasite, Tumbbad, Everything Everywhere All at Once, The Lunchbox, Arrival, Paddington 2. Friends say Tumbbad is the scariest thing they saw in years: watch with the lights on."
+  },
+  {
+    "id": "note-kedarkantha-trek-hinglish",
+    "title": "Kedarkantha trek plan",
+    "language": "hi-Latn",
+    "tags": ["trek", "travel", "hinglish"],
+    "body": "December mein Kedarkantha trek karna hai, 6 din ka hai, kharcha lagbhag 9,500 rupaye. Sankri se shuru hota hai. Shoes, thermal innerwear, gloves aur ek achhi jacket leni hai. Pehle se 15 din walking aur stairs practice karni hai, warna chadhai mushkil padegi. Dehradun tak train book karni hai."
+  },
+  {
+    "id": "note-thesis-feedback",
+    "title": "Thesis chapter 3 reviewer comments",
+    "tags": ["thesis", "feedback", "writing"],
+    "body": "Reviewer 2 wants the methodology section tightened: explain why the sample was limited to 40 participants, and report the effect sizes alongside the p-values. Reviewer 1 liked the figures but asked for larger axis labels. Deadline for the revised chapter is 30 November. Ask the supervisor about adding a limitations paragraph."
+  },
+  {
+    "id": "note-garden-calendar",
+    "title": "Balcony garden calendar",
+    "tags": ["garden", "plants", "plan"],
+    "body": "Tomatoes and chillies go in pots in late February. Coriander and methi can be sown any time it is cool. Marigolds near the tomatoes keep pests away. Feed with diluted compost tea every second Sunday. Move the curry leaf plant inside if the night temperature drops below 8 degrees."
+  }
+]

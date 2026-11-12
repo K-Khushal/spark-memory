@@ -1,3 +1,4 @@
+import { extensionCors, sameOrigin } from "./origin";
 import { Hono } from "hono";
 import { isVerifiedAdmin, publicAnalytics } from "@spark/core";
 import { checkDatabase } from "@spark/db";
@@ -32,16 +33,23 @@ export const routes = new Hono<AppEnv>()
       turnstileSiteKey: c.env.TURNSTILE_SITE_KEY,
     })
   )
-  .get("/me", withAuth, requireUser, (c) => {
-    const { emailVerified, ...user } = c.var.user;
-    return c.json({
-      ...user,
-      admin: isVerifiedAdmin(
-        { email: user.email, emailVerified },
-        c.env.ADMIN_EMAILS
-      ),
-    });
-  })
+  .get(
+    "/me",
+    extensionCors,
+    sameOrigin({ extension: true }),
+    withAuth,
+    requireUser,
+    (c) => {
+      const { emailVerified, ...user } = c.var.user;
+      return c.json({
+        ...user,
+        admin: isVerifiedAdmin(
+          { email: user.email, emailVerified },
+          c.env.ADMIN_EMAILS
+        ),
+      });
+    }
+  )
   // Public: the dashboard decides whether to load product analytics.
   // The key is a PostHog project key; nothing here is a person or a Memory.
   // A host that is not https never carries a key.
