@@ -37,6 +37,7 @@ export type LibraryOverlaysProps = {
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onRetryIndexing: (memory: WallMemory) => void;
+  onRetryDeepFetch: (memory: WallMemory) => void;
   onAiOptOut: (memory: Memory, on: boolean) => void;
   onMoreLikeThis: (memory: Memory) => void;
 };
@@ -76,6 +77,7 @@ export function LibraryOverlays({
   onRetry,
   onBroken,
   onRetryIndexing,
+  onRetryDeepFetch,
   onAiOptOut,
   onMoreLikeThis,
 }: LibraryOverlaysProps) {
@@ -128,6 +130,7 @@ export function LibraryOverlays({
         onClose={onDetailClose}
         onDelete={onDelete}
         onRetryIndexing={onRetryIndexing}
+        onRetryDeepFetch={onRetryDeepFetch}
         onAiOptOut={onAiOptOut}
         onMoreLikeThis={onMoreLikeThis}
       />

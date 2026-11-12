@@ -1,0 +1,7 @@
+{
+  "extends": "@spark/config/tsconfig.base.json",
+  // Workers and Node both run Web APIs (fetch, Request, Response).
+  "compilerOptions": { "lib": ["ES2023", "DOM"] },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
+}

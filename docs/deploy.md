@@ -161,6 +161,22 @@ After Capture (text on create, an image once its files are stored) the Worker se
 - **Locally**, Miniflare runs the queues and `INDEXING_PROVIDER: "fake"` Indexes without keys or network. Content containing `fake:fail` gets output that is never valid, so it shows Failed at once.
 - **Logs** carry outcomes only, never content, prompts or model output.
 
+## Deep fetch
+
+Optional (ADR-0010): without it, a link or video that came back thin shows Deep Fetch as Unavailable and nothing is tried. Free tiers and why each limit is what it is: [docs/research/deep-fetch.md](research/deep-fetch.md). Nothing here is created for you.
+
+**Pages (Cloudflare Browser Rendering).** Set `CLOUDFLARE_ACCOUNT_ID` (var in `apps/server/wrangler.jsonc`, per environment) and a Worker secret `BROWSER_RENDERING_TOKEN`: an API token that may use only Browser Rendering (`wrangler secret put BROWSER_RENDERING_TOKEN --env dev`). Free plan: 10 browser minutes a day, which the Worker counts itself.
+
+**Video and audio (Cloud Run).**
+
+1. In a Google Cloud project, enable Cloud Run, Artifact Registry and Secret Manager. Create a Docker repository named `spark` in the region (default `us-central1`, a free-tier region).
+2. Create two secrets in Secret Manager: `spark-fetcher-token` (a random 32+ character string) and `spark-gemini-api-key` (a key from a project with billing on, ADR-0005).
+3. Set up Workload Identity Federation for this repository, and a service account that may push to Artifact Registry, deploy Cloud Run and read those two secrets.
+4. Add GitHub repository secrets `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`; optionally variables `GCP_REGION` and `GEMINI_PAID_TIER` (`true` once billing is confirmed; without it the container writes no transcripts). `.github/workflows/deploy-fetcher.yml` then deploys on every push to `main`; until all three secrets exist it skips with a notice.
+5. After the first deploy, set the Worker's `FETCHER_URL` var to the service's URL, and the secret `FETCHER_TOKEN` to the same value as `spark-fetcher-token`.
+
+The Deep fetch queue (`spark-deepfetch-<env>`) is in `wrangler.jsonc`; create it with the others. Locally, `DEEP_FETCH_PROVIDER` is `fake` and answers from a script.
+
 ## Admin
 
 `/admin` shows daily AI spend by provider and model (`ai_call`, the last 30 UTC days), per-person usage (Memories, storage counted the same way as the Free allowance, AI cost) and the daily budget against today's `spend_day` total. The page says whether background Indexing is paused.

@@ -7,8 +7,8 @@ A personal memory library: Capture links, posts, videos, images, screenshots, PD
 ## Repo
 
 ```
-apps/      server (Cloudflare Worker: API + web hosting) · web (dashboard) · extension (WXT) · fetcher (Deep fetch, later) · mobile (Expo, later)
-packages/  core · db · auth · api-client · indexing · search · capture · ui · config
+apps/      server (Cloudflare Worker: API + web hosting) · web (dashboard) · extension (WXT) · fetcher (Deep fetch container) · mobile (Expo, later)
+packages/  core · db · auth · api-client · indexing · deep-fetch · search · capture · ui · config
 evals/     search test set
 docs/      PRD, PLAN, ADRs, research
 ```

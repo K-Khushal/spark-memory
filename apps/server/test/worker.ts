@@ -4,6 +4,8 @@ import type {
   AccountMessage,
   AccountQueue,
   Bindings,
+  DeepFetchMessage,
+  DeepFetchQueue,
   FileBucket,
   IndexMessage,
   IndexQueue,
@@ -97,6 +99,41 @@ export function recordingQueue(name: string) {
   return Object.assign(queue, { name, sent });
 }
 
+/** The Deep fetch queue, kept for a test to deliver. */
+export const deepFetchQueue = Object.assign(
+  {
+    send: async (
+      body: DeepFetchMessage,
+      options?: { delaySeconds?: number }
+    ) => {
+      deepFetchQueue.sent.push({ body, delaySeconds: options?.delaySeconds });
+    },
+  } satisfies DeepFetchQueue,
+  { sent: [] as { body: DeepFetchMessage; delaySeconds?: number }[] }
+);
+
+/** Delivers (once each) the Deep fetch messages sent so far for `memoryId`. */
+export async function drainDeepFetch(memoryId: string, bindings = env()) {
+  const mine = deepFetchQueue.sent.filter((m) => m.body.memoryId === memoryId);
+  deepFetchQueue.sent = deepFetchQueue.sent.filter((m) => !mine.includes(m));
+  const messages = mine.map(({ body }) => ({
+    body,
+    attempts: 1,
+    ack: vi.fn(),
+    retry: vi.fn(),
+  }));
+  for (const message of messages) {
+    await worker.queue(
+      {
+        queue: "spark-deepfetch-local",
+        messages: [message],
+      } as unknown as MessageBatch<DeepFetchMessage>,
+      bindings
+    );
+  }
+  return messages;
+}
+
 export const queues = {
   fresh: recordingQueue("spark-index-local"),
   background: recordingQueue("spark-reindex-local"),
@@ -174,6 +211,7 @@ export function env(overrides: Partial<Bindings> = {}): Bindings {
     INDEX_QUEUE: queues.fresh,
     REINDEX_QUEUE: queues.background,
     ACCOUNT_QUEUE: accountQueue,
+    DEEP_FETCH_QUEUE: deepFetchQueue,
     INDEXING_PROVIDER: "fake",
     SPARK_ENV: "local",
     BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-0123",

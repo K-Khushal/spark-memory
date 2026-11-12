@@ -1,0 +1,100 @@
+import type { TranscriptSegment } from "@spark/core";
+import type { Engine, EngineResult, EngineUsage } from "./engine";
+
+/**
+ * A job takes minutes (download, transcode, one model call); the Worker
+ * waits this long for the container, which stops its own work sooner.
+ */
+const CALL_TIMEOUT_MS = 6 * 60_000;
+
+const FAILURES = new Set(["not_public", "too_long", "nothing", "error"]);
+
+const isSegments = (v: unknown): v is TranscriptSegment[] =>
+  Array.isArray(v) &&
+  v.length <= 20_000 &&
+  v.every(
+    (s) =>
+      !!s &&
+      typeof s === "object" &&
+      Number.isFinite((s as TranscriptSegment).seconds) &&
+      typeof (s as TranscriptSegment).text === "string"
+  );
+
+const isUsage = (v: unknown): v is EngineUsage[] =>
+  Array.isArray(v) &&
+  v.every(
+    (u) =>
+      !!u &&
+      typeof (u as EngineUsage).model === "string" &&
+      Number.isFinite((u as EngineUsage).inputTokens) &&
+      Number.isFinite((u as EngineUsage).outputTokens)
+  );
+
+/**
+ * The Cloud Run fetcher container (apps/fetcher) for video and audio. It
+ * downloads the media temporarily, has a model write a timestamped
+ * transcript and deletes the file when the job ends; this side only asks
+ * and reads the answer, which it validates because it comes over the
+ * network. The shared token is the only credential sent, and only to the
+ * fetcher. Cloud Run's free tier is counted in the container's seconds.
+ */
+export function cloudRunFetcher({
+  url,
+  token,
+  fetch: send = fetch,
+}: {
+  url: string;
+  token: string;
+  fetch?: typeof fetch;
+}): Engine {
+  const endpoint = `${url.replace(/\/+$/, "")}/fetch`;
+  return {
+    async fetch({ url: source, maxMinutes }): Promise<EngineResult> {
+      let res: Response;
+      try {
+        res = await send(endpoint, {
+          method: "POST",
+          signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ url: source, maxMinutes }),
+        });
+      } catch {
+        return { ok: false, reason: "error", seconds: 0 };
+      }
+      // Cloud Run answers 429 when it has no instance to give: try later.
+      if (res.status === 429 || res.status === 503) {
+        await res.body?.cancel().catch(() => {});
+        return { ok: false, reason: "limit", seconds: 0 };
+      }
+      let body: Record<string, unknown>;
+      try {
+        body = (await res.json()) as Record<string, unknown>;
+      } catch {
+        return { ok: false, reason: "error", seconds: 0 };
+      }
+      const seconds =
+        typeof body.seconds === "number" &&
+        Number.isFinite(body.seconds) &&
+        body.seconds >= 0
+          ? Math.ceil(body.seconds)
+          : 0;
+      const usage = isUsage(body.usage) ? body.usage : undefined;
+      if (body.ok === true && isSegments(body.transcript)) {
+        return {
+          ok: true,
+          seconds,
+          ...(usage && { usage }),
+          transcript: body.transcript,
+        };
+      }
+      const reason =
+        typeof body.reason === "string" && FAILURES.has(body.reason)
+          ? (body.reason as "not_public" | "too_long" | "nothing" | "error")
+          : "error";
+      return { ok: false, reason, seconds, ...(usage && { usage }) };
+    },
+  };
+}

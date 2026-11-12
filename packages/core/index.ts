@@ -90,3 +90,15 @@ export {
   type VideoMetadata,
   type TranscriptSegment,
 } from "./lib/link";
+
+export {
+  budgetWindow,
+  DEEP_FETCH,
+  engineFor,
+  isThin,
+  retryDelaySeconds,
+  type DeepFetchEngine,
+  type DeepFetchFailure,
+  type DeepFetchState,
+  type DeepFetchView,
+} from "./lib/deep-fetch";

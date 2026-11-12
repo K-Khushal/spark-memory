@@ -2,6 +2,7 @@ import { and, eq, lt, sql } from "drizzle-orm";
 import {
   EMBEDDING,
   embeddingSpace,
+  isThin,
   type IndexFailure,
   type IndexingOutput,
   type LinkMetadata,
@@ -291,6 +292,8 @@ export function indexingStore(db: Database) {
         metadata: LinkMetadata;
         text: string | null;
         contentHash?: string;
+        /** The Source was never shown to be public: no Deep fetch (Gathered.refused). */
+        refused?: boolean;
       }
     ) {
       const write = async (hash: string | null) => {
@@ -317,19 +320,43 @@ export function indexingStore(db: Database) {
             title: memory.title,
             body: memory.body,
             captureNote: memory.captureNote,
+            kind: memory.kind,
+            aiOptOut: memory.aiOptOut,
+            metadata: memory.metadata,
             ...linkColumns,
           });
         return row;
       };
+      let row;
       try {
-        return await write(gathered.contentHash ?? null);
+        row = await write(gathered.contentHash ?? null);
       } catch (error) {
         // Another link with this text was gathered at the same moment.
         if ((error as { cause?: { code?: string } }).cause?.code !== "23505") {
           throw error;
         }
-        return write(null);
+        row = await write(null);
       }
+      if (!row) return row;
+      const { kind, aiOptOut, metadata, ...saved } = row;
+      // Came back thin (ADR-0010): a Deep fetch is wanted, once per Memory.
+      // The video engine sends audio to an AI provider, so never for opt-out.
+      if (
+        !gathered.refused &&
+        isThin({ kind, text: row.body, metadata: metadata ?? {} }) &&
+        !(kind === "video" && aiOptOut)
+      ) {
+        await db
+          .update(memory)
+          .set({ deepFetchState: "queued", deepFetchDueAt: sql`now()` })
+          .where(
+            and(
+              claimed(claim),
+              sql`${memory.deepFetchState} is null and ${memory.deepFetchRun} = 0`
+            )
+          );
+      }
+      return saved;
     },
 
     /**

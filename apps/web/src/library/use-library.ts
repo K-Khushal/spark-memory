@@ -91,6 +91,10 @@ const indexingTransport: IndexingTransport = {
   },
   retryIndexing: async (id) =>
     (await (await ok(byId.reindex.$post({ param: { id } }))).json()) as Memory,
+  retryDeepFetch: async (id) =>
+    (await (
+      await ok(byId["deep-fetch"].$post({ param: { id } }))
+    ).json()) as Memory,
   setAiOptOut: async (id, on) => {
     const res = byId["ai-opt-out"].$put({
       param: { id },
@@ -248,6 +252,7 @@ export function useLibrary() {
     },
     ...actions,
     retryIndexing: indexing.retryIndexing,
+    retryDeepFetch: indexing.retryDeepFetch,
     setAiOptOut: indexing.setAiOptOut,
     /** The same functions as one stable object, for effects that depend on it. */
     edits: actions,

@@ -10,7 +10,12 @@ import {
   Textarea,
 } from "@spark/ui";
 import type { Draft } from "./drafts";
-import { AiOptOutSwitch, IndexStatus, type IndexingProps } from "./index-state";
+import {
+  AiOptOutSwitch,
+  DeepFetchStatus,
+  IndexStatus,
+  type IndexingProps,
+} from "./index-state";
 import { textOf, type libraryActions } from "./library-actions";
 import { hostOf, isReferenceOnly, ReferenceOnlyBadge } from "./memory-tile";
 import type { Memory } from "./use-library";
@@ -45,6 +50,7 @@ export function MemoryDetail({
   onClose,
   onDelete,
   onRetryIndexing,
+  onRetryDeepFetch,
   onAiOptOut,
   onMoreLikeThis,
 }: {
@@ -53,6 +59,7 @@ export function MemoryDetail({
   edits: Edits;
   onClose: () => void;
   onDelete: (memory: Memory) => void;
+  onRetryDeepFetch: (memory: Memory) => void;
   onMoreLikeThis: (memory: Memory) => void;
 } & IndexingProps) {
   return (
@@ -66,6 +73,7 @@ export function MemoryDetail({
           onClose={onClose}
           onDelete={onDelete}
           onRetryIndexing={onRetryIndexing}
+          onRetryDeepFetch={onRetryDeepFetch}
           onAiOptOut={onAiOptOut}
           onMoreLikeThis={onMoreLikeThis}
         />
@@ -81,6 +89,7 @@ function Fields({
   onClose,
   onDelete,
   onRetryIndexing,
+  onRetryDeepFetch,
   onAiOptOut,
   onMoreLikeThis,
 }: {
@@ -89,6 +98,7 @@ function Fields({
   edits: Edits;
   onClose: () => void;
   onDelete: (memory: Memory) => void;
+  onRetryDeepFetch: (memory: Memory) => void;
   onMoreLikeThis: (memory: Memory) => void;
 } & IndexingProps) {
   const id = memory.id;
@@ -199,6 +209,7 @@ function Fields({
               <ReferenceOnlyBadge className="text-sm" />
             )}
             <IndexStatus memory={memory} />
+            <DeepFetchStatus memory={memory} onTryAgain={onRetryDeepFetch} />
             {memory.indexState === "failed" && (
               <Button
                 variant="quiet"

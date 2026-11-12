@@ -25,6 +25,7 @@ const start: Memory = {
   indexTitle: null,
   aiOptOut: false,
   hasVectors: false,
+  deepFetch: null,
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
   lastSavedAt: "2026-11-10T10:00:00.000Z",

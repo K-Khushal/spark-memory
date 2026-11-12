@@ -363,6 +363,7 @@ export function imageCapture({
       indexTitle: null,
       aiOptOut: false,
       hasVectors: false,
+      deepFetch: null,
       revision: 1,
       capturedAt: now,
       lastSavedAt: now,

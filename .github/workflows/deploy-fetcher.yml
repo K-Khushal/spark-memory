@@ -1,0 +1,76 @@
+# Deploys the Deep fetch container (apps/fetcher, ADR-0010) to Cloud Run's
+# free tier. Runs only when the owner has added the GCP secrets in
+# docs/deploy.md → Deep fetch; without them it skips with a notice and
+# changes nothing. Nothing here creates a project, a secret or a billing
+# account: the service account needs only what the steps below use.
+name: Deploy fetcher
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-fetcher
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      # A free-tier region (docs/research/deep-fetch.md); override with a repository variable.
+      REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+      GEMINI_PAID_TIER: ${{ vars.GEMINI_PAID_TIER || 'false' }}
+    steps:
+      - name: Check deploy configuration
+        id: config
+        run: |
+          if [ -z "$GCP_PROJECT_ID" ] || [ -z "$GCP_WORKLOAD_IDENTITY_PROVIDER" ] || [ -z "$GCP_SERVICE_ACCOUNT" ]; then
+            echo "::notice title=Fetcher deploy skipped::GCP_PROJECT_ID, GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT are not all set. Deep fetch of video stays Unavailable until they are (docs/deploy.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - if: steps.config.outputs.ready == 'true'
+        uses: actions/checkout@v6
+      - if: steps.config.outputs.ready == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
+      - if: steps.config.outputs.ready == 'true'
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Build and push the image
+        if: steps.config.outputs.ready == 'true'
+        run: |
+          image="$REGION-docker.pkg.dev/$GCP_PROJECT_ID/spark/fetcher:$GITHUB_SHA"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build -f apps/fetcher/Dockerfile -t "$image" .
+          docker push "$image"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+
+      # One vCPU, one job at a time, never an instance kept warm, and at most
+      # two instances: what keeps the service inside the free tier. The
+      # secrets are Secret Manager versions the owner created.
+      - name: Deploy to Cloud Run
+        if: steps.config.outputs.ready == 'true'
+        run: |
+          gcloud run deploy spark-fetcher \
+            --image "$IMAGE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$REGION" \
+            --platform managed \
+            --allow-unauthenticated \
+            --cpu 1 --memory 1Gi --concurrency 1 \
+            --min-instances 0 --max-instances 2 \
+            --timeout 600 \
+            --set-env-vars "GEMINI_PAID_TIER=$GEMINI_PAID_TIER" \
+            --update-secrets "FETCHER_TOKEN=spark-fetcher-token:latest,GEMINI_API_KEY=spark-gemini-api-key:latest"

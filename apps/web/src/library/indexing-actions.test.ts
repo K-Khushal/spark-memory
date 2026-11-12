@@ -21,6 +21,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   indexTitle: null,
   aiOptOut: false,
   hasVectors: false,
+  deepFetch: null,
   revision: 1,
   capturedAt: "2026-11-10T10:00:00.000Z",
   lastSavedAt: "2026-11-10T10:00:00.000Z",
@@ -112,6 +113,7 @@ describe("Index state on the wall", () => {
           ...m,
           aiOptOut: on,
           hasVectors: false,
+          deepFetch: null,
         }),
       },
       [m]
@@ -142,6 +144,55 @@ describe("Index state on the wall", () => {
       indexError: "unavailable",
     });
     expect(notify).toHaveBeenCalledWith("Retry Did Not Finish");
+  });
+
+  it("keeps asking after a Memory whose Deep fetch is under way, but not one waiting an hour", () => {
+    const fetching = memory({
+      indexState: "searchable",
+      deepFetch: "fetching",
+    });
+    const waiting = memory({ indexState: "searchable", deepFetch: "waiting" });
+    const failed = memory({ indexState: "searchable", deepFetch: "failed" });
+    expect(indexingIds([fetching, waiting, failed])).toEqual([fetching.id]);
+  });
+
+  it("Try Again on Deep fetch shows Fetching at once, and rolls back with a message if refused", async () => {
+    const failed = memory({ indexState: "searchable", deepFetch: "failed" });
+    let reject!: () => void;
+    const { actions, wall, notify } = setup(
+      { retryDeepFetch: () => new Promise((_, no) => (reject = () => no())) },
+      [failed]
+    );
+    const done = actions.retryDeepFetch(failed);
+    expect(wall()[0]).toMatchObject({ deepFetch: "fetching" });
+    reject();
+    await done;
+    expect(wall()[0]).toMatchObject({ deepFetch: "failed" });
+    expect(notify).toHaveBeenCalledWith("Try Again Did Not Finish");
+  });
+
+  it("takes the server's Deep fetch state and the text it found", async () => {
+    const m = memory({
+      kind: "link",
+      indexState: "searchable",
+      preservation: "reference_only",
+      body: null,
+      deepFetch: "fetching",
+    });
+    const { actions, wall } = setup(
+      {
+        poll: async () => [
+          { ...m, deepFetch: null, preservation: "preserved", body: "Found" },
+        ],
+      },
+      [m]
+    );
+    await actions.poll([m.id]);
+    expect(wall()[0]).toMatchObject({
+      deepFetch: null,
+      preservation: "preserved",
+      body: "Found",
+    });
   });
 
   it("AI opt-out turns Searchable at once and forgets the title Indexing gave", async () => {
@@ -194,6 +245,7 @@ describe("Index state on the wall", () => {
     expect(wall()[0]).toMatchObject({
       aiOptOut: false,
       hasVectors: false,
+      deepFetch: null,
       indexState: "searchable",
     });
     expect(notify).toHaveBeenCalledWith("AI Opt-Out Did Not Change");

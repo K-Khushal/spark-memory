@@ -55,12 +55,16 @@ export {
 } from "./lib/pdf";
 export {
   createGatherer,
+  readPage,
   type Gathered,
   type Gatherer,
 } from "./lib/link/gather";
 export {
   dohResolver,
   GATHER,
+  isPrivateAddress,
+  isTransient,
   publicFetch,
+  type PublicResponse,
   type Resolve,
 } from "./lib/link/public-fetch";

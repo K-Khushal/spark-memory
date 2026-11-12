@@ -157,6 +157,14 @@ jobs:
       skip-without-token: true
     secrets: inherit
 
+  # The Deep fetch container (ADR-0010): skips with a notice until the owner's
+  # GCP secrets exist (docs/deploy.md).
+  deploy-fetcher:
+    needs: [check, smoke]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/deploy-fetcher.yml
+    secrets: inherit
+
   deploy-production:
     needs: [check, smoke]
     if: >-
