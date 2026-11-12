@@ -332,6 +332,7 @@ export function imageCapture({
       indexState: "indexing",
       indexError: null,
       indexTitle: null,
+      sample: false,
       aiOptOut: false,
       hasVectors: false,
       revision: 1,
