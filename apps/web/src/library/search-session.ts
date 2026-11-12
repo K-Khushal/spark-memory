@@ -1,12 +1,15 @@
-import type { Category } from "@spark/core";
+import type { SearchChips } from "@spark/core";
+
 /** Instant: keyword and typo, per keystroke. Full: with meaning, after a pause. */
 export type Mode = "instant" | "full";
 
-/** What to search for: words typed, or a Memory to find More Like This of. */
+/**
+ * What to search for: words typed and/or filter chips (either may be
+ * empty, not both), or a Memory to find More Like This of.
+ */
 export type SearchRequest =
-  { query: string; category?: Category } | { like: string };
+  { query: string; chips?: SearchChips } | { like: string };
 
-/** What matched in a result (migrations/0013_hybrid_search.sql). */
 /** What matched (packages/db MatchedPart); `page` is a PDF's page. */
 export type MatchedPart =
   | { kind: "field"; field?: string; page?: number }
@@ -18,6 +21,12 @@ export type MatchedPart =
       page?: number;
       seconds?: number;
     }
+  /** Found by a filter chip alone: `value` is a palette colour, host, capture time, kind or Category. */
+  | {
+      kind: "filter";
+      field: "colour" | "source" | "kind" | "date" | "category";
+      value: string;
+    }
   | { kind: "overview" }
   | { kind: "visual"; page?: number };
 
@@ -27,14 +36,25 @@ export type Hit = {
   part: MatchedPart | null;
 };
 
+/** One page of a search's answer, and where the next begins (the server's `next`). */
+export type Page = { hits: Hit[]; next?: string };
+
 export type Answer =
-  | { key: string; mode: Mode; hits: Hit[] }
+  | ({ key: string; mode: Mode } & Page)
   | { key: string; mode: Mode; failed: true };
 
-export const requestKey = (request: SearchRequest) =>
-  "like" in request
-    ? `like:${request.like}`
-    : `q:${request.category ? `${request.category}|` : ""}${request.query}`;
+/** Chips key as `f:` so only an identical search, never a prefix, answers for them. */
+export const requestKey = (request: SearchRequest) => {
+  if ("like" in request) return `like:${request.like}`;
+  const chips = Object.entries(request.chips ?? {}).sort();
+  return chips.length
+    ? `f:${chips.map(([k, v]) => `${k}=${v}`).join("&")}|${request.query}`
+    : `q:${request.query}`;
+};
+
+/** Whether a request's key (requestKey) is filters alone, with no words. */
+export const isWordless = (key: string) =>
+  key.startsWith("f:") && key.endsWith("|");
 
 const CACHE_SIZE = 50;
 
@@ -55,7 +75,7 @@ export function libraryVersion() {
  * Full answers in this tab, shared by the ⌘K menu and the wall, keyed by
  * `${scope}|${generation}|${requestKey}` (searchSession).
  */
-export const searchCache = new Map<string, Hit[]>();
+export const searchCache = new Map<string, Page>();
 
 /** Bumped by every clear: an answer still in flight then is never kept. */
 let cacheEpoch = 0;
@@ -107,11 +127,11 @@ export function searchSession({
     request: SearchRequest,
     mode: Mode,
     signal: AbortSignal
-  ) => Promise<{ hits: Hit[]; final: boolean }>;
+  ) => Promise<Page & { final: boolean }>;
   onAnswer: (answer: Answer | undefined) => void;
   pauseMs: number;
   /** Full answers by `${scope}|${version}|${requestKey}`, shared between sessions. */
-  cache: Map<string, Hit[]>;
+  cache: Map<string, Page>;
   /** Whose Library: answers are never shared between accounts. */
   scope: string;
 }) {
@@ -131,36 +151,42 @@ export function searchSession({
     const cached = cache.get(cacheKey);
     if (cached) {
       stop = () => {};
-      onAnswer({ key, mode: "full", hits: cached });
+      onAnswer({ key, mode: "full", ...cached });
       return;
     }
     const controller = new AbortController();
     // Each mode's request: waiting, answered (ok), failed, or not made.
     type Step = "waiting" | "ok" | "failed" | "none";
+    // Filters alone have no words to find by meaning: the instant answer is the answer.
+    const wordless = "query" in request && !request.query.trim();
     const step: Record<Mode, Step> = {
       instant: "query" in request ? "waiting" : "none",
-      full: "waiting",
+      full: wordless ? "none" : "waiting",
     };
-    const done = (mode: Mode, hits?: Hit[], final = true) => {
+    const done = (mode: Mode, page?: Page, final = true) => {
       if (controller.signal.aborted) return;
-      step[mode] = hits ? "ok" : "failed";
+      step[mode] = page ? "ok" : "failed";
       const other = step[mode === "full" ? "instant" : "full"];
-      if (hits && (mode === "full" || other !== "ok")) {
-        onAnswer({ key, mode, hits });
-        if (mode === "full" && final && epoch === cacheEpoch) {
-          cache.set(cacheKey, hits);
+      if (page && (mode === "full" || other !== "ok")) {
+        onAnswer({ key, mode, ...page });
+        if ((mode === "full" || wordless) && final && epoch === cacheEpoch) {
+          cache.set(cacheKey, page);
           if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
         }
-      } else if (!hits && (other === "failed" || other === "none")) {
+      } else if (!page && (other === "failed" || other === "none")) {
         onAnswer({ key, mode, failed: true });
       }
     };
     const run = (mode: Mode) =>
       fetch(request, mode, controller.signal).then(
-        ({ hits, final }) => done(mode, hits, final),
+        ({ final, ...page }) => done(mode, page, final),
         () => done(mode)
       );
     if ("query" in request) void run("instant");
+    if (wordless) {
+      stop = () => controller.abort();
+      return;
+    }
     const pause = "like" in request ? 0 : pauseMs;
     const timer = pause ? setTimeout(() => void run("full"), pause) : undefined;
     if (!pause) void run("full");

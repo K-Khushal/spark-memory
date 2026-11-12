@@ -6,6 +6,7 @@ import {
   fakeTurnstile,
   queues,
   signedIn,
+  postSearch,
 } from "./worker";
 
 // Link Capture through the Worker: the route, the queue consumer gathering
@@ -68,7 +69,7 @@ const read = async (call: Call, id: string) =>
   (await (await call(`/api/memories/${id}`)).json()) as Memory;
 const search = async (call: Call, q: string) =>
   (
-    (await (await call(`/api/search?q=${encodeURIComponent(q)}`)).json()) as {
+    (await (await postSearch(call, { q })).json()) as {
       results: Memory[];
     }
   ).results.map((m) => m.id);
@@ -263,9 +264,16 @@ describe.skipIf(!databaseUrl)("video Capture", () => {
       body: "🌱 Welcome to this garden.\nHeliotropism turns leaves towards sunlight.",
     });
     const result = (await (
-      await call("/api/search?q=heliotropism")
+      await postSearch(call, { q: "heliotropism" })
     ).json()) as { results: { id: string; part: unknown }[] };
     expect(result.results[0]).toMatchObject({
+      id: first.id,
+      part: { kind: "passage", seconds: 760, start: 27 },
+    });
+    const filtered = (await (
+      await postSearch(call, { q: "videos heliotropism from youtube" })
+    ).json()) as typeof result;
+    expect(filtered.results[0]).toMatchObject({
       id: first.id,
       part: { kind: "passage", seconds: 760, start: 27 },
     });

@@ -91,6 +91,26 @@ export {
   type TranscriptSegment,
 } from "./lib/link";
 export {
+  SEARCH_COLOURS,
+  SEARCH_COLOUR_NAMES,
+  SEARCH_SOURCES,
+  SEARCH_KINDS,
+  SEARCH_WHEN,
+  SearchChips,
+  SearchEvent,
+  SearchPage,
+  SearchRequest,
+  SEARCH_PAGE_SIZE,
+  MAX_QUERY_CHARS,
+  sourceHosts,
+  sourceOf,
+  type SearchColour,
+  type SearchFilters,
+  type SearchKind,
+  type SearchWhen,
+} from "./lib/search-filters";
+export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";
+export {
   CATEGORY_NAMES,
   CATEGORISING,
   Categories,
@@ -100,4 +120,3 @@ export {
   JevChoiceReply,
   MAX_CATEGORIES,
 } from "./lib/categories";
-export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";

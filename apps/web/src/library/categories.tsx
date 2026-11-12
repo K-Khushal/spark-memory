@@ -1,69 +1,13 @@
 import { useState } from "react";
 import { CATEGORY_NAMES, MAX_CATEGORIES, type Category } from "@spark/core";
 import { ChevronDownIcon } from "lucide-react";
-import { Button, cn, FilterChip } from "@spark/ui";
+import { Button, FilterChip } from "@spark/ui";
 import type { Memory } from "./use-library";
 
 export type CategoryEdit = (
   memory: Memory,
   categories: Category[]
 ) => Promise<boolean>;
-
-type Filter = {
-  selected?: Category;
-  onChange: (category?: Category) => void;
-};
-
-/** The sidebar's Categories: one at a time, the selected one raised like the current page. */
-export function CategoryList({ selected, onChange }: Filter) {
-  return (
-    <nav
-      aria-label="Categories"
-      className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1"
-    >
-      <ul className="flex flex-col gap-1">
-        {CATEGORY_NAMES.map((name) => (
-          <li key={name}>
-            <button
-              type="button"
-              aria-pressed={selected === name}
-              onClick={() => onChange(selected === name ? undefined : name)}
-              className={cn(
-                "flex h-8 w-full items-center rounded-control px-2 text-left text-sm transition-[color] duration-(--duration-press) ease-out focus-visible:outline-2 focus-visible:outline-ring",
-                selected === name
-                  ? "bg-surface font-medium text-ink shadow-raised"
-                  : "text-ink-muted hover:text-ink"
-              )}
-            >
-              {name}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
-/** On a phone, one scrolling row under the top bar. */
-export function CategoryRow({ selected, onChange }: Filter) {
-  return (
-    <div
-      role="group"
-      aria-label="Categories"
-      className="flex gap-2 overflow-x-auto px-4 pb-2"
-    >
-      {CATEGORY_NAMES.map((name) => (
-        <FilterChip
-          key={name}
-          aria-pressed={selected === name}
-          onClick={() => onChange(selected === name ? undefined : name)}
-        >
-          {name}
-        </FilterChip>
-      ))}
-    </div>
-  );
-}
 
 /**
  * A Memory's Categories, one to three, opening to change them. Apply is the

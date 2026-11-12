@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import {
   CATEGORISING,
@@ -94,11 +94,13 @@ describe.skipIf(!url)("Categories", () => {
   let db: Database;
   let close: () => Promise<void>;
   let owner: string;
+  const others: string[] = [];
   beforeAll(async () => {
     ({ db, close } = openDatabase(url!));
     owner = await newUser(db);
   });
   afterAll(async () => {
+    for (const id of others) await removeUser(db, id);
     await removeUser(db, owner);
     await close();
   });
@@ -423,6 +425,76 @@ describe.skipIf(!url)("Categories", () => {
     });
     expect(await due()).not.toContain(auto.id);
     expect((await row(chosen.id)).categories).toEqual(["Quote"]);
+  });
+
+  describe("as a search filter", () => {
+    const names = (results: { id: string }[]) => results.map((r) => r.id);
+    // A Library of its own, so other tests' Categories stay out of the counts.
+    let mine: ReturnType<typeof openLibrary>;
+    beforeEach(async () => {
+      const id = await newUser(db);
+      others.push(id);
+      mine = openLibrary(db, id);
+    });
+    const save = async (body: string, categories: Category[]) => {
+      const saved = await mine.capture({ body });
+      if (!("memory" in saved)) throw new Error("capture");
+      await mine.edit(saved.memory.id, { categories });
+      return saved.memory.id;
+    };
+
+    it("narrows words and browsing before any limit, with a why", async () => {
+      const tart = await save("Lemon tart notes", ["Recipe"]);
+      const bread = await save("Sourdough bread notes", ["Recipe", "Tutorial"]);
+      const trip = await save("Lisbon trip notes", ["Place"]);
+      const only = (...categories: string[]) => ({ filters: { categories } });
+      expect(names(await mine.search("notes", only("Recipe")))).toEqual(
+        expect.arrayContaining([tart, bread])
+      );
+      expect(names(await mine.search("notes", only("Recipe")))).not.toContain(
+        trip
+      );
+      // A limit of one cannot cut a matching Memory off behind a non-matching one.
+      expect(
+        names(await mine.search("notes", { ...only("Place"), limit: 1 }))
+      ).toEqual([trip]);
+      // No words: a browse, newest first, saying which Category it matched.
+      const browse = await mine.search("", only("Tutorial", "Place"));
+      expect(names(browse).slice(0, 2)).toEqual([trip, bread]);
+      expect(browse.find((r) => r.id === bread)?.part).toMatchObject({
+        kind: "filter",
+        field: "category",
+        value: "Tutorial",
+      });
+      expect(names(await mine.search("", only("Quote")))).toEqual([]);
+    });
+
+    it("pages a browse by cursor, and combines with a kind", async () => {
+      const ids = [];
+      for (let i = 0; i < 5; i++) ids.push(await save(`Page ${i}`, ["Idea"]));
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < 6; page++) {
+        const got = names(
+          await mine.search("", {
+            filters: { categories: ["Idea"] },
+            limit: 2,
+            ...(cursor && { cursor }),
+          })
+        );
+        if (!got.length) break;
+        seen.push(...got);
+        cursor = got.at(-1);
+      }
+      expect(seen).toEqual(expect.arrayContaining(ids));
+      expect(new Set(seen).size).toBe(seen.length);
+      expect(
+        await mine.search("", {
+          kinds: ["image"],
+          filters: { categories: ["Idea"] },
+        })
+      ).toEqual([]);
+    });
   });
 
   it("takes back what a model decided on AI opt-out, keeps a user's choice, and categorises again after", async () => {

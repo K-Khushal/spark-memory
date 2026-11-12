@@ -4,7 +4,6 @@ import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
 import {
   AiOptOut,
-  Category,
   EMBEDDING,
   embeddingSpace,
   FREE_ALLOWANCE,
@@ -13,6 +12,8 @@ import {
   MemoryEditRequest,
   PdfCapture,
   SCREENSHOT_MAX_BYTES,
+  SearchEvent,
+  SearchRequest,
   TextCapture,
 } from "@spark/core";
 import {
@@ -126,9 +127,6 @@ const limitBody = bodyLimit({
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
 });
 
-/** Longer queries are cut: nobody types more to find a Memory. */
-const MAX_QUERY_CHARS = 300;
-
 /** At most this many Memories per poll; the wall polls the ones it shows Indexing. */
 const MAX_POLLED = 100;
 
@@ -137,6 +135,11 @@ const notFound = { ok: false, error: "not_found" } as const;
 
 const limitImageBody = bodyLimit({
   maxSize: 4096,
+  onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
+});
+/** A search: the words (up to 2,000 characters, in any script) and a few chips. */
+const limitSearchBody = bodyLimit({
+  maxSize: 16_384,
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
 });
 /** A PDF Capture describes up to 30 page images too. */
@@ -200,6 +203,7 @@ export const memories = new Hono<AppEnv>()
   .use("/memories/*", ...signedIn)
   .use("/memories", ...signedIn)
   .use("/search", ...signedIn)
+  .use("/search/*", ...signedIn)
   .use("/storage", ...signedIn)
   .get("/memories", async (c) => {
     // `ids`: just these Memories, for the dashboard's poll while they Index.
@@ -456,25 +460,53 @@ export const memories = new Hono<AppEnv>()
    * leg; instant (per keystroke) is keyword and typo only. Each result says
    * whether it is a Direct or Related Match and which part matched.
    */
-  .get("/search", async (c) => {
-    const categories = categoryFilter(c.req.query("categories"));
-    if (categories === false)
-      return c.json({ ok: false, error: "invalid" } as const, 400);
-    const q = (c.req.query("q") ?? "").slice(0, MAX_QUERY_CHARS);
-    const mode = c.req.query("mode") === "full" ? "full" : "instant";
-    const results = await searchFor(
+  .post("/search", limitSearchBody, json(SearchRequest), async (c) => {
+    // A POST, so what was typed and chosen is in the body, never in a URL
+    // that a request log keeps.
+    const { q, mode, timezone, chips, page } = c.req.valid("json");
+    const answer = await searchFor(
       c.env,
       c.var.db,
       c.var.user.id,
       c.var.library
-    ).search(q, mode, { categories });
+    ).search(q, mode, {
+      ...(timezone && { timezone }),
+      ...(chips && { chips }),
+      ...(page && { page }),
+    });
     return c.json({
       // "instant" when full mode fell back (no embedder, budget, provider).
-      mode: results.mode,
+      mode: answer.mode,
       results: await Promise.all(
-        results.results.map((m) => forClient(c.var.files, m))
+        answer.results.map((m) => forClient(c.var.files, m))
       ),
+      // Where the next page begins, when there is one.
+      ...(answer.next && { next: answer.next }),
     });
+  })
+  /** Recent searches, newest first. */
+  .get("/search/recent", async (c) =>
+    c.json({ searches: await c.var.library.recentSearches() })
+  )
+  .delete("/search/recent", async (c) => {
+    await c.var.library.forgetSearch();
+    return c.body(null, 204);
+  })
+  .delete("/search/recent/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!UUID.test(id)) return c.json({ error: "invalid_id" }, 400);
+    await c.var.library.forgetSearch(id);
+    return c.body(null, 204);
+  })
+  /** A committed search, or a click on one of its results (Recent searches, PRD metrics). */
+  .post("/search/events", limitImageBody, json(SearchEvent), async (c) => {
+    const { query, memoryId, position, reformulation } = c.req.valid("json");
+    await c.var.library.rememberSearch(
+      query,
+      memoryId && position ? { memoryId, position } : undefined,
+      reformulation
+    );
+    return c.body(null, 204);
   })
   /** More Like This: Memories near this one's own vectors, leaving it out. */
   .get("/memories/:id/similar", async (c) => {
@@ -492,12 +524,3 @@ export const memories = new Hono<AppEnv>()
       results: await Promise.all(results.map((m) => forClient(c.var.files, m))),
     });
   });
-
-/** `?categories=A,B`: a hard filter, applied inside each SQL leg before its limit. */
-function categoryFilter(
-  raw: string | undefined
-): Category[] | undefined | false {
-  if (raw === undefined) return undefined;
-  const parsed = raw.split(",").map((name) => Category.safeParse(name));
-  return parsed.every((p) => p.success) ? parsed.map((p) => p.data!) : false;
-}

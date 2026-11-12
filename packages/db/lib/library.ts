@@ -1,8 +1,8 @@
+import { searchHistory } from "./search-history";
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   EMBEDDING,
-  type Category,
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
@@ -233,7 +233,7 @@ const restartIndexing = {
 } as const;
 
 /** Which search legs found a Memory (ADR-0004). */
-export type MatchedBy = "keyword" | "typo" | "vector";
+export type MatchedBy = "keyword" | "typo" | "vector" | "filter";
 /** What matched in the leg that ranked a Memory highest (migrations/0013). */
 export type MatchedPart =
   | {
@@ -242,7 +242,13 @@ export type MatchedPart =
         "title" | "note" | "tags" | "text" | "ocr" | "description" | "source";
     }
   | ({ kind: "passage" } & PassageAnchor)
-  | { kind: "overview" | "visual" };
+  | { kind: "overview" | "visual" }
+  /** Found by a filter alone: `value` is the palette colour, host, capture time or kind. */
+  | {
+      kind: "filter";
+      field: "colour" | "source" | "kind" | "date";
+      value: string;
+    };
 export type SearchResult = Memory & {
   matched: MatchedBy[];
   /** Cosine distance of its closest vector; null when the vector leg did not find it. */
@@ -255,12 +261,37 @@ export type VectorProbe = { model: string; dimensions: number } & (
   { vector: number[] } | { like: string }
 );
 
+/**
+ * What a search is narrowed to before it ranks (kinds go in `kinds`).
+ * `colour` and `prefer` are hex: a palette must be near `colour`; near
+ * `prefer` only ranks higher. Hosts match exactly or as a parent domain.
+ */
+export type SearchFilters = {
+  hosts?: string[];
+  /** Captured at or after. */
+  after?: string;
+  /** Captured before. */
+  before?: string;
+  colour?: string;
+  prefer?: string;
+  /** A Memory has at least one of these Categories. */
+  categories?: string[];
+};
+
 export type SearchOptions = {
+  filters?: SearchFilters;
+  /** Where a page of ranked results begins (colour browsing and words). */
+  offset?: number;
+  /**
+   * Browsing with no words and no colour pages by the last Memory id it
+   * returned: the next page is the Memories saved before that one, read
+   * straight off the captured-at index. An unknown id ends the list.
+   */
+  cursor?: string;
   limit?: number;
   probe?: VectorProbe;
   maxDistance?: number;
   kinds?: Memory["kind"][];
-  categories?: Category[];
   excludeSamples?: boolean;
 };
 
@@ -508,6 +539,7 @@ export function openLibrary(
   }
 
   return {
+    ...searchHistory(db, userId),
     get,
 
     /** The owner's Memories among `ids` (the dashboard polls those Indexing). */
@@ -1229,11 +1261,15 @@ export function openLibrary(
         probe,
         maxDistance = EMBEDDING.maxDistance,
         kinds,
-        categories,
+        filters,
+        offset = 0,
+        cursor,
         excludeSamples = false,
       }: SearchOptions = {}
     ): Promise<SearchResult[]> {
-      if (!query.trim() && !probe) return [];
+      // With no words, a search is a browse: only when something narrows it.
+      const narrowed = !!kinds || Object.keys(filters ?? {}).length > 0;
+      if (!query.trim() && !probe && !narrowed) return [];
       const vector =
         probe && "vector" in probe ? `[${probe.vector.join(",")}]` : null;
       const like = probe && "like" in probe ? probe.like : null;
@@ -1246,9 +1282,10 @@ export function openLibrary(
             matched: sql<MatchedBy[]>`matched`.as("matched"),
             distance: sql<number | null>`distance`.as("distance"),
             part: sql<MatchedPart>`part`.as("part"),
+            place: sql<number>`place`.as("place"),
           })
           .from(
-            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[], ${categories?.length ? `{${categories.join(",")}}` : null}::text[])`
+            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[], ${JSON.stringify({ ...filters, ...(cursor && { cursor }) })}::jsonb, ${offset}::int)`
           )
       );
       return db
@@ -1268,7 +1305,7 @@ export function openLibrary(
             excludeSamples ? eq(memory.sample, false) : undefined
           )
         )
-        .orderBy(desc(hits.score), asc(hits.id));
+        .orderBy(asc(hits.place));
     },
   };
 }

@@ -22,9 +22,9 @@ export function DeskNavLink({
   to: "/" | "/admin" | "/settings";
   current: boolean;
   /**
-   * The page is already on this route but is narrowed (a Category chosen):
-   * a button, because the router marks a link to the active route as the
-   * current page whatever it is told.
+   * The page is already on this route but narrowed by a filter: a button,
+   * because the router marks a link to the active route as the current
+   * page whatever it is told.
    */
   inPlace?: boolean;
   onClick?: () => void;
@@ -127,9 +127,6 @@ export function DeskSidebar({
   filters,
   filtered = false,
 }: {
-  filters?: ReactNode;
-  /** A filter narrows the Library, so All Memories is not what is showing. */
-  filtered?: boolean;
   email: string;
   current: "library" | "admin" | "settings";
   admin: boolean;
@@ -145,6 +142,10 @@ export function DeskSidebar({
   searchLabel?: string;
   searchActive?: boolean;
   onClearSearch?: () => void;
+  /** Filter chips under the navigation (the Library). */
+  filters?: ReactNode;
+  /** A filter narrows the Library, so All Memories is not what is showing. */
+  filtered?: boolean;
 }) {
   useLibraryShortcuts({
     onSearch,
@@ -154,7 +155,7 @@ export function DeskSidebar({
   });
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 border-r border-line bg-sunken p-3 md:flex">
+    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line bg-sunken p-3 md:flex">
       <div className="flex h-8 items-center justify-between pl-2">
         <span className="font-display text-md font-semibold">Spark</span>
         <Button
@@ -194,8 +195,9 @@ export function DeskSidebar({
           )}
         </ul>
       </nav>
-      {filters}
-      <div className="mt-auto flex shrink-0 flex-col gap-1">
+      {/* Long lists scroll here; the person's own corner stays put. */}
+      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">{filters}</div>
+      <div className="flex shrink-0 flex-col gap-1">
         <DeskNavLink to="/settings" current={current === "settings"}>
           <SettingsIcon aria-hidden /> Settings
         </DeskNavLink>

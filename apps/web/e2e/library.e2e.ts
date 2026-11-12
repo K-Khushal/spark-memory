@@ -191,8 +191,8 @@ test("change a Memory's Categories, then filter the Library by them", async ({
 }) => {
   test.setTimeout(60_000);
   await signIn(page);
-  const wall = page.getByRole("list", { name: "All Memories" });
-  const tile = wall.getByRole("listitem", { name: /Sourdough starter/ });
+  // The wall is "Filtered Memories" while a chip narrows it.
+  const tile = page.getByRole("listitem", { name: /Sourdough starter/ });
   await paste(page, "Sourdough starter notes");
   await expect(tile).toBeVisible();
 
@@ -204,19 +204,27 @@ test("change a Memory's Categories, then filter the Library by them", async ({
   await dialog.getByRole("button", { name: "Apply" }).click();
   await expect(dialog.locator("summary")).toHaveText("Recipe");
   await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
 
-  const categories = page.getByRole("navigation", { name: "Categories" });
-  await categories.getByRole("button", { name: "Video" }).click();
-  await expect(page.getByText("No Video Memories")).toBeVisible();
+  // Only Categories this Library has get a chip: a second Memory stays Other.
+  const other = page.getByRole("listitem", { name: /Grocery list/ });
+  await paste(page, "Grocery list: oats, lemons");
+  await expect(other).toBeVisible();
+  const categories = page.getByRole("list", { name: "Category" });
+  await categories.getByRole("button", { name: "Recipe" }).click();
+  await expect(tile).toBeVisible();
+  await expect(other).toBeHidden();
   // Narrowed by a Category, All Memories is not the current page.
   await expect(page.getByRole("link", { name: "All Memories" })).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "All Memories" })
   ).toBeVisible();
-  await categories.getByRole("button", { name: "Recipe" }).click();
-  await expect(tile).toBeVisible();
+  await categories.getByRole("button", { name: "Other" }).click();
+  await expect(other).toBeVisible();
+  await expect(tile).toBeHidden();
 
   // The chip narrows a search on the wall as well.
+  await categories.getByRole("button", { name: "Recipe" }).click();
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("sourdough");
   await expect(page.getByRole("option", { name: /Sourdough/ })).toBeVisible();
@@ -224,16 +232,15 @@ test("change a Memory's Categories, then filter the Library by them", async ({
   await expect(
     page.getByRole("list", { name: "Direct Matches" }).getByRole("listitem")
   ).toHaveCount(1);
+  // Clearing the search lets go of the chip too.
   await page.getByRole("button", { name: "Clear Search" }).click();
-  await categories.getByRole("button", { name: "Recipe" }).click();
-  await categories.getByRole("button", { name: "Place" }).click();
+  await expect(tile).toBeVisible();
+  await categories.getByRole("button", { name: "Other" }).click();
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("sourdough");
   await expect(page.getByRole("option", { name: /Sourdough/ })).toBeVisible();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("list", { name: "Direct Matches" })).toHaveCount(
-    0
-  );
+  await expect(page.getByText("No Direct Matches")).toBeVisible();
   await page.getByRole("button", { name: "All Memories" }).click();
   await expect(
     page.getByRole("link", { name: "All Memories" })

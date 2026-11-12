@@ -1,5 +1,7 @@
-import { type Category } from "@spark/core";
-import { CategoryList, CategoryRow } from "./categories";
+import type { SearchChips } from "@spark/core";
+import { isWordless } from "./search-session";
+import { LibraryFilters, useFilterOptions } from "./library-filters";
+import { recordSearch } from "./search-history";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Link,
@@ -19,7 +21,12 @@ import { LibraryOverlaysHost } from "./overlays-host";
 import { pdfMatch, type PdfMatch } from "./pdf-match";
 import { MOD, useFileDrop } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
-import { useSearch, type Found, type Results } from "./use-search";
+import {
+  useMoreResults,
+  useSearch,
+  type Found,
+  type Results,
+} from "./use-search";
 import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
 
 /**
@@ -36,18 +43,17 @@ export function LibraryPage({
 }) {
   const navigate = useNavigate();
   const library = useLibrary();
-  const [category, setCategory] = useState<Category>();
-  const visible = library.memories.filter(
-    (m) => !category || m.categories?.includes(category)
-  );
   const { desk } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [activationVersion, setActivationVersion] = useState(0);
   const [searchOpen, setSearchOpen] = useState(desk === "search");
   const [overlaysEpoch, setOverlaysEpoch] = useState(0);
   const [overlaysDown, setOverlaysDown] = useState(false);
+  const previousSearch = useRef("");
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
+  /** The filter chips, one choice per group; they work with no words. */
+  const [chips, setChips] = useState<SearchChips>({});
   const [pasteOpen, setPasteOpen] = useState(desk === "capture");
   /** Set when this page was opened to show Capture or Search, then cleared on close. */
   const deskReturn = useRef<"capture" | "search" | null>(
@@ -70,13 +76,29 @@ export function LibraryPage({
   );
   // The wall: instant and full at once (often straight from the cache the
   // menu filled), and the last results stay up until new ones land.
-  const results = useSearch(
-    like ? { like: like.id } : { query, category },
-    library.memories,
-    library.version,
-    { userId: session.user.id, pauseMs: 0, keepPrevious: true }
+  const filtering = Object.keys(chips).length > 0;
+  const request = like
+    ? { like: like.id }
+    : { query, ...(filtering && { chips }) };
+  const first = useSearch(request, library.memories, library.version, {
+    userId: session.user.id,
+    pauseMs: 0,
+    keepPrevious: true,
+  });
+  const more = useMoreResults(request, first, library.memories);
+  const results = useMemo(
+    () =>
+      first && first !== "failed" && (more.direct.length || more.related.length)
+        ? {
+            ...first,
+            direct: [...first.direct, ...more.direct],
+            related: [...first.related, ...more.related],
+          }
+        : first,
+    [first, more.direct, more.related]
   );
-  const searching = !!like || !!query;
+  const searching = !!like || !!query || filtering;
+  const filterOptions = useFilterOptions(library.memories);
   const opened = library.memories.find((m) => m.id === openId);
   // The viewer steps through the images of the wall on screen.
   const images = useMemo(() => {
@@ -142,6 +164,13 @@ export function LibraryPage({
     )
       activate(memory.id);
     metrics.found();
+    if ((query || filtering) && results && results !== "failed") {
+      const hits = [...results.direct, ...results.related];
+      recordSearch(query, {
+        memoryId: memory.id,
+        position: hits.findIndex((m) => m.id === memory.id) + 1,
+      });
+    }
     reveal(memory);
   };
   const openFromSearch = (memory: Memory) => {
@@ -151,6 +180,14 @@ export function LibraryPage({
         related: instant.related.length,
       });
     }
+    const hits =
+      instant && instant !== "failed"
+        ? [...instant.direct.slice(0, 6), ...instant.related.slice(0, 4)]
+        : [];
+    recordSearch(draft, {
+      memoryId: memory.id,
+      position: hits.findIndex((m) => m.id === memory.id) + 1,
+    });
     if (
       draft.trim() &&
       instant &&
@@ -179,6 +216,12 @@ export function LibraryPage({
         related: instant.related.length,
       });
     }
+    recordSearch(
+      trimmed,
+      undefined,
+      !!previousSearch.current && previousSearch.current !== trimmed
+    );
+    previousSearch.current = trimmed;
     setQuery(trimmed);
     setLike(undefined);
     setSearchOpen(false);
@@ -192,7 +235,12 @@ export function LibraryPage({
     setLike(memory);
     window.scrollTo({ top: 0 });
   };
+  const changeChips = (next: SearchChips) => {
+    setChips(next);
+    setLike(undefined);
+  };
   const clearSearch = () => {
+    setChips({});
     setQuery("");
     setLike(undefined);
   };
@@ -251,8 +299,7 @@ export function LibraryPage({
   return (
     <div className="flex min-h-dvh bg-canvas">
       <DeskSidebar
-        filtered={!!category}
-        filters={<CategoryList selected={category} onChange={setCategory} />}
+        filtered={filtering}
         email={session.user.email}
         current="library"
         admin={admin}
@@ -260,7 +307,6 @@ export function LibraryPage({
         onLibrary={() => {
           metrics.cleared();
           clearSearch();
-          setCategory(undefined);
         }}
         onCapture={openPasteBox}
         onSearch={openSearch}
@@ -269,6 +315,16 @@ export function LibraryPage({
         searchLabel={searchLabel}
         searchActive={searching}
         onClearSearch={clearSearchClick}
+        filters={
+          library.memories.length > 0 && (
+            <LibraryFilters
+              layout="sidebar"
+              options={filterOptions}
+              chips={chips}
+              onChange={changeChips}
+            />
+          )
+        }
       />
 
       <main className="min-w-0 flex-1">
@@ -298,7 +354,14 @@ export function LibraryPage({
               <PlusIcon aria-hidden />
             </Button>
           </div>
-          <CategoryRow selected={category} onChange={setCategory} />
+          {library.memories.length > 0 && (
+            <LibraryFilters
+              layout="row"
+              options={filterOptions}
+              chips={chips}
+              onChange={changeChips}
+            />
+          )}
         </div>
         <h1 className="sr-only">Library</h1>
         {library.state === "ready" && (
@@ -346,16 +409,25 @@ export function LibraryPage({
                 onOpen={openMemory}
                 tiles={tiles}
               />
-            ) : !visible.length ? (
-              <Centred title={`No ${category} Memories`} />
             ) : (
               <Wall
                 label="All Memories"
-                memories={visible}
+                memories={library.memories}
                 query=""
                 onOpen={openMemory}
                 tiles={tiles}
               />
+            )}
+            {more.canLoad && (
+              <div className="mt-6 flex justify-center">
+                <Button
+                  variant="outline"
+                  disabled={more.busy}
+                  onClick={() => void more.load()}
+                >
+                  Show More
+                </Button>
+              </div>
             )}
           </div>
         )}
@@ -421,9 +493,9 @@ function Wordmark() {
 }
 
 /** A whole-wall message with one way forward. */
-function Centred({ title, children }: { title: string; children?: ReactNode }) {
+function Centred({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="grid min-h-[calc(100dvh-6.5rem)] place-items-center p-4 md:min-h-dvh">
+    <div className="grid min-h-[calc(100dvh-3.5rem)] place-items-center p-4 md:min-h-dvh">
       <div className="flex flex-col items-center gap-5">
         <h2 className="font-display text-lg font-semibold">{title}</h2>
         {children}
@@ -565,6 +637,32 @@ function SearchResults({
         <ResultWall
           label="More Like This"
           found={found}
+          glideKey={results.key}
+          query=""
+          onOpen={onOpen}
+          tiles={tiles}
+        />
+      </div>
+    );
+  }
+  // Filters alone: one wall of what they found, each with why it did, and
+  // no Direct and Related to tell apart.
+  if (isWordless(results.key)) {
+    const found = [...results.direct, ...results.related];
+    return (
+      <div data-search={results.mode}>
+        {!found.length && (
+          <Landing
+            key={results.key}
+            className="text-sm font-medium text-ink-muted"
+          >
+            No Memories Match
+          </Landing>
+        )}
+        <ResultWall
+          label="Filtered Memories"
+          found={found}
+          direct={false}
           glideKey={results.key}
           query=""
           onOpen={onOpen}

@@ -6,8 +6,8 @@ import {
   searchSession,
   shownAnswer,
   type Answer,
-  type Hit,
   type Mode,
+  type Page,
   type SearchRequest,
 } from "./search-session";
 
@@ -27,7 +27,7 @@ function setup(
   {
     cache = new Map(),
     scope = "ana",
-  }: { cache?: Map<string, Hit[]>; scope?: string } = {}
+  }: { cache?: Map<string, Page>; scope?: string } = {}
 ) {
   const pending: Pending[] = [];
   const answers: (Answer | undefined)[] = [];
@@ -177,7 +177,7 @@ describe("searchSession", () => {
   });
 
   it("never answers a Library opened again from an earlier visit's cache", async () => {
-    const cache = new Map<string, Hit[]>();
+    const cache = new Map<string, Page>();
     const before = libraryVersion();
     const first = setup(0, { cache });
     first.session.set({ query: "purple" }, before(0));
@@ -204,7 +204,7 @@ describe("searchSession", () => {
   });
 
   it("never answers one account from another's cache", async () => {
-    const cache = new Map<string, Hit[]>();
+    const cache = new Map<string, Page>();
     const ana = setup(0, { cache, scope: "ana" });
     ana.session.set({ query: "purple" }, "1");
     await settle();
@@ -244,14 +244,37 @@ describe("shownAnswer", () => {
   });
 });
 
-describe("requestKey", () => {
-  it("tells the same words apart by Category", async () => {
-    const { requestKey } = await import("./search-session");
-    expect(requestKey({ query: "tart" })).not.toBe(
-      requestKey({ query: "tart", category: "Recipe" })
-    );
-    expect(requestKey({ query: "tart", category: "Recipe" })).not.toBe(
-      requestKey({ query: "tart", category: "Video" })
-    );
+describe("filters without words", () => {
+  const chips = { kind: "image" } as const;
+
+  it("asks once, for the instant answer, and keeps it", async () => {
+    const cache = new Map<string, Page>();
+    const { session, pending, ids, find } = setup(300, { cache });
+    session.set({ query: "", chips }, "v1");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(pending).toHaveLength(1);
+    find("instant", "").answer(["a", "b"]);
+    await settle();
+    expect(ids()).toEqual(["instant", ["a", "b"]]);
+    expect(cache.size).toBe(1);
+    // The same chips again are answered from what was kept.
+    session.set({ query: "", chips }, "v1");
+    expect(pending).toHaveLength(1);
+    expect(ids()).toEqual(["full", ["a", "b"]]);
+  });
+
+  it("is a different search from the same words without chips", async () => {
+    const { session, pending } = setup();
+    session.set({ query: "budget", chips }, "v1");
+    session.set({ query: "budget" }, "v1");
+    expect(pending.map((p) => p.signal.aborted)).toEqual([true, false]);
+  });
+
+  it("shows a failure when the one request fails", async () => {
+    const { session, find, last } = setup();
+    session.set({ query: "", chips }, "v1");
+    find("instant", "").fail();
+    await settle();
+    expect(last()).toMatchObject({ failed: true });
   });
 });

@@ -1,4 +1,14 @@
-import { EMBEDDING, type Category } from "@spark/core";
+import {
+  EMBEDDING,
+  SEARCH_COLOURS,
+  SEARCH_KINDS,
+  SEARCH_PAGE_SIZE,
+  sourceHosts,
+  type MemoryKind,
+  type SearchChips,
+  type SearchFilters,
+} from "@spark/core";
+import { understandQuery } from "./query";
 import {
   embedCostMicros,
   ProviderError,
@@ -13,7 +23,53 @@ export type Probe = { model: string; dimensions: number } & (
 );
 
 /** What a search leg returns per Memory, at least. */
-export type Hit = { matched: string[]; distance: number | null };
+export type Hit = { id: string; matched: string[]; distance: number | null };
+
+/** The Library's narrowing, in its own words (hosts, hex colours); see `scopeOf`. */
+export type Scope = {
+  kinds?: MemoryKind[];
+  filters?: {
+    hosts?: string[];
+    after?: string;
+    before?: string;
+    colour?: string;
+    prefer?: string;
+    /** A Memory has at least one of these Categories. */
+    categories?: string[];
+  };
+};
+
+/**
+ * What a search is narrowed to: what the words said, then what the person
+ * chose with a chip, which wins where they disagree. A colour from a chip
+ * is required; one from the words only ranks higher, unless the words
+ * are nothing but filters ("orange pdfs from last month").
+ */
+export function scopeOf(
+  spoken: SearchFilters,
+  chosen: SearchFilters,
+  text: string
+): Scope {
+  const dated = chosen.after || chosen.before;
+  const merged: SearchFilters = {
+    ...spoken,
+    ...chosen,
+    ...(dated && { after: chosen.after, before: chosen.before }),
+  };
+  const filters = {
+    ...(merged.categories && { categories: merged.categories }),
+    ...(merged.source && { hosts: sourceHosts(merged.source) }),
+    ...(merged.after && { after: merged.after }),
+    ...(merged.before && { before: merged.before }),
+    ...(chosen.colour || (spoken.colour && !text)
+      ? { colour: SEARCH_COLOURS[(chosen.colour ?? spoken.colour)!] }
+      : spoken.colour && { prefer: SEARCH_COLOURS[spoken.colour] }),
+  };
+  return {
+    ...(merged.kinds && { kinds: merged.kinds }),
+    ...(Object.keys(filters).length > 0 && { filters }),
+  };
+}
 
 /** Instant: keyword and typo only, per keystroke. Full: with the vector leg, after a pause. */
 export type Mode = "instant" | "full";
@@ -76,6 +132,7 @@ const split = <R extends Hit>(hits: R[]): Ranked<R>[] =>
     ...hit,
     match:
       hit.matched.includes("keyword") ||
+      hit.matched.includes("filter") ||
       (hit.distance !== null && hit.distance <= EMBEDDING.directDistance)
         ? "direct"
         : "related",
@@ -99,7 +156,14 @@ export function createSearch<R extends Hit>({
   /** The Library's hybrid search. */
   find: (
     query: string,
-    options: { probe?: Probe; maxDistance: number; categories?: Category[] }
+    options: Scope & {
+      probe?: Probe;
+      maxDistance: number;
+      limit?: number;
+      offset?: number;
+      /** The id of the last Memory of the page before (browsing with no words). */
+      cursor?: string;
+    }
   ) => Promise<R[]>;
   embedder?: Embedder;
   /** The budget breaker's side of the database (`indexingStore`). */
@@ -187,28 +251,81 @@ export function createSearch<R extends Hit>({
     async search(
       query: string,
       mode: Mode,
-      filters: { categories?: Category[] } = {}
-    ): Promise<{ results: Ranked<R>[]; mode: Mode }> {
-      const q = query.trim().replace(/\s+/g, " ");
-      if (!q) return { results: [], mode: "instant" };
-      const options = { maxDistance: EMBEDDING.maxDistance, ...filters };
-      if (mode === "full" && space) {
+      {
+        timezone,
+        chips = {},
+        page,
+      }: {
+        /** The person's IANA timezone, for "last month". */
+        timezone?: string;
+        /** Filter chips; they win over what the words said. */
+        chips?: SearchChips;
+        /** Where the page begins: the `next` an earlier answer gave. */
+        page?: string;
+      } = {}
+    ): Promise<{ results: Ranked<R>[]; mode: Mode; next?: string }> {
+      const when = {
+        now: new Date(now()),
+        ...(timezone && { timezone }),
+      };
+      const { text, filters: spoken } = understandQuery(query, when);
+      const chosen: SearchFilters = {
+        ...(chips.kind && { kinds: [...SEARCH_KINDS[chips.kind]] }),
+        ...(chips.source && { source: chips.source }),
+        ...(chips.colour && { colour: chips.colour }),
+        ...(chips.category && { categories: [chips.category] }),
+        // A chip's time range is read by the parser, like a typed one.
+        ...(chips.when && understandQuery(chips.when, when).filters),
+      };
+      const scope = scopeOf(spoken, chosen, text);
+      const narrowed = scope.kinds || scope.filters;
+      // Nothing to look for and nothing to narrow by: no results, not the whole Library.
+      if (!text && !narrowed) return { results: [], mode: "instant" };
+      // With no words and no colour, results are the newest first and page by
+      // the last Memory; every other order is a score, and pages by count.
+      const newestFirst = !text && !scope.filters?.colour;
+      const start = page?.startsWith("c:")
+        ? { cursor: page.slice(2) }
+        : page?.startsWith("o:")
+          ? { offset: Number(page.slice(2)) }
+          : {};
+      const options = {
+        ...scope,
+        maxDistance: EMBEDDING.maxDistance,
+        limit: SEARCH_PAGE_SIZE,
+        ...(newestFirst ? start : { offset: start.offset ?? 0 }),
+      };
+      const answer = (results: Ranked<R>[], mode: Mode) => {
+        const last = results.at(-1);
+        return {
+          results,
+          mode,
+          ...(results.length >= SEARCH_PAGE_SIZE &&
+            last && {
+              next: newestFirst
+                ? `c:${last.id}`
+                : `o:${(options.offset ?? 0) + results.length}`,
+            }),
+        };
+      };
+      // Filters alone browse the Library, with no provider call.
+      if (text && mode === "full" && space) {
         // Anything wrong on the way to the vector leg (the budget, the
         // provider, the SQL with a vector) falls back to keywords.
         try {
-          const vector = await embedQuery(q);
+          const vector = await embedQuery(text);
           if (vector) {
             const probe = { ...space, vector };
-            return {
-              results: split(await find(q, { ...options, probe })),
-              mode: "full",
-            };
+            return answer(
+              split(await find(text, { ...options, probe })),
+              "full"
+            );
           }
         } catch {
           console.error("search: full search fell back to keywords");
         }
       }
-      return { results: split(await find(q, options)), mode: "instant" };
+      return answer(split(await find(text, options)), "instant");
     },
 
     /** More Like This: the Memory's own vectors as the query, no provider call. */

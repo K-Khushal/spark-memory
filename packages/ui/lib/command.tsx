@@ -11,12 +11,17 @@ export function CommandDialog({
   children,
   className,
   shouldFilter,
+  value,
+  onValueChange,
   onCloseAutoFocus,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Root> & {
   title: string;
   className?: string;
   shouldFilter?: boolean;
+  /** The highlighted item's value, when the caller drives it. */
+  value?: string;
+  onValueChange?: (value: string) => void;
   onCloseAutoFocus?: ComponentProps<
     typeof DialogPrimitive.Content
   >["onCloseAutoFocus"];
@@ -36,7 +41,12 @@ export function CommandDialog({
           <DialogPrimitive.Title className="sr-only">
             {title}
           </DialogPrimitive.Title>
-          <CommandPrimitive loop shouldFilter={shouldFilter}>
+          <CommandPrimitive
+            loop
+            shouldFilter={shouldFilter}
+            {...(value !== undefined && { value })}
+            {...(onValueChange && { onValueChange })}
+          >
             {children}
           </CommandPrimitive>
         </DialogPrimitive.Content>

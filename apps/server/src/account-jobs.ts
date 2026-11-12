@@ -161,6 +161,14 @@ async function* exportEntries(
         yield encode("\n]\n");
       })(),
   };
+  yield {
+    name: "searches.json",
+    modified: at,
+    body: async () =>
+      (async function* () {
+        yield encode(JSON.stringify(await library.searchData()));
+      })(),
+  };
   for (const file of files) {
     yield {
       name: file.name,
@@ -241,6 +249,7 @@ export async function sweepAccounts(env: Bindings, calls?: CronCalls) {
       );
       sent += 1;
     }
+    await jobs.sweepSearchHistory();
     // Bounded per run: what is left goes on the next hourly run.
     const expired = await jobs.sweepExports((keys) => env.FILES.delete(keys), {
       allowCall: calls ? () => calls.take("cleanup") : undefined,

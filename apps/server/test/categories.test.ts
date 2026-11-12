@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { databaseUrl, fakeTurnstile, signedIn } from "./worker";
+import { databaseUrl, fakeTurnstile, postSearch, signedIn } from "./worker";
 
 fakeTurnstile();
 
@@ -27,16 +27,20 @@ describe.skipIf(!databaseUrl)("Categories API", () => {
       revision: saved.revision,
     });
 
-    const ids = async (query: string) =>
+    const ids = async (body: Record<string, unknown>) =>
       (
-        (await (await call(`/api/search?q=tart${query}`)).json()) as {
+        (await (await postSearch(call, body)).json()) as {
           results: { id: string }[];
         }
       ).results.map((r) => r.id);
-    expect(await ids("")).toEqual([saved.id]);
-    expect(await ids("&categories=Recipe")).toEqual([saved.id]);
-    expect(await ids("&categories=Video,Tutorial")).toEqual([saved.id]);
-    expect(await ids("&categories=Video")).toEqual([]);
+    expect(await ids({ q: "tart" })).toEqual([saved.id]);
+    expect(await ids({ q: "tart", chips: { category: "Recipe" } })).toEqual([
+      saved.id,
+    ]);
+    // Browsing by a Category alone, with no words.
+    expect(await ids({ chips: { category: "Tutorial" } })).toEqual([saved.id]);
+    expect(await ids({ q: "tart", chips: { category: "Video" } })).toEqual([]);
+    expect(await ids({ chips: { category: "Video" } })).toEqual([]);
   });
 
   it("refuses invalid Categories", async () => {
@@ -56,10 +60,9 @@ describe.skipIf(!databaseUrl)("Categories API", () => {
       });
       expect(res.status).toBe(400);
     }
-    for (const query of ["Invalid", "", "Recipe,Invalid"]) {
-      expect(
-        (await call(`/api/search?q=note&categories=${query}`)).status
-      ).toBe(400);
+    for (const category of ["Invalid", "", "recipe", ["Recipe"]]) {
+      const res = await postSearch(call, { q: "note", chips: { category } });
+      expect(res.status).toBe(400);
     }
   });
 
