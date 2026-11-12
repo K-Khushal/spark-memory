@@ -1,4 +1,4 @@
-import { EMBEDDING } from "@spark/core";
+import { EMBEDDING, INDEXING } from "@spark/core";
 import type { Embedder } from "./embedder";
 import { base64, guessTokens, ProviderError } from "./provider";
 
@@ -76,6 +76,11 @@ export function geminiEmbedding({
           outputTokens: 0,
           imageTokens: estimate.imageTokens,
         });
+      const body = JSON.stringify({ requests });
+      // Past the inline limit Gemini refuses it anyway: not sent, not billed.
+      if (body.length > INDEXING.inlineRequestBytes) {
+        throw new ProviderError("unsupported");
+      }
       let res: Response;
       try {
         res = await send(url, {
@@ -85,7 +90,7 @@ export function geminiEmbedding({
             "content-type": "application/json",
             "x-goog-api-key": apiKey,
           },
-          body: JSON.stringify({ requests }),
+          body,
         });
       } catch {
         throw billed();

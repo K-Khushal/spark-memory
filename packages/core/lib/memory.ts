@@ -130,7 +130,11 @@ export const PAGE_IMAGE = {
   /** Drawn this wide (taller pages keep their shape, up to `maxSide`). */
   width: 1024,
   maxSide: 2048,
-  maxBytes: 1024 * 1024,
+  /**
+   * Small enough that all 30 Indexed pages, base64 in one Gemini request,
+   * stay well inside its inline limit (INDEXING.inlineRequestBytes).
+   */
+  maxBytes: 400 * 1024,
 } as const;
 
 /** How many pages of a PDF of `pages` are Indexed (the Free allowance). */

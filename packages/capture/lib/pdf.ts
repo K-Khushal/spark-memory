@@ -93,14 +93,26 @@ async function draw(doc: Document, number: number) {
   }
 }
 
-/** A page as a JPEG within PAGE_IMAGE.maxBytes, lowering the quality for busy pages. */
+/**
+ * A page as a JPEG within PAGE_IMAGE.maxBytes: busy pages lower the
+ * quality, then the size, until they fit.
+ */
 async function pageImage(canvas: HTMLCanvasElement): Promise<PageImage> {
   const bitmap = await createImageBitmap(canvas);
   try {
-    for (const quality of [0.8, 0.6, 0.45]) {
-      const blob = await encode(bitmap, PAGE_IMAGE.mime, quality);
+    for (const [quality, scale] of [
+      [0.8, 1],
+      [0.6, 1],
+      [0.5, 0.75],
+      [0.5, 0.5],
+    ] as const) {
+      const blob = await encode(bitmap, PAGE_IMAGE.mime, quality, scale);
       if (blob.size <= PAGE_IMAGE.maxBytes) {
-        return { blob, width: canvas.width, height: canvas.height };
+        return {
+          blob,
+          width: Math.max(1, Math.round(canvas.width * scale)),
+          height: Math.max(1, Math.round(canvas.height * scale)),
+        };
       }
     }
     throw "unreadable" satisfies ImageRefusal;

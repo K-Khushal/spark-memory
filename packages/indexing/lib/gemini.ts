@@ -93,6 +93,22 @@ export function gemini({
           { role: "user", parts: [{ text: CORRECTION(correction.errors) }] }
         );
       }
+      const body = JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents,
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseJsonSchema: pages
+            ? PDF_SCAN_OUTPUT_JSON_SCHEMA
+            : INDEXING_OUTPUT_JSON_SCHEMA,
+          maxOutputTokens,
+          thinkingConfig: { thinkingLevel: "MINIMAL" },
+        },
+      });
+      // Past the inline limit Gemini refuses it anyway: not sent, not billed.
+      if (body.length > INDEXING.inlineRequestBytes) {
+        throw new ProviderError("unsupported");
+      }
       let res: Response;
       try {
         res = await send(url, {
@@ -102,18 +118,7 @@ export function gemini({
             "content-type": "application/json",
             "x-goog-api-key": apiKey,
           },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents,
-            generationConfig: {
-              responseMimeType: "application/json",
-              responseJsonSchema: pages
-                ? PDF_SCAN_OUTPUT_JSON_SCHEMA
-                : INDEXING_OUTPUT_JSON_SCHEMA,
-              maxOutputTokens,
-              thinkingConfig: { thinkingLevel: "MINIMAL" },
-            },
-          }),
+          body,
         });
       } catch {
         throw lost();

@@ -699,6 +699,9 @@ export function createIndexer({
       if (!(await store.isCurrent(work))) return { result: "skipped" };
       const bytes = await readFile(pdf.key);
       if (!bytes) return { failed: "unreadable" };
+      // Asked again right before the call: AI opt-out may have been
+      // switched on, or the Memory replaced, while the PDF was read.
+      if (!(await store.isCurrent(work))) return { result: "skipped" };
       let text = "";
       try {
         text = pdfBody(await readPdf(bytes), { pages: pdf.pages, indexed });

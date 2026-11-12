@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { FREE_ALLOWANCE, INDEXING } from "@spark/core";
+import { FREE_ALLOWANCE, INDEXING, PAGE_IMAGE } from "@spark/core";
 import {
   createIndexer,
   embeddingInputs,
   fakeEmbedder,
   fakePdfReader,
   gemini,
+  geminiEmbedding,
   isScan,
   workersAi,
   markdownPages,
@@ -84,8 +85,10 @@ function memoryStore(memory: PendingMemory) {
     failed: [] as string[],
     load: async () => store.memory,
     release: async () => {},
-    isCurrent: async ({ run }: Claim) =>
-      run === store.memory.run && !store.memory.aiOptOut,
+    isCurrent: async ({ run, generation }: Claim) =>
+      run === store.memory.run &&
+      generation === store.memory.generation &&
+      !store.memory.aiOptOut,
     complete: vi.fn(
       async (_: Claim, extraction: unknown, embedding?: unknown) => {
         store.completed.push(extraction);
@@ -389,6 +392,62 @@ describe("Indexing a PDF", () => {
     expect(store.completed).toEqual([null]);
   });
 
+  for (const [what, change] of [
+    ["AI opt-out is switched on", { aiOptOut: true }],
+    ["the Memory is deleted and saved again with its id", { generation: "g2" }],
+  ] as const) {
+    it(`sends nothing to Workers AI when ${what} while the PDF is read from storage`, async () => {
+      const store = memoryStore(pdfMemory());
+      const readPdf = vi.fn(async () => ["text"]);
+      const { index } = createIndexer({
+        store,
+        providers: [provider("workers-ai", answer)],
+        readPdf,
+        readFile: async (key) => {
+          if (key === "pdf") store.memory = { ...store.memory, ...change };
+          return files(key);
+        },
+      });
+      expect(await index(job())).toEqual({ result: "skipped" });
+      expect(readPdf).not.toHaveBeenCalled();
+    });
+
+    it(`embeds nothing when ${what} while the page images are read for Visuals`, async () => {
+      const store = memoryStore(pdfMemory());
+      const embedder = fakeEmbedder(8);
+      const embed = vi.spyOn(embedder, "embed");
+      const { index } = createIndexer({
+        store,
+        providers: [provider("workers-ai", answer)],
+        embedder,
+        readPdf: async () => [long("rent"), long("keys")],
+        readFile: async (key) => {
+          if (key === "page-2") store.memory = { ...store.memory, ...change };
+          return files(key);
+        },
+      });
+      expect(await index(job())).toEqual({ result: "skipped" });
+      expect(embed).not.toHaveBeenCalled();
+    });
+
+    it(`sends no page to Gemini when ${what} while the pages are read`, async () => {
+      const store = memoryStore(pdfMemory());
+      const flash = provider("gemini", { ...answer, pages: ["a", "b"] }, true);
+      const { index } = createIndexer({
+        store,
+        providers: [flash],
+        embedder: fakeEmbedder(8),
+        readPdf: async () => [""],
+        readFile: async (key) => {
+          if (key === "page-2") store.memory = { ...store.memory, ...change };
+          return files(key);
+        },
+      });
+      expect(await index(job())).toEqual({ result: "skipped" });
+      expect(flash.requests).toHaveLength(0);
+    });
+  }
+
   it("stops before reading the PDF when the run has moved on", async () => {
     const store = memoryStore(pdfMemory());
     store.isCurrent = async () => false;
@@ -464,5 +523,67 @@ describe("a scan's pages at a provider", () => {
       workersAi({ run }).extract({ system: "s", user: "u", pages: [page] })
     ).rejects.toMatchObject({ kind: "unsupported" });
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("Gemini's inline request limit", () => {
+  const big = {
+    bytes: new Uint8Array(PAGE_IMAGE.maxBytes * 2),
+    mime: "image/jpeg",
+  };
+  const pages = Array.from({ length: 30 }, () => big);
+
+  it("is never passed: an oversized scan is refused before it is sent, and costs nothing", async () => {
+    const fetch = vi.fn();
+    const flash = gemini({
+      apiKey: "k",
+      paidTier: true,
+      fetch: fetch as never,
+    });
+    const error = await flash
+      .extract({ system: "s", user: "u", pages })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ kind: "unsupported", estimate: undefined });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("is never passed by the embedding call either", async () => {
+    const fetch = vi.fn();
+    const embedder = geminiEmbedding({
+      apiKey: "k",
+      paidTier: true,
+      fetch: fetch as never,
+    });
+    const error = await embedder
+      .embed(pages.map((image) => ({ image })))
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ kind: "unsupported", estimate: undefined });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("takes 30 pages at the most each page image may be", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: "{}" }] } }],
+          })
+        )
+    );
+    const flash = gemini({
+      apiKey: "k",
+      paidTier: true,
+      fetch: fetch as never,
+    });
+    const page = {
+      bytes: new Uint8Array(PAGE_IMAGE.maxBytes),
+      mime: "image/jpeg",
+    };
+    await flash.extract({
+      system: "s",
+      user: "u".repeat(INDEXING.maxInputChars),
+      pages: Array.from({ length: 30 }, () => page),
+    });
+    expect(fetch).toHaveBeenCalledOnce();
   });
 });

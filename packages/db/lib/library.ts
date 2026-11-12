@@ -915,7 +915,9 @@ export function openLibrary(
     /**
      * AI opt-out on: what Indexing found is deleted and the Memory is
      * Searchable by its own text at once; any Indexing under way is dropped
-     * (a new run). Off: Indexing again, as a new run; the caller enqueues it.
+     * (a new run). A PDF's text came from Workers AI (toMarkdown), so it
+     * goes too, leaving its file name and Capture note. Off: Indexing
+     * again, as a new run; the caller enqueues it.
      */
     async setAiOptOut(id: string, on: boolean): Promise<Memory | undefined> {
       await db.transaction(async (tx) => {
@@ -929,6 +931,7 @@ export function openLibrary(
                   indexError: null,
                   indexRun: sql`${memory.indexRun} + 1`,
                   language: null,
+                  body: sql`case when ${memory.kind} = 'pdf' then null else ${memory.body} end`,
                 }
               : { aiOptOut: false, ...restartIndexing }
           )

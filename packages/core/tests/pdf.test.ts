@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   FREE_ALLOWANCE,
+  INDEXING,
   indexedPages,
+  PAGE_IMAGE,
   isPartlyIndexed,
   PdfCapture,
   PdfScanOutput,
@@ -52,5 +54,15 @@ describe("PDF Capture", () => {
       pages: [" Total 12.00 ", "Thank you"],
     });
     expect(out.pages).toEqual(["Total 12.00", "Thank you"]);
+  });
+});
+
+describe("page images and Gemini's inline limit", () => {
+  it("lets every Indexed page go in one request, base64 and all, with room for the text", () => {
+    const base64 = (bytes: number) => Math.ceil(bytes / 3) * 4;
+    const pages = FREE_ALLOWANCE.pdfPagesIndexed * base64(PAGE_IMAGE.maxBytes);
+    // The prompt, the Memory's text (cut to maxInputChars) and the JSON around it.
+    const text = 4 * INDEXING.maxInputChars + 64 * 1024;
+    expect(pages + text).toBeLessThanOrEqual(INDEXING.inlineRequestBytes * 0.9);
   });
 });

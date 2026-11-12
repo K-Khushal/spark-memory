@@ -272,4 +272,78 @@ describe.skipIf(!databaseUrl)("PDF Memories", () => {
       part: { kind: "field", field: "text", page: 2 },
     });
   });
+
+  /** A stored, Indexed PDF with `body` as its text and `ocr` as a scan's. */
+  async function indexed(
+    {
+      body,
+      ocr = "",
+      pages = 30,
+    }: { body?: string; ocr?: string; pages?: number },
+    vectors: { kind: "overview" | "passage"; embedding: number[] }[] = []
+  ) {
+    const memory = await stored(pdf(pages, { title: "Field guide" }));
+    const loaded = (await store().load(memory.id))!;
+    const claim = { ...loaded, memoryId: memory.id };
+    if (body) await store().savePdfText(claim, body);
+    await store().complete(
+      claim,
+      { output: found({ ocrText: ocr }), model: "fake" },
+      { model: MODEL, dimensions: DIMS, revision: loaded.revision, vectors }
+    );
+    return memory.id;
+  }
+
+  /** 30 pages of about 1,000 characters, `word` only on `page`. */
+  const filler = (word: string, page: number) =>
+    Array.from(
+      { length: 30 },
+      (_, i) =>
+        `${"meadow grass and hedgerow ".repeat(40)}${i + 1 === page ? word : ""}`
+    ).join("\f");
+
+  it("finds a word far into a PDF's text, and says its page", async () => {
+    const id = await indexed({ body: filler("kingfisher", 25) });
+    const [hit] = await library().search("kingfisher");
+    expect(hit).toMatchObject({
+      id,
+      part: { kind: "field", field: "text", page: 25 },
+    });
+  });
+
+  it("finds a word far into a scan's text, and says its page", async () => {
+    const id = await indexed({ ocr: filler("woodpecker", 25) });
+    const [hit] = await library().search("woodpecker");
+    expect(hit).toMatchObject({
+      id,
+      part: { kind: "field", field: "ocr", page: 25 },
+    });
+  });
+
+  it("keeps only its file name and Capture note once AI opt-out is on: its text and vectors go", async () => {
+    const id = await indexed(
+      { body: "Badgers sett by the old oak", pages: 1 },
+      [{ kind: "overview", embedding: axis(710) }]
+    );
+    expect((await library().search("badgers")).map((m) => m.id)).toContain(id);
+    const opted = await library().setAiOptOut(id, true);
+    expect(opted).toMatchObject({
+      aiOptOut: true,
+      body: null,
+      hasVectors: false,
+    });
+    expect((await library().search("badgers")).map((m) => m.id)).not.toContain(
+      id
+    );
+    expect((await library().search("field guide")).map((m) => m.id)).toContain(
+      id
+    );
+    const { rows } = await db.execute(
+      sql`select count(*)::int as n from memory_vector where memory_id = ${id}`
+    );
+    expect(rows[0]).toEqual({ n: 0 });
+    // Off again: Indexing reads the PDF afresh.
+    const back = await library().setAiOptOut(id, false);
+    expect(back).toMatchObject({ indexState: "indexing", body: null });
+  });
 });

@@ -6,8 +6,30 @@ ALTER TABLE "memory_file" ADD COLUMN "pages" integer;--> statement-breakpoint
 ALTER TABLE "memory_file" DROP CONSTRAINT "memory_file_memory_id_role_pk";--> statement-breakpoint
 ALTER TABLE "memory_file" ADD CONSTRAINT "memory_file_memory_id_role_page_pk" PRIMARY KEY("memory_id","role","page");--> statement-breakpoint
 
--- As 0016, plus a PDF: a word in its text (the PDF's own, kept in body) is
--- "text"; else what a scan's pages or Indexing said (ocr, description).
+-- The first page (1, 2…) of `p_doc` holding a word of `p_query`, reading
+-- up to 100,000 characters (all a PDF keeps) with pages apart by form
+-- feeds; it stops at the first page that matches. 0 when the text matches
+-- but has no page breaks (the page is unknown); null when nothing matches.
+CREATE FUNCTION text_page(p_config regconfig, p_doc text, p_query tsquery) RETURNS integer
+LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  pages text[];
+BEGIN
+  IF p_doc IS NULL OR p_query IS NULL THEN RETURN NULL; END IF;
+  pages := string_to_array(left(p_doc, 100000), chr(12));
+  IF array_length(pages, 1) = 1 THEN
+    RETURN CASE WHEN text_matches(p_config, pages[1], p_query) THEN 0 END;
+  END IF;
+  FOR i IN 1 .. array_length(pages, 1) LOOP
+    IF text_matches(p_config, pages[i], p_query) THEN RETURN i; END IF;
+  END LOOP;
+  RETURN NULL;
+END $$;
+--> statement-breakpoint
+
+-- As 0016, but a word in a PDF's text or a scan's is "pdf": pdf_part says
+-- which, and on which page, reading every page it keeps (not only the
+-- first 20,000 characters, which a long PDF passes by page 10 or so).
 CREATE OR REPLACE FUNCTION matched_field(p_memory memory, p_query tsquery) RETURNS text
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
@@ -24,41 +46,41 @@ BEGIN
   END IF;
   IF NOT ts_filter(p_memory.search_tsv, '{c}') @@ p_query THEN RETURN NULL; END IF;
   IF p_memory.kind = 'text' THEN RETURN 'text'; END IF;
-  IF p_memory.kind IN ('link', 'pdf')
-    AND text_matches(cfg, left(p_memory.body, 20000), p_query) THEN RETURN 'text'; END IF;
-  IF p_memory.kind = 'link' THEN RETURN 'description'; END IF;
+  IF p_memory.kind = 'pdf' THEN RETURN 'pdf'; END IF;
+  IF p_memory.kind = 'link' THEN
+    RETURN CASE WHEN text_matches(cfg, left(p_memory.body, 20000), p_query)
+      THEN 'text' ELSE 'description' END;
+  END IF;
   SELECT i.ocr_text INTO ocr FROM memory_index i WHERE i.memory_id = p_memory.id;
   RETURN CASE WHEN text_matches(cfg, left(ocr, 20000), p_query)
     THEN 'ocr' ELSE 'description' END;
 END $$;
 --> statement-breakpoint
 
--- The first page (1, 2…) of a PDF whose text, or a scan's text (`p_field`
--- 'text' or 'ocr'), holds a word of `p_query`: pages are apart by form
--- feeds. Null for any other Memory or field, or text with no page breaks.
-CREATE FUNCTION pdf_page(p_memory memory, p_field text, p_query tsquery) RETURNS integer
+-- What matched in a PDF's text, when matched_field says "pdf": its own
+-- text, else a scan's (ocr), else what Indexing said (description), with
+-- the page the word is on when its pages are known. Each text is read once.
+CREATE FUNCTION pdf_part(p_memory memory, p_query tsquery) RETURNS jsonb
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
-  doc text;
-  page integer;
+  cfg regconfig := search_config(p_memory.language);
+  ocr text;
+  page integer := text_page(cfg, p_memory.body, p_query);
 BEGIN
-  IF p_memory.kind <> 'pdf' OR p_query IS NULL THEN RETURN NULL; END IF;
-  IF p_field = 'text' THEN doc := p_memory.body;
-  ELSIF p_field = 'ocr' THEN
-    SELECT i.ocr_text INTO doc FROM memory_index i WHERE i.memory_id = p_memory.id;
-  ELSE RETURN NULL;
+  IF page IS NOT NULL THEN
+    RETURN jsonb_strip_nulls(jsonb_build_object(
+      'kind', 'field', 'field', 'text', 'page', nullif(page, 0)));
   END IF;
-  IF doc IS NULL OR position(chr(12) in doc) = 0 THEN RETURN NULL; END IF;
-  SELECT p.n INTO page
-  FROM unnest(string_to_array(left(doc, 100000), chr(12))) WITH ORDINALITY AS p(text, n)
-  WHERE text_matches(search_config(p_memory.language), p.text, p_query)
-  ORDER BY p.n LIMIT 1;
-  RETURN page;
+  SELECT i.ocr_text INTO ocr FROM memory_index i WHERE i.memory_id = p_memory.id;
+  page := text_page(cfg, ocr, p_query);
+  RETURN jsonb_strip_nulls(jsonb_build_object('kind', 'field',
+    'field', CASE WHEN page IS NULL THEN 'description' ELSE 'ocr' END,
+    'page', nullif(page, 0)));
 END $$;
 --> statement-breakpoint
 
 -- As 0013, except a Visual vector's part carries its anchor: the page of a
--- PDF it is the image of, and a word in a PDF's text says its page.
+-- PDF it is the image of, and a word in a PDF's text says its page (pdf_part).
 -- Passages already carry theirs (now with a page).
 CREATE OR REPLACE FUNCTION search_memories(
   p_user_id text,
@@ -200,8 +222,8 @@ AS $$
       -- A PDF page's Visual says which page.
       WHEN f.best = 'vector'
         THEN jsonb_build_object('kind', v.kind) || coalesce(v.anchor, '{}')
-      ELSE jsonb_strip_nulls(jsonb_build_object('kind', 'field', 'field',
-        w.field, 'page', pdf_page(m, w.field, w.query)))
+      WHEN w.field = 'pdf' THEN pdf_part(m, w.query)
+      ELSE jsonb_strip_nulls(jsonb_build_object('kind', 'field', 'field', w.field))
     END AS part
   FROM fused f
   JOIN memory m ON m.id = f.id AND m.user_id = p_user_id

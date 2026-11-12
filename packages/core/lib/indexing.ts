@@ -46,6 +46,11 @@ export const INDEXING = {
   scanCharsPerPage: 100,
   /** Longest wait for a PDF's text (Workers AI `toMarkdown`). */
   pdfTextTimeoutMs: 30_000,
+  /**
+   * The most one Gemini request may carry inline (20 MB, images base64).
+   * A bigger one is refused before it is sent, as unsupported.
+   */
+  inlineRequestBytes: 20_000_000,
   /** Output room for a scan's text, page by page: about 2,000 characters a page. */
   scanMaxOutputTokens: 16_384,
 } as const;
