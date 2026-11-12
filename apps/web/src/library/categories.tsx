@@ -98,7 +98,10 @@ export function CategoryEditor({
         }
       }}
     >
-      <summary className="flex min-h-8 cursor-pointer items-center justify-between gap-2 rounded-chip focus-visible:outline-2 focus-visible:outline-ring">
+      <summary
+        aria-label={`Categories: ${memory.categories.join(", ")}`}
+        className="flex min-h-8 cursor-pointer items-center justify-between gap-2 rounded-chip focus-visible:outline-2 focus-visible:outline-ring"
+      >
         <span className="min-w-0">{memory.categories.join(", ")}</span>
         <ChevronDownIcon
           aria-hidden
@@ -110,7 +113,11 @@ export function CategoryEditor({
           <FilterChip
             key={name}
             aria-pressed={selected.includes(name)}
+            aria-disabled={
+              !selected.includes(name) && selected.length >= MAX_CATEGORIES
+            }
             disabled={state === "saving"}
+            className="aria-disabled:opacity-50"
             onClick={() => toggle(name)}
           >
             {name}

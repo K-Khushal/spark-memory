@@ -100,3 +100,4 @@ export {
   JevChoiceReply,
   MAX_CATEGORIES,
 } from "./lib/categories";
+export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";

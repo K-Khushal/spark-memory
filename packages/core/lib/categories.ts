@@ -10,7 +10,7 @@ export const CATEGORY_NAMES = [
   "Product",
   "Recipe",
   "Place",
-  "Receipt Or Document",
+  "Receipt or Document",
   "Code",
   "Tutorial",
   "Quote",
@@ -36,6 +36,12 @@ export const Categories = z
  * (Jev is off until the owner enables it; see docs/research/jev.md).
  */
 export const CATEGORISING = {
+  /**
+   * Bump it whenever the thresholds, the prototype sentences or the Jev
+   * question change: every unlocked Memory is then categorised again, a few
+   * at a time by the hourly sweep, inside the daily budget.
+   */
+  version: 1,
   jevThreshold: 0.2,
   embeddingThreshold: 0.45,
   /** A Category's name read as its prototype for the fallback. */
@@ -49,7 +55,7 @@ export const CATEGORISING = {
     Product: "A product to buy or a shop listing",
     Recipe: "A recipe with ingredients and cooking steps",
     Place: "A place to visit: a restaurant, hotel, city or landmark",
-    "Receipt Or Document": "A receipt, invoice, form or official document",
+    "Receipt or Document": "A receipt, invoice, form or official document",
     Code: "Source code, a repository or a programming reference",
     Tutorial: "A tutorial or guide that teaches how to do something",
     Quote: "A quote or saying",

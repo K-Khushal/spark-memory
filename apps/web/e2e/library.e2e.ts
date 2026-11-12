@@ -208,6 +208,11 @@ test("change a Memory's Categories, then filter the Library by them", async ({
   const categories = page.getByRole("navigation", { name: "Categories" });
   await categories.getByRole("button", { name: "Video" }).click();
   await expect(page.getByText("No Video Memories")).toBeVisible();
+  // Narrowed by a Category, All Memories is not the current page.
+  await expect(page.getByRole("link", { name: "All Memories" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "All Memories" })
+  ).toBeVisible();
   await categories.getByRole("button", { name: "Recipe" }).click();
   await expect(tile).toBeVisible();
 
@@ -229,4 +234,8 @@ test("change a Memory's Categories, then filter the Library by them", async ({
   await expect(page.getByRole("list", { name: "Direct Matches" })).toHaveCount(
     0
   );
+  await page.getByRole("button", { name: "All Memories" }).click();
+  await expect(
+    page.getByRole("link", { name: "All Memories" })
+  ).toHaveAttribute("aria-current", "page");
 });

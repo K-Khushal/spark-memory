@@ -12,7 +12,7 @@ const notes: [string, string[]][] = [
   ["Idea: plant watering nudges that learn the sun", ["Idea"]],
   [
     "Passport renewal appointment on the 14th, bring two photos",
-    ["Receipt Or Document"],
+    ["Receipt or Document"],
   ],
   ["“Make something people want.”", ["Quote"]],
   ["Debounce in TypeScript with a trailing call", ["Code", "Tutorial"]],

@@ -152,8 +152,15 @@
     {
       "idx": 21,
       "version": "7",
+      "when": 1794481000000,
+      "tag": "0021_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
       "when": 1794490000000,
-      "tag": "0021_categories",
+      "tag": "0022_categories",
       "breakpoints": true
     }
   ]

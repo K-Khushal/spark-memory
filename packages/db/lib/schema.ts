@@ -129,6 +129,7 @@ export const memory = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    sample: boolean("sample").default(false).notNull(),
     kind: text("kind").$type<MemoryKind>().notNull(),
     title: text("title"),
     /** The text of a text Memory. */
@@ -141,6 +142,8 @@ export const memory = pgTable(
       .notNull(),
     categoriesLocked: boolean("categories_locked").default(false).notNull(),
     categoriesRevision: integer("categories_revision"),
+    /** `CATEGORISING.version` of the categoriser that chose them; null before any did. */
+    categoriesVersion: integer("categories_version"),
     /**
      * SHA-256 (hex) of the Preserved copy: a file Memory's file, a link's
      * readable text. Unique per person among links.
@@ -498,4 +501,22 @@ export const libraryExport = pgTable("library_export", {
 export const objectRemoval = pgTable("object_removal", {
   key: text("key").primaryKey(),
   dueAt: instant("due_at"),
+});
+
+/** First-run state belongs to the person, across devices. */
+export const onboarding = pgTable("onboarding", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  step: text("step")
+    .$type<
+      "disclosure" | "extension" | "capture" | "indexing" | "search" | "done"
+    >()
+    .default("disclosure")
+    .notNull(),
+  paused: boolean("paused").default(false).notNull(),
+  samplesSeeded: boolean("samples_seeded").default(false).notNull(),
+  firstSuccessfulSearchAt: timestamp("first_successful_search_at", {
+    withTimezone: true,
+  }),
 });

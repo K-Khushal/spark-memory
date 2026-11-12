@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
   CATEGORISING,
   CATEGORY_NAMES,
@@ -116,6 +116,7 @@ describe.skipIf(!url)("Categories", () => {
           categories: schema.memory.categories,
           locked: schema.memory.categoriesLocked,
           categoriesRevision: schema.memory.categoriesRevision,
+          categoriesVersion: schema.memory.categoriesVersion,
           revision: schema.memory.revision,
           vectorsRevision: schema.memory.vectorsRevision,
           run: schema.memory.indexRun,
@@ -387,6 +388,41 @@ describe.skipIf(!url)("Categories", () => {
       ).toBe(false);
       expect((await row(m.id)).categories).toEqual(["Place"]);
     });
+  });
+
+  it("categorises every unlocked Memory again when the categoriser's version changes", async () => {
+    const auto = await capture("Lemon tart");
+    const chosen = await capture("Lemon tart");
+    const embed = embedder();
+    await indexer(embed)(job(auto.id, 1));
+    await indexer(embed)(job(chosen.id, 1));
+    await library().edit(chosen.id, { categories: ["Quote"] });
+    expect(await row(auto.id)).toMatchObject({
+      categoriesVersion: CATEGORISING.version,
+    });
+    const space = embeddingSpace(embed.model, embed.dimensions);
+    const store = indexingStore(db);
+    const due = async () =>
+      (await store.staleVectors(space, 500)).map((s) => s.id);
+    expect(await due()).not.toContain(auto.id);
+
+    // An older categoriser made them: the thresholds or prototypes changed since.
+    await db
+      .update(schema.memory)
+      .set({ categoriesVersion: CATEGORISING.version - 1 })
+      .where(inArray(schema.memory.id, [auto.id, chosen.id]));
+    expect(await due()).toContain(auto.id);
+    expect(await due()).not.toContain(chosen.id);
+
+    embed.texts.length = 0;
+    await indexer(embed, jev({ Tutorial: 0.7 }))(job(auto.id, 1, "embed"));
+    expect(embed.texts.some((t) => /lemon/i.test(t))).toBe(false);
+    expect(await row(auto.id)).toMatchObject({
+      categories: ["Tutorial"],
+      categoriesVersion: CATEGORISING.version,
+    });
+    expect(await due()).not.toContain(auto.id);
+    expect((await row(chosen.id)).categories).toEqual(["Quote"]);
   });
 
   it("takes back what a model decided on AI opt-out, keeps a user's choice, and categorises again after", async () => {

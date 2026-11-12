@@ -19,6 +19,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   indexState: "indexing",
   indexError: null,
   indexTitle: null,
+  sample: false,
   aiOptOut: false,
   hasVectors: false,
   categories: ["Other"],

@@ -72,6 +72,7 @@ const indexTitle = sql<string | null>`(
   where i.memory_id = ${memory.id} and not ${memory.aiOptOut})`;
 
 const baseColumns = {
+  sample: memory.sample,
   id: memory.id,
   kind: memory.kind,
   title: memory.title,
@@ -260,6 +261,7 @@ export type SearchOptions = {
   maxDistance?: number;
   kinds?: Memory["kind"][];
   categories?: Category[];
+  excludeSamples?: boolean;
 };
 
 export type EditResult = Memory | { stale: true } | undefined;
@@ -1028,7 +1030,7 @@ export function openLibrary(
       const reindex =
         changes.body === undefined
           ? sql`false`
-          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut}`;
+          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut} and not ${memory.sample}`;
       // One transaction: new text and the end of the old text's vectors
       // (they would match it, and point into the new text) land together.
       const row = await db.transaction(async (tx) => {
@@ -1142,8 +1144,13 @@ export function openLibrary(
                   // (ADR-0011); a user's own choice stays.
                   categories: sql`case when ${memory.categoriesLocked} then ${memory.categories} else '{Other}'::text[] end`,
                   categoriesRevision: sql`case when ${memory.categoriesLocked} then ${memory.categoriesRevision} else null end`,
+                  categoriesVersion: sql`case when ${memory.categoriesLocked} then ${memory.categoriesVersion} else null end`,
                 }
-              : { aiOptOut: false, ...restartIndexing }
+              : {
+                  aiOptOut: false,
+                  ...restartIndexing,
+                  indexState: sql`case when ${memory.sample} then 'searchable' else 'indexing' end`,
+                }
           )
           .where(and(owned(id), eq(memory.aiOptOut, !on)))
           .returning({ id: memory.id });
@@ -1201,6 +1208,7 @@ export function openLibrary(
         .where(
           and(
             eq(memory.userId, userId),
+            eq(memory.sample, false),
             allStored,
             after && UUID.test(after) ? sql`${memory.id} > ${after}` : undefined
           )
@@ -1222,6 +1230,7 @@ export function openLibrary(
         maxDistance = EMBEDDING.maxDistance,
         kinds,
         categories,
+        excludeSamples = false,
       }: SearchOptions = {}
     ): Promise<SearchResult[]> {
       if (!query.trim() && !probe) return [];
@@ -1252,7 +1261,13 @@ export function openLibrary(
         })
         .from(hits)
         .innerJoin(memory, eq(memory.id, hits.id))
-        .where(and(eq(memory.userId, userId), allStored))
+        .where(
+          and(
+            eq(memory.userId, userId),
+            allStored,
+            excludeSamples ? eq(memory.sample, false) : undefined
+          )
+        )
         .orderBy(desc(hits.score), asc(hits.id));
     },
   };

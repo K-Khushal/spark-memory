@@ -1,5 +1,6 @@
 import { and, eq, lt, sql } from "drizzle-orm";
 import {
+  CATEGORISING,
   EMBEDDING,
   Categories,
   embeddingSpace,
@@ -89,12 +90,12 @@ async function replaceVectors(
 }
 
 /** Searchable, AI allowed, and Indexing found something to embed. */
-const embeddable = sql`${memory.indexState} = 'searchable' and not ${memory.aiOptOut} and exists (select 1 from memory_index i where i.memory_id = ${memory.id})`;
+const embeddable = sql`${memory.indexState} = 'searchable' and not ${memory.sample} and not ${memory.aiOptOut} and exists (select 1 from memory_index i where i.memory_id = ${memory.id})`;
 /** Vectors missing, from another model or size, or from an older revision. */
 const vectorsStaleIn = (space: string) =>
   sql`(${memory.vectorsSpace} is distinct from ${space} or ${memory.vectorsRevision} is distinct from ${memory.revision})`;
-/** Not locked by the user, and not yet categorised at this revision. */
-const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and ${memory.categoriesRevision} is distinct from ${memory.revision})`;
+/** Not locked by the user, and not categorised at this revision by this version of the categoriser. */
+const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version}))`;
 /** What the hourly sweep and `embed` jobs pick up: vectors or Categories to make. */
 const workDueIn = (space: string) =>
   sql`(${vectorsStaleIn(space)} or ${categoriesStale})`;
@@ -113,6 +114,7 @@ const lease = () => ({
 /** The row a message names, as far as it names it: only for taking work, never to write a result. */
 const named = ({ memoryId, run, generation }: IndexMessageTarget) =>
   and(
+    eq(memory.sample, false),
     eq(memory.id, memoryId),
     run === undefined ? undefined : eq(memory.indexRun, run),
     generation === undefined
@@ -125,6 +127,7 @@ const named = ({ memoryId, run, generation }: IndexMessageTarget) =>
  */
 const claimed = ({ memoryId, userId, generation, run }: Claim) =>
   and(
+    eq(memory.sample, false),
     eq(memory.id, memoryId),
     eq(memory.userId, userId),
     eq(memory.indexGeneration, generation),
@@ -235,7 +238,11 @@ export function indexingStore(db: Database) {
       const categories = Categories.parse(input);
       const rows = await db
         .update(memory)
-        .set({ categories, categoriesRevision: revision })
+        .set({
+          categories,
+          categoriesRevision: revision,
+          categoriesVersion: CATEGORISING.version,
+        })
         .where(
           and(
             claimed(claim),
@@ -701,6 +708,7 @@ export function indexingStore(db: Database) {
         .from(memory)
         .where(
           and(
+            eq(memory.sample, false),
             eq(memory.indexState, "indexing"),
             lt(
               memory.updatedAt,

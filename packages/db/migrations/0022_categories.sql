@@ -1,10 +1,11 @@
 ALTER TABLE memory ADD COLUMN categories text[] NOT NULL DEFAULT '{Other}',
   ADD COLUMN categories_locked boolean NOT NULL DEFAULT false,
-  ADD COLUMN categories_revision integer;
+  ADD COLUMN categories_revision integer,
+  ADD COLUMN categories_version integer;
 --> statement-breakpoint
 ALTER TABLE memory ADD CONSTRAINT memory_categories_valid CHECK (
   cardinality(categories) BETWEEN 1 AND 3 AND array_position(categories, NULL) IS NULL
-  AND categories <@ ARRAY['Article','Video','Social Post','Design Reference','Screenshot','Product','Recipe','Place','Receipt Or Document','Code','Tutorial','Quote','Idea','Other']::text[]
+  AND categories <@ ARRAY['Article','Video','Social Post','Design Reference','Screenshot','Product','Recipe','Place','Receipt or Document','Code','Tutorial','Quote','Idea','Other']::text[]
 );
 --> statement-breakpoint
 CREATE INDEX memory_categories_idx ON memory USING gin(categories);

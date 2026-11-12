@@ -13,6 +13,7 @@ import { authClient, endSession, type AppSession } from "../auth";
 import { ShareTarget } from "../pwa/share-target";
 import { DeskSearchField, DeskSidebar, focusDeskControl } from "../shell";
 import { productMetrics } from "./product-metrics";
+import { Onboarding, recordActivation } from "./onboarding";
 import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
 import { LibraryOverlaysHost } from "./overlays-host";
 import { pdfMatch, type PdfMatch } from "./pdf-match";
@@ -41,6 +42,7 @@ export function LibraryPage({
   );
   const { desk } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
+  const [activationVersion, setActivationVersion] = useState(0);
   const [searchOpen, setSearchOpen] = useState(desk === "search");
   const [overlaysEpoch, setOverlaysEpoch] = useState(0);
   const [overlaysDown, setOverlaysDown] = useState(false);
@@ -125,7 +127,20 @@ export function LibraryPage({
       });
     } else setOpenId(memory.id);
   };
+  const activate = (id: string) => {
+    void recordActivation(id).then((ok) => {
+      if (ok) setActivationVersion((v) => v + 1);
+    });
+  };
   const openMemory = (memory: Memory) => {
+    if (
+      query.trim() &&
+      results &&
+      results !== "failed" &&
+      results.key === `q:${query}` &&
+      [...results.direct, ...results.related].some((m) => m.id === memory.id)
+    )
+      activate(memory.id);
     metrics.found();
     reveal(memory);
   };
@@ -136,6 +151,13 @@ export function LibraryPage({
         related: instant.related.length,
       });
     }
+    if (
+      draft.trim() &&
+      instant &&
+      instant !== "failed" &&
+      [...instant.direct, ...instant.related].some((m) => m.id === memory.id)
+    )
+      activate(memory.id);
     reveal(memory, draft);
   };
   const captureFiles = (files: File[]) => {
@@ -229,6 +251,7 @@ export function LibraryPage({
   return (
     <div className="flex min-h-dvh bg-canvas">
       <DeskSidebar
+        filtered={!!category}
         filters={<CategoryList selected={category} onChange={setCategory} />}
         email={session.user.email}
         current="library"
@@ -278,6 +301,20 @@ export function LibraryPage({
           <CategoryRow selected={category} onChange={setCategory} />
         </div>
         <h1 className="sr-only">Library</h1>
+        {library.state === "ready" && (
+          <Onboarding
+            activationVersion={activationVersion}
+            memories={library.memories}
+            refresh={library.refreshSamples}
+            onCapture={openPasteBox}
+            onOpen={reveal}
+            onSearch={(q) => {
+              openSearch();
+              setDraft(q);
+            }}
+          />
+        )}
+
         {library.state === "failed" ? (
           <Centred title="Library Is Unreachable">
             <Button variant="outline" onClick={library.retry}>
