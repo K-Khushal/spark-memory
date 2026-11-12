@@ -105,7 +105,9 @@ export function DeskSidebar({
   searchLabel = "Search",
   searchActive = false,
   onClearSearch,
+  filters,
 }: {
+  filters?: ReactNode;
   email: string;
   current: "library" | "admin" | "settings";
   admin: boolean;
@@ -169,7 +171,8 @@ export function DeskSidebar({
           )}
         </ul>
       </nav>
-      <div className="mt-auto flex flex-col gap-1">
+      {filters}
+      <div className="mt-auto flex shrink-0 flex-col gap-1">
         <DeskNavLink to="/settings" current={current === "settings"}>
           <SettingsIcon aria-hidden /> Settings
         </DeskNavLink>

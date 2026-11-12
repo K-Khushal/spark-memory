@@ -319,6 +319,8 @@ export function libraryActions({
       indexTitle: null,
       aiOptOut: false,
       hasVectors: false,
+      categories: ["Other"],
+      categoriesLocked: false,
       revision: 1,
       capturedAt: now,
       lastSavedAt: now,

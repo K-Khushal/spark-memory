@@ -243,3 +243,15 @@ describe("shownAnswer", () => {
     expect(shownAnswer(hits("q:tea"), undefined, true)).toBeUndefined();
   });
 });
+
+describe("requestKey", () => {
+  it("tells the same words apart by Category", async () => {
+    const { requestKey } = await import("./search-session");
+    expect(requestKey({ query: "tart" })).not.toBe(
+      requestKey({ query: "tart", category: "Recipe" })
+    );
+    expect(requestKey({ query: "tart", category: "Recipe" })).not.toBe(
+      requestKey({ query: "tart", category: "Video" })
+    );
+  });
+});

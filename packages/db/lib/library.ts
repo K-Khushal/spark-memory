@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   EMBEDDING,
+  type Category,
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
@@ -79,6 +80,8 @@ const baseColumns = {
   preservation: memory.preservation,
   indexState: memory.indexState,
   revision: memory.revision,
+  categories: memory.categories,
+  categoriesLocked: memory.categoriesLocked,
   /** For queue messages only; routes leave these out of answers. */
   indexRun: memory.indexRun,
   indexGeneration: memory.indexGeneration,
@@ -256,6 +259,7 @@ export type SearchOptions = {
   probe?: VectorProbe;
   maxDistance?: number;
   kinds?: Memory["kind"][];
+  categories?: Category[];
 };
 
 export type EditResult = Memory | { stale: true } | undefined;
@@ -1016,6 +1020,9 @@ export function openLibrary(
     ): Promise<EditResult> {
       const changes = MemoryEdit.parse(input);
       if (Object.keys(changes).length === 0) return get(id);
+      // Categories are not text: choosing them leaves the revision, and so
+      // the vectors, alone. A choice locks them (GLOSSARY.md).
+      const textChanged = Object.keys(changes).some((k) => k !== "categories");
       const reindex =
         changes.body === undefined
           ? sql`false`
@@ -1027,7 +1034,8 @@ export function openLibrary(
           .update(memory)
           .set({
             ...changes,
-            revision: sql`${memory.revision} + 1`,
+            ...(changes.categories && { categoriesLocked: true }),
+            ...(textChanged && { revision: sql`${memory.revision} + 1` }),
             indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
             indexRun: sql`${memory.indexRun} + (${reindex})::int`,
             indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
@@ -1207,6 +1215,7 @@ export function openLibrary(
         probe,
         maxDistance = EMBEDDING.maxDistance,
         kinds,
+        categories,
       }: SearchOptions = {}
     ): Promise<SearchResult[]> {
       if (!query.trim() && !probe) return [];
@@ -1224,7 +1233,7 @@ export function openLibrary(
             part: sql<MatchedPart>`part`.as("part"),
           })
           .from(
-            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[])`
+            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[], ${categories?.length ? `{${categories.join(",")}}` : null}::text[])`
           )
       );
       return db

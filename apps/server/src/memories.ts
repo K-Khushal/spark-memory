@@ -4,6 +4,7 @@ import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
 import {
   AiOptOut,
+  Category,
   EMBEDDING,
   embeddingSpace,
   FREE_ALLOWANCE,
@@ -456,6 +457,9 @@ export const memories = new Hono<AppEnv>()
    * whether it is a Direct or Related Match and which part matched.
    */
   .get("/search", async (c) => {
+    const categories = categoryFilter(c.req.query("categories"));
+    if (categories === false)
+      return c.json({ ok: false, error: "invalid" } as const, 400);
     const q = (c.req.query("q") ?? "").slice(0, MAX_QUERY_CHARS);
     const mode = c.req.query("mode") === "full" ? "full" : "instant";
     const results = await searchFor(
@@ -463,7 +467,7 @@ export const memories = new Hono<AppEnv>()
       c.var.db,
       c.var.user.id,
       c.var.library
-    ).search(q, mode);
+    ).search(q, mode, { categories });
     return c.json({
       // "instant" when full mode fell back (no embedder, budget, provider).
       mode: results.mode,
@@ -488,3 +492,12 @@ export const memories = new Hono<AppEnv>()
       results: await Promise.all(results.map((m) => forClient(c.var.files, m))),
     });
   });
+
+/** `?categories=A,B`: a hard filter, applied inside each SQL leg before its limit. */
+function categoryFilter(
+  raw: string | undefined
+): Category[] | undefined | false {
+  if (raw === undefined) return undefined;
+  const parsed = raw.split(",").map((name) => Category.safeParse(name));
+  return parsed.every((p) => p.success) ? parsed.map((p) => p.data!) : false;
+}

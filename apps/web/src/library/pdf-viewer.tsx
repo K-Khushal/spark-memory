@@ -1,3 +1,4 @@
+import { CategoryEditor, type CategoryEdit } from "./categories";
 import {
   useEffect,
   useRef,
@@ -63,6 +64,7 @@ export function PdfViewer({
   onRetry,
   onRetryIndexing,
   onAiOptOut,
+  onCategories,
   onMoreLikeThis,
 }: {
   memory: WallMemory | undefined;
@@ -71,7 +73,7 @@ export function PdfViewer({
   onDelete: (memory: WallMemory) => void;
   onRetry: (id: string) => void;
   onMoreLikeThis: (memory: WallMemory) => void;
-} & IndexingProps) {
+} & IndexingProps & { onCategories?: CategoryEdit }) {
   return (
     <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
       {memory && (
@@ -83,6 +85,7 @@ export function PdfViewer({
           onDelete={onDelete}
           onRetry={onRetry}
           onRetryIndexing={onRetryIndexing}
+          onCategories={onCategories}
           onAiOptOut={onAiOptOut}
           onMoreLikeThis={onMoreLikeThis}
         />
@@ -99,6 +102,7 @@ function Viewer({
   onRetry,
   onRetryIndexing,
   onAiOptOut,
+  onCategories,
   onMoreLikeThis,
 }: {
   memory: WallMemory;
@@ -107,7 +111,7 @@ function Viewer({
   onDelete: (memory: WallMemory) => void;
   onRetry: (id: string) => void;
   onMoreLikeThis: (memory: WallMemory) => void;
-} & IndexingProps) {
+} & IndexingProps & { onCategories?: CategoryEdit }) {
   const scroller = useRef<HTMLDivElement>(null);
   const { pages, reload } = usePages(memory);
   // Signed URLs expire: a page that fails asks for new ones, once.
@@ -191,6 +195,11 @@ function Viewer({
               onSelect={onMoreLikeThis}
               compact
               className="h-11"
+            />
+            <CategoryEditor
+              key={memory.id}
+              memory={memory}
+              onSave={onCategories}
             />
             <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
             {memory.image && !memory.upload && (

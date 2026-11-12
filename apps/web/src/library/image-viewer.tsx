@@ -1,3 +1,4 @@
+import { CategoryEditor, type CategoryEdit } from "./categories";
 import { restoreLibraryFocus } from "./focus";
 import { useState, type KeyboardEvent } from "react";
 import {
@@ -37,6 +38,7 @@ export function ImageViewer({
   onBroken,
   onRetryIndexing,
   onAiOptOut,
+  onCategories,
   onMoreLikeThis,
 }: {
   /** The image Memories in wall order. */
@@ -48,7 +50,7 @@ export function ImageViewer({
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onMoreLikeThis: (memory: WallMemory) => void;
-} & IndexingProps) {
+} & IndexingProps & { onCategories?: CategoryEdit }) {
   const index = memories.findIndex((m) => m.id === openId);
   const memory = memories[index];
   const [direction, setDirection] = useState(0);
@@ -160,6 +162,11 @@ export function ImageViewer({
                   onSelect={onMoreLikeThis}
                   compact
                   className="h-11"
+                />
+                <CategoryEditor
+                  key={memory.id}
+                  memory={memory}
+                  onSave={onCategories}
                 />
                 <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
                 <Button

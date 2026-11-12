@@ -1,4 +1,4 @@
-import { EMBEDDING } from "@spark/core";
+import { EMBEDDING, type Category } from "@spark/core";
 import {
   embedCostMicros,
   ProviderError,
@@ -99,7 +99,7 @@ export function createSearch<R extends Hit>({
   /** The Library's hybrid search. */
   find: (
     query: string,
-    options: { probe?: Probe; maxDistance: number }
+    options: { probe?: Probe; maxDistance: number; categories?: Category[] }
   ) => Promise<R[]>;
   embedder?: Embedder;
   /** The budget breaker's side of the database (`indexingStore`). */
@@ -186,11 +186,12 @@ export function createSearch<R extends Hit>({
      */
     async search(
       query: string,
-      mode: Mode
+      mode: Mode,
+      filters: { categories?: Category[] } = {}
     ): Promise<{ results: Ranked<R>[]; mode: Mode }> {
       const q = query.trim().replace(/\s+/g, " ");
       if (!q) return { results: [], mode: "instant" };
-      const options = { maxDistance: EMBEDDING.maxDistance };
+      const options = { maxDistance: EMBEDDING.maxDistance, ...filters };
       if (mode === "full" && space) {
         // Anything wrong on the way to the vector leg (the budget, the
         // provider, the SQL with a vector) falls back to keywords.

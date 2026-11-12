@@ -17,6 +17,11 @@ import {
 } from "@spark/indexing";
 import { createSearch } from "@spark/search";
 import {
+  scoreCategories,
+  type CategoryLabels,
+  type CategoryScore,
+} from "./categories";
+import {
   readLibraryFile,
   type SampleMemory,
   type SearchCase,
@@ -39,6 +44,8 @@ export type Report = {
   memories: number;
   searches: SearchOutcome[];
   costMicros: number;
+  /** Category accuracy on the labelled Memories (evals/categories.json), when asked for. */
+  categories?: CategoryScore;
 };
 
 /**
@@ -62,6 +69,8 @@ export type RunOptions = {
   /** Memories Indexed at once: 1 keeps a paid provider's rate limits happy. */
   concurrency?: number;
   rerank?: Reranker;
+  /** Score the Categories Indexing assigns against these (evals/categories.json). */
+  categoryLabels?: CategoryLabels;
   log?: (line: string) => void;
 };
 
@@ -172,6 +181,7 @@ export async function runEvals({
   providers,
   embedder,
   concurrency = 4,
+  categoryLabels,
   rerank,
   log = () => {},
 }: RunOptions): Promise<Report> {
@@ -316,10 +326,25 @@ export async function runEvals({
       })
       .from(schema.aiCall)
       .where(eq(schema.aiCall.userId, userId));
+    let categories: CategoryScore | undefined;
+    if (categoryLabels) {
+      const rows = await db
+        .select({
+          id: schema.memory.id,
+          categories: schema.memory.categories,
+        })
+        .from(schema.memory)
+        .where(eq(schema.memory.userId, userId));
+      categories = scoreCategories(
+        categoryLabels,
+        new Map(rows.map((r) => [sampleOf.get(r.id) ?? r.id, r.categories]))
+      );
+    }
     return {
       memories: memories.length,
       searches: outcomes,
       costMicros: Number(spent?.micros ?? 0),
+      ...(categories && { categories }),
     };
   } finally {
     await db.delete(schema.user).where(eq(schema.user.id, userId));

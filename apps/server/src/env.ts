@@ -60,6 +60,15 @@ export type Bindings = {
   /** Secret: a key from a Cloud project with active billing (ADR-0005). */
   GEMINI_API_KEY?: string;
   /**
+   * Jev (ADR-0008) is OFF unless both the secret key and `JEV_ENABLED` =
+   * "true" are set, an owner decision pending TypeSafe's retention terms
+   * (docs/research/jev.md). Without it, Categories use embeddings.
+   */
+  JEV_API_KEY?: string;
+  JEV_ENABLED?: string;
+  /** Pin a Jev version (default: INDEXING.models.jev). */
+  JEV_MODEL?: string;
+  /**
    * Secret. Comma-separated owner addresses. Grants the admin role.
    * Unset means nobody is an admin. Never writable through the API.
    */

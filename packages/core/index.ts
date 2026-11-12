@@ -90,3 +90,13 @@ export {
   type VideoMetadata,
   type TranscriptSegment,
 } from "./lib/link";
+export {
+  CATEGORY_NAMES,
+  CATEGORISING,
+  Categories,
+  Category,
+  chooseCategories,
+  cosine,
+  JevChoiceReply,
+  MAX_CATEGORIES,
+} from "./lib/categories";

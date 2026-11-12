@@ -1,6 +1,7 @@
 import { and, eq, lt, sql } from "drizzle-orm";
 import {
   EMBEDDING,
+  Categories,
   embeddingSpace,
   type IndexFailure,
   type IndexingOutput,
@@ -90,8 +91,13 @@ async function replaceVectors(
 /** Searchable, AI allowed, and Indexing found something to embed. */
 const embeddable = sql`${memory.indexState} = 'searchable' and not ${memory.aiOptOut} and exists (select 1 from memory_index i where i.memory_id = ${memory.id})`;
 /** Vectors missing, from another model or size, or from an older revision. */
-const staleIn = (space: string) =>
+const vectorsStaleIn = (space: string) =>
   sql`(${memory.vectorsSpace} is distinct from ${space} or ${memory.vectorsRevision} is distinct from ${memory.revision})`;
+/** Not locked by the user, and not yet categorised at this revision. */
+const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and ${memory.categoriesRevision} is distinct from ${memory.revision})`;
+/** What the hourly sweep and `embed` jobs pick up: vectors or Categories to make. */
+const staleIn = (space: string) =>
+  sql`(${vectorsStaleIn(space)} or ${categoriesStale})`;
 
 /** Today in UTC, by the database's clock: the day the budget counts. */
 const today = sql`(now() at time zone 'utc')::date`;
@@ -222,6 +228,26 @@ export function indexingStore(db: Database) {
 
   return {
     /**
+     * Automatic Categories for the Memory at `revision`, once: never over a
+     * user's edit (Locked categories), AI opt-out, a newer revision or run.
+     */
+    async writeCategories(claim: Claim, revision: number, input: unknown) {
+      const categories = Categories.parse(input);
+      const rows = await db
+        .update(memory)
+        .set({ categories, categoriesRevision: revision })
+        .where(
+          and(
+            claimed(claim),
+            eq(memory.revision, revision),
+            eq(memory.aiOptOut, false),
+            categoriesStale
+          )
+        )
+        .returning({ id: memory.id });
+      return rows.length > 0;
+    },
+    /**
      * Takes a Memory waiting for Indexing (at `run` and `generation`, when
      * given) and leases it for LEASE_MINUTES. Undefined when it is gone, not
      * waiting, at another run or generation, or leased by another delivery
@@ -245,6 +271,7 @@ export function indexingStore(db: Database) {
           kind: memory.kind,
           run: memory.indexRun,
           revision: memory.revision,
+          categoriesStale,
           title: memory.title,
           body: memory.body,
           captureNote: memory.captureNote,
@@ -406,12 +433,15 @@ export function indexingStore(db: Database) {
           kind: memory.kind,
           run: memory.indexRun,
           revision: memory.revision,
+          categoriesStale,
+          vectorsCurrent: sql<boolean>`not ${vectorsStaleIn(space)}`,
           title: memory.title,
           body: memory.body,
           captureNote: memory.captureNote,
           transcript: linkColumns.transcript,
         });
       if (!row) return undefined;
+      const { vectorsCurrent, ...loaded } = row;
       const [found] = await db
         .select({
           title: memoryIndex.title,
@@ -423,7 +453,24 @@ export function indexingStore(db: Database) {
         .from(memoryIndex)
         .where(eq(memoryIndex.memoryId, id));
       if (!found) return undefined;
-      return { ...row, found, ...(await filesOf(id, row.kind)) };
+      // Only Categories are due: they are made from the vector already kept.
+      const [kept] = vectorsCurrent
+        ? await db
+            .select({ embedding: memoryVector.embedding })
+            .from(memoryVector)
+            .where(
+              and(
+                eq(memoryVector.memoryId, id),
+                eq(memoryVector.kind, "overview")
+              )
+            )
+        : [];
+      return {
+        ...loaded,
+        found,
+        overview: kept?.embedding,
+        ...(await filesOf(id, row.kind)),
+      };
     },
 
     /**

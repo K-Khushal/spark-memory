@@ -14,6 +14,7 @@ export const INDEXING = {
     // Standard (synchronous) paid tier; never the free tier (ADR-0005).
     gemini: "gemini-3.5-flash-lite",
     fake: "fake",
+    jev: "jev-1.14.0",
   },
   /** List prices in micro-dollars per million tokens: [input, output]. */
   pricesMicrosPerMTokens: {
@@ -21,6 +22,8 @@ export const INDEXING = {
     "gemini-3.5-flash-lite": [300_000, 2_500_000],
     // Priced too, so switching `models.gemini` to it is a one-line change.
     "gemini-3.1-flash-lite": [250_000, 1_500_000],
+    // Input only; output is free (docs/research/jev.md).
+    "jev-1.14.0": [42_000, 0],
     fake: [0, 0],
   } as Record<string, readonly [number, number]>,
   /** Global AI spend per UTC day ($1). Past it, background re-indexing waits for the next day. */

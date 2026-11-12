@@ -185,3 +185,48 @@ test("⌘K opens Search once the overlays chunk arrives", async ({ page }) => {
   release();
   await expect(page.getByPlaceholder("Search…")).toBeVisible();
 });
+
+test("change a Memory's Categories, then filter the Library by them", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await signIn(page);
+  const wall = page.getByRole("list", { name: "All Memories" });
+  const tile = wall.getByRole("listitem", { name: /Sourdough starter/ });
+  await paste(page, "Sourdough starter notes");
+  await expect(tile).toBeVisible();
+
+  await tile.click();
+  const dialog = page.getByRole("dialog");
+  await dialog.locator("summary").click();
+  await dialog.getByRole("button", { name: "Recipe", exact: true }).click();
+  await dialog.getByRole("button", { name: "Other", exact: true }).click();
+  await dialog.getByRole("button", { name: "Apply" }).click();
+  await expect(dialog.locator("summary")).toHaveText("Recipe");
+  await page.keyboard.press("Escape");
+
+  const categories = page.getByRole("navigation", { name: "Categories" });
+  await categories.getByRole("button", { name: "Video" }).click();
+  await expect(page.getByText("No Video Memories")).toBeVisible();
+  await categories.getByRole("button", { name: "Recipe" }).click();
+  await expect(tile).toBeVisible();
+
+  // The chip narrows a search on the wall as well.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("sourdough");
+  await expect(page.getByRole("option", { name: /Sourdough/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("list", { name: "Direct Matches" }).getByRole("listitem")
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "Clear Search" }).click();
+  await categories.getByRole("button", { name: "Recipe" }).click();
+  await categories.getByRole("button", { name: "Place" }).click();
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("sourdough");
+  await expect(page.getByRole("option", { name: /Sourdough/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("list", { name: "Direct Matches" })).toHaveCount(
+    0
+  );
+});

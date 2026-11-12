@@ -1,8 +1,10 @@
+import type { Category } from "@spark/core";
 /** Instant: keyword and typo, per keystroke. Full: with meaning, after a pause. */
 export type Mode = "instant" | "full";
 
 /** What to search for: words typed, or a Memory to find More Like This of. */
-export type SearchRequest = { query: string } | { like: string };
+export type SearchRequest =
+  { query: string; category?: Category } | { like: string };
 
 /** What matched in a result (migrations/0013_hybrid_search.sql). */
 /** What matched (packages/db MatchedPart); `page` is a PDF's page. */
@@ -30,7 +32,9 @@ export type Answer =
   | { key: string; mode: Mode; failed: true };
 
 export const requestKey = (request: SearchRequest) =>
-  "like" in request ? `like:${request.like}` : `q:${request.query}`;
+  "like" in request
+    ? `like:${request.like}`
+    : `q:${request.category ? `${request.category}|` : ""}${request.query}`;
 
 const CACHE_SIZE = 50;
 

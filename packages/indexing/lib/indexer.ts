@@ -1,4 +1,6 @@
+import { categorise, type CategoryClient } from "./categories";
 import {
+  type Category,
   EMBEDDING,
   embeddingSpace,
   FREE_ALLOWANCE,
@@ -71,6 +73,8 @@ export type PendingMemory = MemoryContent & {
   /** The text's revision, so vectors made from it are dropped once it is edited. */
   revision: number;
   aiOptOut: boolean;
+  /** Not locked by the user and not yet categorised at this revision. */
+  categoriesStale?: boolean;
   /** A link Memory: false until its Source has been gathered (once). */
   gathered?: boolean;
   /** Storage keys of an image Memory's files. */
@@ -98,6 +102,9 @@ type Image = { bytes: Uint8Array; mime: string };
 
 /** A Searchable Memory whose vectors are to be made again. */
 export type EmbedMemory = EmbedSource & {
+  categoriesStale?: boolean;
+  /** Its Overview vector when the vectors are current, so Categories alone are due. */
+  overview?: number[];
   userId: string;
   generation: string;
   run: number;
@@ -117,6 +124,12 @@ export type Extraction = { output: IndexingOutput; model: string };
  * Memory it loaded is gone.
  */
 export type IndexStore = {
+  /** Automatic Categories, once per revision, never over a user's edit; false if refused. */
+  writeCategories?(
+    claim: Claim,
+    revision: number,
+    categories: Category[]
+  ): Promise<boolean>;
   /**
    * Takes the Memory for this delivery (a short lease, so a duplicate
    * delivery skips). Undefined when it is gone, not waiting for Indexing, at
@@ -286,11 +299,13 @@ export function createIndexer({
   providers,
   embedder,
   gatherer,
+  jev,
   readPdf,
   readFile,
   now = () => new Date(),
 }: {
   store: IndexStore;
+  jev?: CategoryClient;
   /** In chain order (INDEXING.chain). */
   providers: Provider[];
   /** Gathers a link's Source; without one, links are found by their URL and note. */
@@ -450,6 +465,9 @@ export function createIndexer({
     }
   }
 
+  const overviewOf = (embedding: Embedding) =>
+    embedding.vectors.find((v) => v.kind === "overview")?.embedding;
+
   const embedderReads = (mime: string) =>
     (EMBEDDING.imageTypes as readonly string[]).includes(mime);
 
@@ -553,6 +571,37 @@ export function createIndexer({
       ? { result: "paused", delaySeconds: secondsToNextUtcDay(now()) }
       : undefined;
 
+  /**
+   * Categorise (after the embedding) and keep the answer. A failure leaves
+   * the Memory's Categories stale: the hourly sweep tries again.
+   */
+  async function assignCategories(
+    work: Claim & { revision: number; categoriesStale?: boolean },
+    vector: number[] | undefined,
+    text: string,
+    current: () => Promise<boolean>
+  ) {
+    if (
+      !work.categoriesStale ||
+      !store.writeCategories ||
+      !embedder ||
+      !vector
+    ) {
+      return;
+    }
+    const categories = await categorise({
+      text,
+      vector,
+      embedder,
+      ...(jev && { jev }),
+      allow: async () => !(await budgetSpent()) && (await current()),
+      record: (call) => recordCall({ ...callOf(work), ...call }),
+    });
+    if (categories) {
+      await store.writeCategories(work, work.revision, categories);
+    }
+  }
+
   /** An `embed` job: the vectors again, nothing else. */
   async function embedLoaded(
     job: IndexJob,
@@ -560,11 +609,26 @@ export function createIndexer({
   ): Promise<IndexOutcome> {
     const paused = await overBudget(job);
     if (paused) return paused;
+    const current = () => store.stillEmbeddable(work, work.revision);
+    const text = [
+      work.title,
+      work.body,
+      work.captureNote,
+      work.found.title,
+      work.found.description,
+      work.found.ocrText,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (work.overview) {
+      // Only Categories were due; the vectors stay as they are.
+      await assignCategories(work, work.overview, text, current);
+      await store.release(work);
+      return { result: "searchable" };
+    }
     let embedding;
     try {
-      embedding = await embed(work, () =>
-        store.stillEmbeddable(work, work.revision)
-      );
+      embedding = await embed(work, current);
     } catch (error) {
       if (error instanceof Superseded) return { result: "skipped" };
       throw error;
@@ -575,6 +639,7 @@ export function createIndexer({
         ? { result: "retry", delaySeconds: backoffSeconds(job.attempt) }
         : { result: "skipped" };
     }
+    await assignCategories(work, overviewOf(embedding), text, current);
     const written = await store.writeVectors(work, embedding);
     return { result: written ? "searchable" : "skipped" };
   }
@@ -667,6 +732,14 @@ export function createIndexer({
                 () => store.isCurrent(work),
                 visuals
               );
+        if (embedding) {
+          await assignCategories(
+            work,
+            overviewOf(embedding),
+            `${memoryPart(work)}\n${output.title}\n${output.description}\n${output.ocrText}`,
+            () => store.isCurrent(work)
+          );
+        }
         const written = await store.complete(
           work,
           { output, model: provider.model },

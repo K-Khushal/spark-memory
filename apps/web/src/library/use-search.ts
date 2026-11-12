@@ -43,6 +43,7 @@ async function fetchHits(
           {
             query: {
               q: request.query,
+              ...(request.category && { categories: request.category }),
               ...(mode === "full" && { mode: "full" }),
             },
           },
@@ -88,18 +89,22 @@ export function useSearch(
     })
   );
   const query = request && "query" in request ? request.query.trim() : "";
+  const category = request && "query" in request ? request.category : undefined;
   const like = request && "like" in request ? request.like : "";
 
   useEffect(() => {
-    session.set(like ? { like } : query ? { query } : undefined, version);
-  }, [session, query, like, version]);
+    session.set(
+      like ? { like } : query ? { query, category } : undefined,
+      version
+    );
+  }, [session, query, like, version, category]);
   useEffect(() => () => session.stop(), [session]);
 
   return useMemo((): Results | "failed" | undefined => {
     const current = like
       ? requestKey({ like })
       : query
-        ? requestKey({ query })
+        ? requestKey({ query, category })
         : undefined;
     const shown = shownAnswer(answer, current, keepPrevious);
     if (!shown) return undefined;
@@ -116,5 +121,5 @@ export function useSearch(
       if (memory) results[hit.match].push({ ...memory, part: hit.part });
     }
     return results;
-  }, [answer, query, like, memories, keepPrevious]);
+  }, [answer, query, like, memories, keepPrevious, category]);
 }

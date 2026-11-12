@@ -1,3 +1,5 @@
+import { type Category } from "@spark/core";
+import { CategoryList, CategoryRow } from "./categories";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Link,
@@ -32,6 +34,10 @@ export function LibraryPage({
 }) {
   const navigate = useNavigate();
   const library = useLibrary();
+  const [category, setCategory] = useState<Category>();
+  const visible = library.memories.filter(
+    (m) => !category || m.categories?.includes(category)
+  );
   const { desk } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [searchOpen, setSearchOpen] = useState(desk === "search");
@@ -62,7 +68,7 @@ export function LibraryPage({
   // The wall: instant and full at once (often straight from the cache the
   // menu filled), and the last results stay up until new ones land.
   const results = useSearch(
-    like ? { like: like.id } : { query },
+    like ? { like: like.id } : { query, category },
     library.memories,
     library.version,
     { userId: session.user.id, pauseMs: 0, keepPrevious: true }
@@ -222,6 +228,7 @@ export function LibraryPage({
   return (
     <div className="flex min-h-dvh bg-canvas">
       <DeskSidebar
+        filters={<CategoryList selected={category} onChange={setCategory} />}
         email={session.user.email}
         current="library"
         admin={admin}
@@ -229,6 +236,7 @@ export function LibraryPage({
         onLibrary={() => {
           metrics.cleared();
           clearSearch();
+          setCategory(undefined);
         }}
         onCapture={openPasteBox}
         onSearch={openSearch}
@@ -240,30 +248,33 @@ export function LibraryPage({
       />
 
       <main className="min-w-0 flex-1">
-        <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden">
-          <Wordmark />
-          {admin && (
-            <Link to="/admin" className="text-sm text-ink-muted">
-              Admin
-            </Link>
-          )}
-          <div className="min-w-0 flex-1">
-            <DeskSearchField
-              label={searchLabel}
-              active={searching}
-              onSearch={openSearch}
-              onClear={clearSearchClick}
-            />
+        <div className="sticky top-0 z-20 border-b border-line bg-canvas md:hidden">
+          <div className="flex items-center gap-2 px-4 py-2">
+            <Wordmark />
+            {admin && (
+              <Link to="/admin" className="text-sm text-ink-muted">
+                Admin
+              </Link>
+            )}
+            <div className="min-w-0 flex-1">
+              <DeskSearchField
+                label={searchLabel}
+                active={searching}
+                onSearch={openSearch}
+                onClear={clearSearchClick}
+              />
+            </div>
+            <Button
+              variant="primary"
+              size="icon"
+              aria-label="Capture"
+              data-desk="capture"
+              onClick={openPasteBox}
+            >
+              <PlusIcon aria-hidden />
+            </Button>
           </div>
-          <Button
-            variant="primary"
-            size="icon"
-            aria-label="Capture"
-            data-desk="capture"
-            onClick={openPasteBox}
-          >
-            <PlusIcon aria-hidden />
-          </Button>
+          <CategoryRow selected={category} onChange={setCategory} />
         </div>
         <h1 className="sr-only">Library</h1>
         {library.state === "failed" ? (
@@ -297,10 +308,12 @@ export function LibraryPage({
                 onOpen={openMemory}
                 tiles={tiles}
               />
+            ) : !visible.length ? (
+              <Centred title={`No ${category} Memories`} />
             ) : (
               <Wall
                 label="All Memories"
-                memories={library.memories}
+                memories={visible}
                 query=""
                 onOpen={openMemory}
                 tiles={tiles}
@@ -345,6 +358,7 @@ export function LibraryPage({
         onRetry={library.retryUpload}
         onBroken={library.refresh}
         onRetryIndexing={library.retryIndexing}
+        onCategories={library.setCategories}
         onAiOptOut={library.setAiOptOut}
         onMoreLikeThis={moreLikeThis}
       />
@@ -368,9 +382,9 @@ function Wordmark() {
 }
 
 /** A whole-wall message with one way forward. */
-function Centred({ title, children }: { title: string; children: ReactNode }) {
+function Centred({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="grid min-h-[calc(100dvh-3.5rem)] place-items-center p-4 md:min-h-dvh">
+    <div className="grid min-h-[calc(100dvh-6.5rem)] place-items-center p-4 md:min-h-dvh">
       <div className="flex flex-col items-center gap-5">
         <h2 className="font-display text-lg font-semibold">{title}</h2>
         {children}
