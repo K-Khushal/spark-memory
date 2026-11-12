@@ -40,11 +40,10 @@ export function providerChain(options: ChainOptions): Provider[] {
  */
 export function pdfReaderFor(options: ChainOptions): PdfReader | undefined {
   if (options.fake) return fakePdfReader();
-  const ai = options.ai;
-  if (ai?.toMarkdown) {
-    return workersAiPdf({ toMarkdown: (...args) => ai.toMarkdown!(...args) });
-  }
-  return undefined;
+  const { ai } = options;
+  return ai?.toMarkdown
+    ? workersAiPdf({ toMarkdown: ai.toMarkdown.bind(ai) })
+    : undefined;
 }
 
 /**

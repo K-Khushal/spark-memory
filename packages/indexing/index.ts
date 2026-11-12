@@ -18,6 +18,7 @@ export {
 export {
   ProviderError,
   type ExtractRequest,
+  type MarkdownBinding,
   type Provider,
   type ProviderReply,
   type Usage,
@@ -50,7 +51,6 @@ export {
   markdownPages,
   pdfBody,
   workersAiPdf,
-  type MarkdownBinding,
   type PdfReader,
 } from "./lib/pdf";
 export {

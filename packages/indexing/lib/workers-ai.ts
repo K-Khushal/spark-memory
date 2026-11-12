@@ -1,11 +1,11 @@
 import { INDEXING, INDEXING_OUTPUT_JSON_SCHEMA } from "@spark/core";
-import type { MarkdownBinding } from "./pdf";
 import {
   base64,
   CORRECTION,
   guessTokens,
   lostCall,
   ProviderError,
+  type MarkdownBinding,
   type Provider,
 } from "./provider";
 

@@ -17,7 +17,7 @@ Reply with one JSON object only, with these fields:
 /** For a scanned PDF, whose page images follow the Memory, each after its number. */
 export const SCAN_SYSTEM = `${SYSTEM}
 - ocrText: empty.
-- pages: the text of each page image, verbatim, one entry per image, in order.`;
+- pages: the text of each page image, verbatim, at most 1,500 characters a page, one entry per image, in order.`;
 
 export type MemoryContent = {
   kind: string;

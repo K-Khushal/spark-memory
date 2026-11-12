@@ -1,4 +1,10 @@
-import { EMBEDDING, type IndexingOutput, type ProviderName } from "@spark/core";
+import {
+  EMBEDDING,
+  indexedPages,
+  type IndexingOutput,
+  type ProviderName,
+} from "@spark/core";
+import { isScan } from "./pdf";
 
 /** One thing to embed: a piece of text, or an image's bytes. */
 export type EmbedInput =
@@ -172,6 +178,8 @@ export function embeddingInputs(
     ["body", source.body ?? ""],
     ["ocr", found.ocrText],
   ] as const) {
+    // A scan's few typed characters would only crowd out its pages' text.
+    if (pdf && field === "body" && isScan(text, indexedPages(pdf))) continue;
     const cut = pdf ? pagePassages(text, room, pdf) : passages(text, room);
     for (const p of cut) {
       inputs.push({ text: document(title, text.slice(p.start, p.end)) });

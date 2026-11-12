@@ -155,14 +155,14 @@ export type IndexStore = {
   writeVectors(claim: Claim, embedding: Embedding): Promise<boolean>;
   fail(claim: Claim, reason: IndexFailure): Promise<boolean>;
   /**
-   * Keeps what gathering a link found, once, if the Claim is still current:
-   * its content as Extraction should now see it, else undefined.
-   */
-  /**
    * Keeps a PDF's own text (pages apart by form feeds) once, if the Claim
    * is still current. False otherwise.
    */
   savePdfText(claim: Claim, text: string): Promise<boolean>;
+  /**
+   * Keeps what gathering a link found, once, if the Claim is still current:
+   * its content as Extraction should now see it, else undefined.
+   */
   saveGathered(
     claim: Claim,
     gathered: Omit<Gathered, "transient">
@@ -232,7 +232,10 @@ const describeIssues = (error: {
     .map((i) => `${i.path.join(".") || "root"}: ${i.message}`)
     .join("; ");
 
-function parse(text: string, schema: typeof IndexingOutput = IndexingOutput) {
+function parse(
+  text: string,
+  schema: Pick<typeof IndexingOutput, "safeParse"> = IndexingOutput
+) {
   const json = text
     .trim()
     .replace(/^```(?:json)?\s*|\s*```$/g, "")
@@ -343,7 +346,15 @@ export function createIndexer({
     work: Work,
     request: ExtractRequest
   ): Promise<IndexingOutput> {
-    const schema = request.pages ? PdfScanOutput : IndexingOutput;
+    // A scan's reply has one text per page image, or every page after a
+    // missing one would be anchored to the wrong page.
+    const count = request.pages?.length;
+    const schema = count
+      ? PdfScanOutput.refine((o) => o.pages.length === count, {
+          message: `expected ${count} pages`,
+          path: ["pages"],
+        })
+      : IndexingOutput;
     const first = await ask(provider, work, request);
     const parsed = parse(first, schema);
     if (parsed.ok) return scanned(parsed.output);
@@ -690,7 +701,7 @@ export function createIndexer({
       if (!bytes) return { failed: "unreadable" };
       let text = "";
       try {
-        text = pdfBody(await readPdf(bytes), indexed);
+        text = pdfBody(await readPdf(bytes), { pages: pdf.pages, indexed });
       } catch {
         if (job.attempt < INDEXING.maxAttempts) {
           return { result: "retry", delaySeconds: backoffSeconds(job.attempt) };

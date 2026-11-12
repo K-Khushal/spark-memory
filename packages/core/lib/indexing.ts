@@ -154,11 +154,17 @@ export const IndexingOutput = z.object({
 export type IndexingOutput = z.output<typeof IndexingOutput>;
 
 /**
+ * A scanned page's text is kept to about this many characters (a Passage),
+ * so 30 pages fit INDEXING.scanMaxOutputTokens.
+ */
+export const SCAN_PAGE_CHARS = 1_500;
+
+/**
  * What Extraction returns for a scanned PDF: the usual fields, and the
  * text of each page image, in order, so a Passage knows its page.
  */
 export const PdfScanOutput = IndexingOutput.extend({
-  pages: z.array(text(8_000)).max(60),
+  pages: z.array(text(SCAN_PAGE_CHARS)).max(60),
 });
 export type PdfScanOutput = z.output<typeof PdfScanOutput>;
 
@@ -207,7 +213,7 @@ export const PDF_SCAN_OUTPUT_JSON_SCHEMA = {
       type: "array",
       items: { type: "string" },
       description:
-        "The text of each page image, verbatim, one entry per image, in order",
+        "The text of each page image, verbatim, at most 1,500 characters a page, one entry per image, in order",
     },
   },
   required: [...INDEXING_OUTPUT_JSON_SCHEMA.required, "pages"],

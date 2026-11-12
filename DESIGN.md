@@ -21,7 +21,7 @@ The Library is a Pinterest-style masonry wall of Memories beside a quiet left si
 - The **sidebar** holds the wordmark, Capture, Search (⌘K), the Memory kinds, the colour filters and the Categories. It has no counts or headings, because the groups are separated by space alone.
 - The **wall** is full-width and virtualised. Tiles show the Memory itself. A title appears under a tile only when the visual does not already show it.
 - **Search** opens the ⌘K menu with instant results. Enter puts the results on the wall: Direct Matches first, Related Matches below, each tile with its strongest why-chip.
-- **Why-chips** name the part that matched, in a word or the passage itself: Title, Capture Note, Tag, Text, Text in Image, Description, Source, Overview, Image, or “the words of the passage”. The spark tone marks a Direct Match. Every result tile keeps room for one, so a chip arriving never moves the wall.
+- **Why-chips** name the part that matched, in a word or the passage itself: Title, Capture Note, Tag, Text, Text in Image, Description, Source, Overview, Image, Page 3 (a PDF's page), or “the words of the passage”. The spark tone marks a Direct Match. Every result tile keeps room for one, so a chip arriving never moves the wall.
 - **Quick preview** (Space or Enter) shows the Memory large with what Spark knows. A permanent details pane was left out, because the preview covers it and the wall keeps its width.
 - **On a phone** the sidebar becomes a top bar (wordmark, Search, Capture) over one scrolling row of kind and colour filters.
 
@@ -99,6 +99,7 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 - **AI Opt-Out** is a switch in Memory detail and the image viewer. Memory detail also shows why Indexing failed, with Retry.
 - **Preservation on image tiles** shows only while an image is not yet Preserved: a progress ring while it uploads, Failed with Try Again (or Delete, after a reload cut the upload short). A stored image shows no badge, because every stored image is Preserved.
 - **Links**: a paste that is exactly one URL Captures a link. Its tile shows the page's title and description, and a last line with its Source host and, while it lasts, Index state or **Reference Only** (no text was kept). Capturing a page again moves its Memory to the top with "Already in Your Library". Memory detail is the reader view: the Source link, then the Preserved text as plain paragraphs. No page image, font or script is ever loaded from the Source.
+- **PDFs**: a dropped or chosen PDF lands at once; its first 30 pages are drawn in the browser while it uploads. Its tile is the first page with a **PDF** plate (the ink plate badges over imagery use). It opens in `PdfViewer`: the Indexed pages one under another, opened at the page that matched with the matched passage marked above it, ← → a page at a time, Open PDF for the whole file. A PDF over 30 pages says **Partly Indexed** (beside the controls; at the end of the pages on a phone).
 - **Images open in `ImageViewer`** for now (← →, swipe, Escape), not Quick preview; it folds into Quick preview when that lands.
 - **Arrow keys** move spatially on the wall (`neighbour` in `@spark/ui/layout`). Enter and Space open Quick preview. Escape closes the top layer.
 - One tab stop per wall (roving `tabindex`). Focus is always visible.

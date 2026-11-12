@@ -1,5 +1,13 @@
 import type { ProviderName } from "@spark/core";
 
+/** The part of the Workers AI binding Markdown Conversion needs (lib/pdf.ts). */
+export type MarkdownBinding = {
+  toMarkdown(
+    files: { name: string; blob: Blob },
+    options?: { conversionOptions?: Record<string, unknown> }
+  ): Promise<unknown>;
+};
+
 /** One Extraction call: the fixed instructions, the Memory as data, maybe its image. */
 export type ExtractRequest = {
   system: string;

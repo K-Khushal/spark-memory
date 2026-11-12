@@ -1,4 +1,5 @@
-import { FREE_ALLOWANCE, INDEXING } from "@spark/core";
+import { FREE_ALLOWANCE, INDEXING, PDF_TYPE } from "@spark/core";
+import type { MarkdownBinding } from "./provider";
 import { withTimeout } from "./workers-ai";
 
 /**
@@ -7,14 +8,6 @@ import { withTimeout } from "./workers-ai";
  * the PDF could not be read at all.
  */
 export type PdfReader = (bytes: Uint8Array) => Promise<string[]>;
-
-/** The part of the Workers AI binding `toMarkdown` needs. */
-export type MarkdownBinding = {
-  toMarkdown(
-    files: { name: string; blob: Blob },
-    options?: { conversionOptions?: Record<string, unknown> }
-  ): Promise<unknown>;
-};
 
 type Converted = { format?: string; data?: unknown };
 
@@ -58,7 +51,7 @@ export function workersAiPdf(
         {
           name: "memory.pdf",
           blob: new Blob([bytes as Uint8Array<ArrayBuffer>], {
-            type: "application/pdf",
+            type: PDF_TYPE,
           }),
         },
         { conversionOptions: { pdf: { metadata: false } } }
@@ -76,20 +69,44 @@ export function workersAiPdf(
 /**
  * The text a PDF Memory keeps as its own: the Indexed pages' text, pages
  * apart by a form feed (the page break of extracted text), cut to the
- * longest text a Memory holds. Empty when there is none.
+ * longest text a Memory holds. Without page breaks (one entry for a longer
+ * PDF), the share of the text the Indexed pages would hold. Empty when
+ * there is none.
  */
-export function pdfBody(pages: string[], indexed: number): string {
-  const kept = pages.length > 1 ? pages.slice(0, indexed) : pages;
+export function pdfBody(
+  pages: string[],
+  { pages: total, indexed }: { pages: number; indexed: number }
+): string {
+  let kept = pages.length > 1 ? pages.slice(0, indexed) : pages;
+  if (pages.length === 1 && total > indexed) {
+    const whole = pages[0]!;
+    kept = [whole.slice(0, Math.ceil((whole.length * indexed) / total))];
+  }
   const text = kept.map((p) => p.replace(/\f/g, " ").trim()).join("\f");
   return text.replace(/\s/g, "")
     ? text.slice(0, FREE_ALLOWANCE.textMaxChars)
     : "";
 }
 
-/** A scan: fewer readable characters (spaces aside) than INDEXING.scanCharsPerPage a page. */
-export const isScan = (text: string, indexed: number) =>
-  text.replace(/\s/g, "").length <
-  INDEXING.scanCharsPerPage * Math.max(1, indexed);
+const readable = (text: string) =>
+  text.replace(/\s/g, "").length >= INDEXING.scanCharsPerPage;
+
+/**
+ * A scan: most Indexed pages have fewer readable characters (spaces aside)
+ * than INDEXING.scanCharsPerPage, so a typed cover page in front of scanned
+ * pages still reads as a scan. Without page breaks, the text is shared out
+ * over the pages.
+ */
+export function isScan(text: string, indexed: number) {
+  if (!text.includes("\f")) {
+    return (
+      text.replace(/\s/g, "").length <
+      INDEXING.scanCharsPerPage * Math.max(1, indexed)
+    );
+  }
+  const typed = text.split("\f").filter(readable).length;
+  return typed * 2 < Math.max(1, indexed);
+}
 
 /**
  * A stand-in reader (INDEXING_PROVIDER=fake) for local development and the

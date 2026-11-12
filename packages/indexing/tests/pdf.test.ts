@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FREE_ALLOWANCE, INDEXING } from "@spark/core";
 import {
   createIndexer,
+  embeddingInputs,
   fakeEmbedder,
   fakePdfReader,
   gemini,
@@ -131,17 +132,26 @@ describe("a PDF's text", () => {
   });
 
   it("keeps the Indexed pages apart by form feeds, and nothing when there is no text", () => {
-    expect(pdfBody(["a\fb", " c ", "d"], 2)).toBe("a b\fc");
-    expect(pdfBody(["  ", "\n"], 2)).toBe("");
-    expect(pdfBody(["x".repeat(200_000)], 1)).toHaveLength(
-      FREE_ALLOWANCE.textMaxChars
+    const two = { pages: 3, indexed: 2 };
+    expect(pdfBody(["a\fb", " c ", "d"], two)).toBe("a b\fc");
+    expect(pdfBody(["  ", "\n"], two)).toBe("");
+    expect(
+      pdfBody(["x".repeat(200_000)], { pages: 1, indexed: 1 })
+    ).toHaveLength(FREE_ALLOWANCE.textMaxChars);
+    // No page breaks in a 60-page PDF: the first 30 pages' share of the text.
+    expect(pdfBody(["x".repeat(600)], { pages: 60, indexed: 30 })).toHaveLength(
+      300
     );
   });
 
-  it("is a scan below about 100 characters a page", () => {
+  it("is a scan when most pages have under about 100 characters", () => {
     expect(isScan("x".repeat(199), 2)).toBe(true);
     expect(isScan("x".repeat(200), 2)).toBe(false);
     expect(isScan(" \n ".repeat(500), 1)).toBe(true);
+    const typed = "x".repeat(150);
+    // A typed cover page in front of scanned pages is still a scan.
+    expect(isScan([typed, "", "", ""].join("\f"), 4)).toBe(true);
+    expect(isScan([typed, typed, "", ""].join("\f"), 4)).toBe(false);
   });
 
   it("asks Workers AI for Markdown without metadata, and gives up on a slow answer", async () => {
@@ -268,6 +278,59 @@ describe("Indexing a PDF", () => {
       vectors
         .filter((v) => v.kind === "passage")
         .map((v) => [v.anchor?.field, v.anchor?.page])
+    ).toEqual([
+      ["ocr", 1],
+      ["ocr", 2],
+    ]);
+  });
+
+  it("corrects a scan's reply that does not give one text per page", async () => {
+    const store = memoryStore(pdfMemory());
+    let calls = 0;
+    const flash: Provider = {
+      name: "gemini",
+      model: INDEXING.models.gemini,
+      readsPages: true,
+      extract: vi.fn(async (request: ExtractRequest) => {
+        calls++;
+        const pages = calls === 1 ? ["only one"] : ["one", "two"];
+        expect(!!request.correction).toBe(calls === 2);
+        return {
+          text: JSON.stringify({ ...answer, pages }),
+          usage: { inputTokens: 1, outputTokens: 1 },
+        };
+      }),
+    };
+    const { index } = createIndexer({
+      store,
+      providers: [flash],
+      readPdf: async () => [""],
+      readFile: files,
+    });
+    expect(await index(job())).toEqual({ result: "searchable" });
+    expect(store.completed[0]).toMatchObject({
+      output: { ocrText: "one\ftwo" },
+    });
+  });
+
+  it("leaves a scan's few typed characters out of its Passages", () => {
+    const { parts } = embeddingInputs({
+      title: "Receipt",
+      captureNote: null,
+      body: "1\f2",
+      pages: 2,
+      found: {
+        title: "",
+        description: "",
+        ocrText: "Total 12.00\fThank you",
+        tags: [],
+        entities: [],
+      },
+    });
+    expect(
+      parts.flatMap((p) =>
+        p.kind === "passage" ? [[p.anchor.field, p.anchor.page]] : []
+      )
     ).toEqual([
       ["ocr", 1],
       ["ocr", 2],
