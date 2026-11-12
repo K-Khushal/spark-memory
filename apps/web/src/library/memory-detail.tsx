@@ -158,7 +158,7 @@ function Fields({
           onChange={(e) => change({ ...shown, body: e.target.value })}
           aria-label="Text"
           dir="auto"
-          className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0 text-base"
+          className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0"
         />
       )}
       <input
