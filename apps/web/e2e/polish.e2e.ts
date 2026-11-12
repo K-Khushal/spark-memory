@@ -42,4 +42,9 @@ test("keyboard Capture, Search, open, Delete returns visible focus to the Librar
   await expect(
     page.getByRole("button", { name: "Capture", exact: true }).first()
   ).toHaveCSS("outline-style", "solid");
+  await tabTo(page, "Undo");
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("listitem", { name: /Cardamom buns/ })
+  ).toBeVisible();
 });

@@ -65,6 +65,8 @@ The required better-interface SKILL.md is present. Its six owning skills (better
 
 The focus repair runs at Radix's close-auto-focus seam rather than guessing an animation timeout. Search handing directly to detail or Capture leaves the new dialog's focus scope in charge.
 
+Toast follow-up: Sonner's unlayered reset removed the shared outline from Undo. The web stylesheet now gives toast buttons a 2px canvas-token focus ring against their ink surface; keyboard smoke continues through Undo.
+
 ## Web Interface Guidelines
 
 Fetched the current vercel-labs/web-interface-guidelines `command.md` on 2026-11-12. Reviewed M1 files and shell. Findings above address focus and narrow/zoomed panels. Labels, dir=auto, native text fields, reduced-motion handling, lazy images and virtualisation were retained. Wall listitem semantics and image dimensions are intentional existing patterns: accessible names live on the roving tile and layout dimensions are supplied by Masonry / aspect ratio.

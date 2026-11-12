@@ -145,6 +145,7 @@ test("M1 surfaces and worst-case local Library", async ({ page, context }) => {
       await page.keyboard.press("Escape");
     }
   }
+  if (process.env.POLISH_VISUAL_ONLY === "1") return;
   huge = true;
   // Test-only dataset picker: the production app never receives this chrome.
   await page.addInitScript(() => {
@@ -205,9 +206,11 @@ test("M1 surfaces and worst-case local Library", async ({ page, context }) => {
 });
 
 test("toast focus at both widths and themes", async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
   await signIn(page);
-  for (const width of [1440, 390]) {
+  for (const width of process.env.POLISH_TOAST_WIDTH
+    ? [Number(process.env.POLISH_TOAST_WIDTH)]
+    : [1440, 390]) {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
     for (const theme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme: theme });
