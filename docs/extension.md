@@ -198,3 +198,35 @@ the existing Memory's Source to the latest timestamp. Other Sources keep their
 time parameters. Successful Captures clear the failure badge; background retry
 completion and Discard Outbox clear stale queued feedback. Image byte writes
 are insert-once per Capture ID, including across worker restarts.
+
+## Social posts (#20)
+
+Site adapters for X, TikTok and Instagram, behind one interface
+(`lib/sites/adapter.ts`): `id`, one `origin`, `matches(url)` for a single
+post's page, and `read(doc, url)`. An adapter reads only what the logged-in
+person sees, in the page, and returns the post's text, author, time and image
+as a page extract; `extract-site.js` falls back to the generic reader when it
+returns nothing or throws.
+
+- **Host access on first use.** The first Capture on a post page of a site asks
+  for that exact origin (`https://x.com`, `https://www.tiktok.com`,
+  `https://www.instagram.com`) through the existing Grant Access page
+  (optional host permissions already allow `https://*/*`; nothing is added to
+  the manifest and nothing is asked at install). Nothing is injected, and
+  nothing is saved, until the person answers. **Cancel on that page still
+  Captures**, with the generic reader and a screenshot. Timelines, profiles and
+  every other page never ask.
+- **Instagram reels** also get a copy for Indexing: after the link is saved
+  (never before, never awaited, never in the outbox), a script in the tab reads
+  the reel with the person's own session and Spark uploads the video and a few
+  frames to the `/api/memories/:id/copy` flow. Offline, signed out, over 25 MB,
+  a changed endpoint, a moved tab or a refused upload all leave the reel saved
+  as Reference only. Bytes live in memory only, never in extension storage.
+- Test build: `<all_urls>` already includes these hosts, so
+  `apps/web/e2e/social.e2e.ts` covers the adapters through the real
+  extension; the permission prompt is covered by `tests/background.test.ts`.
+
+**Release checks (need a real login, not possible in CI):** on each site,
+Capture a post, check its text, author and screenshot; on Instagram, a reel
+with speech, and watch Network for the info call and the media download; then
+change the site's markup in DevTools and confirm the Capture still saves.

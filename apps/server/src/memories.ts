@@ -11,6 +11,7 @@ import {
   LinkCapture,
   MemoryEditRequest,
   PdfCapture,
+  ReelCopy,
   SCREENSHOT_MAX_BYTES,
   TextCapture,
 } from "@spark/core";
@@ -141,6 +142,12 @@ const limitImageBody = bodyLimit({
 /** A PDF Capture describes up to 30 page images too. */
 const limitPdfBody = bodyLimit({
   maxSize: 16_384,
+  onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
+});
+
+/** A reel's copy describes its video and up to eight frames. */
+const limitCopyBody = bodyLimit({
+  maxSize: 4096,
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
 });
 
@@ -349,6 +356,50 @@ export const memories = new Hono<AppEnv>()
     }
     const { memory, uploads } = await signedCapture(c.var.files, result);
     return c.json({ memory, uploads }, result.created ? 201 : 200);
+  })
+  /**
+   * A reel's user-provided copy (ADR-0010): the person's own browser fetched
+   * the video with their own session. Presigned PUTs for it and its frames;
+   * it exists only for Indexing, which deletes it. Refused for AI opt-out.
+   */
+  .post("/memories/:id/copy", limitCopyBody, json(ReelCopy), async (c) => {
+    const id = c.req.param("id");
+    const result = UUID.test(id)
+      ? await c.var.library.attachCopy(id, c.req.valid("json"))
+      : undefined;
+    if (!result) return c.json(notFound, 404);
+    if ("already" in result)
+      return c.json({ ok: true, already: true } as const);
+    if ("refused" in result) {
+      return c.json(
+        { ok: false, error: result.refused } as const,
+        result.refused === "ai_opt_out" ? 409 : 413
+      );
+    }
+    const uploads = await Promise.all(
+      result.uploads.map(async (u) => ({
+        role: u.role,
+        page: u.page,
+        ...(await c.var.files.signUpload(u)),
+      }))
+    );
+    return c.json({ uploads }, 201);
+  })
+  /** The copy is checked in storage and Indexing reads it (then deletes it). */
+  .post("/memories/:id/copy/stored", async (c) => {
+    const id = c.req.param("id");
+    const memory = UUID.test(id)
+      ? await c.var.library.markCopyStored(id, c.var.files.check)
+      : undefined;
+    if (!memory) return c.json(notFound, 404);
+    if (memory === "mismatch") {
+      return c.json({ ok: false, error: "mismatch" } as const, 422);
+    }
+    if (memory === "missing") {
+      return c.json({ ok: false, error: "not_uploaded" } as const, 409);
+    }
+    await enqueue(c.env, memory);
+    return c.json(await forClient(c.var.files, memory));
   })
   /** A PDF's page images for the viewer, signed, in order. */
   .get("/memories/:id/pages", async (c) => {

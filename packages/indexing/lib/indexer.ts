@@ -9,6 +9,7 @@ import {
   type IndexFailure,
   type ProviderName,
   type TranscriptSegment,
+  type VideoMetadata,
 } from "@spark/core";
 import {
   embedCostMicros,
@@ -18,6 +19,7 @@ import {
   type Embedding,
   type Visual,
 } from "./embedder";
+import type { Transcriber } from "./gemini-transcribe";
 import type { Gathered, Gatherer } from "./link/gather";
 import { isScan, pdfBody, type PdfReader } from "./pdf";
 import { memoryPart, SCAN_SYSTEM, SYSTEM, type MemoryContent } from "./prompt";
@@ -83,6 +85,14 @@ export type PendingMemory = MemoryContent & {
   };
   /** Storage keys of a PDF Memory's file and its Indexed pages' images. */
   pdf?: PdfKeys;
+  /** A reel's user-provided copy (ADR-0010), once stored; Indexing reads it and deletes it. */
+  copy?: CopyKeys;
+};
+
+/** A reel's video and the frames drawn from it in the person's browser. */
+type CopyKeys = {
+  video: { key: string; mime: string; bytes: number; duration: number };
+  frames: { key: string; mime: string; seconds: number }[];
 };
 
 /** A PDF and its page images in storage; `pages` is the PDF's page count. */
@@ -181,6 +191,22 @@ export type IndexStore = {
       > & { gathered: boolean })
     | undefined
   >;
+  /**
+   * For a store that can hold a reel's copy (the one that loads `copy`).
+   * The transcript is kept as the reel's own words for the Claim's run, as
+   * its video metadata and text (undefined when the run moved on). `drop`
+   * deletes the copy's rows whatever the run and returns the storage keys.
+   */
+  copy?: {
+    saveTranscript(
+      claim: Claim,
+      video: VideoMetadata
+    ): Promise<
+      | { transcript: TranscriptSegment[] | null; body: string | null }
+      | undefined
+    >;
+    drop(claim: Claim): Promise<string[]>;
+  };
   spentTodayMicros(): Promise<number>;
   /** The effective daily budget (the admin's setting, or the config default). */
   dailyBudgetMicros(): Promise<number>;
@@ -288,6 +314,8 @@ export function createIndexer({
   gatherer,
   readPdf,
   readFile,
+  transcriber,
+  removeFiles,
   now = () => new Date(),
 }: {
   store: IndexStore;
@@ -301,6 +329,10 @@ export function createIndexer({
   readPdf?: PdfReader;
   /** An object's bytes from storage; undefined when it is not there. */
   readFile: (key: string) => Promise<Uint8Array | undefined>;
+  /** Writes down what a reel's copy says; without one, a reel is described from its frames alone. */
+  transcriber?: Transcriber;
+  /** Deletes objects from storage (a reel's copy, right after Indexing); the sweep deletes what this misses. */
+  removeFiles?: (keys: string[]) => Promise<void>;
   now?: () => Date;
 }) {
   /**
@@ -521,6 +553,15 @@ export function createIndexer({
         "found" in work
           ? await embedLoaded(job, work)
           : await indexLoaded(job, work);
+      // A reel's copy exists only for this Indexing: gone once it has ended
+      // for good, whatever the end (a Failed reel too). A retry keeps it.
+      if (
+        "copy" in work &&
+        work.copy &&
+        (outcome.result === "searchable" || outcome.result === "failed")
+      ) {
+        await dropCopy(work);
+      }
       // The next delivery of this message (or the next embed job, after an
       // edit superseded this one) must be able to take it again.
       if (
@@ -535,6 +576,97 @@ export function createIndexer({
       await store.release(work).catch(() => {});
       throw error;
     }
+  }
+
+  /**
+   * Deletes the copy's rows, then its objects. Never throws: the answer
+   * Indexing reached stands, and the sweep deletes any object this misses
+   * (the rows' trigger queued it).
+   */
+  async function dropCopy(claim: Claim) {
+    try {
+      const keys = (await store.copy?.drop(claim)) ?? [];
+      if (keys.length) await removeFiles?.(keys);
+    } catch {
+      console.error("indexing: a reel's copy was not deleted yet");
+    }
+  }
+
+  /**
+   * A reel's copy: its transcript (once, from the video) kept as the
+   * reel's own words, and its frames as the Memory's Visuals. A video the
+   * model cannot take, or no transcript after the last attempt, leaves the
+   * frames and the metadata: the reel is still found.
+   */
+  async function readCopy(
+    job: IndexJob,
+    loaded: Work,
+    copy: CopyKeys
+  ): Promise<IndexOutcome | { work: Work; visuals: Visual[] }> {
+    let work = loaded;
+    const long =
+      copy.video.duration > FREE_ALLOWANCE.videoTranscriptMaxMinutes * 60;
+    if (transcriber && store.copy && !long && !work.transcript?.length) {
+      const bytes = await readFile(copy.video.key);
+      if (bytes) {
+        // Asked again right before the call: AI opt-out may have been
+        // switched on, or the reel replaced, while the video was read.
+        if (!(await store.isCurrent(work))) return { result: "skipped" };
+        try {
+          const { segments, usage } = await transcriber.transcribe(
+            { bytes, mime: copy.video.mime },
+            { duration: copy.video.duration }
+          );
+          await recordCall({
+            ...callOf(work),
+            provider: transcriber.name,
+            model: transcriber.model,
+            usage,
+            costMicros: costMicros(transcriber.model, usage),
+          });
+          // Never silently keep a partial transcript and call it complete.
+          const chars = segments.reduce((n, s) => n + s.text.length + 1, 0);
+          if (segments.length && chars <= FREE_ALLOWANCE.textMaxChars) {
+            const saved = await store.copy.saveTranscript(work, {
+              duration: copy.video.duration,
+              transcript: segments,
+              transcriptState: "available",
+              transcribedBy: "model",
+            });
+            if (!saved) return { result: "skipped" };
+            work = { ...work, transcript: saved.transcript, body: saved.body };
+          }
+        } catch (error) {
+          if (error instanceof ProviderError && error.estimate) {
+            await recordCall({
+              ...callOf(work),
+              provider: transcriber.name,
+              model: transcriber.model,
+              usage: error.estimate,
+              costMicros: costMicros(transcriber.model, error.estimate),
+              estimated: true,
+            });
+          }
+          const cannot =
+            error instanceof ProviderError && error.kind === "unsupported";
+          if (!cannot && job.attempt < INDEXING.maxAttempts) {
+            return {
+              result: "retry",
+              delaySeconds: backoffSeconds(job.attempt),
+            };
+          }
+        }
+      }
+    }
+    const frames = await Promise.all(
+      copy.frames
+        .filter((f) => embedderReads(f.mime))
+        .map(async ({ key, mime, seconds }): Promise<Visual | undefined> => {
+          const bytes = await readFile(key);
+          return bytes && { image: { bytes, mime }, seconds };
+        })
+    );
+    return { work, visuals: frames.filter((f) => f !== undefined) };
   }
 
   /** Background work waits for the next UTC day once the daily budget is spent. */
@@ -624,6 +756,11 @@ export function createIndexer({
     let request: ExtractRequest;
     let chain = providers;
     let visuals: Visual[] | undefined;
+    if (work.copy) {
+      const read = await readCopy(job, work, work.copy);
+      if ("result" in read) return read;
+      ({ work, visuals } = read);
+    }
     if (work.pdf) {
       const read = await pdfRequest(job, work, work.pdf);
       if ("result" in read) return read;

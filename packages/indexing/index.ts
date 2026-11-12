@@ -27,6 +27,7 @@ export {
   embedderFor,
   pdfReaderFor,
   providerChain,
+  transcriberFor,
   type ChainOptions,
 } from "./lib/chain";
 export {
@@ -43,6 +44,7 @@ export {
 export { geminiEmbedding } from "./lib/gemini-embedding";
 export { workersAi, type AiBinding } from "./lib/workers-ai";
 export { gemini, type GeminiOptions } from "./lib/gemini";
+export { geminiTranscriber, type Transcriber } from "./lib/gemini-transcribe";
 export { fakeEmbedder, fakeProvider, FAKE_WORD } from "./lib/fake";
 export { SCAN_SYSTEM, SYSTEM } from "./lib/prompt";
 export {

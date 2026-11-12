@@ -405,3 +405,228 @@ it("clears feedback when retry confirms that the outbox is already empty", async
   expect(await message("retry")).toMatchObject({ hasRows: false });
   expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "" });
 });
+
+// Site adapters (#20): one interface, host access asked for on first use.
+const post = {
+  id: 1,
+  windowId: 1,
+  url: "https://x.com/anaperez/status/1850000000000000001",
+  title: "Ana on X",
+};
+const reel = {
+  id: 1,
+  windowId: 1,
+  url: "https://www.instagram.com/reel/C1a_b2/",
+  title: "Reel",
+};
+const saved = (path: string) =>
+  request.mock.calls.filter(([url]) => String(url).endsWith(path));
+/** The page script answering as extract.ts or extract-site.ts would. */
+function pageSays(
+  tab: typeof post,
+  page: object | undefined,
+  reelRead?: object
+) {
+  browser.tabs.query.mockResolvedValue([tab]);
+  browser.tabs.captureVisibleTab.mockResolvedValue(undefined);
+  browser.scripting.executeScript.mockImplementation(
+    async (injection: { files?: string[]; func?: unknown }) => {
+      if (injection.files) {
+        browser.runtime.onMessage.addListener.mock.calls[0]![0](
+          {
+            type: "extracted",
+            url: tab.url,
+            ...(page ? { page } : { failed: true }),
+          },
+          { id: "spark", tab, frameId: 0, url: tab.url }
+        );
+        return [];
+      }
+      return [{ result: reelRead }];
+    }
+  );
+}
+const injected = () =>
+  browser.scripting.executeScript.mock.calls
+    .map(([injection]) => injection.files?.[0])
+    .filter(Boolean);
+
+it("asks for a site's host the first time, and saves nothing until it is granted", async () => {
+  pageSays(post, { description: "never read" });
+  browser.permissions.contains.mockResolvedValue(false);
+  background.main();
+  expect(await message("capture")).toMatchObject({
+    state: "error",
+    label: "Grant Access",
+  });
+  expect(browser.storage.session.set).toHaveBeenCalledWith({
+    permissionCapture: expect.objectContaining({
+      mode: "page",
+      origin: "https://x.com",
+      adapter: true,
+      tabId: 1,
+    }),
+  });
+  expect(browser.tabs.create).toHaveBeenCalledWith({
+    url: expect.stringMatching(/\/permission\.html#/),
+  });
+  expect(browser.scripting.executeScript).not.toHaveBeenCalled();
+  expect(saved("/links")).toEqual([]);
+});
+
+it("reads a granted site's post with its adapter and saves what it found", async () => {
+  pageSays(post, {
+    description: "Shipped the new onboarding",
+    author: "Ana (@anaperez)",
+    siteName: "X",
+  });
+  browser.permissions.contains.mockResolvedValue(true);
+  background.main();
+  expect(await message("capture")).toMatchObject({ memory: { id: "memory" } });
+  expect(injected()).toEqual(["/extract-site.js"]);
+  expect(browser.permissions.contains).toHaveBeenCalledWith({
+    origins: ["https://x.com/*"],
+  });
+  expect(JSON.parse(saved("/links")[0]![1].body).page).toMatchObject({
+    description: "Shipped the new onboarding",
+    author: "Ana (@anaperez)",
+  });
+});
+
+it("still saves the link, as Reference only, when the adapter finds nothing", async () => {
+  pageSays(post, undefined);
+  browser.permissions.contains.mockResolvedValue(true);
+  background.main();
+  expect(await message("capture")).toMatchObject({ memory: { id: "memory" } });
+  const body = JSON.parse(saved("/links")[0]![1].body);
+  expect(body.url).toBe(post.url);
+  expect(body).not.toHaveProperty("page");
+});
+
+it("never asks for access, or uses an adapter, on any other page", async () => {
+  pageSays({ ...post, url: "https://garden.test/basil" }, { title: "Basil" });
+  background.main();
+  await message("capture");
+  expect(injected()).toEqual(["/extract.js"]);
+  expect(browser.permissions.contains).not.toHaveBeenCalled();
+  expect(browser.tabs.create).not.toHaveBeenCalled();
+});
+
+it("captures with the generic reader when the person declines first-use access", async () => {
+  pageSays(post, { title: "Ana on X" });
+  browser.storage.session.get.mockResolvedValue({
+    permissionCapture: {
+      id: "job",
+      mode: "page",
+      adapter: true,
+      tabId: 1,
+      frameId: 0,
+      origin: "https://x.com",
+      expiresAt: Date.now() + 60_000,
+    },
+  });
+  background.main();
+  const listener = browser.runtime.onMessage.addListener.mock.calls[0]![0];
+  await listener(
+    { type: "permission-cancel", id: "job" },
+    { id: "spark", url: "chrome-extension://spark/permission.html#job" }
+  );
+  expect(browser.tabs.update).toHaveBeenCalledWith(1, { active: true });
+  expect(injected()).toEqual(["/extract.js"]);
+  expect(saved("/links")).toHaveLength(1);
+});
+
+const readOk = {
+  ok: true,
+  video: "data:video/mp4;base64,AAAA",
+  bytes: 3,
+  duration: 30,
+  frames: [
+    {
+      seconds: 5,
+      data: "data:image/jpeg;base64,AA==",
+      bytes: 1,
+      width: 540,
+      height: 960,
+    },
+  ],
+};
+function copyApi() {
+  request.mockImplementation(async (url: string) => {
+    if (url.endsWith("/me")) return Response.json({ id: "ana" });
+    if (url.endsWith("/copy"))
+      return Response.json({
+        uploads: [
+          { role: "video", page: 0, url: "https://files.test/v", headers: {} },
+          { role: "frame", page: 0, url: "https://files.test/f", headers: {} },
+        ],
+      });
+    return Response.json({ id: "memory", revision: 1 });
+  });
+}
+
+it("copies a reel with the person's own session after saving it, without waiting on it", async () => {
+  pageSays(reel, { description: "Sourdough in 60 seconds" }, readOk);
+  browser.permissions.contains.mockResolvedValue(true);
+  copyApi();
+  background.main();
+  expect(await message("capture")).toMatchObject({ memory: { id: "memory" } });
+  await vi.waitFor(() => expect(saved("/copy/stored")).toHaveLength(1));
+  const run = browser.scripting.executeScript.mock.calls.find(
+    ([i]) => i.func
+  )![0];
+  expect(run.target).toEqual({ tabId: 1 });
+  expect(run.args[0]).toBe("C1a_b2");
+  // The copy is bound to the Memory just saved and to this account.
+  expect(saved("/copy")[0]![0]).toBe(
+    "https://sparkmemory.xyz/api/memories/memory/copy"
+  );
+  expect(saved("/copy")[0]![1].headers).toMatchObject({
+    "x-spark-user": "ana",
+  });
+  // Neither the video nor a frame is ever kept in extension storage.
+  expect(JSON.stringify(stored)).not.toContain("AAAA");
+});
+
+it("saves a reel as Reference only when its video cannot be read", async () => {
+  pageSays(
+    reel,
+    { description: "Sourdough in 60 seconds" },
+    { ok: false, reason: "info" }
+  );
+  browser.permissions.contains.mockResolvedValue(true);
+  background.main();
+  expect(await message("capture")).toMatchObject({ memory: { id: "memory" } });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(saved("/copy")).toEqual([]);
+  expect(saved("/links")).toHaveLength(1);
+});
+
+it("keeps the reel saved when uploading its copy fails, and says nothing of it", async () => {
+  pageSays(reel, { description: "Sourdough in 60 seconds" }, readOk);
+  browser.permissions.contains.mockResolvedValue(true);
+  request.mockImplementation(async (url: string) => {
+    if (url.endsWith("/me")) return Response.json({ id: "ana" });
+    if (url.endsWith("/copy")) return new Response(null, { status: 500 });
+    return Response.json({ id: "memory", revision: 1 });
+  });
+  background.main();
+  expect(await message("capture")).toMatchObject({ memory: { id: "memory" } });
+  await vi.waitFor(() => expect(saved("/copy")).toHaveLength(1));
+  expect(browser.action.setBadgeText).not.toHaveBeenCalledWith({ text: "!" });
+});
+
+it("does not copy a reel that was only queued offline", async () => {
+  pageSays(reel, { description: "Sourdough in 60 seconds" }, readOk);
+  browser.permissions.contains.mockResolvedValue(true);
+  request.mockImplementation(async (url: string) => {
+    if (url.endsWith("/me")) return Response.json({ id: "ana" });
+    throw new TypeError("offline");
+  });
+  background.main();
+  expect(await message("capture")).toMatchObject({ state: "queued" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(browser.scripting.executeScript.mock.calls.some(([i]) => i.func)).toBe(
+    false
+  );
+});

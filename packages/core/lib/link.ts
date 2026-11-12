@@ -338,6 +338,8 @@ export type VideoMetadata = {
   duration?: number;
   transcript: TranscriptSegment[];
   transcriptState: "available" | "unavailable" | "over_allowance";
+  /** Written by a model from a user-provided copy (a reel), so AI opt-out removes it; else the video's own captions. */
+  transcribedBy?: "model";
 };
 export const formatTimestamp = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;

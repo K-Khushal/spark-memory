@@ -1,7 +1,8 @@
 import { INDEXING } from "@spark/core";
 import type { Embedder } from "./embedder";
-import { fakeEmbedder, fakeProvider } from "./fake";
+import { fakeEmbedder, fakeProvider, fakeTranscriber } from "./fake";
 import { gemini } from "./gemini";
+import { geminiTranscriber, type Transcriber } from "./gemini-transcribe";
 import { fakePdfReader, workersAiPdf, type PdfReader } from "./pdf";
 import { geminiEmbedding } from "./gemini-embedding";
 import type { Provider } from "./provider";
@@ -55,6 +56,19 @@ export function embedderFor(options: ChainOptions): Embedder | undefined {
   if (options.fake) return fakeEmbedder();
   if (options.geminiApiKey && options.geminiPaidTier === true) {
     return geminiEmbedding({ apiKey: options.geminiApiKey, paidTier: true });
+  }
+  return undefined;
+}
+
+/**
+ * Who listens to a reel's copy: the fake one locally, Gemini with a paid-tier
+ * key (ADR-0005; nothing else is asked to take a video), else none, and the
+ * reel is Indexed from its frames alone.
+ */
+export function transcriberFor(options: ChainOptions): Transcriber | undefined {
+  if (options.fake) return fakeTranscriber();
+  if (options.geminiApiKey && options.geminiPaidTier === true) {
+    return geminiTranscriber({ apiKey: options.geminiApiKey, paidTier: true });
   }
   return undefined;
 }

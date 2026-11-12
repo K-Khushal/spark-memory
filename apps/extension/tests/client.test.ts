@@ -75,3 +75,112 @@ it("uploads image bytes with signed generation headers before confirming storage
     "https://spark.test/api/memories/image/stored"
   );
 });
+
+it("uploads a reel's copy without credentials, frame by frame, then confirms it", async () => {
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({
+        uploads: [
+          {
+            role: "video",
+            page: 0,
+            url: "https://files.test/v",
+            headers: { a: "1" },
+          },
+          { role: "frame", page: 0, url: "https://files.test/f0", headers: {} },
+          { role: "frame", page: 1, url: "https://files.test/f1", headers: {} },
+        ],
+      })
+    )
+    .mockResolvedValue(new Response(null));
+  const data = (text: string, type: string) =>
+    `data:${type};base64,${btoa(text)}`;
+  const result = await captureClient("https://spark.test", request).copy(
+    "ana",
+    "m1",
+    {
+      ok: true,
+      video: data("VIDEO", "video/mp4"),
+      bytes: 5,
+      duration: 30,
+      frames: [
+        {
+          seconds: 5,
+          data: data("F0", "image/jpeg"),
+          bytes: 2,
+          width: 540,
+          height: 960,
+        },
+        {
+          seconds: 20,
+          data: data("F1", "image/jpeg"),
+          bytes: 2,
+          width: 540,
+          height: 960,
+        },
+      ],
+    }
+  );
+  expect(result).toBe("stored");
+  const [describe, ...rest] = request.mock.calls;
+  expect(describe![0]).toBe("https://spark.test/api/memories/m1/copy");
+  // The description carries sizes and moments, never the bytes.
+  expect(JSON.parse(describe![1].body)).toEqual({
+    bytes: 5,
+    duration: 30,
+    frames: [
+      { seconds: 5, bytes: 2, width: 540, height: 960 },
+      { seconds: 20, bytes: 2, width: 540, height: 960 },
+    ],
+  });
+  const puts = rest.slice(0, 3);
+  expect(puts.map(([url]) => url)).toEqual([
+    "https://files.test/v",
+    "https://files.test/f0",
+    "https://files.test/f1",
+  ]);
+  expect(puts.every(([, init]) => init.credentials === "omit")).toBe(true);
+  expect(new TextDecoder().decode(puts[2]![1].body)).toBe("F1");
+  expect(rest[3]![0]).toBe("https://spark.test/api/memories/m1/copy/stored");
+});
+
+it("sends nothing when Spark already has the reel's transcript, and refuses a failed upload", async () => {
+  const read = {
+    ok: true as const,
+    video: "data:video/mp4;base64,AA==",
+    bytes: 1,
+    duration: 3,
+    frames: [
+      {
+        seconds: 1,
+        data: "data:image/jpeg;base64,AA==",
+        bytes: 1,
+        width: 1,
+        height: 1,
+      },
+    ],
+  };
+  const again = vi
+    .fn()
+    .mockResolvedValue(Response.json({ ok: true, already: true }));
+  expect(
+    await captureClient("https://spark.test", again).copy("ana", "m1", read)
+  ).toBe("already");
+  expect(again).toHaveBeenCalledTimes(1);
+  const broken = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({
+        uploads: [
+          { role: "video", page: 0, url: "https://files.test/v", headers: {} },
+        ],
+      })
+    )
+    .mockResolvedValue(new Response(null, { status: 403 }));
+  await expect(
+    captureClient("https://spark.test", broken).copy("ana", "m1", read)
+  ).rejects.toThrow();
+  // The copy is never confirmed after a failed PUT.
+  expect(broken).toHaveBeenCalledTimes(2);
+});

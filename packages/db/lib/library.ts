@@ -8,8 +8,11 @@ import {
   keptPage,
   PAGE_IMAGE,
   PDF_TYPE,
+  REEL_COPY,
   PdfCapture,
   LinkCapture,
+  instagramReel,
+  ReelCopy,
   MemoryEdit,
   normaliseUrl,
   isVideoUrl,
@@ -31,6 +34,7 @@ import {
 import {
   memory,
   memoryFile,
+  memoryCopy,
   memoryIndex,
   memoryVector,
   objectRemoval,
@@ -133,6 +137,13 @@ export type FileUpload = {
   mime: string;
   bytes: number;
 };
+
+/** A file of a reel's copy the browser PUTs, as for a Memory's files; `page` is the frame's number. */
+export type CopyUpload = Omit<FileUpload, "role"> & { role: "video" | "frame" };
+export type CopyResult =
+  | { memory: Memory; uploads: CopyUpload[] }
+  | { already: true }
+  | { refused: "file_too_large" | "storage_full" | "ai_opt_out" };
 
 export type MemoryFileInfo = FileUpload & { stored: boolean };
 
@@ -505,6 +516,146 @@ export function openLibrary(
 
   return {
     get,
+
+    /**
+     * A reel's copy (ADR-0010): rows and presigned PUTs for its video and
+     * frames, replacing any earlier copy. Undefined for anything but the
+     * owner's own reel. Nothing here touches the reel's own files, so an
+     * unfinished copy leaves the Memory on the wall and out of the sweep.
+     */
+    async attachCopy(
+      id: string,
+      input: ReelCopy
+    ): Promise<CopyResult | undefined> {
+      const copy = ReelCopy.parse(input);
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        if (await deletionRequested(tx, userId)) return undefined;
+        const [row] = await tx
+          .select({
+            kind: memory.kind,
+            url: memory.sourceUrlNormalised,
+            aiOptOut: memory.aiOptOut,
+            kept: sql<
+              string | null
+            >`${memory.metadata}->'video'->>'transcriptState'`,
+          })
+          .from(memory)
+          .where(owned(id));
+        if (
+          !row ||
+          row.kind !== "video" ||
+          !row.url ||
+          !instagramReel(row.url)
+        ) {
+          return undefined;
+        }
+        // Never sent to a provider, so never uploaded for one.
+        if (row.aiOptOut) return { refused: "ai_opt_out" };
+        if (row.kept === "available") return { already: true };
+        const allowed = isFileWithinAllowance({
+          fileBytes: copy.bytes,
+          usedStorageBytes: await usedStorage(tx),
+        });
+        if (!allowed.ok) return { refused: allowed.reason };
+        // An earlier copy goes; the trigger queues its objects for removal.
+        await tx.delete(memoryCopy).where(eq(memoryCopy.memoryId, id));
+        const generation = crypto.randomUUID();
+        const key = (name: string) =>
+          `${ownerPrefix(userId)}${id}/${generation}/copy-${name}`;
+        const files = [
+          {
+            role: "video" as const,
+            seq: 0,
+            mime: REEL_COPY.videoType,
+            bytes: copy.bytes,
+            seconds: copy.duration,
+          },
+          ...copy.frames.map((frame, seq) => ({
+            role: "frame" as const,
+            seq,
+            mime: REEL_COPY.frameType,
+            bytes: frame.bytes,
+            seconds: frame.seconds,
+          })),
+        ].map((file) => ({
+          ...file,
+          memoryId: id,
+          generation,
+          key: key(`${file.role}-${file.seq}`),
+        }));
+        await tx.insert(memoryCopy).values(files);
+        const [memoryRow] = await tx
+          .select(columns)
+          .from(memory)
+          .where(owned(id));
+        return {
+          memory: memoryRow!,
+          uploads: files.map(({ role, seq, key, mime, bytes }) => ({
+            role,
+            page: seq,
+            key,
+            mime,
+            bytes,
+          })),
+        };
+      });
+    },
+
+    /**
+     * The copy's files are checked in storage and kept as stored, and
+     * Indexing starts again to read them (the caller enqueues it). "missing"
+     * or "mismatch" from `check`; undefined when there is no copy waiting.
+     */
+    async markCopyStored(
+      id: string,
+      check: (file: CopyUpload) => Promise<FileCheck>
+    ): Promise<Memory | Exclude<FileCheck, "stored"> | undefined> {
+      const pending = await db
+        .select({
+          role: memoryCopy.role,
+          seq: memoryCopy.seq,
+          key: memoryCopy.key,
+          mime: memoryCopy.mime,
+          bytes: memoryCopy.bytes,
+          generation: memoryCopy.generation,
+        })
+        .from(memoryCopy)
+        .innerJoin(memory, eq(memory.id, memoryCopy.memoryId))
+        .where(and(owned(id), sql`${memoryCopy.storedAt} is null`));
+      if (!pending.length) return undefined;
+      const checks = await Promise.all(
+        pending.map(({ seq, ...file }) => check({ ...file, page: seq }))
+      );
+      if (checks.includes("mismatch")) return "mismatch";
+      if (checks.includes("missing")) return "missing";
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        if (await deletionRequested(tx, userId)) return undefined;
+        // Only the generation just checked is stored: a replaced copy has new keys.
+        const stored = await tx
+          .update(memoryCopy)
+          .set({ storedAt: sql`now()` })
+          .where(
+            and(
+              eq(memoryCopy.memoryId, id),
+              sql`${memoryCopy.storedAt} is null`,
+              inArray(
+                memoryCopy.key,
+                pending.map((file) => file.key)
+              )
+            )
+          )
+          .returning({ key: memoryCopy.key });
+        if (stored.length !== pending.length) return "missing";
+        const [row] = await tx
+          .update(memory)
+          .set(restartIndexing)
+          .where(and(owned(id), eq(memory.aiOptOut, false)))
+          .returning(columns);
+        return row;
+      });
+    },
 
     /** The owner's Memories among `ids` (the dashboard polls those Indexing). */
     getMany: (ids: string[]): Promise<Memory[]> =>
@@ -1129,7 +1280,11 @@ export function openLibrary(
                   indexError: null,
                   indexRun: sql`${memory.indexRun} + 1`,
                   language: null,
-                  body: sql`case when ${memory.kind} = 'pdf' then null else ${memory.body} end`,
+                  // What a model wrote from the Memory goes: a PDF's text, a reel's transcript.
+                  body: sql`case when ${memory.kind} = 'pdf' or ${memory.metadata}->'video'->>'transcribedBy' = 'model' then null else ${memory.body} end`,
+                  metadata: sql`case when ${memory.metadata}->'video'->>'transcribedBy' = 'model'
+                    then jsonb_set(${memory.metadata}, '{video}', ${JSON.stringify({ transcript: [], transcriptState: "unavailable" })}::jsonb)
+                    else ${memory.metadata} end`,
                 }
               : {
                   aiOptOut: false,
@@ -1142,6 +1297,8 @@ export function openLibrary(
         if (row && on) {
           await tx.delete(memoryIndex).where(eq(memoryIndex.memoryId, id));
           await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
+          // A reel's copy is never sent to a provider again: gone now.
+          await tx.delete(memoryCopy).where(eq(memoryCopy.memoryId, id));
           await tx
             .update(memory)
             .set({ vectorsSpace: null, vectorsRevision: null })

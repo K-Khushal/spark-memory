@@ -13,3 +13,7 @@ Spark never logs into platforms on the server, not with accounts we own, burner 
 
 - Both engines sit behind one Deep fetch interface, so either can be replaced.
 - Free tiers bound the work (Browser Rendering is 10 minutes a day on the free plan). When a month's Cloud Run free tier runs out, Deep fetches queue for the next month instead of costing money.
+
+## Amendment, 12 November 2026: the user-provided copy (#20)
+
+An Instagram reel's copy is uploaded straight to R2 by the extension, in the person's own session, through the existing presigned PUT flow (`memory_copy`, not `memory_file`, so an unfinished copy never hides the reel or counts as an abandoned upload). Indexing reads it once: Gemini on the paid tier writes the transcript, the browser's frames become Visual vectors. The video and frames are then deleted, when Indexing ends for good (done or Failed), by the hourly sweep if that is missed, and after six hours whatever happened. The reel stays Reference only. The transcript is a model's, so AI opt-out removes it and refuses any later copy. This is the client-side half of the Deep fetch path; it does not touch the Deep fetch interface (#21).
