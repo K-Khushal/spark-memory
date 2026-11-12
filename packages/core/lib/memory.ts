@@ -110,6 +110,11 @@ const side = z.number().int().positive().max(100_000);
  * the Preserved copy, kept for duplicate detection later.
  */
 export const ImageCapture = z.object({
+  sourceUrl: z
+    .string()
+    .max(100_000)
+    .refine((url) => normaliseUrl(url) !== undefined)
+    .optional(),
   id: z.uuid(),
   mime: ImageType,
   /** Not capped here: the Free allowance check refuses it with its reason. */

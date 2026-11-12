@@ -66,11 +66,18 @@ export function captureClient(origin: string, request: typeof fetch = fetch) {
         if (!response.ok)
           throw new ApiError(response.status >= 500 ? response.status : 503);
       }
-      return (
-        await call(`memories/${result.memory.id}/stored`, owner, {
-          method: "POST",
-        })
-      ).json();
+      try {
+        return (
+          await call(`memories/${result.memory.id}/stored`, owner, {
+            method: "POST",
+          })
+        ).json();
+      } catch (error) {
+        // Missing/expired storage can recover by obtaining fresh generation URLs.
+        if (error instanceof ApiError && error.status === 409)
+          throw new ApiError(503);
+        throw error;
+      }
     },
     screenshot: async (owner: string, id: string, data: string) => {
       const bytes = Uint8Array.from(atob(data.split(",")[1]!), (c) =>

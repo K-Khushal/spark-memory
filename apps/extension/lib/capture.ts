@@ -3,10 +3,23 @@ export function selectionCapture(
   url: string,
   text: string,
   context: string,
-  title: string
+  title: string,
+  surrounding?: { prefix: string; suffix: string }
 ) {
   const source = new URL(url);
-  source.hash = ":~:text=" + encodeURIComponent(text).replace(/-/g, "%2D");
+  const escape = (value: string) =>
+    encodeURIComponent(value.replace(/\s+/g, " ").trim()).replace(/-/g, "%2D");
+  const prefix = surrounding?.prefix.trim(),
+    suffix = surrounding?.suffix.trim();
+  source.hash =
+    ":~:text=" +
+    [
+      prefix ? escape(prefix) + "-" : "",
+      escape(text),
+      suffix ? "-" + escape(suffix) : "",
+    ]
+      .filter(Boolean)
+      .join(",");
   return TextCapture.parse({
     id: crypto.randomUUID(),
     body: text,

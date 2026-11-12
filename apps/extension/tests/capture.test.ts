@@ -30,3 +30,11 @@ it("crops reverse drags in screenshot pixels and refuses empty regions", () => {
     cropRect({ x: 0, y: 0 }, { x: 0, y: 0 }, 100, 100, 200, 200)
   ).toThrow();
 });
+it("disambiguates repeated selected text with surrounding text-fragment context", () => {
+  expect(
+    selectionCapture("https://example.com/p", "Basil", "Then Basil grows", "", {
+      prefix: "Then ",
+      suffix: " grows",
+    }).source?.url
+  ).toBe("https://example.com/p#:~:text=Then-,Basil,-grows");
+});

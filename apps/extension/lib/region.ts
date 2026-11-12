@@ -15,11 +15,11 @@ export async function selectRegion(themes: typeof THEMES) {
   layer.setAttribute("aria-modal", "true");
   layer.setAttribute(
     "aria-label",
-    "Select Region. Arrow Keys Resize. Enter Saves. Escape Cancels."
+    "Select Region. Arrow Keys Resize. Control Arrow Keys Move. Enter Captures. Escape Cancels."
   );
   layer.style.cssText = `position:fixed;inset:0;cursor:crosshair;touch-action:none;outline:2px solid ${theme.ring};outline-offset:-2px`;
   const box = document.createElement("div");
-  box.style.cssText = `position:absolute;pointer-events:none;border:2px solid ${theme.ink};background:${theme.spark};opacity:.25;transform-origin:top left;width:1px;height:1px;display:none`;
+  box.style.cssText = `position:absolute;pointer-events:none;background:${theme.spark};opacity:.25;transform-origin:top left;width:1px;height:1px;display:none`;
   const cancel = document.createElement("button");
   cancel.textContent = "Cancel";
   cancel.style.cssText = `position:absolute;right:16px;top:16px;min-width:80px;min-height:44px;border:2px solid ${theme["line-strong"]};border-radius:8px;background:${theme.surface};color:${theme.ink};font:500 15px system-ui;cursor:pointer`;
@@ -77,6 +77,34 @@ export async function selectRegion(themes: typeof THEMES) {
         event.stopPropagation();
         a ??= { x: Math.min(100, width / 4), y: Math.min(100, height / 4) };
         const step = event.shiftKey ? 1 : 10;
+        if (event.ctrlKey || event.metaKey) {
+          const dx = Math.max(
+            -Math.min(a.x, keyboard.x),
+            Math.min(
+              width - Math.max(a.x, keyboard.x),
+              event.key === "ArrowRight"
+                ? step
+                : event.key === "ArrowLeft"
+                  ? -step
+                  : 0
+            )
+          );
+          const dy = Math.max(
+            -Math.min(a.y, keyboard.y),
+            Math.min(
+              height - Math.max(a.y, keyboard.y),
+              event.key === "ArrowDown"
+                ? step
+                : event.key === "ArrowUp"
+                  ? -step
+                  : 0
+            )
+          );
+          a = { x: a.x + dx, y: a.y + dy };
+          keyboard = { x: keyboard.x + dx, y: keyboard.y + dy };
+          draw(keyboard);
+          return;
+        }
         keyboard = {
           x: Math.max(
             0,
@@ -130,7 +158,8 @@ export async function selectRegion(themes: typeof THEMES) {
       draw({ x: event.clientX, y: event.clientY });
     };
     layer.onpointerup = (event) => {
-      if (a) finish({ x: event.clientX, y: event.clientY });
+      if (a && event.target !== cancel)
+        finish({ x: event.clientX, y: event.clientY });
     };
     layer.onpointercancel = () => finish();
   });

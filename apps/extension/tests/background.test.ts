@@ -258,3 +258,35 @@ it("dispatches selection Capture through the text API", async () => {
     },
   });
 });
+it("captures the context-menu frame's selection with its own Source", async () => {
+  captureTab();
+  browser.scripting.executeScript.mockResolvedValue([
+    {
+      result: {
+        text: "Basil",
+        context: "Growing Basil",
+        title: "Frame",
+        url: "https://garden.test/frame",
+      },
+    },
+  ]);
+  background.main();
+  await browser.contextMenus.onClicked.addListener.mock.calls[0]![0](
+    {
+      menuItemId: "selection",
+      frameId: 7,
+      frameUrl: "https://garden.test/frame",
+    },
+    tab
+  );
+  expect(browser.scripting.executeScript).toHaveBeenCalledWith(
+    expect.objectContaining({ target: { tabId: 1, frameIds: [7] } })
+  );
+  expect(
+    JSON.parse(
+      request.mock.calls.find(([url]) => url.endsWith("/memories"))![1].body
+    )
+  ).toMatchObject({
+    source: { url: "https://garden.test/frame#:~:text=Basil" },
+  });
+});

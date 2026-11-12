@@ -6,7 +6,7 @@ import { signIn } from "./sign-in";
 
 // Build with WXT_API_ORIGIN=http://localhost:5173 before this test.
 test("unpacked extension shares sign-in and captures a fixture page", async () => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   test.skip(
     process.env.EXTENSION_E2E !== "1",
     "Requires the local unpacked test build"
@@ -33,7 +33,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     await fixture.route("https://fixture.test/**", (route) =>
       route.fulfill({
         contentType: "text/html",
-        body: `<html><head><title>Growing Basil</title><meta property="og:description" content="A garden guide"></head><body><article><h1>Growing Basil</h1><p>${"Basil wants six hours of sunlight and warm soil. ".repeat(30)}</p></article></body></html>`,
+        body: `<html><head><title>Growing Basil</title><meta property="og:description" content="A garden guide"></head><body><article><h1>Growing Basil</h1><p>${"Basil wants six hours of sunlight and warm soil. ".repeat(30)}</p></article><div style="height:1200px"></div><p>Basil grows best near the south window in spring. Keep the soil moist.</p></body></html>`,
       })
     );
     await fixture.goto(fixtureUrl);
@@ -115,8 +115,8 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     ).toHaveCount(0);
     await fixture.evaluate(() => {
       const range = document.createRange();
-      range.selectNodeContents(document.querySelector("p")!.firstChild!);
-      range.setEnd(document.querySelector("p")!.firstChild!, 48);
+      range.selectNodeContents(document.querySelector("body > p")!.firstChild!);
+      range.setEnd(document.querySelector("body > p")!.firstChild!, 48);
       getSelection()!.removeAllRanges();
       getSelection()!.addRange(range);
     });
@@ -138,6 +138,16 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
       )
     ).toMatchObject({ body: expect.stringContaining("Basil") });
 
+    const textMemory = selectionData.memories.find(
+      (m: { kind: string; sourceUrl?: string }) =>
+        m.kind === "text" && m.sourceUrl?.includes("#:~:text=")
+    );
+    await fixture.goto(textMemory.sourceUrl);
+    await expect
+      .poll(() => fixture.evaluate(() => scrollY))
+      .toBeGreaterThan(500);
+    await fixture.evaluate(() => scrollTo(0, 0));
+
     // Direct manipulation, cancellation, then real crop + upload through R2.
     const cancelled = popup.evaluate(() =>
       (
@@ -153,6 +163,22 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     );
     await fixture.keyboard.press("Escape");
     expect(await cancelled).toMatchObject({ label: "Cancelled" });
+    const keyboardCancel = popup.evaluate(() =>
+      (
+        globalThis as unknown as {
+          chrome: { runtime: { sendMessage(m: unknown): Promise<unknown> } };
+        }
+      ).chrome.runtime.sendMessage({ type: "region" })
+    );
+    await fixture.waitForFunction(() =>
+      [...document.documentElement.children].some(
+        (el) => (el as HTMLElement).style.zIndex === "2147483647"
+      )
+    );
+    await fixture.keyboard.press("ArrowRight");
+    await fixture.mouse.click(1200, 35);
+    expect(await keyboardCancel).toMatchObject({ label: "Cancelled" });
+
     const region = popup.evaluate(() =>
       (
         globalThis as unknown as {
@@ -192,6 +218,29 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
         await popup.screenshot({
           path: `${folder}/t18-${width}-${colorScheme}.png`,
         });
+        await fixture.emulateMedia({ colorScheme });
+        await fixture.setViewportSize({ width, height: 700 });
+        await fixture.bringToFront();
+        const overlay = popup.evaluate(() =>
+          (
+            globalThis as unknown as {
+              chrome: {
+                runtime: { sendMessage(m: unknown): Promise<unknown> };
+              };
+            }
+          ).chrome.runtime.sendMessage({ type: "region" })
+        );
+        await fixture.waitForFunction(() =>
+          [...document.documentElement.children].some(
+            (el) => (el as HTMLElement).style.zIndex === "2147483647"
+          )
+        );
+        await fixture.keyboard.press("ArrowRight");
+        await fixture.screenshot({
+          path: `${folder}/t18-region-${width}-${colorScheme}.png`,
+        });
+        await fixture.keyboard.press("Escape");
+        expect(await overlay).toMatchObject({ label: "Cancelled" });
       }
     await popup.setViewportSize({ width: 320, height: 900 });
     await popup

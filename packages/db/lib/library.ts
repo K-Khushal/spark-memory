@@ -650,6 +650,7 @@ export function openLibrary(
           id,
           userId,
           kind: "image",
+          sourceUrl: capture.sourceUrl,
           contentHash: capture.contentHash,
           indexState: "indexing",
           indexPriority: "fresh",

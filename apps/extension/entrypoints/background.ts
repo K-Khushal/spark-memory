@@ -14,6 +14,11 @@ import {
   type OutboxState,
 } from "../lib/outbox";
 
+const documentSource = (url: string) => {
+  const hash = url.indexOf("#"),
+    directive = hash < 0 ? -1 : url.indexOf(":~:", hash);
+  return directive < 0 ? url : url.slice(0, directive).replace(/#$/, "");
+};
 type Result =
   | { state: "saved" | "duplicate"; memory: SavedMemory; owner: string }
   | { state: "queued" | "signed-out" | "error"; label?: string };
@@ -137,15 +142,20 @@ export default defineBackground(() => {
     };
   }
   let running: Promise<Awaited<ReturnType<typeof present>>> | undefined;
-  function dispatch(mode: string, imageUrl?: string, tabId?: number) {
-    if (running) return;
-    running = capture(mode, imageUrl, tabId)
+  function dispatch(
+    mode: string,
+    imageUrl?: string,
+    tabId?: number,
+    frameId = 0
+  ) {
+    if (running) return running;
+    running = capture(mode, imageUrl, tabId, frameId)
       .catch((error) => failed(error, "error"))
       .then(present)
       .then(async (result) => {
         const label =
           result.state === "saved"
-            ? "Saved"
+            ? "Captured"
             : result.state === "duplicate"
               ? "Already in Your Library"
               : result.state === "queued"
@@ -166,31 +176,45 @@ export default defineBackground(() => {
       .finally(() => {
         running = undefined;
       });
+    return running;
   }
   browser.commands.onCommand.addListener((command) =>
     dispatch(command.replace("save-", ""))
   );
-  browser.contextMenus.onClicked.addListener((info, tab) => {
-    if (info.menuItemId === "image" && info.srcUrl) {
+  browser.contextMenus.onClicked.addListener(async (info, tab) => {
+    const resource =
+      info.menuItemId === "image"
+        ? info.srcUrl
+        : info.menuItemId === "selection" &&
+            info.frameId !== 0 &&
+            info.frameUrl &&
+            new URL(info.frameUrl).origin !==
+              new URL(tab?.url ?? info.frameUrl).origin
+          ? info.frameUrl
+          : undefined;
+    if (resource) {
       let origin: string;
       try {
-        origin = new URL(info.srcUrl).origin;
+        origin = new URL(resource).origin;
       } catch {
         return;
       }
       if (!/^https?:/.test(origin)) return;
-      // Request the exact image host only in direct response to this gesture.
-      void browser.permissions
-        .request({ origins: [origin + "/*"] })
-        .then((granted) => {
-          if (granted) dispatch("image", info.srcUrl, tab?.id);
-        });
-    } else dispatch(String(info.menuItemId), undefined, tab?.id);
+      if (!(await browser.permissions.request({ origins: [origin + "/*"] })))
+        return;
+    }
+    return dispatch(
+      String(info.menuItemId),
+      info.srcUrl,
+      tab?.id,
+      info.frameId
+    );
   });
   async function capture(
     mode = "page",
     imageUrl?: string,
-    targetTab?: number
+    targetTab?: number,
+    frameId = 0
   ): Promise<Result> {
     let owner: string | undefined;
     try {
@@ -230,30 +254,60 @@ export default defineBackground(() => {
     };
     if (mode === "selection") {
       const [result] = await browser.scripting.executeScript({
-        target: { tabId },
+        target: { tabId, frameIds: [frameId] },
         func: () => {
           const selection = window.getSelection();
+          const range = selection?.rangeCount
+            ? selection.getRangeAt(0)
+            : undefined;
+          let prefix = "",
+            suffix = "";
+          if (range && document.body) {
+            const before = document.createRange(),
+              after = document.createRange();
+            before.selectNodeContents(document.body);
+            before.setEnd(range.startContainer, range.startOffset);
+            after.selectNodeContents(document.body);
+            after.setStart(range.endContainer, range.endOffset);
+            prefix =
+              before
+                .toString()
+                .slice(-100)
+                .match(/\s(.+)$/s)?.[1] ?? "";
+            suffix =
+              after
+                .toString()
+                .slice(0, 100)
+                .match(/^(.+)\s/s)?.[1] ?? "";
+          }
+          const text = selection?.toString() ?? "";
           return {
-            text: selection?.toString() ?? "",
-            context:
-              selection?.anchorNode?.parentElement?.textContent?.slice(
-                0,
-                2000
-              ) ?? "",
+            text,
+            context: (prefix + text.slice(0, 1800) + suffix).slice(0, 2000),
+            prefix,
+            suffix,
             title: document.title.slice(0, 500),
             url: location.href,
           };
         },
       });
-      if (!result?.result?.text || result.result.url !== url)
+      if (
+        !result?.result?.text ||
+        (frameId === 0 &&
+          documentSource(result.result.url) !== documentSource(url))
+      )
         return { state: "error", label: "Select Text" };
       return complete({
         owner,
         capture: selectionCapture(
-          url,
+          result.result.url,
           result.result.text,
           result.result.context,
-          result.result.title
+          result.result.title,
+          {
+            prefix: result.result.prefix ?? "",
+            suffix: result.result.suffix ?? "",
+          }
         ),
         addedAt: Date.now(),
       });
@@ -290,6 +344,7 @@ export default defineBackground(() => {
         ).blob();
       }
       const prepared = await prepareCapture(blob, region);
+      prepared.capture.sourceUrl = mode === "image" ? imageUrl : url;
       return complete({ owner, ...prepared, addedAt: Date.now() });
     }
     playback.delete(tabId);
@@ -365,8 +420,8 @@ export default defineBackground(() => {
       const parsed = PageExtract.safeParse(message.page);
       if (
         job &&
-        sender.url === job.url &&
-        message.url === job.url &&
+        documentSource(sender.url ?? "") === documentSource(job.url) &&
+        documentSource(message.url ?? "") === documentSource(job.url) &&
         (message.failed === true || parsed.success)
       ) {
         if (typeof message.time === "number" && Number.isFinite(message.time))
@@ -378,13 +433,7 @@ export default defineBackground(() => {
     }
     if (sender.url !== browser.runtime.getURL("/popup.html")) return;
     if (["capture", "selection", "region"].includes(message?.type)) {
-      running ??= capture(message.type === "capture" ? "page" : message.type)
-        .catch((error) => failed(error, "error"))
-        .then(present)
-        .finally(() => {
-          running = undefined;
-        });
-      return running;
+      return dispatch(message.type === "capture" ? "page" : message.type);
     }
     if (
       message?.type === "note" &&
