@@ -21,6 +21,12 @@ describe("ending a session", () => {
     expect(searchCache.size).toBe(0);
   });
 
+  it("clears a held share and foreign caches", () => {
+    const auth = readFileSync(join(__dirname, "auth.ts"), "utf8");
+    expect(auth).toMatch(/clearHeldShares/);
+    expect(auth).toMatch(/clearUserCaches/);
+  });
+
   /** Source files (not tests) under src/. */
   const sources = (dir: string): string[] =>
     readdirSync(dir).flatMap((name) => {

@@ -18,3 +18,10 @@
 .spark-capture-in {
   animation: spark-capture-in var(--duration-panel) var(--ease-out) both;
 }
+
+/* Installed, the page runs edge to edge: keep content out of a notch. */
+body {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overscroll-behavior: none;
+}

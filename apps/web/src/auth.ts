@@ -3,6 +3,8 @@ import { createSparkAuthClient } from "@spark/auth/client";
 import { api } from "./api";
 import { stopAnalytics } from "./analytics";
 import { clearSearchCache } from "./library/search-session";
+import { clearHeldShares } from "./pwa/hold";
+import { clearUserCaches } from "./pwa/register";
 import { createEndSession } from "./session-end";
 import { createSessionGate } from "./session-gate";
 
@@ -55,6 +57,8 @@ export const endSession = createEndSession([
   stopAnalytics,
   clearAdminCache,
   clearSearchCache,
+  clearHeldShares,
+  clearUserCaches,
 ]);
 
 /** An admin route answered 403: the stored flag is no longer trustworthy. */

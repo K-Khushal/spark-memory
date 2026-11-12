@@ -15,6 +15,14 @@ import { DATA_SETS, type DataSet } from "./prototypes/data-sets";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
+const shareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/share",
+  beforeLoad: () => {
+    throw redirect({ to: "/" });
+  },
+});
+
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -105,6 +113,7 @@ export const router = createRouter({
   ),
   routeTree: rootRoute.addChildren([
     libraryRoute,
+    shareRoute,
     adminRoute,
     settingsRoute,
     signInRoute,

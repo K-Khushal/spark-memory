@@ -8,6 +8,7 @@ import { PlusIcon, SearchIcon } from "lucide-react";
 import { Button, Kbd, Masonry, Toaster, cn, toast } from "@spark/ui";
 import { startAnalytics, track } from "../analytics";
 import { authClient, endSession, type AppSession } from "../auth";
+import { useShareTarget } from "../pwa/use-share-target";
 import { DeskSearchField, DeskSidebar, focusDeskControl } from "../shell";
 import { productMetrics } from "./product-metrics";
 import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
@@ -31,6 +32,7 @@ export function LibraryPage({
 }) {
   const navigate = useNavigate();
   const library = useLibrary();
+  useShareTarget(library.edits);
   const { desk } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [searchOpen, setSearchOpen] = useState(desk === "search");
