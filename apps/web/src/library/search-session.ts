@@ -36,8 +36,11 @@ export type Hit = {
   part: MatchedPart | null;
 };
 
+/** One page of a search's answer, and where the next begins (the server's `next`). */
+export type Page = { hits: Hit[]; next?: string };
+
 export type Answer =
-  | { key: string; mode: Mode; hits: Hit[] }
+  | ({ key: string; mode: Mode } & Page)
   | { key: string; mode: Mode; failed: true };
 
 /** Chips key as `f:` so only an identical search, never a prefix, answers for them. */
@@ -72,7 +75,7 @@ export function libraryVersion() {
  * Full answers in this tab, shared by the ⌘K menu and the wall, keyed by
  * `${scope}|${generation}|${requestKey}` (searchSession).
  */
-export const searchCache = new Map<string, Hit[]>();
+export const searchCache = new Map<string, Page>();
 
 /** Bumped by every clear: an answer still in flight then is never kept. */
 let cacheEpoch = 0;
@@ -124,11 +127,11 @@ export function searchSession({
     request: SearchRequest,
     mode: Mode,
     signal: AbortSignal
-  ) => Promise<{ hits: Hit[]; final: boolean }>;
+  ) => Promise<Page & { final: boolean }>;
   onAnswer: (answer: Answer | undefined) => void;
   pauseMs: number;
   /** Full answers by `${scope}|${version}|${requestKey}`, shared between sessions. */
-  cache: Map<string, Hit[]>;
+  cache: Map<string, Page>;
   /** Whose Library: answers are never shared between accounts. */
   scope: string;
 }) {
@@ -148,7 +151,7 @@ export function searchSession({
     const cached = cache.get(cacheKey);
     if (cached) {
       stop = () => {};
-      onAnswer({ key, mode: "full", hits: cached });
+      onAnswer({ key, mode: "full", ...cached });
       return;
     }
     const controller = new AbortController();
@@ -160,23 +163,23 @@ export function searchSession({
       instant: "query" in request ? "waiting" : "none",
       full: wordless ? "none" : "waiting",
     };
-    const done = (mode: Mode, hits?: Hit[], final = true) => {
+    const done = (mode: Mode, page?: Page, final = true) => {
       if (controller.signal.aborted) return;
-      step[mode] = hits ? "ok" : "failed";
+      step[mode] = page ? "ok" : "failed";
       const other = step[mode === "full" ? "instant" : "full"];
-      if (hits && (mode === "full" || other !== "ok")) {
-        onAnswer({ key, mode, hits });
+      if (page && (mode === "full" || other !== "ok")) {
+        onAnswer({ key, mode, ...page });
         if ((mode === "full" || wordless) && final && epoch === cacheEpoch) {
-          cache.set(cacheKey, hits);
+          cache.set(cacheKey, page);
           if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
         }
-      } else if (!hits && (other === "failed" || other === "none")) {
+      } else if (!page && (other === "failed" || other === "none")) {
         onAnswer({ key, mode, failed: true });
       }
     };
     const run = (mode: Mode) =>
       fetch(request, mode, controller.signal).then(
-        ({ hits, final }) => done(mode, hits, final),
+        ({ final, ...page }) => done(mode, page, final),
         () => done(mode)
       );
     if ("query" in request) void run("instant");

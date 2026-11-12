@@ -93,25 +93,45 @@ test("browses by filter chips with no words, says why, and understands typed fil
     .first()
     .click();
 
-  // Recent searches: one keystroke away, replayed, deleted one at a time, then all.
+  // Recent searches: one keystroke away and replayed; deleted by key (the
+  // highlighted one) or by mouse, then all at once.
+  await page.request.post("/api/search/events", {
+    headers: { origin: new URL(page.url()).origin },
+    data: { query: "invoices" },
+  });
   await page.keyboard.press("ControlOrMeta+k");
-  await expect(
-    page.getByRole("option", { name: "images", exact: true })
-  ).toBeVisible();
-  await expect(
-    page.getByRole("option", { name: "budget from this year", exact: true })
-  ).toBeVisible();
+  const option = (name: string) =>
+    page.getByRole("option", { name, exact: true });
+  await expect(option("invoices")).toBeVisible();
+  await expect(option("images")).toBeVisible();
+  await expect(option("budget from this year")).toBeVisible();
+  // The list holds only options: no buttons inside it for a screen reader to meet.
+  await expect(page.getByRole("option").getByRole("button")).toHaveCount(0);
   await shot(page, "recent-1440", testInfo);
-  await page
-    .getByRole("button", { name: "Delete Search images", exact: true })
-    .click();
-  await expect(
-    page.getByRole("option", { name: "images", exact: true })
-  ).toHaveCount(0);
+  // Opens on the newest; Delete forgets it and the next one is highlighted.
+  await page.keyboard.press("Delete");
+  await expect(option("invoices")).toHaveCount(0);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ControlOrMeta+Backspace");
+  await expect(option("images")).toHaveCount(0);
+  await expect(option("budget from this year")).toBeVisible();
+  await option("budget from this year").hover();
+  await option("budget from this year").locator("[data-delete-recent]").click();
+  await expect(option("budget from this year")).toHaveCount(0);
+  // Typing keeps its own Delete: with words in the box, it edits them.
+  await page.getByPlaceholder("Search…").fill("abc");
+  for (let i = 0; i < 3; i++) await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Delete");
+  await expect(page.getByPlaceholder("Search…")).toHaveValue("bc");
+  await page.keyboard.press("Escape");
+  await page.request.post("/api/search/events", {
+    headers: { origin: new URL(page.url()).origin },
+    data: { query: "to clear" },
+  });
+  await page.keyboard.press("ControlOrMeta+k");
   await page.getByRole("option", { name: "Clear Recent Searches" }).click();
-  await expect(
-    page.getByRole("option", { name: "budget from this year" })
-  ).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(option("to clear")).toHaveCount(0);
   await page.keyboard.press("Escape");
 
   // A phone: the filters are one scrolling row, and nothing spills sideways.
@@ -162,10 +182,7 @@ test("recent searches handle empty, one and worst-case data without horizontal o
     await expect(page.getByRole("dialog")).toBeVisible();
     if (data.length)
       await expect(
-        page.getByRole("button", {
-          name: `Delete Search ${data[0]}`,
-          exact: true,
-        })
+        page.getByRole("option", { name: "Clear Recent Searches" })
       ).toBeAttached();
     else
       await expect(
@@ -242,4 +259,32 @@ test("filter chips hold worst-case Sources: long domains, many, Arabic, none", a
   await shot(page, "worst-sources-1440", testInfo);
   await page.setViewportSize({ width: 390, height: 844 });
   await shot(page, "worst-sources-390", testInfo);
+});
+
+test("Show More pages a browse to its end with no repeats", async ({
+  page,
+}) => {
+  await signIn(page);
+  const origin = new URL(page.url()).origin;
+  for (let from = 0; from < 43; from += 10)
+    await Promise.all(
+      Array.from({ length: Math.min(10, 43 - from) }, (_, i) =>
+        page.request.post("/api/memories", {
+          headers: { origin },
+          data: { body: `Lantern note ${from + i}` },
+        })
+      )
+    );
+  await page.reload();
+  const found = page.getByRole("list", { name: "Filtered Memories" });
+  await page
+    .getByRole("complementary")
+    .getByRole("button", { name: "Notes", exact: true })
+    .click();
+  await expect(found.getByRole("listitem")).toHaveCount(40);
+  await page.getByRole("button", { name: "Show More" }).click();
+  await expect(found.getByRole("listitem")).toHaveCount(43);
+  await expect(page.getByRole("button", { name: "Show More" })).toHaveCount(0);
+  const titles = await found.getByRole("listitem").allInnerTexts();
+  expect(new Set(titles).size).toBe(43);
 });

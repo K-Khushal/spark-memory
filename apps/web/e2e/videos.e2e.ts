@@ -59,7 +59,7 @@ test("video transcript timestamps open the privacy-enhanced player", async ({
   ).toBeVisible();
   const saved = (await (await page.request.get("/api/memories")).json())
     .memories[0];
-  await page.route("**/api/search?*", (route) =>
+  await page.route("**/api/search", (route) =>
     route.fulfill({
       json: {
         mode: "full",

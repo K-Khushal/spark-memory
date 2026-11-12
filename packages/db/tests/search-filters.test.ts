@@ -74,6 +74,59 @@ describe.skipIf(!url)("search filters", () => {
     ).toEqual([recent, old]);
   });
 
+  it("pages a browse by cursor: no repeats or gaps, even for the same instant", async () => {
+    const { id, library } = await person();
+    // Seven Memories, three of them saved in the same microsecond.
+    await db.execute(sql`
+      insert into memory (user_id, kind, title, body, captured_at)
+      select ${id}, 'text', 'n' || n, 'body', timestamptz '2026-10-01 12:00:00+00'
+        + (case when n <= 3 then 0 else n end || ' seconds')::interval
+        + (case when n <= 3 then 0 else 123456 end || ' microseconds')::interval
+      from generate_series(1, 7) n`);
+    const all = ids(
+      await library.search("", {
+        filters: { after: "2000-01-01T00:00:00Z" },
+        limit: 100,
+      })
+    );
+    expect(all).toHaveLength(7);
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const got = ids(
+        await library.search("", {
+          filters: { after: "2000-01-01T00:00:00Z" },
+          limit: 2,
+          ...(cursor && { cursor }),
+        })
+      );
+      if (!got.length) break;
+      seen.push(...got);
+      cursor = got.at(-1);
+    }
+    expect(seen).toEqual(all);
+    // A cursor that names no Memory of mine ends the list; it never restarts it.
+    expect(
+      await library.search("", {
+        filters: { after: "2000-01-01T00:00:00Z" },
+        cursor: crypto.randomUUID(),
+      })
+    ).toEqual([]);
+  });
+
+  it("does not take another person's Memory as a cursor", async () => {
+    const mine = await person();
+    const theirs = await person();
+    await text(mine.library, "mine");
+    const theirId = await text(theirs.library, "theirs");
+    expect(
+      await mine.library.search("", {
+        filters: { after: "2000-01-01T00:00:00Z" },
+        cursor: theirId,
+      })
+    ).toEqual([]);
+  });
+
   it("limits to a kind, and to when it was captured (start included, end not)", async () => {
     const { library } = await person();
     const note = await text(library, "budget");

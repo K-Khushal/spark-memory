@@ -124,6 +124,42 @@ export type SearchChips = z.infer<typeof SearchChips>;
 /** The most a search query can be. */
 export const MAX_QUERY_CHARS = 300;
 
+/** How many results one page of a search holds. */
+export const SEARCH_PAGE_SIZE = 40;
+
+/**
+ * Where the next page of a search begins, as the server last said it: `c:`
+ * and a Memory id (browsing with no words, newest first) or `o:` and how many
+ * results came before (ranked results). The client only hands it back.
+ */
+export const SearchPage = z
+  .string()
+  .regex(
+    /^(?:o:(?:[1-9]\d{0,4})|c:[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/i
+  );
+
+/**
+ * A search as the dashboard sends it, in the body of a POST so what a person
+ * typed and chose never travels in a URL (URLs reach request logs).
+ */
+export const SearchRequest = z
+  .object({
+    /** Longer queries are cut: nobody types more to find a Memory. */
+    q: z
+      .string()
+      .max(2000)
+      .transform((q) => q.slice(0, MAX_QUERY_CHARS))
+      .default(""),
+    /** `full` (after a pause in typing) also searches by meaning. */
+    mode: z.enum(["instant", "full"]).default("instant"),
+    /** The person's IANA timezone, for "last month". */
+    timezone: z.string().max(64).optional(),
+    chips: SearchChips.optional(),
+    page: SearchPage.optional(),
+  })
+  .strict();
+export type SearchRequest = z.input<typeof SearchRequest>;
+
 /**
  * A committed search or a click on one of its results, for Recent searches
  * and the product metrics. `position` counts from 1 in the results shown.

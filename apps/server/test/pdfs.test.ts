@@ -9,6 +9,7 @@ import {
   files,
   ORIGIN,
   signedIn,
+  postSearch,
 } from "./worker";
 
 // PDF Capture through the Worker, against real Postgres: the browser's
@@ -116,7 +117,7 @@ describe.skipIf(!databaseUrl)("PDF Capture", () => {
     });
 
     // Typed: a keyword in its text. By meaning: the Passage, on its page.
-    const words = (await (await call("/api/search?q=hoses")).json()) as {
+    const words = (await (await postSearch(call, { q: "hoses" })).json()) as {
       results: { id: string; part: object }[];
     };
     expect(words.results[0]).toMatchObject({
@@ -124,7 +125,7 @@ describe.skipIf(!databaseUrl)("PDF Capture", () => {
       part: { kind: "field", field: "text" },
     });
     const meaning = (await (
-      await call("/api/search?q=hoses%20nine&mode=full")
+      await postSearch(call, { q: "hoses nine", mode: "full" })
     ).json()) as { results: { id: string; part: object }[] };
     expect(meaning.results[0]?.id).toBe(created.input.id);
 
@@ -161,7 +162,7 @@ describe.skipIf(!databaseUrl)("PDF Capture", () => {
       await call(`/api/memories/${created.input.id}`)
     ).json()) as { indexState: string; body: string | null };
     expect(memory).toMatchObject({ indexState: "searchable", body: null });
-    const found = (await (await call("/api/search?q=scanned")).json()) as {
+    const found = (await (await postSearch(call, { q: "scanned" })).json()) as {
       results: { id: string; part: object }[];
     };
     expect(found.results.map((r) => r.id)).toContain(created.input.id);

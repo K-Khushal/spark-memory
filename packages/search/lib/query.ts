@@ -290,16 +290,36 @@ function findDate(norm: string[], today: Day): Found | undefined {
 
 // ── Sources ─────────────────────────────────────────────────────────────
 
-const FILE_ENDINGS =
-  /\.(pdf|png|jpe?g|gif|webp|svg|txt|md|docx?|xlsx?|csv|mp[34]|mov|zip|json|html?)$/;
-const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,24}$/;
+/**
+ * Endings a Source domain can have. A word with a dot in it is only a
+ * domain when its ending is one of these: "next.js" and "config.yaml" are
+ * not. Common generic endings and the country codes people save links from.
+ */
+const TLDS = new Set(
+  (
+    "com org net io co dev app ai edu gov info biz me tv fm xyz blog news wiki " +
+    "page site online tech cloud design art studio media press social " +
+    "us uk de fr in jp cn ru br au ca it es nl se no fi dk pl ch at be ie nz " +
+    "za kr mx ar pt tr gr cz hu ro il sg hk tw id th vn ph my ae sa eg ng ke " +
+    "eu ly gg to sh cc ws is ua"
+  ).split(" ")
+);
+const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.([a-z]{2,24})$/;
+
+/** Names that are also ordinary words: a Source only after "from" or "via". */
+const WORD_SOURCES = new Set(["medium"]);
 
 function findSource(norm: string[]) {
   for (let i = 0; i + 1 < norm.length; i++) {
-    if (!["from", "on", "via"].includes(norm[i]!)) continue;
+    const intro = norm[i]!;
+    if (!["from", "on", "via"].includes(intro)) continue;
     const name = norm[i + 1]!;
-    if (name in SEARCH_SOURCES) return { at: i, name };
-    if (DOMAIN.test(name) && !FILE_ENDINGS.test(name)) return { at: i, name };
+    if (name in SEARCH_SOURCES) {
+      if (WORD_SOURCES.has(name) && intro === "on") continue;
+      return { at: i, name };
+    }
+    const domain = DOMAIN.exec(name);
+    if (domain && TLDS.has(domain[2]!)) return { at: i, name };
   }
   return undefined;
 }

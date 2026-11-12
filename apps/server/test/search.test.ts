@@ -9,6 +9,7 @@ import {
   drain,
   env,
   fakeTurnstile,
+  postSearch,
   queues,
   signedIn,
 } from "./worker";
@@ -33,11 +34,9 @@ async function capture(call: Call, body: string) {
 }
 const search = async (call: Call, q: string, mode?: "full") =>
   (
-    (await (
-      await call(
-        `/api/search?q=${encodeURIComponent(q)}${mode ? `&mode=${mode}` : ""}`
-      )
-    ).json()) as { results: Result[] }
+    (await (await postSearch(call, { q, ...(mode && { mode }) })).json()) as {
+      results: Result[];
+    }
   ).results;
 
 describe.skipIf(!databaseUrl)("hybrid search", () => {
@@ -98,41 +97,102 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       "update memory set source_url = 'https://www.instagram.com/p/x' where id = $1",
       [id]
     );
-    const ids = async (query: string) =>
+    const ids = async (body: Record<string, unknown>) =>
       (
-        (await (await call(`/api/search?${query}&timezone=UTC`)).json()) as {
-          results: Result[];
-        }
+        (await (
+          await postSearch(call, { timezone: "UTC", ...body })
+        ).json()) as { results: Result[] }
       ).results.map((r) => r.id);
-    expect(await ids("q=budget&source=instagram")).toEqual([id]);
-    expect(await ids("q=budget&source=youtube")).toEqual([]);
-    expect(await ids("q=budget&kind=note&when=today")).toEqual([id]);
-    expect(await ids("q=budget&kind=pdf")).toEqual([]);
+    expect(await ids({ q: "budget", chips: { source: "instagram" } })).toEqual([
+      id,
+    ]);
+    expect(await ids({ q: "budget", chips: { source: "youtube" } })).toEqual(
+      []
+    );
+    expect(
+      await ids({ q: "budget", chips: { kind: "note", when: "today" } })
+    ).toEqual([id]);
+    expect(await ids({ q: "budget", chips: { kind: "pdf" } })).toEqual([]);
     // The same, typed: filters are read out of the words.
-    expect(await ids("q=budget%20from%20instagram")).toEqual([id]);
-    expect(await ids("q=budget%20from%20youtube")).toEqual([]);
-    expect(await ids("q=budget%20from%20last%20year")).toEqual([]);
+    expect(await ids({ q: "budget from instagram" })).toEqual([id]);
+    expect(await ids({ q: "budget from youtube" })).toEqual([]);
+    expect(await ids({ q: "budget from last year" })).toEqual([]);
     // Browsing: chips alone list the Library, each result saying why.
-    const browse = (await (await call("/api/search?kind=note")).json()) as {
-      mode: string;
-      results: Result[];
-    };
+    const browse = (await (
+      await postSearch(call, { chips: { kind: "note" } })
+    ).json()) as { mode: string; results: Result[] };
     expect(browse.mode).toBe("instant");
     expect(browse.results[0]).toMatchObject({
       id,
       match: "direct",
       part: { kind: "filter", field: "kind", value: "text" },
     });
-    expect(await ids("source=instagram&offset=1")).toEqual([]);
-    expect(await ids("")).toEqual([]);
-    // Unknown filters are refused, not ignored.
+    expect(await ids({})).toEqual([]);
+  });
+
+  it("takes a search only in a POST body, and refuses what it does not know", async () => {
+    const { call } = await signedIn();
+    // What was typed must never be in a URL: there is no GET.
+    expect((await call("/api/search?q=budget")).status).toBe(404);
     for (const bad of [
-      "kind=bogus",
-      "colour=%23fff",
-      "source=a%20b",
-      "when=never",
+      { q: "budget", chips: { kind: "bogus" } },
+      { q: "budget", chips: { colour: "#fff" } },
+      { q: "budget", chips: { source: "a b" } },
+      { q: "budget", chips: { when: "never" } },
+      { q: "budget", chips: { category: "recipe" } },
+      { q: "budget", mode: "deep" },
+      { q: "budget", page: "o:0" },
+      { q: "budget", page: "40" },
+      { q: "budget", offset: 40 },
+      { q: "x".repeat(2001) },
     ])
-      expect((await call(`/api/search?q=budget&${bad}`)).status, bad).toBe(400);
+      expect(
+        (await postSearch(call, bad)).status,
+        JSON.stringify(bad).slice(0, 60)
+      ).toBe(400);
+    // A body too large for any search.
+    expect(
+      (await postSearch(call, { q: "x", timezone: "y".repeat(20_000) })).status
+    ).toBe(413);
+  });
+
+  it("pages browsing by the last Memory and ranked words by count, with no repeats", async () => {
+    const { call, address } = await signedIn();
+    const { rows } = await sql.query(`select id from "user" where email = $1`, [
+      address,
+    ]);
+    const owner = rows[0].id as string;
+    await sql.query(
+      `insert into memory (user_id, kind, title, body, captured_at)
+       select $1, 'text', 'lantern ' || n, 'lantern', now() - (n || ' minutes')::interval
+       from generate_series(1, 45) n`,
+      [owner]
+    );
+    type Page = { results: Result[]; next?: string };
+    const pages = async (body: Record<string, unknown>) => {
+      const seen: string[] = [];
+      const nexts: (string | undefined)[] = [];
+      let page: string | undefined;
+      for (let i = 0; i < 4; i++) {
+        const res = (await (
+          await postSearch(call, { ...body, ...(page && { page }) })
+        ).json()) as Page;
+        seen.push(...res.results.map((r) => r.id));
+        nexts.push(res.next);
+        page = res.next;
+        if (!page) break;
+      }
+      return { seen, nexts };
+    };
+    const browse = await pages({ chips: { kind: "note" } });
+    expect(browse.seen).toHaveLength(45);
+    expect(new Set(browse.seen).size).toBe(45);
+    expect(browse.nexts[0]).toMatch(/^c:[\da-f-]{36}$/);
+    expect(browse.nexts[1]).toBeUndefined();
+    const words = await pages({ q: "lantern" });
+    expect(words.seen).toHaveLength(45);
+    expect(new Set(words.seen).size).toBe(45);
+    expect(words.nexts[0]).toBe("o:40");
   });
 
   it("refuses a click without its position, and a position without its Memory", async () => {
@@ -275,7 +335,7 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     ]) {
       reply = next;
       // A failed embedding is never cached: each search asks again.
-      const res = await call(`/api/search?q=sunset&mode=full`, {}, gemini);
+      const res = await postSearch(call, { q: "sunset", mode: "full" }, gemini);
       expect(res.status).toBe(200);
       const body = (await res.json()) as { results: Result[]; mode: string };
       expect(body.mode).toBe("instant");
@@ -302,7 +362,7 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       GEMINI_API_KEY: "test-key",
       GEMINI_PAID_TIER: "true",
     });
-    await call(`/api/search?q=lighthouse&mode=full`, {}, gemini);
+    await postSearch(call, { q: "lighthouse", mode: "full" }, gemini);
     expect(queryVectorsCached(userId)).toBe(1);
     const res = await call(
       "/api/account",

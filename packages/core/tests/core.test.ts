@@ -6,6 +6,7 @@ import {
   MemoryKind,
   SearchChips,
   SearchEvent,
+  SearchRequest,
   sourceHosts,
   sourceOf,
   TextCapture,
@@ -138,5 +139,34 @@ describe("search filters", () => {
     expect(
       SearchEvent.safeParse({ query: "x", memoryId: id, position: 0 }).success
     ).toBe(false);
+  });
+
+  it("reads a search body: words, chips, a page, and nothing else", () => {
+    const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    expect(SearchRequest.parse({})).toEqual({ q: "", mode: "instant" });
+    expect(
+      SearchRequest.parse({
+        q: "x".repeat(900),
+        mode: "full",
+        timezone: "Asia/Kolkata",
+        chips: { kind: "image", colour: "blue" },
+        page: `c:${id}`,
+      })
+    ).toMatchObject({ q: "x".repeat(300), mode: "full", page: `c:${id}` });
+    expect(SearchRequest.parse({ page: "o:40" }).page).toBe("o:40");
+    for (const bad of [
+      { page: "o:0" },
+      { page: "o:-1" },
+      { page: "o:999999" },
+      { page: "c:not-an-id" },
+      { page: "40" },
+      { mode: "deep" },
+      { chips: { kind: "file" } },
+      { q: "x".repeat(2001) },
+      { offset: 5 },
+    ])
+      expect(SearchRequest.safeParse(bad).success, JSON.stringify(bad)).toBe(
+        false
+      );
   });
 });

@@ -13,6 +13,7 @@ A word is a filter only where it reads like one:
 - Written dates need "from", "since", "after" or "before" ("passport appointment on 3 May" is about a date inside a Memory); relative ones ("yesterday", "last week", "past 7 days") stand alone.
 - "links" and "notes" lead a search or sit beside a date or Source ("links about sourdough", "notes from May"), but "meeting notes" is content. Singular kind words need a date or Source beside them ("pdf from last month", not "pdf rendering").
 - Colour names inside a phrase ("red hat", "black friday") are content.
+- A word with a dot is a Source only when its ending is a real one (`bbc.co.uk`, not `next.js` or `config.yaml`); a Source name that is also a word ("medium") counts only after "from" or "via" ("steak on medium heat" is about steak).
 - A lone ambiguous word ("orange", "notes") stays content.
 
 Colour stays in the words: Memories say "purple flowers", "red hair", and dropping the word lost three searches in the test set. It also becomes a **preference** (`prefer`): a palette near it ranks higher. It becomes a requirement only when nothing else is left to search by ("orange pdfs from last month"), or when it comes from a colour chip.
@@ -21,11 +22,13 @@ Calendar ranges are the person's own days (client IANA timezone, falling back to
 
 ## Filters, chips, ranking
 
-`createSearch().search(query, mode, { timezone, chips, offset })` merges what the words said with the chips, which win where they disagree, and passes the Library its own words: `kinds`, and `filters` (`hosts`, `after`, `before`, `colour`, `prefer`).
+`createSearch().search(query, mode, { timezone, chips, page })` merges what the words said with the chips, which win where they disagree, and passes the Library its own words: `kinds`, and `filters` (`hosts`, `after`, `before`, `colour`, `prefer`). Over HTTP it is `POST /api/search` with `{ q, mode, timezone, chips, page }` in the JSON body: a typed query or a chosen filter never goes in a URL, because URLs reach request logs.
 
-In the database (`search_memories`, migration 0021) the filters are decided once into a narrow `scope`, and every leg joins to it, so no leg's limit can cut a filtered Memory off. Colour compares an image's stored palette (worked out in the browser at Capture, no AI cost) to the colour with a perceptual RGB distance; within 0.14 of black-to-white counts as near. A palette near a preferred colour adds at most 0.003 to the fused score, a few places among close matches, never enough to lift a weak match over a strong one.
+In the database (`search_memories`, migration 0021) every filter is a plain expression on `memory` that each leg applies itself (`in_scope`), before its limit, so no leg's limit can cut a filtered Memory off, and a search with no filter costs what it did before. Colour compares an image's stored palette (worked out in the browser at Capture, no AI cost) to the colour with a perceptual RGB distance; within 0.14 of black-to-white counts as near. A palette near a preferred colour adds at most 0.003 to the fused score, a few places among close matches, never enough to lift a weak match over a strong one.
 
-With no words, filters browse: closest colour first, then newest, 40 at a time (`offset`), no provider call. Each result says why (`part.kind = "filter"`): the palette colour found, the host, the day saved or the kind.
+With no words, filters browse, with no provider call. Each result says why (`part.kind = "filter"`): the palette colour found, the host, the day saved or the kind.
+
+Pages are 40. The answer's `next` says where the following page begins and the client hands it back as `page`. Browsing newest first (no words, no colour) uses `c:<id of the last Memory>`, read off `memory_user_captured_idx`, so a deep page costs what the first does; anything ranked by a score (words, colour) uses `o:<how many came before>`, and a ranked search holds at most a few hundred results anyway.
 
 ## Search data
 

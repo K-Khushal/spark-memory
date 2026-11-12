@@ -275,7 +275,14 @@ export type SearchFilters = {
 
 export type SearchOptions = {
   filters?: SearchFilters;
+  /** Where a page of ranked results begins (colour browsing and words). */
   offset?: number;
+  /**
+   * Browsing with no words and no colour pages by the last Memory id it
+   * returned: the next page is the Memories saved before that one, read
+   * straight off the captured-at index. An unknown id ends the list.
+   */
+  cursor?: string;
   limit?: number;
   probe?: VectorProbe;
   maxDistance?: number;
@@ -1234,6 +1241,7 @@ export function openLibrary(
         kinds,
         filters,
         offset = 0,
+        cursor,
       }: SearchOptions = {}
     ): Promise<SearchResult[]> {
       // With no words, a search is a browse: only when something narrows it.
@@ -1254,7 +1262,7 @@ export function openLibrary(
             place: sql<number>`place`.as("place"),
           })
           .from(
-            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[], ${JSON.stringify(filters ?? {})}::jsonb, ${offset}::int)`
+            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[], ${JSON.stringify({ ...filters, ...(cursor && { cursor }) })}::jsonb, ${offset}::int)`
           )
       );
       return db

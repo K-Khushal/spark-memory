@@ -11,6 +11,7 @@ import {
   type Hit,
   type MatchedPart,
   type Mode,
+  type Page,
   type SearchRequest,
 } from "./search-session";
 import type { Memory } from "./use-library";
@@ -20,34 +21,33 @@ export type { MatchedPart, SearchRequest } from "./search-session";
 /** A result: the wall's own copy of the Memory, and what matched in it. */
 export type Found = Memory & { part: MatchedPart | null };
 /**
- * `key` names the search the results answer (requestKey); `total` is how
- * many hits the server sent (some may not be on the wall), for paging.
+ * `key` names the search the results answer (requestKey); `next` is where
+ * the next page begins, as the server said, when there is one.
  */
 export type Results = {
   direct: Found[];
   related: Found[];
   mode: Mode;
   key: string;
-  total: number;
+  next?: string;
 };
-
-/** What the server sends per page. */
-export const PAGE_SIZE = 40;
 
 const timezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-/** The request as the search route reads it. */
-const searchParams = (
+/** The body of a search POST: words and chips go in it, never in a URL. */
+const searchBody = (
   request: Exclude<SearchRequest, { like: string }>,
-  mode: Mode | undefined,
-  offset?: number
+  mode: Mode,
+  page?: string
 ) => ({
   q: request.query,
-  ...request.chips,
+  mode,
   timezone: timezone(),
-  ...(mode === "full" && { mode }),
-  ...(offset && { offset: String(offset) }),
+  ...(request.chips && { chips: request.chips }),
+  ...(page && { page }),
 });
+
+type SearchAnswer = { results: Hit[]; mode?: Mode; next?: string };
 
 /** How long typing pauses before the full search (with meaning) runs. */
 export const FULL_SEARCH_PAUSE_MS = 350;
@@ -58,17 +58,18 @@ async function fetchHits(
   request: SearchRequest,
   mode: Mode,
   signal: AbortSignal
-): Promise<{ hits: Hit[]; final: boolean }> {
+): Promise<Page & { final: boolean }> {
   const init = { init: { signal } };
   const res =
     "like" in request
       ? await byId.similar.$get({ param: { id: request.like } }, init)
-      : await api.api.search.$get({ query: searchParams(request, mode) }, init);
+      : await api.api.search.$post({ json: searchBody(request, mode) }, init);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const body = (await res.json()) as { results: Hit[]; mode?: Mode };
+  const body = (await res.json()) as SearchAnswer;
   // A full search that fell back to keywords says so: shown, not kept.
   return {
     hits: body.results,
+    ...(body.next && { next: body.next }),
     final: mode === "instant" || body.mode !== "instant",
   };
 }
@@ -134,7 +135,7 @@ export function useSearch(
       related: [],
       mode: shown.mode,
       key: shown.key,
-      total: shown.hits.length,
+      ...(shown.next && { next: shown.next }),
     };
     for (const hit of shown.hits) {
       const memory = wall.get(hit.id);
@@ -155,42 +156,44 @@ export function useMoreResults(
   shown: Results | "failed" | undefined,
   memories: Memory[]
 ) {
-  const key = shown && shown !== "failed" ? shown.key : undefined;
+  const first = shown && shown !== "failed" ? shown : undefined;
+  const key = first?.key;
   const [more, setMore] = useState<{
     key: string;
     hits: Hit[];
-    done: boolean;
+    next?: string;
     busy: boolean;
   }>();
   const own = more?.key === key ? more : undefined;
-  const first = shown && shown !== "failed" ? shown : undefined;
+  // The page after the last one shown; none once a page said it was the last.
+  const next = own ? own.next : first?.next;
   const canLoad =
-    !!first &&
     !!request &&
     "query" in request &&
-    // Words are paged once the full answer is in, so pages do not reorder.
-    (first.mode === "full" || !request.query.trim()) &&
-    !own?.done &&
+    !!next &&
     !own?.busy &&
-    first.total >= PAGE_SIZE;
+    // Words are paged once the full answer is in, so pages do not reorder.
+    (first?.mode === "full" || !request.query.trim());
 
   const load = async () => {
-    if (!canLoad || !request || !("query" in request) || !key) return;
-    setMore({ key, hits: own?.hits ?? [], done: false, busy: true });
-    const offset = first.total + (own?.hits.length ?? 0);
+    if (!canLoad || !key || !next) return;
+    setMore({ key, hits: own?.hits ?? [], busy: true });
     try {
-      const mode = request.query.trim() ? "full" : undefined;
-      const res = await api.api.search.$get({
-        query: searchParams(request, mode, offset),
+      const res = await api.api.search.$post({
+        json: searchBody(
+          request,
+          request.query.trim() ? "full" : "instant",
+          next
+        ),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const { results } = (await res.json()) as { results: Hit[] };
+      const body = (await res.json()) as SearchAnswer;
       setMore((current) =>
         current?.key === key
           ? {
               key,
-              hits: [...current.hits, ...results],
-              done: results.length < PAGE_SIZE,
+              hits: [...current.hits, ...body.results],
+              ...(body.next && { next: body.next }),
               busy: false,
             }
           : current

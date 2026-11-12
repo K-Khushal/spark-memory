@@ -2,6 +2,7 @@ import {
   EMBEDDING,
   SEARCH_COLOURS,
   SEARCH_KINDS,
+  SEARCH_PAGE_SIZE,
   sourceHosts,
   type MemoryKind,
   type SearchChips,
@@ -22,7 +23,7 @@ export type Probe = { model: string; dimensions: number } & (
 );
 
 /** What a search leg returns per Memory, at least. */
-export type Hit = { matched: string[]; distance: number | null };
+export type Hit = { id: string; matched: string[]; distance: number | null };
 
 /** The Library's narrowing, in its own words (hosts, hex colours); see `scopeOf`. */
 export type Scope = {
@@ -155,7 +156,10 @@ export function createSearch<R extends Hit>({
     options: Scope & {
       probe?: Probe;
       maxDistance: number;
+      limit?: number;
       offset?: number;
+      /** The id of the last Memory of the page before (browsing with no words). */
+      cursor?: string;
     }
   ) => Promise<R[]>;
   embedder?: Embedder;
@@ -247,15 +251,16 @@ export function createSearch<R extends Hit>({
       {
         timezone,
         chips = {},
-        offset,
+        page,
       }: {
         /** The person's IANA timezone, for "last month". */
         timezone?: string;
         /** Filter chips; they win over what the words said. */
         chips?: SearchChips;
-        offset?: number;
+        /** Where the page begins: the `next` an earlier answer gave. */
+        page?: string;
       } = {}
-    ): Promise<{ results: Ranked<R>[]; mode: Mode }> {
+    ): Promise<{ results: Ranked<R>[]; mode: Mode; next?: string }> {
       const when = {
         now: new Date(now()),
         ...(timezone && { timezone }),
@@ -268,14 +273,37 @@ export function createSearch<R extends Hit>({
         // A chip's time range is read by the parser, like a typed one.
         ...(chips.when && understandQuery(chips.when, when).filters),
       };
-      const options = {
-        ...scopeOf(spoken, chosen, text),
-        maxDistance: EMBEDDING.maxDistance,
-        ...(offset && { offset }),
-      };
-      const narrowed = options.kinds || options.filters;
+      const scope = scopeOf(spoken, chosen, text);
+      const narrowed = scope.kinds || scope.filters;
       // Nothing to look for and nothing to narrow by: no results, not the whole Library.
       if (!text && !narrowed) return { results: [], mode: "instant" };
+      // With no words and no colour, results are the newest first and page by
+      // the last Memory; every other order is a score, and pages by count.
+      const newestFirst = !text && !scope.filters?.colour;
+      const start = page?.startsWith("c:")
+        ? { cursor: page.slice(2) }
+        : page?.startsWith("o:")
+          ? { offset: Number(page.slice(2)) }
+          : {};
+      const options = {
+        ...scope,
+        maxDistance: EMBEDDING.maxDistance,
+        limit: SEARCH_PAGE_SIZE,
+        ...(newestFirst ? start : { offset: start.offset ?? 0 }),
+      };
+      const answer = (results: Ranked<R>[], mode: Mode) => {
+        const last = results.at(-1);
+        return {
+          results,
+          mode,
+          ...(results.length >= SEARCH_PAGE_SIZE &&
+            last && {
+              next: newestFirst
+                ? `c:${last.id}`
+                : `o:${(options.offset ?? 0) + results.length}`,
+            }),
+        };
+      };
       // Filters alone browse the Library, with no provider call.
       if (text && mode === "full" && space) {
         // Anything wrong on the way to the vector leg (the budget, the
@@ -284,16 +312,16 @@ export function createSearch<R extends Hit>({
           const vector = await embedQuery(text);
           if (vector) {
             const probe = { ...space, vector };
-            return {
-              results: split(await find(text, { ...options, probe })),
-              mode: "full",
-            };
+            return answer(
+              split(await find(text, { ...options, probe })),
+              "full"
+            );
           }
         } catch {
           console.error("search: full search fell back to keywords");
         }
       }
-      return { results: split(await find(text, options)), mode: "instant" };
+      return answer(split(await find(text, options)), "instant");
     },
 
     /** More Like This: the Memory's own vectors as the query, no provider call. */

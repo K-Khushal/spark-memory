@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMBEDDING, INDEXING } from "@spark/core";
+import { EMBEDDING, INDEXING, SEARCH_PAGE_SIZE } from "@spark/core";
 import { ProviderError, type AiCall, type Embedder } from "@spark/indexing";
 import {
   createSearch,
@@ -397,7 +397,7 @@ describe("search", () => {
       expect(lib.find).not.toHaveBeenCalled();
       await search.search("", "full", {
         chips: { colour: "orange" },
-        offset: 40,
+        page: "o:40",
       });
       expect(lib.asked[0]).toMatchObject({
         filters: { colour: "#EE7A1C" },
@@ -420,6 +420,59 @@ describe("search", () => {
       await search.search("orange", "instant");
       expect(lib.calls[0]!.query).toBe("orange");
       expect(lib.asked[0]!.filters).toEqual({ prefer: "#EE7A1C" });
+    });
+  });
+
+  describe("pages", () => {
+    const hits = (n: number): Hit[] =>
+      Array.from({ length: n }, (_, i) => ({
+        id: `m${i}`,
+        matched: ["filter"],
+        distance: null,
+      }));
+    const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
+    it("asks for one page, and says where the next begins", async () => {
+      const { search, lib } = setup({ hits: hits(SEARCH_PAGE_SIZE) });
+      // Newest first with no colour: after the last Memory shown.
+      const browse = await search.search("", "instant", {
+        chips: { kind: "image" },
+      });
+      expect(browse.next).toBe(`c:m${SEARCH_PAGE_SIZE - 1}`);
+      expect(lib.asked[0]).toMatchObject({ limit: SEARCH_PAGE_SIZE });
+      expect(lib.asked[0]).not.toHaveProperty("cursor");
+      // Ranked by a score (words, or colour): by how many came before.
+      expect((await search.search("budget", "instant")).next).toBe(
+        `o:${SEARCH_PAGE_SIZE}`
+      );
+      expect(
+        (await search.search("", "instant", { chips: { colour: "blue" } })).next
+      ).toBe(`o:${SEARCH_PAGE_SIZE}`);
+    });
+
+    it("has no next page after a short one", async () => {
+      const { search } = setup({ hits: hits(SEARCH_PAGE_SIZE - 1) });
+      expect(
+        await search.search("", "instant", { chips: { kind: "image" } })
+      ).not.toHaveProperty("next");
+    });
+
+    it("continues from the page it is given", async () => {
+      const { search, lib } = setup({ hits: hits(3) });
+      await search.search("", "instant", {
+        chips: { kind: "image" },
+        page: `c:${ID}`,
+      });
+      await search.search("budget", "instant", { page: "o:80" });
+      expect(lib.asked[0]).toMatchObject({ cursor: ID });
+      expect(lib.asked[1]).toMatchObject({ offset: 80 });
+      expect(lib.asked[1]).not.toHaveProperty("cursor");
+    });
+
+    it("ignores a cursor where there is nothing to browse", async () => {
+      const { search, lib } = setup({ hits: hits(3) });
+      await search.search("budget", "instant", { page: `c:${ID}` });
+      expect(lib.asked[0]).not.toHaveProperty("cursor");
     });
   });
 });

@@ -6,8 +6,8 @@ import {
   searchSession,
   shownAnswer,
   type Answer,
-  type Hit,
   type Mode,
+  type Page,
   type SearchRequest,
 } from "./search-session";
 
@@ -27,7 +27,7 @@ function setup(
   {
     cache = new Map(),
     scope = "ana",
-  }: { cache?: Map<string, Hit[]>; scope?: string } = {}
+  }: { cache?: Map<string, Page>; scope?: string } = {}
 ) {
   const pending: Pending[] = [];
   const answers: (Answer | undefined)[] = [];
@@ -177,7 +177,7 @@ describe("searchSession", () => {
   });
 
   it("never answers a Library opened again from an earlier visit's cache", async () => {
-    const cache = new Map<string, Hit[]>();
+    const cache = new Map<string, Page>();
     const before = libraryVersion();
     const first = setup(0, { cache });
     first.session.set({ query: "purple" }, before(0));
@@ -204,7 +204,7 @@ describe("searchSession", () => {
   });
 
   it("never answers one account from another's cache", async () => {
-    const cache = new Map<string, Hit[]>();
+    const cache = new Map<string, Page>();
     const ana = setup(0, { cache, scope: "ana" });
     ana.session.set({ query: "purple" }, "1");
     await settle();
@@ -248,7 +248,7 @@ describe("filters without words", () => {
   const chips = { kind: "image" } as const;
 
   it("asks once, for the instant answer, and keeps it", async () => {
-    const cache = new Map<string, Hit[]>();
+    const cache = new Map<string, Page>();
     const { session, pending, ids, find } = setup(300, { cache });
     session.set({ query: "", chips }, "v1");
     await vi.advanceTimersByTimeAsync(1000);

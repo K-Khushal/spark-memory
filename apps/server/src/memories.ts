@@ -9,12 +9,11 @@ import {
   FREE_ALLOWANCE,
   ImageCapture,
   LinkCapture,
-  MAX_QUERY_CHARS,
   MemoryEditRequest,
   PdfCapture,
   SCREENSHOT_MAX_BYTES,
-  SearchChips,
   SearchEvent,
+  SearchRequest,
   TextCapture,
 } from "@spark/core";
 import {
@@ -136,6 +135,11 @@ const notFound = { ok: false, error: "not_found" } as const;
 
 const limitImageBody = bodyLimit({
   maxSize: 4096,
+  onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
+});
+/** A search: the words (up to 2,000 characters, in any script) and a few chips. */
+const limitSearchBody = bodyLimit({
+  maxSize: 16_384,
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
 });
 /** A PDF Capture describes up to 30 page images too. */
@@ -456,31 +460,28 @@ export const memories = new Hono<AppEnv>()
    * leg; instant (per keystroke) is keyword and typo only. Each result says
    * whether it is a Direct or Related Match and which part matched.
    */
-  .get("/search", async (c) => {
-    // Longer queries are cut: nobody types more to find a Memory.
-    const q = (c.req.query("q") ?? "").slice(0, MAX_QUERY_CHARS);
-    const mode = c.req.query("mode") === "full" ? "full" : "instant";
-    // Filter chips: one per group (kind, source, when, colour).
-    const { q: _q, mode: _mode, timezone, offset, ...rest } = c.req.query();
-    const chips = SearchChips.safeParse(rest);
-    if (!chips.success) return c.json({ error: "invalid_filter" }, 400);
-    const results = await searchFor(
+  .post("/search", limitSearchBody, json(SearchRequest), async (c) => {
+    // A POST, so what was typed and chosen is in the body, never in a URL
+    // that a request log keeps.
+    const { q, mode, timezone, chips, page } = c.req.valid("json");
+    const answer = await searchFor(
       c.env,
       c.var.db,
       c.var.user.id,
       c.var.library
     ).search(q, mode, {
-      ...(timezone && { timezone: timezone.slice(0, 64) }),
-      chips: chips.data,
-      // Browsing pages through the Library, 40 at a time.
-      offset: Math.min(10_000, Math.max(0, Math.trunc(Number(offset)) || 0)),
+      ...(timezone && { timezone }),
+      ...(chips && { chips }),
+      ...(page && { page }),
     });
     return c.json({
       // "instant" when full mode fell back (no embedder, budget, provider).
-      mode: results.mode,
+      mode: answer.mode,
       results: await Promise.all(
-        results.results.map((m) => forClient(c.var.files, m))
+        answer.results.map((m) => forClient(c.var.files, m))
       ),
+      // Where the next page begins, when there is one.
+      ...(answer.next && { next: answer.next }),
     });
   })
   /** Recent searches, newest first. */

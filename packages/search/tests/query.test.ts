@@ -44,6 +44,15 @@ const table: [string, string, SearchFilters][] = [
   ["videos from youtube", "", { kinds: ["video"], source: "youtube" }],
   ["recipes from nytimes.com", "recipes", { source: "nytimes.com" }],
   ["sourdough from reddit", "sourdough", { source: "reddit" }],
+  ["articles from medium", "articles", { source: "medium" }],
+  ["tutorials via medium", "tutorials", { source: "medium" }],
+  ["tutorials on youtube", "tutorials", { source: "youtube" }],
+  [
+    "docs from developer.mozilla.org",
+    "docs",
+    { source: "developer.mozilla.org" },
+  ],
+  ["recipes from bbc.co.uk", "recipes", { source: "bbc.co.uk" }],
   [
     "from instagram last week",
     "",
@@ -168,6 +177,13 @@ describe("understandQuery", () => {
     "last year's taxes",
     "नानी की दाल",
     "from report.pdf",
+    // A domain is a Source only when its ending is a real one.
+    "talks from next.js conf",
+    "meetup talks from vue.js",
+    "setup from config.yaml",
+    // A name that is also a word is a Source only after "from" or "via".
+    "steak on medium heat",
+    "a medium sized cake",
     "",
     "   ",
   ])("keeps %j as it is", (query) => {
