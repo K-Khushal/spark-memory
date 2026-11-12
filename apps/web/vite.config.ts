@@ -1,4 +1,5 @@
-import { defineConfig, type Plugin } from "vite";
+import { fileURLToPath } from "node:url";
+import { build, defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
@@ -29,8 +30,52 @@ function heicChunkAllowance(): Plugin {
   };
 }
 
+const SW_SRC = fileURLToPath(new URL("./src/pwa/sw.ts", import.meta.url));
+
+/** Bundles the worker (it imports the hold and the cache policy). */
+async function buildSw(version: string): Promise<string> {
+  const result = await build({
+    configFile: false,
+    logLevel: "silent",
+    publicDir: false,
+    define: { __SPARK_SW_VERSION__: JSON.stringify(version) },
+    build: {
+      write: false,
+      minify: true,
+      lib: { entry: SW_SRC, formats: ["es"], fileName: "sw" },
+    },
+  });
+  const [bundle] = Array.isArray(result) ? result : [result];
+  if (!bundle || !("output" in bundle)) throw new Error("Service worker build");
+  return bundle.output[0].code;
+}
+
+/** Serves /sw.js in dev and emits it, versioned per build, next to the app. */
+function sparkSw(): Plugin {
+  return {
+    name: "spark-sw",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split("?")[0] !== "/sw.js") return next();
+        buildSw("dev").then((code) => {
+          res.setHeader("Content-Type", "application/javascript");
+          res.setHeader("Cache-Control", "no-cache");
+          res.end(code);
+        }, next);
+      });
+    },
+    async generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "sw.js",
+        source: await buildSw(Date.now().toString(36)),
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), heicChunkAllowance()],
+  plugins: [react(), tailwindcss(), heicChunkAllowance(), sparkSw()],
   // Found only when the first PDF is Captured: optimised up front, so the
   // dev server does not reload the page mid-Capture to add it.
   optimizeDeps: { include: ["@spark/capture > pdfjs-dist"] },
