@@ -8,7 +8,7 @@ import {
 import { ArrowUpRightIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { isPartlyIndexed } from "@spark/core";
-import { Button, Dialog, DialogContent, DialogTitle } from "@spark/ui";
+import { Button, Dialog, DialogContent, DialogTitle, cn } from "@spark/ui";
 import { api } from "../api";
 import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
 import { memoryName, UploadBadge } from "./memory-tile";
@@ -51,7 +51,7 @@ function usePages(memory: WallMemory) {
 
 /**
  * The PDF viewer: a PDF Memory's Indexed pages, one under another, opened
- * at the page that matched with the matched passage marked under it. ← →
+ * at the page that matched, the matched passage marked above it. ← →
  * go a page back or on; ↑ ↓ and Space scroll. Always dark, like the image
  * viewer, so the pages set the tone. Open PDF shows the whole file.
  */
@@ -110,6 +110,13 @@ function Viewer({
 } & IndexingProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const { pages, reload } = usePages(memory);
+  // Signed URLs expire: a page that fails asks for new ones, once.
+  const renewed = useRef(false);
+  const renew = () => {
+    if (renewed.current) return;
+    renewed.current = true;
+    reload();
+  };
   const shown = Array.isArray(pages) ? pages : undefined;
   const stranded = memory.upload?.step === "stranded";
 
@@ -121,9 +128,9 @@ function Viewer({
     const tops = shown.map((p) =>
       box.querySelector<HTMLElement>(`[data-page="${p.page}"]`)!
     );
-    // The page whose top is nearest above the reading line, then its neighbour.
-    const line = box.scrollTop + 1;
-    const at = tops.findLastIndex((el) => el.offsetTop - 64 <= line);
+    // The page at the top of the view (within the gap above it), then its neighbour.
+    const line = box.scrollTop + 24;
+    const at = tops.findLastIndex((el) => el.offsetTop <= line);
     tops[Math.max(0, Math.min(tops.length - 1, at + step))]?.scrollIntoView({
       block: "start",
     });
@@ -140,6 +147,9 @@ function Viewer({
     onClose();
   };
 
+  const partly =
+    memory.indexState === "searchable" && isPartlyIndexed(memory.pages);
+
   return (
     <DialogContent
       data-theme="dark"
@@ -154,10 +164,66 @@ function Viewer({
       closeClassName="z-10 size-11 bg-transparent"
     >
       <DialogTitle className="sr-only">{memoryName(memory)}</DialogTitle>
+      {/* A solid strip, so pages never scroll under the controls. */}
+      <div className="absolute inset-x-0 top-0 flex h-17 items-center gap-1 bg-canvas pr-14 pl-2 sm:gap-3 sm:pr-16 sm:pl-3">
+        <div className="flex min-w-0 flex-1 items-center">
+          {memory.upload ? (
+            <UploadBadge
+              upload={memory.upload}
+              onRetry={() => onRetry(memory.id)}
+              onDelete={remove}
+              className="h-11"
+            />
+          ) : memory.indexState !== "searchable" ? (
+            <IndexBadge
+              memory={memory}
+              onRetry={() => onRetryIndexing(memory)}
+              withReason
+            />
+          ) : (
+            partly && <PartlyIndexed className="max-sm:hidden" />
+          )}
+        </div>
+        {!stranded && (
+          <div className="flex shrink-0 items-center gap-1 sm:gap-3">
+            <MoreLikeThis
+              memory={memory}
+              onSelect={onMoreLikeThis}
+              compact
+              className="h-11"
+            />
+            <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
+            {memory.image && !memory.upload && (
+              <Button
+                asChild
+                variant="quiet"
+                size="icon"
+                className="size-11"
+                aria-label="Open PDF"
+              >
+                <a href={memory.image.url} target="_blank" rel="noreferrer">
+                  <ArrowUpRightIcon aria-hidden />
+                </a>
+              </Button>
+            )}
+            <Button
+              variant="quiet"
+              size="icon"
+              aria-label="Delete"
+              className="size-11"
+              onClick={remove}
+            >
+              <Trash2Icon aria-hidden />
+            </Button>
+          </div>
+        )}
+      </div>
       <div
         ref={scroller}
-        tabIndex={-1}
-        className="absolute inset-0 overflow-y-auto overscroll-contain px-4 pt-16 pb-6 outline-none md:px-16"
+        // A tab stop too, so the keyboard can always come back to scrolling.
+        tabIndex={0}
+        aria-label="Pages"
+        className="absolute inset-x-0 top-17 bottom-0 overflow-y-auto overscroll-contain px-4 pb-6 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring md:px-16"
       >
         <div className="mx-auto flex max-w-[50rem] flex-col gap-4">
           {shown ? (
@@ -167,7 +233,7 @@ function Viewer({
                 page={page}
                 passage={match.page === page.page ? match.passage : undefined}
                 eager={page.page <= (match.page ?? 1) + 1}
-                onBroken={reload}
+                onBroken={renew}
               />
             ))
           ) : (
@@ -181,64 +247,22 @@ function Viewer({
               </Button>
             </div>
           )}
-        </div>
-      </div>
-      <div className="absolute top-3 left-3 flex h-11 items-center">
-        {memory.upload ? (
-          <UploadBadge
-            upload={memory.upload}
-            onRetry={() => onRetry(memory.id)}
-            onDelete={remove}
-            className="h-11"
-          />
-        ) : memory.indexState !== "searchable" ? (
-          <IndexBadge
-            memory={memory}
-            onRetry={() => onRetryIndexing(memory)}
-            withReason
-          />
-        ) : (
-          isPartlyIndexed(memory.pages) && (
-            <span className="text-sm whitespace-nowrap text-ink-muted">
-              Partly Indexed
-            </span>
-          )
-        )}
-      </div>
-      {!stranded && (
-        <div className="absolute top-3 right-16 flex items-center gap-3">
-          <MoreLikeThis
-            memory={memory}
-            onSelect={onMoreLikeThis}
-            compact
-            className="h-11"
-          />
-          <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
-          {memory.image && !memory.upload && (
-            <Button
-              asChild
-              variant="quiet"
-              size="icon"
-              className="size-11"
-              aria-label="Open PDF"
-            >
-              <a href={memory.image.url} target="_blank" rel="noreferrer">
-                <ArrowUpRightIcon aria-hidden />
-              </a>
-            </Button>
+          {/* On a phone the strip has no room: it closes the pages instead. */}
+          {shown && partly && (
+            <PartlyIndexed className="self-center py-2 sm:hidden" />
           )}
-          <Button
-            variant="quiet"
-            size="icon"
-            aria-label="Delete"
-            className="size-11"
-            onClick={remove}
-          >
-            <Trash2Icon aria-hidden />
-          </Button>
         </div>
-      )}
+      </div>
     </DialogContent>
+  );
+}
+
+/** Only the first pages of a long PDF were Indexed (the Free allowance). */
+function PartlyIndexed({ className }: { className?: string }) {
+  return (
+    <span className={cn("text-sm whitespace-nowrap text-ink-muted", className)}>
+      Partly Indexed
+    </span>
   );
 }
 
@@ -271,7 +295,16 @@ function PageView({
   onBroken: () => void;
 }) {
   return (
-    <figure data-page={page.page} className="flex scroll-mt-16 flex-col gap-3">
+    <figure data-page={page.page} className="flex flex-col gap-3">
+      {/* What matched comes first, so it is on screen when the page opens. */}
+      {passage && (
+        <figcaption
+          dir="auto"
+          className="line-clamp-6 rounded-tile bg-surface p-4 text-base text-ink"
+        >
+          <mark>{passage}</mark>
+        </figcaption>
+      )}
       <img
         src={page.url}
         alt={`Page ${page.page}`}
@@ -283,14 +316,6 @@ function PageView({
         onError={onBroken}
         className="h-auto w-full rounded-tile bg-surface select-none"
       />
-      {passage && (
-        <figcaption
-          dir="auto"
-          className="line-clamp-6 rounded-tile bg-surface p-4 text-base text-ink"
-        >
-          <mark>{passage}</mark>
-        </figcaption>
-      )}
     </figure>
   );
 }
