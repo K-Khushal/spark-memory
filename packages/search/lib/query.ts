@@ -1,30 +1,100 @@
 import * as chrono from "chrono-node";
+import {
+  SEARCH_COLOURS,
+  SEARCH_KINDS,
+  SEARCH_SOURCES,
+  type MemoryKind,
+  type SearchColour,
+  type SearchFilters,
+  type SearchKind,
+} from "@spark/core";
 
-/** Explicit filters are shared by the parser, chips and search adapter. Category can join here later. */
-export type QueryFilters = {
-  kinds?: ("text" | "image" | "pdf" | "link" | "video")[];
-  source?: string;
-  after?: string;
-  before?: string;
-  colour?: string;
-};
+/**
+ * Reads the structure out of what someone typed: kind, Source, when it was
+ * saved and colour. What is left is searched by meaning. A word is taken as
+ * a filter only where it reads like one, and kept as content when taking it
+ * would leave nothing to search or it is part of a phrase ("red hat").
+ */
+export function understandQuery(
+  query: string,
+  { now = new Date(), timezone = "UTC" }: { now?: Date; timezone?: string } = {}
+): { text: string; filters: SearchFilters } {
+  const words = query.trim().split(/\s+/).filter(Boolean);
+  const norm = words.map(normalise);
+  const taken = new Set<number>();
+  const filters: SearchFilters = {};
+  const zone = validZone(timezone, now);
 
-export const QUERY_COLOURS = {
-  red: "#ef4444",
-  orange: "#f97316",
-  yellow: "#eab308",
-  green: "#22c55e",
-  blue: "#3b82f6",
-  purple: "#a855f7",
-  pink: "#ec4899",
-  black: "#111214",
-  white: "#ffffff",
-} as const;
+  const date = findDate(norm, civilToday(now, zone));
+  if (date) {
+    for (let i = date.from; i < date.from + date.length; i++) taken.add(i);
+    if (date.after) filters.after = boundary(date.after, zone);
+    if (date.before) filters.before = boundary(date.before, zone);
+  }
 
-/** A wall-clock date in an IANA timezone, including DST at the target date. */
-function instant(year: number, month: number, day: number, timezone: string) {
-  const wall = Date.UTC(year, month - 1, day);
-  let value = wall;
+  const source = findSource(norm);
+  if (source) {
+    taken.add(source.at).add(source.at + 1);
+    filters.source = source.name;
+  }
+
+  const structural = !!(date || source);
+  const kind = findKind(norm, taken, structural);
+  if (kind) {
+    taken.add(kind.at);
+    filters.kinds = [...SEARCH_KINDS[kind.kind]] as MemoryKind[];
+  }
+
+  const colour = findColour(norm, taken);
+  if (colour) {
+    filters.colour = colour.name;
+    // A colour word is also what a Memory says ("purple flowers", "red
+    // hair"), so it stays in the words. It goes only when the rest is
+    // filters and it is all that is left: "orange pdfs from last month".
+    const rest = words.some((_, i) => !taken.has(i) && i !== colour.at);
+    if (!rest && taken.size) taken.add(colour.at);
+  }
+
+  return { text: words.filter((_, i) => !taken.has(i)).join(" "), filters };
+}
+
+const normalise = (word: string) =>
+  word.toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+
+// ── Dates ───────────────────────────────────────────────────────────────
+
+/** A calendar day in the person's timezone, as the UTC midnight of that date. */
+type Day = number;
+type Range = { start: Day; end: Day };
+
+const DAY = 86_400_000;
+const utcDay = (y: number, m: number, d = 1): Day => Date.UTC(y, m - 1, d);
+
+function validZone(timezone: string, now: Date) {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: timezone }).format(now);
+    return timezone;
+  } catch {
+    return "UTC";
+  }
+}
+
+function civilToday(now: Date, timezone: string): Day {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(now);
+  const get = (type: string) =>
+    Number(parts.find((p) => p.type === type)!.value);
+  return utcDay(get("year"), get("month"), get("day"));
+}
+
+/** Midnight of a calendar day in `timezone`, as an ISO instant (so DST is the day's own). */
+function boundary(day: Day, timezone: string) {
+  let value = day;
+  // The offset can change between the guess and the answer; two passes settle it.
   for (let i = 0; i < 3; i++) {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
@@ -39,7 +109,7 @@ function instant(year: number, month: number, day: number, timezone: string) {
     const get = (type: string) =>
       Number(parts.find((p) => p.type === type)!.value);
     value +=
-      wall -
+      day -
       Date.UTC(
         get("year"),
         get("month") - 1,
@@ -52,121 +122,253 @@ function instant(year: number, month: number, day: number, timezone: string) {
   return new Date(value).toISOString();
 }
 
-/** Conservative structure extraction: ambiguous words stay available to meaning search. */
-export function understandQuery(
-  query: string,
-  { now = new Date(), timezone = "UTC" }: { now?: Date; timezone?: string } = {}
-) {
-  let text = query.trim().replace(/\s+/g, " ");
-  const filters: QueryFilters = {};
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: timezone }).format(now);
-  } catch {
-    timezone = "UTC";
-  }
-  const source =
-    /\bfrom\s+(instagram|youtube|pinterest|github|reddit|[a-z0-9-]+\.[a-z]{2,})\b/i.exec(
-      text
-    );
-  if (source) {
-    const name = source[1]!.toLowerCase();
-    filters.source = name.includes(".") ? name : `${name}.com`;
-    text = text.replace(source[0], " ");
-  }
-  const kind = /\b(pdfs|images|screenshots|videos|links|notes)\b/i.exec(text);
-  if (kind) {
-    const kinds = {
-      pdfs: "pdf",
-      images: "image",
-      screenshots: "image",
-      videos: "video",
-      links: "link",
-      notes: "text",
-    } as const;
-    filters.kinds = [kinds[kind[1]!.toLowerCase() as keyof typeof kinds]];
-    text = text.replace(kind[0], " ");
-  }
-  // Only date syntax introduced as a filter is consumed; dates in content stay searchable.
-  const date =
-    /\b(from|since|after|before|on|in)\s+((?:last|this)\s+(?:month|week|year)|yesterday|today|\d{4}-\d{2}-\d{2})\b/i.exec(
-      text
-    );
-  if (date) {
-    const local = new Date(now.toLocaleString("en-US", { timeZone: timezone }));
-    const phrase = date[2]!.toLowerCase();
-    const parsed = chrono.parse(phrase, local)[0];
-    if (parsed) {
-      let start = parsed.start.date();
-      let end = parsed.end?.date() ?? new Date(start);
-      if (/month|year|week/.test(phrase)) {
-        start = new Date(local);
-        start.setHours(0, 0, 0, 0);
-        const previous = phrase.startsWith("last");
-        if (phrase.endsWith("month")) {
-          start.setDate(1);
-          start.setMonth(start.getMonth() - Number(previous));
-          end = new Date(start);
-          end.setMonth(end.getMonth() + 1);
-        } else if (phrase.endsWith("year")) {
-          start = new Date(local.getFullYear() - Number(previous), 0, 1);
-          end = new Date(start.getFullYear() + 1, 0, 1);
-        } else {
-          start.setDate(
-            start.getDate() - ((start.getDay() + 6) % 7) - (previous ? 7 : 0)
-          );
-          end = new Date(start);
-          end.setDate(end.getDate() + 7);
-        }
-      } else {
-        end.setDate(end.getDate() + 1);
-      }
-      const iso = (d: Date) =>
-        instant(d.getFullYear(), d.getMonth() + 1, d.getDate(), timezone);
-      if (date[1]!.toLowerCase() === "before") filters.before = iso(start);
-      else {
-        filters.after = iso(start);
-        if (!/since|after/i.test(date[1]!)) filters.before = iso(end);
-      }
-      text = text.replace(date[0], " ");
+const addMonths = (day: Day, months: number): Day => {
+  const d = new Date(day);
+  return utcDay(d.getUTCFullYear(), d.getUTCMonth() + 1 + months, 1);
+};
+const mondayOf = (day: Day): Day => {
+  const weekday = new Date(day).getUTCDay();
+  return day - ((weekday + 6) % 7) * DAY;
+};
+
+const UNIT = /^(day|days|week|weeks|month|months|year|years)$/;
+
+/** "yesterday", "last month", "this year", "past 7 days": how many words, and the span. */
+function relative(
+  norm: string[],
+  at: number,
+  today: Day
+): { length: number; range: Range } | undefined {
+  const [a, b, c] = [norm[at], norm[at + 1], norm[at + 2]];
+  if (a === "today")
+    return { length: 1, range: { start: today, end: today + DAY } };
+  if (a === "yesterday")
+    return { length: 1, range: { start: today - DAY, end: today } };
+  if (a === "this" || a === "last" || a === "previous") {
+    const back = a === "this" ? 0 : 1;
+    if (b === "week") {
+      const start = mondayOf(today) - back * 7 * DAY;
+      return { length: 2, range: { start, end: start + 7 * DAY } };
+    }
+    if (b === "month") {
+      const start = addMonths(today, -back);
+      return { length: 2, range: { start, end: addMonths(start, 1) } };
+    }
+    if (b === "year") {
+      const year = new Date(today).getUTCFullYear() - back;
+      return {
+        length: 2,
+        range: { start: utcDay(year, 1), end: utcDay(year + 1, 1) },
+      };
     }
   }
-  if (!date) {
-    const introduced = /\b(from|since|after|before)\s+(.+)/i.exec(text);
-    const parsed =
-      introduced &&
-      chrono.parse(
-        introduced[2]!,
-        new Date(now.toLocaleString("en-US", { timeZone: timezone }))
-      )[0];
-    if (introduced && parsed && parsed.index === 0) {
-      const start = parsed.start.date();
-      const end = parsed.end?.date() ?? new Date(start);
-      end.setDate(end.getDate() + 1);
-      const iso = (d: Date) =>
-        instant(d.getFullYear(), d.getMonth() + 1, d.getDate(), timezone);
-      if (introduced[1]!.toLowerCase() === "before")
-        filters.before = iso(start);
-      else {
-        filters.after = iso(start);
-        if (!/since|after/i.test(introduced[1]!)) filters.before = iso(end);
-      }
-      text =
-        text.slice(0, introduced.index) +
-        text.slice(
-          introduced.index + introduced[1]!.length + 1 + parsed.text.length
-        );
-    }
-  }
-  const colour =
-    /\b(red|orange|yellow|green|blue|purple|pink|black|white)\b/i.exec(text);
   if (
-    colour &&
-    !/\b(red hat|black box|white paper|green card|blue tooth)\b/i.test(text) &&
-    text.replace(colour[0], "").trim()
+    (a === "past" || a === "last") &&
+    b &&
+    UNIT.test(b) === false &&
+    c &&
+    UNIT.test(c)
   ) {
-    filters.colour =
-      QUERY_COLOURS[colour[1]!.toLowerCase() as keyof typeof QUERY_COLOURS];
-    text = text.replace(colour[0], " ");
+    const n = Number(b);
+    if (Number.isInteger(n) && n > 0 && n <= 1000) {
+      const unit = c.replace(/s$/, "");
+      const start =
+        unit === "day"
+          ? today - n * DAY
+          : unit === "week"
+            ? today - n * 7 * DAY
+            : addMonths(today, -n * (unit === "year" ? 12 : 1));
+      return { length: 3, range: { start, end: today + DAY } };
+    }
   }
-  return { text: text.trim().replace(/\s+/g, " "), filters };
+  return undefined;
+}
+
+const YEAR = /^(?:19|20)\d{2}$/;
+
+/** A date written out ("March 2025", "June 1 to June 30", "2026-05-03") from word `at` on. */
+function absolute(
+  words: string[],
+  at: number,
+  today: Day
+): { length: number; range: Range } | undefined {
+  const rest = words.slice(at);
+  if (!rest.length) return undefined;
+  if (YEAR.test(rest[0]!)) {
+    const year = Number(rest[0]);
+    return {
+      length: 1,
+      range: { start: utcDay(year, 1), end: utcDay(year + 1, 1) },
+    };
+  }
+  // chrono reads a wall-clock instant; giving it the person's today as UTC
+  // keeps every date it returns on that calendar.
+  const found = chrono
+    .parse(rest.join(" "), { instant: new Date(today + DAY / 2), timezone: 0 })
+    .find((r) => r.index === 0);
+  if (!found) return undefined;
+  const { start, end } = found;
+  if (!start.isCertain("month") && !start.isCertain("year")) return undefined;
+  // How many words chrono used.
+  let length = 0;
+  for (let used = 0; used < found.text.length && length < rest.length; length++)
+    used += rest[length]!.length + 1;
+  const first = start.date();
+  let from = utcDay(
+    first.getUTCFullYear(),
+    first.getUTCMonth() + 1,
+    first.getUTCDate()
+  );
+  let to: Day;
+  if (end) {
+    const last = end.date();
+    to =
+      utcDay(last.getUTCFullYear(), last.getUTCMonth() + 1, last.getUTCDate()) +
+      DAY;
+  } else if (start.isCertain("day")) {
+    to = from + DAY;
+  } else if (start.isCertain("month")) {
+    from = utcDay(first.getUTCFullYear(), first.getUTCMonth() + 1);
+    to = addMonths(from, 1);
+  } else {
+    from = utcDay(first.getUTCFullYear(), 1);
+    to = utcDay(first.getUTCFullYear() + 1, 1);
+  }
+  // "March" in January means the March that has passed.
+  if (!start.isCertain("year") && from > today) {
+    const shift = (day: Day) => {
+      const d = new Date(day);
+      return utcDay(
+        d.getUTCFullYear() - 1,
+        d.getUTCMonth() + 1,
+        d.getUTCDate()
+      );
+    };
+    from = shift(from);
+    to = shift(to);
+  }
+  return { length, range: { start: from, end: to } };
+}
+
+type Found = { from: number; length: number; after?: Day; before?: Day };
+
+/** The first date phrase: relative ones stand alone, written dates need "from", "since", "after" or "before". */
+function findDate(norm: string[], today: Day): Found | undefined {
+  for (let i = 0; i < norm.length; i++) {
+    const word = norm[i]!;
+    const intro = [
+      "from",
+      "in",
+      "on",
+      "during",
+      "since",
+      "after",
+      "before",
+    ].includes(word)
+      ? word
+      : undefined;
+    const at = intro ? i + 1 : i;
+    const span =
+      relative(norm, at, today) ??
+      (intro && ["from", "since", "after", "before"].includes(intro)
+        ? absolute(norm, at, today)
+        : undefined);
+    if (!span) continue;
+    const { start, end } = span.range;
+    const found: Found = { from: i, length: (intro ? 1 : 0) + span.length };
+    if (intro === "before") found.before = start;
+    else if (intro === "since") found.after = start;
+    else if (intro === "after") found.after = end;
+    else {
+      found.after = start;
+      found.before = end;
+    }
+    return found;
+  }
+  return undefined;
+}
+
+// ── Sources ─────────────────────────────────────────────────────────────
+
+const FILE_ENDINGS =
+  /\.(pdf|png|jpe?g|gif|webp|svg|txt|md|docx?|xlsx?|csv|mp[34]|mov|zip|json|html?)$/;
+const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,24}$/;
+
+function findSource(norm: string[]) {
+  for (let i = 0; i + 1 < norm.length; i++) {
+    if (!["from", "on", "via"].includes(norm[i]!)) continue;
+    const name = norm[i + 1]!;
+    if (name in SEARCH_SOURCES) return { at: i, name };
+    if (DOMAIN.test(name) && !FILE_ENDINGS.test(name)) return { at: i, name };
+  }
+  return undefined;
+}
+
+// ── Kinds ───────────────────────────────────────────────────────────────
+
+const KIND_WORDS: Record<string, SearchKind> = {
+  pdfs: "pdf",
+  images: "image",
+  photos: "image",
+  pictures: "image",
+  screenshots: "image",
+  videos: "video",
+  links: "link",
+  notes: "note",
+  pdf: "pdf",
+  image: "image",
+  photo: "image",
+  picture: "image",
+  screenshot: "image",
+  video: "video",
+  link: "link",
+  note: "note",
+};
+/** Plural words that are rarely anything but a kind. */
+const CLEAR_KINDS = new Set([
+  "pdfs",
+  "images",
+  "photos",
+  "pictures",
+  "screenshots",
+  "videos",
+]);
+
+function findKind(norm: string[], taken: Set<number>, structural: boolean) {
+  for (let i = 0; i < norm.length; i++) {
+    const kind = KIND_WORDS[norm[i]!];
+    if (!kind || taken.has(i)) continue;
+    const others = norm.some((_, j) => j !== i && !taken.has(j));
+    // "links" and "notes" only lead a search ("links about sourdough"): after
+    // another word they are content ("meeting notes"), and singulars need a
+    // date or Source beside them ("pdf from last month" but "pdf rendering").
+    const reads =
+      CLEAR_KINDS.has(norm[i]!) ||
+      structural ||
+      (i === 0 && others && ["links", "notes"].includes(norm[i]!));
+    if (reads) return { at: i, kind };
+  }
+  return undefined;
+}
+
+// ── Colours ─────────────────────────────────────────────────────────────
+
+const COLOUR_WORDS: Record<string, SearchColour> = {
+  ...(Object.fromEntries(
+    Object.keys(SEARCH_COLOURS).map((name) => [name, name])
+  ) as Record<string, SearchColour>),
+  gray: "grey",
+};
+/** Phrases where the colour is part of a name, not a description. */
+const PHRASES =
+  /^(red (hat|bull|cross|sea|wine|flag|carpet|dead)|black (friday|hole|box|mirror|widow|panther|market|belt|swan|and)|white (house|noise|paper|board|wine|collar|elephant|rabbit)|green (card|tea|day|house|screen|bean|peace)|blue (cheese|tooth|bottle|jay|print|whale|moon)|orange (county|juice|peel)|pink (floyd|panther)|purple rain|yellow (pages|submarine|fever|stone|brick)|brown (sugar|bear))$/;
+
+function findColour(norm: string[], taken: Set<number>) {
+  for (let i = 0; i < norm.length; i++) {
+    const name = COLOUR_WORDS[norm[i]!];
+    if (!name || taken.has(i)) continue;
+    if (PHRASES.test(`${norm[i]} ${norm[i + 1] ?? ""}`)) continue;
+    return { at: i, name };
+  }
+  return undefined;
 }

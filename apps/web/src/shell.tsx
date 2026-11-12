@@ -122,6 +122,7 @@ export function DeskSidebar({
   searchLabel?: string;
   searchActive?: boolean;
   onClearSearch?: () => void;
+  /** Filter chips under the navigation (the Library). */
   filters?: ReactNode;
 }) {
   useLibraryShortcuts({
@@ -132,7 +133,7 @@ export function DeskSidebar({
   });
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 border-r border-line bg-sunken p-3 md:flex">
+    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-line bg-sunken p-3 md:flex">
       <div className="flex h-8 items-center justify-between pl-2">
         <span className="font-display text-md font-semibold">Spark</span>
         <Button

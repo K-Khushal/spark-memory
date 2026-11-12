@@ -81,3 +81,28 @@ export {
   isYouTubeVideo,
   sourceHost,
 } from "./lib/link";
+
+export {
+  youtubeId,
+  isVideoUrl,
+  videoTimestamp,
+  formatTimestamp,
+  type VideoMetadata,
+  type TranscriptSegment,
+} from "./lib/link";
+export {
+  SEARCH_COLOURS,
+  SEARCH_COLOUR_NAMES,
+  SEARCH_SOURCES,
+  SEARCH_KINDS,
+  SEARCH_WHEN,
+  SearchChips,
+  SearchEvent,
+  MAX_QUERY_CHARS,
+  sourceHosts,
+  sourceOf,
+  type SearchColour,
+  type SearchFilters,
+  type SearchKind,
+  type SearchWhen,
+} from "./lib/search-filters";

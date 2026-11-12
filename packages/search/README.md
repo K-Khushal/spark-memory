@@ -1,27 +1,39 @@
-# Search
+# @spark/search
 
-`createSearch` provides instant and full search and More Like This. `understandQuery`
-is the pure structure parser: kind, Source, calendar range (chrono-node, client IANA
-timezone), and colour. Ambiguous standalone colour and singular kind words stay
-content. Calendar ranges use inclusive start and exclusive end, including DST.
-The remainder is searched by meaning; colour words stay as query context and in
-keyword search so a named colour in content remains findable. Invalid client timezones fall back to UTC.
+Hybrid search for one person's Library (ADR-0004, PLAN.md §6): instant, full and More Like This, with the query understood first.
 
-Filters apply before each SQL search leg and its limit. Palette RGB proximity adds
-at most 0.002 to RRF score; it cannot overwhelm the keyword/vector fusion. Colour
-chips require proximity >= 0.65; prose uses proximity as a soft signal. Palettes
-already come from image Capture, without an AI call. Empty-query browsing bypasses
-providers and is paginated (40 results, maximum 100 per page). Category filters can
-join the typed filter object when #24 provides Categories. Why-chips use actual SQL
-match provenance; timestamped Passages can supply a timestamp without fabricated data.
+Entry point: `index.ts` (`createSearch`, `understandQuery`, `forgetQueryVectors`). Implementation in `lib/`, tests in `tests/`.
+
+## Understanding the query
+
+`understandQuery(text, { now, timezone })` is pure. It reads kind ("pdfs", "screenshots"), Source ("from instagram", "from nytimes.com"), when it was saved ("last month", "since March", "from June 1 to June 30", with chrono-node for the written dates) and colour ("orange"). What is left is searched by meaning. The vocabulary (colours, Source names, kinds, chip shapes) lives in `@spark/core` so chips, server and parser agree.
+
+A word is a filter only where it reads like one:
+
+- Written dates need "from", "since", "after" or "before" ("passport appointment on 3 May" is about a date inside a Memory); relative ones ("yesterday", "last week", "past 7 days") stand alone.
+- "links" and "notes" lead a search or sit beside a date or Source ("links about sourdough", "notes from May"), but "meeting notes" is content. Singular kind words need a date or Source beside them ("pdf from last month", not "pdf rendering").
+- Colour names inside a phrase ("red hat", "black friday") are content.
+- A lone ambiguous word ("orange", "notes") stays content.
+
+Colour stays in the words: Memories say "purple flowers", "red hair", and dropping the word lost three searches in the test set. It also becomes a **preference** (`prefer`): a palette near it ranks higher. It becomes a requirement only when nothing else is left to search by ("orange pdfs from last month"), or when it comes from a colour chip.
+
+Calendar ranges are the person's own days (client IANA timezone, falling back to UTC), start included, end excluded, using the offset in force on each boundary across daylight saving.
+
+## Filters, chips, ranking
+
+`createSearch().search(query, mode, { timezone, chips, offset })` merges what the words said with the chips, which win where they disagree, and passes the Library its own words: `kinds`, and `filters` (`hosts`, `after`, `before`, `colour`, `prefer`).
+
+In the database (`search_memories`, migration 0021) the filters are decided once into a narrow `scope`, and every leg joins to it, so no leg's limit can cut a filtered Memory off. Colour compares an image's stored palette (worked out in the browser at Capture, no AI cost) to the colour with a perceptual RGB distance; within 0.14 of black-to-white counts as near. A palette near a preferred colour adds at most 0.003 to the fused score, a few places among close matches, never enough to lift a weak match over a strong one.
+
+With no words, filters browse: closest colour first, then newest, 40 at a time (`offset`), no provider call. Each result says why (`part.kind = "filter"`): the palette colour found, the host, the day saved or the kind.
 
 ## Search data
 
-Only committed searches and result clicks are stored, never typing. Every row is
-owner-scoped. Recent searches deduplicate to 20; events retain at most 1,000 rows per
-owner. Both expire after 30 days (hidden at read/export immediately, physically
-removed by the hourly account sweep). Account deletion cascades both tables. Library
-exports include `searches.json`, with recent searches and the retained query/click,
-1-based position and reformulation events. Deleting recent searches removes those
-recents; metric events expire independently. No query text is sent to analytics,
-Sentry or application console logs.
+Only committed searches and clicks on their results are stored, never typing. Every row belongs to one person.
+
+| Data                              | Kept                                                                                 | Removed                                                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Recent searches (`recent_search`) | 20 per person, one per distinct query, 30 days                                       | One or all by the person; at 30 days (hidden at once, deleted by the hourly sweep); with the account |
+| Search events (`search_event`)    | Query, clicked Memory, its place (1 to 100), reformulation; latest 1,000 and 30 days | At 30 days; with the account; the Memory link goes when the Memory does                              |
+
+Both are in the Library export as `searches.json` (what is still retained). Deleting a recent search does not delete the events behind it: they are the product's own measure and expire on their own. No query text goes to Sentry (events carry no URL query), analytics or the console.

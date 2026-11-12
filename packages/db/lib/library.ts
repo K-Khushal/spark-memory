@@ -13,6 +13,8 @@ import {
   LinkCapture,
   MemoryEdit,
   normaliseUrl,
+  isVideoUrl,
+  type VideoMetadata,
   isYouTubeVideo,
   SCREENSHOT_MAX_BYTES,
   TextCapture,
@@ -90,6 +92,7 @@ const baseColumns = {
   updatedAt: memory.updatedAt,
   /** A link's Source, and the page's own title and description once gathered. */
   sourceUrl: memory.sourceUrl,
+  video: sql<VideoMetadata | null>`${memory.metadata}->'video'`,
   pageTitle: sql<string | null>`${memory.metadata}->>'title'`,
   description: sql<string | null>`${memory.metadata}->>'description'`,
   image,
@@ -101,12 +104,13 @@ export type Memory = Pick<
   typeof memory.$inferSelect,
   Exclude<
     keyof typeof baseColumns,
-    "image" | "indexTitle" | "pageTitle" | "description" | "pages"
+    "image" | "indexTitle" | "pageTitle" | "description" | "pages" | "video"
   >
 > & {
   /** An image's files, or a PDF's: the PDF and its first page's thumbnail. */
   image: MemoryImage | null;
   pages: number | null;
+  video?: VideoMetadata | null;
   indexTitle: string | null;
   pageTitle: string | null;
   description: string | null;
@@ -236,7 +240,12 @@ export type MatchedPart =
     }
   | ({ kind: "passage" } & PassageAnchor)
   | { kind: "overview" | "visual" }
-  | { kind: "filter"; field: "colour" | "source" | "kind" | "date" };
+  /** Found by a filter alone: `value` is the palette colour, host, capture time or kind. */
+  | {
+      kind: "filter";
+      field: "colour" | "source" | "kind" | "date";
+      value: string;
+    };
 export type SearchResult = Memory & {
   matched: MatchedBy[];
   /** Cosine distance of its closest vector; null when the vector leg did not find it. */
@@ -249,12 +258,19 @@ export type VectorProbe = { model: string; dimensions: number } & (
   { vector: number[] } | { like: string }
 );
 
+/**
+ * What a search is narrowed to before it ranks (kinds go in `kinds`).
+ * `colour` and `prefer` are hex: a palette must be near `colour`; near
+ * `prefer` only ranks higher. Hosts match exactly or as a parent domain.
+ */
 export type SearchFilters = {
-  kinds?: MemoryKind[];
-  source?: string;
+  hosts?: string[];
+  /** Captured at or after. */
   after?: string;
+  /** Captured before. */
   before?: string;
   colour?: string;
+  prefer?: string;
 };
 
 export type SearchOptions = {
@@ -572,12 +588,16 @@ export function openLibrary(
         .values({
           id,
           userId,
-          kind: "link",
+          kind: isVideoUrl(url) ? "video" : "link",
           sourceUrl: url,
           sourceUrlNormalised: normalised,
           captureNote,
-          preservation: kept?.text ? "preserved" : "reference_only",
-          ...(kept && { metadata: kept.metadata, body: kept.text }),
+          preservation:
+            !isVideoUrl(url) && kept?.text ? "preserved" : "reference_only",
+          ...(kept && {
+            metadata: kept.metadata,
+            body: isVideoUrl(url) ? null : kept.text,
+          }),
           indexPriority: "fresh",
           productAnalytics: productAnalytics === true,
         })
@@ -613,7 +633,12 @@ export function openLibrary(
           )
         )
         .returning(columns);
-      if (existing && kept?.text && !existing.body) {
+      if (
+        existing &&
+        existing.kind !== "video" &&
+        kept?.text &&
+        !existing.body
+      ) {
         const filled = await db.transaction(async (tx) => {
           await lockOwner(tx, userId);
           if (await deletionRequested(tx, userId)) return undefined;
@@ -667,7 +692,7 @@ export function openLibrary(
           .select({ kind: memory.kind })
           .from(memory)
           .where(owned(id));
-        if (!row || row.kind !== "link") return undefined;
+        if (!row || !["link", "video"].includes(row.kind)) return undefined;
         const [existing] = await tx
           .select({ key: memoryFile.key })
           .from(memoryFile)
@@ -718,7 +743,7 @@ export function openLibrary(
           .select({ kind: memory.kind })
           .from(memory)
           .where(owned(id));
-        if (!row || row.kind !== "link") return false;
+        if (!row || !["link", "video"].includes(row.kind)) return false;
         const [existing] = await tx
           .select({ key: memoryFile.key })
           .from(memoryFile)
@@ -1211,7 +1236,9 @@ export function openLibrary(
         offset = 0,
       }: SearchOptions = {}
     ): Promise<SearchResult[]> {
-      if (!query.trim() && !probe && !filters) return [];
+      // With no words, a search is a browse: only when something narrows it.
+      const narrowed = !!kinds || Object.keys(filters ?? {}).length > 0;
+      if (!query.trim() && !probe && !narrowed) return [];
       const vector =
         probe && "vector" in probe ? `[${probe.vector.join(",")}]` : null;
       const like = probe && "like" in probe ? probe.like : null;
@@ -1224,6 +1251,7 @@ export function openLibrary(
             matched: sql<MatchedBy[]>`matched`.as("matched"),
             distance: sql<number | null>`distance`.as("distance"),
             part: sql<MatchedPart>`part`.as("part"),
+            place: sql<number>`place`.as("place"),
           })
           .from(
             sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[], ${JSON.stringify(filters ?? {})}::jsonb, ${offset}::int)`
@@ -1240,7 +1268,7 @@ export function openLibrary(
         .from(hits)
         .innerJoin(memory, eq(memory.id, hits.id))
         .where(and(eq(memory.userId, userId), allStored))
-        .orderBy(desc(hits.score), asc(hits.id));
+        .orderBy(asc(hits.place));
     },
   };
 }

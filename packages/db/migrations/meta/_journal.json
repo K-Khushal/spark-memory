@@ -138,8 +138,22 @@
     {
       "idx": 19,
       "version": "7",
-      "when": 1794455403028,
-      "tag": "0019_query_understanding",
+      "when": 1794460000000,
+      "tag": "0019_video",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794480000000,
+      "tag": "0020_video_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794488000000,
+      "tag": "0021_query_understanding",
       "breakpoints": true
     }
   ]

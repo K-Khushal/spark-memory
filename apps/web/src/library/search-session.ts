@@ -1,11 +1,15 @@
+import type { SearchChips } from "@spark/core";
+
 /** Instant: keyword and typo, per keystroke. Full: with meaning, after a pause. */
 export type Mode = "instant" | "full";
 
-/** What to search for: words typed, or a Memory to find More Like This of. */
+/**
+ * What to search for: words typed and/or filter chips (either may be
+ * empty, not both), or a Memory to find More Like This of.
+ */
 export type SearchRequest =
-  { query: string; colour?: string; offset?: number } | { like: string };
+  { query: string; chips?: SearchChips } | { like: string };
 
-/** What matched in a result (migrations/0013_hybrid_search.sql). */
 /** What matched (packages/db MatchedPart); `page` is a PDF's page. */
 export type MatchedPart =
   | { kind: "field"; field?: string; page?: number }
@@ -15,9 +19,14 @@ export type MatchedPart =
       start: number;
       end: number;
       page?: number;
-      timestamp?: number;
+      seconds?: number;
     }
-  | { kind: "filter"; field: "colour" | "source" | "kind" | "date" }
+  /** Found by a filter chip alone: `value` is a palette colour, host, capture time or kind. */
+  | {
+      kind: "filter";
+      field: "colour" | "source" | "kind" | "date";
+      value: string;
+    }
   | { kind: "overview" }
   | { kind: "visual"; page?: number };
 
@@ -31,10 +40,18 @@ export type Answer =
   | { key: string; mode: Mode; hits: Hit[] }
   | { key: string; mode: Mode; failed: true };
 
-export const requestKey = (request: SearchRequest) =>
-  "like" in request
-    ? `like:${request.like}`
-    : `q:${request.query}${request.colour ? `|colour:${request.colour}` : ""}${request.offset ? `|offset:${request.offset}` : ""}`;
+/** Chips key as `f:` so only an identical search, never a prefix, answers for them. */
+export const requestKey = (request: SearchRequest) => {
+  if ("like" in request) return `like:${request.like}`;
+  const chips = Object.entries(request.chips ?? {}).sort();
+  return chips.length
+    ? `f:${chips.map(([k, v]) => `${k}=${v}`).join("&")}|${request.query}`
+    : `q:${request.query}`;
+};
+
+/** Whether a request's key (requestKey) is filters alone, with no words. */
+export const isWordless = (key: string) =>
+  key.startsWith("f:") && key.endsWith("|");
 
 const CACHE_SIZE = 50;
 
@@ -137,9 +154,11 @@ export function searchSession({
     const controller = new AbortController();
     // Each mode's request: waiting, answered (ok), failed, or not made.
     type Step = "waiting" | "ok" | "failed" | "none";
+    // Filters alone have no words to find by meaning: the instant answer is the answer.
+    const wordless = "query" in request && !request.query.trim();
     const step: Record<Mode, Step> = {
       instant: "query" in request ? "waiting" : "none",
-      full: "waiting",
+      full: wordless ? "none" : "waiting",
     };
     const done = (mode: Mode, hits?: Hit[], final = true) => {
       if (controller.signal.aborted) return;
@@ -147,7 +166,7 @@ export function searchSession({
       const other = step[mode === "full" ? "instant" : "full"];
       if (hits && (mode === "full" || other !== "ok")) {
         onAnswer({ key, mode, hits });
-        if (mode === "full" && final && epoch === cacheEpoch) {
+        if ((mode === "full" || wordless) && final && epoch === cacheEpoch) {
           cache.set(cacheKey, hits);
           if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
         }
@@ -161,6 +180,10 @@ export function searchSession({
         () => done(mode)
       );
     if ("query" in request) void run("instant");
+    if (wordless) {
+      stop = () => controller.abort();
+      return;
+    }
     const pause = "like" in request ? 0 : pauseMs;
     const timer = pause ? setTimeout(() => void run("full"), pause) : undefined;
     if (!pause) void run("full");

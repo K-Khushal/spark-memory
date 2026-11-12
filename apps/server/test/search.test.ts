@@ -91,6 +91,64 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     });
   });
 
+  it("narrows by filter chips and by the words typed, and browses without words", async () => {
+    const { call } = await signedIn();
+    const id = await capture(call, "Quarterly budget");
+    await sql.query(
+      "update memory set source_url = 'https://www.instagram.com/p/x' where id = $1",
+      [id]
+    );
+    const ids = async (query: string) =>
+      (
+        (await (await call(`/api/search?${query}&timezone=UTC`)).json()) as {
+          results: Result[];
+        }
+      ).results.map((r) => r.id);
+    expect(await ids("q=budget&source=instagram")).toEqual([id]);
+    expect(await ids("q=budget&source=youtube")).toEqual([]);
+    expect(await ids("q=budget&kind=note&when=today")).toEqual([id]);
+    expect(await ids("q=budget&kind=pdf")).toEqual([]);
+    // The same, typed: filters are read out of the words.
+    expect(await ids("q=budget%20from%20instagram")).toEqual([id]);
+    expect(await ids("q=budget%20from%20youtube")).toEqual([]);
+    expect(await ids("q=budget%20from%20last%20year")).toEqual([]);
+    // Browsing: chips alone list the Library, each result saying why.
+    const browse = (await (await call("/api/search?kind=note")).json()) as {
+      mode: string;
+      results: Result[];
+    };
+    expect(browse.mode).toBe("instant");
+    expect(browse.results[0]).toMatchObject({
+      id,
+      match: "direct",
+      part: { kind: "filter", field: "kind", value: "text" },
+    });
+    expect(await ids("source=instagram&offset=1")).toEqual([]);
+    expect(await ids("")).toEqual([]);
+    // Unknown filters are refused, not ignored.
+    for (const bad of [
+      "kind=bogus",
+      "colour=%23fff",
+      "source=a%20b",
+      "when=never",
+    ])
+      expect((await call(`/api/search?q=budget&${bad}`)).status, bad).toBe(400);
+  });
+
+  it("refuses a click without its position, and a position without its Memory", async () => {
+    const { call } = await signedIn();
+    const id = await capture(call, "Anything");
+    for (const json of [
+      { query: "x", memoryId: id },
+      { query: "x", position: 1 },
+      { query: "x".repeat(301) },
+      { query: "x", memoryId: "not-a-uuid", position: 1 },
+    ])
+      expect(
+        (await call("/api/search/events", { method: "POST", json })).status
+      ).toBe(400);
+  });
+
   it("finds a Memory by meaning in full mode, with the part that matched; instant mode by words only", async () => {
     const { call } = await signedIn();
     const sunset = await capture(call, "Sunset over the dock");

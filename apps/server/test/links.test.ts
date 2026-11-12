@@ -29,7 +29,7 @@ const ARTICLE = "Basil wants six hours of light and warm soil. ".repeat(12);
 
 /** The public web as a few pages; DNS says every name is public unless listed. */
 function stubWeb(
-  pages: Record<string, string | (() => Promise<string>)>,
+  pages: Record<string, string | Response | (() => Promise<string>)>,
   privateNames: string[] = []
 ) {
   const asked: string[] = [];
@@ -46,6 +46,7 @@ function stubWeb(
     asked.push(url.href);
     const page = pages[url.href];
     if (page === undefined) return new Response("", { status: 404 });
+    if (page instanceof Response) return page.clone();
     const body = typeof page === "string" ? page : await page();
     return new Response(body, { headers: { "content-type": "text/html" } });
   });
@@ -221,6 +222,90 @@ describe.skipIf(!databaseUrl)("link Capture", () => {
     expect(await read(call, memory.id)).toMatchObject({
       indexState: "indexing",
       preservation: "reference_only",
+    });
+  });
+});
+
+describe.skipIf(!databaseUrl)("video Capture", () => {
+  it("keeps the transcript Reference Only, dedupes moments, and searches at the spoken timestamp", async () => {
+    const { call } = await signedIn();
+    const url = "https://www.youtube.com/watch?v=abcdefghijk";
+    const caption =
+      "https://www.youtube.com/api/timedtext?v=abcdefghijk&lang=en&fmt=json3";
+    const player = {
+      videoDetails: { lengthSeconds: "3600" },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{ baseUrl: caption, languageCode: "en" }],
+        },
+      },
+    };
+    const asked = stubWeb({
+      [url]: `<title>Garden Film</title><script>var ytInitialPlayerResponse = ${JSON.stringify(player)};</script>`,
+      [caption]: Response.json({
+        events: [
+          { tStartMs: 0, segs: [{ utf8: "🌱 Welcome to this garden." }] },
+          {
+            tStartMs: 760000,
+            segs: [{ utf8: "Heliotropism turns leaves towards sunlight." }],
+          },
+        ],
+      }),
+    });
+    const first = await captureLink(call, url + "&t=760");
+    expect(first.memory.kind).toBe("video");
+    await drain(first.id);
+    const found = await read(call, first.id);
+    expect(found).toMatchObject({
+      kind: "video",
+      preservation: "reference_only",
+      indexState: "searchable",
+      body: "🌱 Welcome to this garden.\nHeliotropism turns leaves towards sunlight.",
+    });
+    const result = (await (
+      await call("/api/search?q=heliotropism")
+    ).json()) as { results: { id: string; part: unknown }[] };
+    expect(result.results[0]).toMatchObject({
+      id: first.id,
+      part: { kind: "passage", seconds: 760, start: 27 },
+    });
+    const filtered = (await (
+      await call("/api/search?q=videos%20heliotropism%20from%20youtube")
+    ).json()) as typeof result;
+    expect(filtered.results[0]).toMatchObject({
+      id: first.id,
+      part: { kind: "passage", seconds: 760, start: 27 },
+    });
+    const again = await captureLink(call, "https://youtu.be/abcdefghijk?t=30");
+    expect(again.memory.id).toBe(first.id);
+    expect(asked.some((u) => u.includes("jina"))).toBe(false);
+  });
+});
+
+describe.skipIf(!databaseUrl)("video generation fence", () => {
+  it("drops a transcript if AI opt-out changes during the public page fetch", async () => {
+    const { call } = await signedIn();
+    const url = "https://www.youtube.com/watch?v=zzzzzzzzzzz";
+    const { memory } = await captureLink(call, url);
+    const asked = stubWeb({
+      [url]: async () => {
+        expect(
+          (
+            await call(`/api/memories/${memory.id}/ai-opt-out`, {
+              method: "PUT",
+              json: { aiOptOut: true },
+            })
+          ).status
+        ).toBe(200);
+        return `<script>var ytInitialPlayerResponse = {"videoDetails":{"lengthSeconds":"60"},"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"baseUrl":"https://www.youtube.com/api/timedtext?v=zzzzzzzzzzz"}]}}};</script>`;
+      },
+    });
+    await drain(memory.id);
+    expect(asked).toEqual([url]);
+    expect(await read(call, memory.id)).toMatchObject({
+      body: null,
+      aiOptOut: true,
+      indexState: "searchable",
     });
   });
 });

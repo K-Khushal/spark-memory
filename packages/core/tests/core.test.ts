@@ -4,6 +4,10 @@ import {
   ImageCapture,
   isFileWithinAllowance,
   MemoryKind,
+  SearchChips,
+  SearchEvent,
+  sourceHosts,
+  sourceOf,
   TextCapture,
 } from "../index";
 
@@ -77,5 +81,62 @@ describe("ImageCapture", () => {
 
   it("refuses a content hash that is not SHA-256 hex", () => {
     expect(parses({ contentHash: "not-a-hash" })).toBe(false);
+  });
+});
+
+describe("search filters", () => {
+  it("files a URL under its Source", () => {
+    expect(sourceOf("https://www.instagram.com/p/x")).toBe("instagram");
+    expect(sourceOf("https://m.youtube.com/watch?v=1")).toBe("youtube");
+    expect(sourceOf("https://youtu.be/abc")).toBe("youtube");
+    expect(sourceOf("https://x.com/a/status/1")).toBe("twitter");
+    expect(sourceOf("https://www.nytimes.com/2026/a")).toBe("nytimes.com");
+    expect(sourceOf("https://instagram.com.evil.test/p")).toBe(
+      "instagram.com.evil.test"
+    );
+    expect(sourceOf("not a url")).toBeUndefined();
+    expect(sourceOf("http://localhost/x")).toBeUndefined();
+  });
+
+  it("expands a Source name to its hosts, and leaves a domain alone", () => {
+    expect(sourceHosts("youtube")).toEqual(["youtube.com", "youtu.be"]);
+    expect(sourceHosts("nytimes.com")).toEqual(["nytimes.com"]);
+  });
+
+  it("accepts one chip per group and nothing it does not know", () => {
+    expect(
+      SearchChips.safeParse({
+        kind: "link",
+        when: "last month",
+        colour: "teal",
+      }).success
+    ).toBe(true);
+    for (const bad of [
+      { kind: "file" },
+      { colour: "#fff" },
+      { when: "tomorrow" },
+      { source: "a b" },
+      { category: "recipe" },
+    ])
+      expect(SearchChips.safeParse(bad).success, JSON.stringify(bad)).toBe(
+        false
+      );
+  });
+
+  it("takes a click only with its position", () => {
+    const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    expect(SearchEvent.safeParse({ query: "x" }).success).toBe(true);
+    expect(
+      SearchEvent.safeParse({ query: "x", memoryId: id, position: 3 }).success
+    ).toBe(true);
+    expect(SearchEvent.safeParse({ query: "x", memoryId: id }).success).toBe(
+      false
+    );
+    expect(SearchEvent.safeParse({ query: "x", position: 3 }).success).toBe(
+      false
+    );
+    expect(
+      SearchEvent.safeParse({ query: "x", memoryId: id, position: 0 }).success
+    ).toBe(false);
   });
 });

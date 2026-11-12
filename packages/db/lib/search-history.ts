@@ -53,10 +53,10 @@ export function searchHistory(db: Database, userId: string) {
     async searchData() {
       const [recent, events] = await Promise.all([
         db.execute(
-          sql`select id, query, searched_at from recent_search where user_id = ${userId} and searched_at > now() - interval '30 days' order by searched_at, id`
+          sql`select id, query, searched_at as "searchedAt" from recent_search where user_id = ${userId} and searched_at > now() - interval '30 days' order by searched_at, id`
         ),
         db.execute(
-          sql`select id, query, memory_id, position, reformulation, occurred_at from search_event where user_id = ${userId} and occurred_at > now() - interval '30 days' order by occurred_at, id`
+          sql`select id, query, memory_id as "memoryId", position, reformulation, occurred_at as "occurredAt" from search_event where user_id = ${userId} and occurred_at > now() - interval '30 days' order by occurred_at, id`
         ),
       ]);
       return { recentSearches: recent.rows, searchEvents: events.rows };

@@ -9,9 +9,12 @@ import {
   FREE_ALLOWANCE,
   ImageCapture,
   LinkCapture,
+  MAX_QUERY_CHARS,
   MemoryEditRequest,
   PdfCapture,
   SCREENSHOT_MAX_BYTES,
+  SearchChips,
+  SearchEvent,
   TextCapture,
 } from "@spark/core";
 import {
@@ -124,9 +127,6 @@ const limitBody = bodyLimit({
   maxSize: MAX_BODY_BYTES,
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
 });
-
-/** Longer queries are cut: nobody types more to find a Memory. */
-const MAX_QUERY_CHARS = 300;
 
 /** At most this many Memories per poll; the wall polls the ones it shows Indexing. */
 const MAX_POLLED = 100;
@@ -457,19 +457,23 @@ export const memories = new Hono<AppEnv>()
    * whether it is a Direct or Related Match and which part matched.
    */
   .get("/search", async (c) => {
+    // Longer queries are cut: nobody types more to find a Memory.
     const q = (c.req.query("q") ?? "").slice(0, MAX_QUERY_CHARS);
     const mode = c.req.query("mode") === "full" ? "full" : "instant";
+    // Filter chips: one per group (kind, source, when, colour).
+    const { q: _q, mode: _mode, timezone, offset, ...rest } = c.req.query();
+    const chips = SearchChips.safeParse(rest);
+    if (!chips.success) return c.json({ error: "invalid_filter" }, 400);
     const results = await searchFor(
       c.env,
       c.var.db,
       c.var.user.id,
       c.var.library
     ).search(q, mode, {
-      timezone: c.req.query("timezone") ?? "UTC",
-      ...(c.req.query("colour")?.match(/^#[0-9a-fA-F]{6}$/) && {
-        filters: { colour: c.req.query("colour")! },
-      }),
-      offset: Math.min(10000, Math.max(0, Number(c.req.query("offset")) || 0)),
+      ...(timezone && { timezone: timezone.slice(0, 64) }),
+      chips: chips.data,
+      // Browsing pages through the Library, 40 at a time.
+      offset: Math.min(10_000, Math.max(0, Math.trunc(Number(offset)) || 0)),
     });
     return c.json({
       // "instant" when full mode fell back (no embedder, budget, provider).
@@ -479,6 +483,7 @@ export const memories = new Hono<AppEnv>()
       ),
     });
   })
+  /** Recent searches, newest first. */
   .get("/search/recent", async (c) =>
     c.json({ searches: await c.var.library.recentSearches() })
   )
@@ -492,34 +497,13 @@ export const memories = new Hono<AppEnv>()
     await c.var.library.forgetSearch(id);
     return c.body(null, 204);
   })
-  .post("/search/events", limitImageBody, async (c) => {
-    const body: unknown = await c.req.json().catch(() => null);
-    if (
-      !body ||
-      typeof body !== "object" ||
-      !("query" in body) ||
-      typeof body.query !== "string" ||
-      body.query.length > 500
-    )
-      return c.json({ error: "invalid_search" }, 400);
-    const click =
-      "memoryId" in body && "position" in body
-        ? { memoryId: body.memoryId, position: body.position }
-        : undefined;
-    if (
-      click &&
-      (typeof click.memoryId !== "string" ||
-        !UUID.test(click.memoryId) ||
-        typeof click.position !== "number" ||
-        !Number.isInteger(click.position) ||
-        click.position < 1 ||
-        click.position > 100)
-    )
-      return c.json({ error: "invalid_click" }, 400);
+  /** A committed search, or a click on one of its results (Recent searches, PRD metrics). */
+  .post("/search/events", limitImageBody, json(SearchEvent), async (c) => {
+    const { query, memoryId, position, reformulation } = c.req.valid("json");
     await c.var.library.rememberSearch(
-      body.query,
-      click as { memoryId: string; position: number } | undefined,
-      "reformulation" in body && body.reformulation === true
+      query,
+      memoryId && position ? { memoryId, position } : undefined,
+      reformulation
     );
     return c.body(null, 204);
   })

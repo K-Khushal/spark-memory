@@ -1,5 +1,13 @@
-import { understandQuery, type QueryFilters } from "./query";
-import { EMBEDDING } from "@spark/core";
+import {
+  EMBEDDING,
+  SEARCH_COLOURS,
+  SEARCH_KINDS,
+  sourceHosts,
+  type MemoryKind,
+  type SearchChips,
+  type SearchFilters,
+} from "@spark/core";
+import { understandQuery } from "./query";
 import {
   embedCostMicros,
   ProviderError,
@@ -15,6 +23,49 @@ export type Probe = { model: string; dimensions: number } & (
 
 /** What a search leg returns per Memory, at least. */
 export type Hit = { matched: string[]; distance: number | null };
+
+/** The Library's narrowing, in its own words (hosts, hex colours); see `scopeOf`. */
+export type Scope = {
+  kinds?: MemoryKind[];
+  filters?: {
+    hosts?: string[];
+    after?: string;
+    before?: string;
+    colour?: string;
+    prefer?: string;
+  };
+};
+
+/**
+ * What a search is narrowed to: what the words said, then what the person
+ * chose with a chip, which wins where they disagree. A colour from a chip
+ * is required; one from the words only ranks higher, unless the words
+ * are nothing but filters ("orange pdfs from last month").
+ */
+export function scopeOf(
+  spoken: SearchFilters,
+  chosen: SearchFilters,
+  text: string
+): Scope {
+  const dated = chosen.after || chosen.before;
+  const merged: SearchFilters = {
+    ...spoken,
+    ...chosen,
+    ...(dated && { after: chosen.after, before: chosen.before }),
+  };
+  const filters = {
+    ...(merged.source && { hosts: sourceHosts(merged.source) }),
+    ...(merged.after && { after: merged.after }),
+    ...(merged.before && { before: merged.before }),
+    ...(chosen.colour || (spoken.colour && !text)
+      ? { colour: SEARCH_COLOURS[(chosen.colour ?? spoken.colour)!] }
+      : spoken.colour && { prefer: SEARCH_COLOURS[spoken.colour] }),
+  };
+  return {
+    ...(merged.kinds && { kinds: merged.kinds }),
+    ...(Object.keys(filters).length > 0 && { filters }),
+  };
+}
 
 /** Instant: keyword and typo only, per keystroke. Full: with the vector leg, after a pause. */
 export type Mode = "instant" | "full";
@@ -101,10 +152,9 @@ export function createSearch<R extends Hit>({
   /** The Library's hybrid search. */
   find: (
     query: string,
-    options: {
+    options: Scope & {
       probe?: Probe;
       maxDistance: number;
-      filters?: QueryFilters;
       offset?: number;
     }
   ) => Promise<R[]>;
@@ -194,42 +244,48 @@ export function createSearch<R extends Hit>({
     async search(
       query: string,
       mode: Mode,
-      context: {
+      {
+        timezone,
+        chips = {},
+        offset,
+      }: {
+        /** The person's IANA timezone, for "last month". */
         timezone?: string;
-        filters?: QueryFilters;
+        /** Filter chips; they win over what the words said. */
+        chips?: SearchChips;
         offset?: number;
       } = {}
     ): Promise<{ results: Ranked<R>[]; mode: Mode }> {
-      const parsed = understandQuery(query, {
+      const when = {
         now: new Date(now()),
-        ...(context.timezone && { timezone: context.timezone }),
-      });
-      const q = parsed.text;
-      const filters = {
-        ...parsed.filters,
-        ...context.filters,
-        ...(context.filters?.colour && { strictColour: true }),
+        ...(timezone && { timezone }),
       };
-      // Colour helps ranking in prose, but is a strict filter for an explicit chip.
-      const keyword = parsed.filters.colour
-        ? `${q} ${query.match(/\b(red|orange|yellow|green|blue|purple|pink|black|white)\b/i)?.[0] ?? ""}`.trim()
-        : q;
-      if (!q && !Object.keys(filters).length)
-        return { results: [], mode: "instant" };
+      const { text, filters: spoken } = understandQuery(query, when);
+      const chosen: SearchFilters = {
+        ...(chips.kind && { kinds: [...SEARCH_KINDS[chips.kind]] }),
+        ...(chips.source && { source: chips.source }),
+        ...(chips.colour && { colour: chips.colour }),
+        // A chip's time range is read by the parser, like a typed one.
+        ...(chips.when && understandQuery(chips.when, when).filters),
+      };
       const options = {
+        ...scopeOf(spoken, chosen, text),
         maxDistance: EMBEDDING.maxDistance,
-        ...(Object.keys(filters).length && { filters }),
-        ...(context.offset && { offset: context.offset }),
+        ...(offset && { offset }),
       };
-      if (q && mode === "full" && space) {
+      const narrowed = options.kinds || options.filters;
+      // Nothing to look for and nothing to narrow by: no results, not the whole Library.
+      if (!text && !narrowed) return { results: [], mode: "instant" };
+      // Filters alone browse the Library, with no provider call.
+      if (text && mode === "full" && space) {
         // Anything wrong on the way to the vector leg (the budget, the
         // provider, the SQL with a vector) falls back to keywords.
         try {
-          const vector = await embedQuery(keyword);
+          const vector = await embedQuery(text);
           if (vector) {
             const probe = { ...space, vector };
             return {
-              results: split(await find(keyword, { ...options, probe })),
+              results: split(await find(text, { ...options, probe })),
               mode: "full",
             };
           }
@@ -237,7 +293,7 @@ export function createSearch<R extends Hit>({
           console.error("search: full search fell back to keywords");
         }
       }
-      return { results: split(await find(keyword, options)), mode: "instant" };
+      return { results: split(await find(text, options)), mode: "instant" };
     },
 
     /** More Like This: the Memory's own vectors as the query, no provider call. */

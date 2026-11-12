@@ -1,15 +1,23 @@
-import { api } from "../api";
-import type { RecentSearch } from "./search-history";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { LogOutIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { useRef, type ReactNode } from "react";
+import { useRecentSearches } from "./search-history";
+import { restoreLibraryFocus } from "./focus";
 import {
+  ClockIcon,
+  LogOutIcon,
+  PlusIcon,
+  SearchIcon,
+  SettingsIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
+import {
+  Button,
   CommandDialog,
   CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
   Kbd,
-  toast,
 } from "@spark/ui";
 import { useFlip } from "./flip";
 import { MOD } from "./shortcuts";
@@ -42,40 +50,7 @@ export function SearchCommand({
   onSettings: () => void;
   onSignOut: () => void;
 }) {
-  const recentEpoch = useRef(0);
-  const [recent, setRecent] = useState<RecentSearch[]>([]);
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    const epoch = ++recentEpoch.current;
-    void api.api.search.recent
-      .$get()
-      .then(async (r) => {
-        if (r.ok) {
-          const body = await r.json();
-          if (active && epoch === recentEpoch.current) setRecent(body.searches);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [open]);
-  const forget = async (id?: string) => {
-    recentEpoch.current++;
-    try {
-      const response = id
-        ? await api.api.search.recent[":id"].$delete({ param: { id } })
-        : await api.api.search.recent.$delete();
-      if (response.ok)
-        setRecent((all) => (id ? all.filter((s) => s.id !== id) : []));
-      else throw new Error("delete failed");
-    } catch {
-      toast.error("Could Not Delete Search", {
-        action: { label: "Try Again", onClick: () => void forget(id) },
-      });
-    }
-  };
+  const { recent, forget } = useRecentSearches(open);
   const listRef = useRef<HTMLDivElement>(null);
   useFlip(
     listRef,
@@ -87,6 +62,7 @@ export function SearchCommand({
 
   return (
     <CommandDialog
+      onCloseAutoFocus={restoreLibraryFocus}
       title="Search"
       open={open}
       onOpenChange={onOpenChange}
@@ -140,30 +116,36 @@ export function SearchCommand({
             {recent.length > 0 && (
               <CommandGroup heading="Recent Searches">
                 {recent.map((s) => (
-                  <div key={s.id} className="flex min-w-0 items-center">
+                  <div key={s.id} className="group flex min-w-0 items-center">
                     <CommandItem
                       value={`recent:${s.id}`}
                       className="min-w-0 flex-1"
                       onSelect={() => onShowOnWall(s.query)}
                     >
+                      <ClockIcon
+                        className="size-4 shrink-0 text-ink-muted"
+                        aria-hidden
+                      />
                       <span className="truncate" dir="auto" title={s.query}>
                         {s.query}
                       </span>
                     </CommandItem>
-                    <button
-                      type="button"
+                    <Button
+                      variant="quiet"
+                      size="icon-sm"
                       aria-label={`Delete Search ${s.query}`}
-                      className="shrink-0 rounded-control px-2 py-1 text-xs text-ink-muted hover:text-ink"
+                      className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                       onClick={() => void forget(s.id)}
                     >
-                      Delete
-                    </button>
+                      <XIcon aria-hidden />
+                    </Button>
                   </div>
                 ))}
                 <CommandItem
                   value="__clear_recent"
                   onSelect={() => void forget()}
                 >
+                  <Trash2Icon className="size-4 text-ink-muted" aria-hidden />
                   Clear Recent Searches
                 </CommandItem>
               </CommandGroup>

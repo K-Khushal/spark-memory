@@ -1,10 +1,13 @@
 {
   "tolerance": 0.02,
   "ranks": {
+    "filter-photos-lavender": 1,
+    "filter-screens-sidebar": 1,
+    "filter-yellow-cab": 1,
     "colour-orange-cat": 1,
     "colour-purple-field": 1,
     "colour-red-car": 3,
-    "colour-yellow-cab": 19,
+    "colour-yellow-cab": 13,
     "colour-purple-sidebar": 1,
     "text-cafe-total": 1,
     "text-wifi-password": 1,

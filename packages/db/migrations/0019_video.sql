@@ -1,16 +1,54 @@
--- #12: filters apply before each ranking leg; colour adds at most 0.002 RRF points.
-CREATE FUNCTION rgb_distance(a text, b text) RETURNS double precision
-LANGUAGE sql IMMUTABLE STRICT AS $$
- SELECT CASE WHEN a ~ '^#[0-9a-fA-F]{6}$' AND b ~ '^#[0-9a-fA-F]{6}$' THEN
- sqrt(power(get_byte(decode(substr(a,2), 'hex'),0)-get_byte(decode(substr(b,2), 'hex'),0),2)
-    + power(get_byte(decode(substr(a,2), 'hex'),1)-get_byte(decode(substr(b,2), 'hex'),1),2)
-    + power(get_byte(decode(substr(a,2), 'hex'),2)-get_byte(decode(substr(b,2), 'hex'),2),2)) / 441.67295593
- ELSE 1 END
-$$;
+-- Video transcript anchors (#19). Metadata and vector anchors already use jsonb.
+CREATE OR REPLACE FUNCTION matched_field(p_memory memory, p_query tsquery) RETURNS text
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  cfg regconfig := search_config(p_memory.language);
+  ocr text;
+BEGIN
+  IF p_query IS NULL THEN RETURN NULL; END IF;
+  IF ts_filter(p_memory.search_tsv, '{a}') @@ p_query THEN RETURN 'title'; END IF;
+  IF ts_filter(p_memory.search_tsv, '{b}') @@ p_query THEN
+    IF text_matches(cfg, p_memory.capture_note, p_query) THEN RETURN 'note'; END IF;
+    IF p_memory.kind IN ('link', 'video') AND text_matches(cfg, memory_source_text(p_memory), p_query)
+      THEN RETURN 'source'; END IF;
+    RETURN 'tags';
+  END IF;
+  IF NOT ts_filter(p_memory.search_tsv, '{c}') @@ p_query THEN RETURN NULL; END IF;
+  IF p_memory.kind = 'text' THEN RETURN 'text'; END IF;
+  IF p_memory.kind = 'pdf' THEN RETURN 'pdf'; END IF;
+  IF p_memory.kind = 'video' THEN RETURN 'video'; END IF;
+  IF p_memory.kind IN ('link', 'video') THEN
+    RETURN CASE WHEN text_matches(cfg, left(p_memory.body, 20000), p_query)
+      THEN 'text' ELSE 'description' END;
+  END IF;
+  SELECT i.ocr_text INTO ocr FROM memory_index i WHERE i.memory_id = p_memory.id;
+  RETURN CASE WHEN text_matches(cfg, left(ocr, 20000), p_query)
+    THEN 'ocr' ELSE 'description' END;
+END $$;
 --> statement-breakpoint
-DROP FUNCTION search_memories(text,text,integer,halfvec,uuid,text,integer,double precision,text[]);
+
+CREATE OR REPLACE FUNCTION video_part(p_memory memory, p_query tsquery) RETURNS jsonb
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  segment jsonb;
+  position integer := 0;
+  words text;
+  units integer;
+BEGIN
+  FOR segment IN SELECT value FROM jsonb_array_elements(coalesce(p_memory.metadata->'video'->'transcript', '[]'::jsonb)) LOOP
+    words := segment->>'text';
+    -- Anchors use JavaScript UTF-16 offsets, including emoji pairs.
+    units := char_length(regexp_replace(words, U&'[\+010000-\+10FFFF]', 'xx', 'g'));
+    IF text_matches(search_config(p_memory.language), words, p_query) THEN
+      RETURN jsonb_build_object('kind', 'passage', 'field', 'body', 'start', position,
+        'end', position + units, 'seconds', (segment->>'seconds')::numeric);
+    END IF;
+    position := position + units + 1;
+  END LOOP;
+  RETURN jsonb_build_object('kind', 'field', 'field', 'description');
+END $$;
 --> statement-breakpoint
-CREATE FUNCTION search_memories(
+CREATE OR REPLACE FUNCTION search_memories(
   p_user_id text,
   p_query text,
   p_limit integer DEFAULT 40,
@@ -19,9 +57,7 @@ CREATE FUNCTION search_memories(
   p_model text DEFAULT NULL,
   p_dimensions integer DEFAULT NULL,
   p_max_distance double precision DEFAULT 0.6,
-  p_kinds text[] DEFAULT NULL,
-  p_filters jsonb DEFAULT '{}',
-  p_offset integer DEFAULT 0
+  p_kinds text[] DEFAULT NULL
 )
 RETURNS TABLE (
   id uuid,
@@ -36,23 +72,7 @@ STABLE
 -- while near neighbours ("bread", "read") stay apart.
 SET pg_trgm.similarity_threshold = 0.4
 AS $$
-  WITH eligible AS MATERIALIZED (
-    SELECT m.*, c.proximity FROM memory m
-    CROSS JOIN LATERAL (
-      SELECT max(1 - rgb_distance(colour, p_filters->>'colour')) AS proximity
-      FROM memory_file f, unnest(f.palette) colour
-      WHERE p_filters ? 'colour' AND f.memory_id = m.id AND f.stored_at IS NOT NULL
-    ) c
-    WHERE m.user_id = p_user_id
-      AND NOT EXISTS (SELECT 1 FROM memory_file f WHERE f.memory_id = m.id AND f.stored_at IS NULL)
-      AND (p_kinds IS NULL OR m.kind = ANY(p_kinds))
-      AND (NOT p_filters ? 'kinds' OR (p_filters->'kinds') ? m.kind)
-      AND (NOT p_filters ? 'after' OR m.captured_at >= (p_filters->>'after')::timestamptz)
-      AND (NOT p_filters ? 'before' OR m.captured_at < (p_filters->>'before')::timestamptz)
-      AND (NOT p_filters ? 'source' OR lower(substring(m.source_url from '^https?://([^/:?#]+)')) = p_filters->>'source'
-        OR right(lower(substring(m.source_url from '^https?://([^/:?#]+)')), length(p_filters->>'source') + 1) = '.' || (p_filters->>'source'))
-      AND (NOT p_filters ? 'colour' OR (btrim(p_query) <> '' AND p_filters->>'strictColour' IS DISTINCT FROM 'true') OR c.proximity >= 0.65)
-  ), query_words AS (
+  WITH query_words AS (
     SELECT t.lexeme AS word
     FROM unnest(to_tsvector('simple', p_query)) AS t
     -- Under 3 characters every word looks alike; the prefix covers it.
@@ -92,7 +112,7 @@ AS $$
     SELECT m.id, row_number() OVER (
       ORDER BY ts_rank_cd(m.search_tsv, q.keyword) DESC, m.captured_at DESC
     ) AS rank
-    FROM eligible m, q
+    FROM memory m, q
     WHERE m.user_id = p_user_id AND m.search_tsv @@ q.keyword
       AND (p_kinds IS NULL OR m.kind = ANY (p_kinds))
     ORDER BY rank
@@ -102,7 +122,7 @@ AS $$
     SELECT m.id, row_number() OVER (
       ORDER BY ts_rank_cd(m.search_tsv, q.typo) DESC, m.captured_at DESC
     ) AS rank
-    FROM eligible m, q
+    FROM memory m, q
     WHERE m.user_id = p_user_id AND m.search_tsv @@ q.typo
       AND (p_kinds IS NULL OR m.kind = ANY (p_kinds))
     ORDER BY rank
@@ -125,7 +145,7 @@ AS $$
     SELECT DISTINCT ON (v.memory_id)
       v.memory_id AS id, v.kind, v.anchor, d.distance
     FROM memory_vector v
-    JOIN eligible vm ON vm.id = v.memory_id AND vm.user_id = p_user_id
+    JOIN memory vm ON vm.id = v.memory_id AND vm.user_id = p_user_id
     CROSS JOIN LATERAL (
       SELECT min(v.embedding <=> p.v) AS distance FROM probe p
     ) AS d
@@ -147,7 +167,7 @@ AS $$
     SELECT n.id, n.kind, n.anchor, n.distance,
       row_number() OVER (ORDER BY n.distance, n.id) AS rank
     FROM nearest n
-    JOIN eligible m ON m.id = n.id AND m.user_id = p_user_id
+    JOIN memory m ON m.id = n.id AND m.user_id = p_user_id
     WHERE p_kinds IS NULL OR m.kind = ANY (p_kinds)
     ORDER BY rank
     LIMIT 100
@@ -167,8 +187,9 @@ AS $$
     FROM legs
     GROUP BY legs.id
     ORDER BY score DESC, legs.id
+    LIMIT p_limit
   )
-  SELECT f.id, f.score + coalesce(e.proximity, 0) * 0.002 AS score, f.matched, v.distance,
+  SELECT f.id, f.score, f.matched, v.distance,
     CASE
       WHEN f.best = 'vector' AND v.kind = 'passage'
         THEN jsonb_build_object('kind', 'passage') || v.anchor
@@ -176,11 +197,11 @@ AS $$
       WHEN f.best = 'vector'
         THEN jsonb_build_object('kind', v.kind) || coalesce(v.anchor, '{}')
       WHEN w.field = 'pdf' THEN pdf_part(m, w.query)
+      WHEN w.field = 'video' THEN video_part(m, w.query)
       ELSE jsonb_strip_nulls(jsonb_build_object('kind', 'field', 'field', w.field))
     END AS part
   FROM fused f
   JOIN memory m ON m.id = f.id AND m.user_id = p_user_id
-  JOIN eligible e ON e.id = f.id
   LEFT JOIN vector v ON v.id = f.id
   CROSS JOIN q
   CROSS JOIN LATERAL (
@@ -189,35 +210,5 @@ AS $$
   CROSS JOIN LATERAL (
     SELECT wq.query, CASE WHEN f.best <> 'vector' THEN matched_field(m, wq.query) END AS field
   ) w
-  UNION ALL
-  SELECT m.id, coalesce(m.proximity, 0) * 0.002, ARRAY['filter']::text[], NULL::double precision,
-    jsonb_build_object('kind', 'filter', 'field', CASE WHEN p_filters ? 'colour' THEN 'colour'
-      WHEN p_filters ? 'source' THEN 'source' WHEN p_filters ? 'kinds' THEN 'kind' ELSE 'date' END)
-  FROM eligible m WHERE btrim(p_query) = '' AND p_vector IS NULL AND p_like IS NULL
-  ORDER BY score DESC, id
-  LIMIT greatest(1, least(p_limit, 100)) OFFSET greatest(0, p_offset)
+  ORDER BY f.score DESC, f.id
 $$;
---> statement-breakpoint
-CREATE TABLE recent_search (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
- user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
- query text NOT NULL CHECK (char_length(query) BETWEEN 1 AND 500),
- searched_at timestamptz NOT NULL DEFAULT now(),
- UNIQUE(user_id, query)
-);
---> statement-breakpoint
-CREATE TABLE search_event (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
- user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
- query text NOT NULL CHECK (char_length(query) BETWEEN 0 AND 500),
- memory_id uuid REFERENCES memory(id) ON DELETE SET NULL,
- position integer CHECK (position BETWEEN 1 AND 100),
- reformulation boolean NOT NULL DEFAULT false,
- occurred_at timestamptz NOT NULL DEFAULT now()
-);
---> statement-breakpoint
-CREATE INDEX search_event_owner_time ON search_event(user_id, occurred_at);
---> statement-breakpoint
-CREATE INDEX recent_search_expiry ON recent_search(searched_at);
---> statement-breakpoint
-CREATE INDEX search_event_expiry ON search_event(occurred_at);

@@ -91,7 +91,7 @@ export type PendingEdit = Readonly<{
  * the page's own.
  */
 export const textOf = (memory: Memory): Draft =>
-  memory.kind === "link"
+  memory.kind === "link" || memory.kind === "video"
     ? {
         title: memory.title ?? memory.pageTitle ?? "",
         body: "",
@@ -370,7 +370,7 @@ export function libraryActions({
       all.some((m) => m.id === memory.id) ? all : [memory, ...all]
     );
     const created = inOrder(memory.id, () =>
-      memory.kind === "link"
+      memory.kind === "link" || memory.kind === "video"
         ? transport.createLink({
             id: memory.id,
             url: memory.sourceUrl ?? "",
@@ -407,12 +407,17 @@ export function libraryActions({
     created.then(
       (saved) => {
         onSaved();
-        if (memory.kind === "link" && saved.id !== memory.id) {
+        if (
+          (memory.kind === "link" || memory.kind === "video") &&
+          saved.id !== memory.id
+        ) {
           return resurface(memory.id, saved, toastId);
         }
         // The server's copy (its Capture time) replaces the optimistic one,
         // unless Undo already took it off the wall.
-        onCaptured?.(memory.kind === "link" ? "link" : "text");
+        onCaptured?.(
+          memory.kind === "link" || memory.kind === "video" ? "link" : "text"
+        );
         if (!pending.has(saved.id)) replaceLocal(saved);
       },
       () => {
@@ -484,7 +489,8 @@ export function libraryActions({
     // only once they change it.
     const base = serverCopy.get(id);
     const pageTitle =
-      base?.kind === "link" && sent.title.trim() === textOf(base).title.trim();
+      (base?.kind === "link" || base?.kind === "video") &&
+      sent.title.trim() === textOf(base).title.trim();
     const json: MemoryEditRequest = {
       ...(!pageTitle && { title: sent.title }),
       captureNote: sent.captureNote,
@@ -645,7 +651,7 @@ export function libraryActions({
     }
     if (!edit.fields) return;
     const kind = serverCopy.get(id)?.kind;
-    if (!edit.fields.body.trim() && kind !== "link") {
+    if (!edit.fields.body.trim() && kind !== "link" && kind !== "video") {
       notify("Text Can't Be Empty");
     }
     saveEdit(id);

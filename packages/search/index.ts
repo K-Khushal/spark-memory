@@ -11,4 +11,4 @@ export {
   type Ranked,
   type Search,
 } from "./lib/search";
-export { understandQuery, QUERY_COLOURS, type QueryFilters } from "./lib/query";
+export { understandQuery } from "./lib/query";
