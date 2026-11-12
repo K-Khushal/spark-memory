@@ -12,6 +12,7 @@ import { DeskSearchField, DeskSidebar, focusDeskControl } from "../shell";
 import { productMetrics } from "./product-metrics";
 import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
 import { LibraryOverlaysHost } from "./overlays-host";
+import { pdfMatch, type PdfMatch } from "./pdf-match";
 import { MOD, useFileDrop } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
 import { useSearch, type Found, type Results } from "./use-search";
@@ -45,6 +46,8 @@ export function LibraryPage({
   );
   const [openId, setOpenId] = useState<string>();
   const [imageId, setImageId] = useState<string>();
+  /** The PDF in the viewer, and where it opens. */
+  const [pdf, setPdf] = useState<{ id: string; match: PdfMatch }>();
   /** The Memory the wall shows More Like This of, instead of a query. */
   const [like, setLike] = useState<Memory>();
   // ⌘K: instant per keystroke, full once typing pauses.
@@ -69,12 +72,12 @@ export function LibraryPage({
   // The viewer steps through the images of the wall on screen.
   const images = useMemo(() => {
     if (!searching || !results || results === "failed") {
-      return library.memories.filter((m) => m.image);
+      return library.memories.filter((m) => m.kind === "image" && m.image);
     }
     const live = new Map(library.memories.map((m) => [m.id, m]));
     return [...results.direct, ...results.related].flatMap((m) => {
       const now = live.get(m.id);
-      return now?.image ? [now] : [];
+      return now?.kind === "image" && now.image ? [now] : [];
     });
   }, [searching, results, library.memories]);
 
@@ -98,10 +101,16 @@ export function LibraryPage({
     setSearchOpen(false);
     setPasteOpen(true);
   };
-  const reveal = (memory: Memory) => {
+  /** Opens a Memory (a search result says what matched in it, `query` how). */
+  const reveal = (memory: Memory | Found, typed = query) => {
     setSearchOpen(false);
     if (memory.kind === "image") setImageId(memory.id);
-    else setOpenId(memory.id);
+    else if (memory.kind === "pdf") {
+      setPdf({
+        id: memory.id,
+        match: "part" in memory ? pdfMatch(memory, typed) : {},
+      });
+    } else setOpenId(memory.id);
   };
   const openMemory = (memory: Memory) => {
     metrics.found();
@@ -114,11 +123,11 @@ export function LibraryPage({
         related: instant.related.length,
       });
     }
-    reveal(memory);
+    reveal(memory, draft);
   };
   const captureFiles = (files: File[]) => {
     setPasteOpen(false);
-    void library.captureImages(files);
+    void library.captureFiles(files);
   };
   const dropping = useFileDrop(captureFiles);
   const tiles: TileActions = {
@@ -143,6 +152,7 @@ export function LibraryPage({
   const moreLikeThis = (memory: Memory) => {
     setOpenId(undefined);
     setImageId(undefined);
+    setPdf(undefined);
     setQuery("");
     setLike(memory);
     window.scrollTo({ top: 0 });
@@ -313,11 +323,14 @@ export function LibraryPage({
         pasteOpen={pasteOpen}
         onPasteOpenChange={setPasteOpen}
         onPasteCapture={library.capture}
-        onImages={captureFiles}
+        onFiles={captureFiles}
         images={images}
         imageId={imageId}
         onImageId={setImageId}
         onImageClose={() => setImageId(undefined)}
+        pdf={library.memories.find((m) => m.id === pdf?.id)}
+        pdfMatch={pdf?.match ?? {}}
+        onPdfClose={() => setPdf(undefined)}
         opened={opened}
         edits={library.edits}
         onDetailClose={() => setOpenId(undefined)}

@@ -134,3 +134,72 @@ export const ImageCapture = z.object({
   productAnalytics: z.boolean().optional(),
 });
 export type ImageCapture = z.input<typeof ImageCapture>;
+
+/** The one type a PDF Memory is kept as. */
+export const PDF_TYPE = "application/pdf";
+
+/**
+ * Page images: the first pages of a PDF, drawn in the browser at Capture
+ * (Workers cannot draw them cheaply), for Visual vectors, for a scan's
+ * text, and for the viewer. JPEG, because every model reads it.
+ */
+export const PAGE_IMAGE = {
+  mime: "image/jpeg",
+  /** Drawn this wide (taller pages keep their shape, up to `maxSide`). */
+  width: 1024,
+  maxSide: 2048,
+  /**
+   * Small enough that all 30 Indexed pages, base64 in one Gemini request,
+   * stay well inside its inline limit (INDEXING.inlineRequestBytes).
+   */
+  maxBytes: 400 * 1024,
+} as const;
+
+/** How many pages of a PDF of `pages` are Indexed (the Free allowance). */
+export const indexedPages = (pages: number) =>
+  Math.min(pages, FREE_ALLOWANCE.pdfPagesIndexed);
+
+/** A PDF longer than the Free allowance indexes: shown as Partly Indexed. */
+export const isPartlyIndexed = (pages: number | null | undefined) =>
+  !!pages && pages > FREE_ALLOWANCE.pdfPagesIndexed;
+
+/**
+ * A PDF Capture as the browser describes it before uploading, like an
+ * image Capture: the PDF itself, its thumbnail (the first page), and an
+ * image of each page that is Indexed, in order.
+ */
+export const PdfCapture = z
+  .object({
+    id: z.uuid(),
+    /** Not capped here: the Free allowance check refuses it with its reason. */
+    bytes: z.number().int().positive(),
+    contentHash: z.string().regex(/^[\da-f]{64}$/),
+    /** The file's name without `.pdf`, as the Memory's title. */
+    title: optionalText(FREE_ALLOWANCE.titleMaxChars),
+    pages: z.number().int().positive().max(100_000),
+    /** The first page's shape, for the wall. */
+    width: side,
+    height: side,
+    thumbhash: z.string().regex(/^[A-Za-z0-9+/]{4,64}={0,2}$/),
+    palette: Palette.optional(),
+    thumbnail: z.object({
+      mime: z.enum(THUMBNAIL_TYPES),
+      bytes: z.number().int().positive().max(THUMBNAIL_MAX_BYTES),
+    }),
+    pageImages: z
+      .array(
+        z.object({
+          bytes: z.number().int().positive().max(PAGE_IMAGE.maxBytes),
+          width: side,
+          height: side,
+        })
+      )
+      .min(1)
+      .max(FREE_ALLOWANCE.pdfPagesIndexed),
+    productAnalytics: z.boolean().optional(),
+  })
+  .refine((c) => c.pageImages.length === indexedPages(c.pages), {
+    message: "one page image for each Indexed page",
+    path: ["pageImages"],
+  });
+export type PdfCapture = z.input<typeof PdfCapture>;

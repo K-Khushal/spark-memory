@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
-import { ImageIcon } from "lucide-react";
-import { FREE_ALLOWANCE, IMAGE_TYPES } from "@spark/core";
+import { PaperclipIcon } from "lucide-react";
+import { FREE_ALLOWANCE, IMAGE_TYPES, PDF_TYPE } from "@spark/core";
 import {
   Button,
   Dialog,
@@ -13,6 +13,8 @@ import { MOD } from "./shortcuts";
 
 const ACCEPT = [
   ...IMAGE_TYPES,
+  PDF_TYPE,
+  ".pdf",
   "image/heic",
   "image/heif",
   ".heic",
@@ -24,13 +26,13 @@ export function PasteBox({
   open,
   onOpenChange,
   onCapture,
-  onImages,
+  onFiles,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** False when nothing was Captured, so the box keeps its text. */
   onCapture: (text: string, captureNote: string) => boolean;
-  onImages: (files: File[]) => void;
+  onFiles: (files: File[]) => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
@@ -62,7 +64,7 @@ export function PasteBox({
               if (!files.length || e.clipboardData.getData("text/plain").trim())
                 return;
               e.preventDefault();
-              onImages(files);
+              onFiles(files);
             }}
             placeholder="Paste or Type"
             aria-label="Text"
@@ -85,7 +87,7 @@ export function PasteBox({
               className="h-10"
               onClick={() => picker.current?.click()}
             >
-              <ImageIcon aria-hidden /> Choose Images
+              <PaperclipIcon aria-hidden /> Choose Files
             </Button>
             <input
               ref={picker}
@@ -93,11 +95,11 @@ export function PasteBox({
               accept={ACCEPT}
               multiple
               hidden
-              aria-label="Choose Images"
+              aria-label="Choose Files"
               onChange={(e) => {
                 const files = [...(e.target.files ?? [])];
                 e.target.value = "";
-                if (files.length) onImages(files);
+                if (files.length) onFiles(files);
               }}
             />
             <Button

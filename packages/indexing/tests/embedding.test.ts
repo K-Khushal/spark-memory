@@ -88,6 +88,7 @@ function store({
       return true;
     },
     saveGathered: async () => undefined,
+    savePdfText: async () => false,
     loadForEmbedding: async () => embed,
     stillEmbeddable: async () => current(),
     writeVectors: async (_claim: Claim, embedding: Embedding) => {
@@ -396,7 +397,7 @@ describe("what is embedded", () => {
     const image = { bytes: new Uint8Array([1]), mime: "image/png" };
     const { inputs, parts } = embeddingInputs(
       { ...stale, found: { ...stale.found, ocrText: "SALE 50%" } },
-      image
+      [{ image }]
     );
     expect(parts).toEqual([
       { kind: "overview" },

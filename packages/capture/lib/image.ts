@@ -152,7 +152,7 @@ function canvasOf(bitmap: ImageBitmap, scale = 1) {
   return { canvas, context };
 }
 
-async function encode(
+export async function encode(
   bitmap: ImageBitmap,
   type: string,
   quality: number,
@@ -172,7 +172,7 @@ async function encode(
 }
 
 /** The ThumbHash and dominant colours, both from one small copy of the image. */
-function summaryOf(bitmap: ImageBitmap) {
+export function summaryOf(bitmap: ImageBitmap) {
   const scale = THUMBHASH_SIZE / Math.max(bitmap.width, bitmap.height);
   const { canvas, context } = canvasOf(bitmap, Math.min(1, scale));
   const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
@@ -183,7 +183,7 @@ function summaryOf(bitmap: ImageBitmap) {
   };
 }
 
-async function sha256(blob: Blob) {
+export async function sha256(blob: Blob) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     await blob.arrayBuffer()

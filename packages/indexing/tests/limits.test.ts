@@ -14,6 +14,7 @@ import {
 
 const noEmbedding = {
   saveGathered: async () => undefined,
+  savePdfText: async () => false,
   loadForEmbedding: async () => undefined,
   stillEmbeddable: async () => false,
   writeVectors: async () => false,

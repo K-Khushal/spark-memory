@@ -12,8 +12,8 @@ export type IndexingTransport = {
 
 /**
  * The fields Indexing changes; everything else on the wall stays as the
- * wall has it. For a link that includes what gathering kept (its text is
- * never edited, so it cannot clash with an edit in progress).
+ * wall has it. For a link or a PDF that includes the text Indexing kept
+ * (never edited, so it cannot clash with an edit in progress).
  */
 const indexFields = (m: Memory) => ({
   indexState: m.indexState,
@@ -24,7 +24,7 @@ const indexFields = (m: Memory) => ({
   preservation: m.preservation,
   pageTitle: m.pageTitle,
   description: m.description,
-  ...(m.kind === "link" && { body: m.body }),
+  ...((m.kind === "link" || m.kind === "pdf") && { body: m.body }),
 });
 
 /** Poll every 2 s, then back off by half each time nothing changed, up to 30 s. */

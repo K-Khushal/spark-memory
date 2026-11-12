@@ -49,7 +49,14 @@ export type Bindings = {
   /** Queue (wrangler.jsonc): Library exports and account deletion (src/account-jobs.ts). */
   ACCOUNT_QUEUE: AccountQueue;
   /** Workers AI (Gemma 4), first in the Indexing chain. Absent locally. */
-  AI?: { run(model: string, input: Record<string, unknown>): Promise<unknown> };
+  AI?: {
+    run(model: string, input: Record<string, unknown>): Promise<unknown>;
+    /** Markdown Conversion: a PDF's text (free for PDFs; no model reads it). */
+    toMarkdown?(
+      files: { name: string; blob: Blob },
+      options?: { conversionOptions?: Record<string, unknown> }
+    ): Promise<unknown>;
+  };
   /** Secret: a key from a Cloud project with active billing (ADR-0005). */
   GEMINI_API_KEY?: string;
   /**

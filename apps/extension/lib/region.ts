@@ -50,20 +50,36 @@ export async function selectRegion(themes: typeof THEMES) {
       host.remove();
       if (previous instanceof HTMLElement)
         previous.focus({ preventScroll: true });
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() =>
-          resolve(
-            a &&
-              b &&
-              innerWidth === width &&
-              innerHeight === height &&
-              scroll[0] === scrollX &&
-              scroll[1] === scrollY
-              ? { a, b, width, height }
-              : undefined
-          )
-        )
-      );
+      const complete = () =>
+        resolve(
+          a &&
+            b &&
+            innerWidth === width &&
+            innerHeight === height &&
+            scroll[0] === scrollX &&
+            scroll[1] === scrollY
+            ? { a, b, width, height }
+            : undefined
+        );
+      // Cancellation and hidden tabs must release the background dispatcher
+      // without relying on animation frames, which hidden documents suspend.
+      if (!a || !b || document.hidden) {
+        complete();
+        return;
+      }
+      let painted = false;
+      let frame: number;
+      const deadline = setTimeout(settle, 100);
+      function settle() {
+        if (painted) return;
+        painted = true;
+        clearTimeout(deadline);
+        cancelAnimationFrame(frame);
+        complete();
+      }
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(settle);
+      });
     };
     const invalidated = () => finish();
     const timer = setTimeout(() => finish(), 60_000);

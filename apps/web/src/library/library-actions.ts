@@ -170,7 +170,7 @@ export function libraryActions({
   notify: typeof toast;
   onSaved: () => void;
   /** The server accepted a new Memory. Kind only, for the product event. */
-  onCaptured?: (kind: "text" | "image" | "link") => void;
+  onCaptured?: (kind: "text" | "image" | "link" | "pdf") => void;
 }) {
   /** Deletes waiting out their Undo window: id → send it now. */
   const pendingDeletes = new Map<string, () => void>();
@@ -310,6 +310,7 @@ export function libraryActions({
       sourceUrl: url ?? null,
       pageTitle: null,
       description: null,
+      pages: null,
       captureNote: captureNote?.trim() || null,
       // A link keeps nothing until gathering does.
       preservation: url ? "reference_only" : "preserved",
@@ -333,7 +334,7 @@ export function libraryActions({
     transport,
     notify,
     onSaved,
-    onCaptured: () => onCaptured?.("image"),
+    onCaptured: (kind) => onCaptured?.(kind),
     inOrder,
   });
 
@@ -353,8 +354,8 @@ export function libraryActions({
     }
   }
 
-  /** Captures image files: each lands and uploads on its own; Undo takes the batch back. */
-  async function captureImages(files: File[]) {
+  /** Captures image and PDF files: each lands and uploads on its own; Undo takes the batch back. */
+  async function captureFiles(files: File[]) {
     const ids = await images.capture(files);
     if (!ids.length) return;
     notify("Captured", {
@@ -756,7 +757,7 @@ export function libraryActions({
 
   return {
     capture,
-    captureImages,
+    captureFiles,
     retryUpload: images.retry,
     /** A request for this Memory (Capture, Try Again, edit, delete) is still out. */
     isPending: (id: string) => queues.has(id),

@@ -14,18 +14,26 @@ export function fakeProvider(): Provider {
   return {
     name: "fake",
     model: "fake",
-    async extract({ user, image }) {
+    readsPages: true,
+    async extract({ user, image, pages }) {
       if (user.includes("fake:fail")) {
         return { text: "not json", usage: { inputTokens: 0, outputTokens: 0 } };
       }
       const text = /<text>\n([^\n]*)/.exec(user)?.[1]?.trim();
       const output = {
-        title: image ? "Fake Image Title" : (text?.slice(0, 60) ?? "Untitled"),
+        title:
+          image || pages
+            ? "Fake Image Title"
+            : (text?.slice(0, 60) ?? "Untitled"),
         description: `Described locally by the fake provider: ${FAKE_WORD}.`,
         ocrText: "",
         entities: [],
         tags: ["fake"],
         language: "en",
+        // A scan: each page's "text", so a test can find it by page.
+        ...(pages && {
+          pages: pages.map((_, i) => `Scanned page ${i + 1} ${FAKE_WORD}`),
+        }),
       };
       return {
         text: JSON.stringify(output),

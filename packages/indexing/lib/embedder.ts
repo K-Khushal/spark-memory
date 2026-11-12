@@ -1,4 +1,10 @@
-import { EMBEDDING, type IndexingOutput, type ProviderName } from "@spark/core";
+import {
+  EMBEDDING,
+  indexedPages,
+  type IndexingOutput,
+  type ProviderName,
+} from "@spark/core";
+import { isScan } from "./pdf";
 
 /** One thing to embed: a piece of text, or an image's bytes. */
 export type EmbedInput =
@@ -21,12 +27,24 @@ export type Embedder = {
 /** Which part of a Memory a vector stands for (ADR-0004). */
 export type VectorPart =
   | { kind: "overview" }
-  | { kind: "visual" }
+  /** An image's, or a PDF page's (`anchor.page`). */
+  | { kind: "visual"; anchor?: { page: number } }
   | {
       kind: "passage";
-      /** Character offsets into the Memory's text or the text in its image. */
-      anchor: { field: "body" | "ocr"; start: number; end: number };
+      /** Character offsets into the Memory's text or the text in its image, and a PDF's page. */
+      anchor: {
+        field: "body" | "ocr";
+        start: number;
+        end: number;
+        page?: number;
+      };
     };
+
+/** An image the model reads for a Visual vector, and the PDF page it is of. */
+export type Visual = {
+  image: { bytes: Uint8Array; mime: string };
+  page?: number;
+};
 
 /** A Memory's vectors, as one model made them from one revision of its text. */
 export type Embedding = {
@@ -56,6 +74,8 @@ export type EmbedSource = {
     IndexingOutput,
     "title" | "description" | "ocrText" | "tags" | "entities"
   >;
+  /** A PDF's page count: its text is pages apart by form feeds. */
+  pages?: number | null;
 };
 
 /** The document side of Gemini Embedding 2's retrieval prompt (no task_type field). */
@@ -70,7 +90,7 @@ export const queryText = (query: string) =>
  * Passages of about EMBEDDING.passageChars, overlapping, cut at a paragraph,
  * sentence or word where one is near the end. Offsets into `text`.
  */
-export function passages(text: string, max = EMBEDDING.maxPassages) {
+export function passages(text: string, max: number = EMBEDDING.maxPassages) {
   const size = EMBEDDING.passageChars;
   const out: { start: number; end: number }[] = [];
   let start = text.search(/\S/);
@@ -99,14 +119,38 @@ export function passages(text: string, max = EMBEDDING.maxPassages) {
 }
 
 /**
+ * Passages of a PDF's text page by page, none across a page break (a form
+ * feed), sharing `max` evenly so every page gets some. Its page is known
+ * when there are breaks, or the PDF has one page; else none is said.
+ */
+export function pagePassages(text: string, max: number, pages: number) {
+  const known = text.includes("\f") || pages === 1;
+  const each = text.split("\f");
+  const perPage = Math.max(1, Math.floor(max / each.length));
+  const out: { start: number; end: number; page?: number }[] = [];
+  let offset = 0;
+  each.forEach((segment, i) => {
+    for (const p of passages(segment, Math.min(perPage, max - out.length))) {
+      out.push({
+        start: offset + p.start,
+        end: offset + p.end,
+        ...(known && { page: i + 1 }),
+      });
+    }
+    offset += segment.length + 1;
+  });
+  return out;
+}
+
+/**
  * The inputs for a Memory's vectors, and the part each one stands for:
- * one Overview (title, description, Tags, entities, Capture note), one
- * Visual when there is an image the model reads, and Passages of its text
- * and of the text in its image.
+ * one Overview (title, description, Tags, entities, Capture note), a
+ * Visual for each image the model reads (an image, or a PDF's pages), and
+ * Passages of its text and of the text in its image (a PDF's page by page).
  */
 export function embeddingInputs(
   source: EmbedSource,
-  image?: { bytes: Uint8Array; mime: string }
+  visuals: Visual[] = []
 ): { inputs: EmbedInput[]; parts: VectorPart[] } {
   const { found } = source;
   const title = source.title || found.title;
@@ -122,16 +166,22 @@ export function embeddingInputs(
     .join("\n");
   inputs.push({ text: document(title, overview) });
   parts.push({ kind: "overview" });
-  if (image) {
+  for (const { image, page } of visuals) {
     inputs.push({ image });
-    parts.push({ kind: "visual" });
+    parts.push(
+      page ? { kind: "visual", anchor: { page } } : { kind: "visual" }
+    );
   }
-  let room = EMBEDDING.maxPassages;
+  const pdf = source.pages ?? 0;
+  let room = pdf ? EMBEDDING.maxPdfPassages : EMBEDDING.maxPassages;
   for (const [field, text] of [
     ["body", source.body ?? ""],
     ["ocr", found.ocrText],
   ] as const) {
-    for (const p of passages(text, room)) {
+    // A scan's few typed characters would only crowd out its pages' text.
+    if (pdf && field === "body" && isScan(text, indexedPages(pdf))) continue;
+    const cut = pdf ? pagePassages(text, room, pdf) : passages(text, room);
+    for (const p of cut) {
       inputs.push({ text: document(title, text.slice(p.start, p.end)) });
       parts.push({ kind: "passage", anchor: { field, ...p } });
       room--;
