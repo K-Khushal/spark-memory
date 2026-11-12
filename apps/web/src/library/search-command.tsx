@@ -1,3 +1,4 @@
+import { restoreLibraryFocus } from "./focus";
 import { useRef, type ReactNode } from "react";
 import { LogOutIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
 import {
@@ -49,6 +50,7 @@ export function SearchCommand({
 
   return (
     <CommandDialog
+      onCloseAutoFocus={restoreLibraryFocus}
       title="Search"
       open={open}
       onOpenChange={onOpenChange}

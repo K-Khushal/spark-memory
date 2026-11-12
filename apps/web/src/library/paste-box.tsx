@@ -1,3 +1,4 @@
+import { restoreLibraryFocus } from "./focus";
 import { useRef, useState, type FormEvent } from "react";
 import { PaperclipIcon } from "lucide-react";
 import { FREE_ALLOWANCE, IMAGE_TYPES, PDF_TYPE } from "@spark/core";
@@ -48,7 +49,11 @@ export function PasteBox({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent aria-describedby={undefined} className="max-w-xl p-6">
+      <DialogContent
+        onCloseAutoFocus={restoreLibraryFocus}
+        aria-describedby={undefined}
+        className="max-h-[90dvh] max-w-xl overflow-y-auto p-4 sm:p-6"
+      >
         <form onSubmit={submit} className="flex flex-col gap-3">
           <DialogTitle>Capture</DialogTitle>
           <Textarea
@@ -80,11 +85,11 @@ export function PasteBox({
             dir="auto"
             className="h-11 min-w-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring"
           />
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <Button
               type="button"
               variant="quiet"
-              className="h-10"
+              className="h-auto min-h-10 max-w-full px-2 whitespace-normal"
               onClick={() => picker.current?.click()}
             >
               <PaperclipIcon aria-hidden /> Choose Files
@@ -105,7 +110,7 @@ export function PasteBox({
             <Button
               type="submit"
               variant="primary"
-              className="h-10"
+              className="ml-auto h-10"
               disabled={!text.trim()}
             >
               Capture
