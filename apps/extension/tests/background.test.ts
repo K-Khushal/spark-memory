@@ -1,7 +1,16 @@
+import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import background from "../entrypoints/background";
 
 const browser = vi.hoisted(() => ({
+  action: { setBadgeText: vi.fn(), setTitle: vi.fn() },
+  commands: { onCommand: { addListener: vi.fn() } },
+  permissions: { request: vi.fn() },
+  contextMenus: {
+    removeAll: vi.fn(),
+    create: vi.fn(),
+    onClicked: { addListener: vi.fn() },
+  },
   storage: { local: { get: vi.fn(), set: vi.fn(), setAccessLevel: vi.fn() } },
   alarms: {
     create: vi.fn(),
@@ -13,6 +22,7 @@ const browser = vi.hoisted(() => ({
     id: "spark",
     getURL: (path: string) => `chrome-extension://spark${path}`,
     onMessage: { addListener: vi.fn() },
+    onInstalled: { addListener: vi.fn() },
     onStartup: { addListener: vi.fn() },
   },
   tabs: { query: vi.fn(), captureVisibleTab: vi.fn() },
@@ -23,6 +33,7 @@ let stored: Record<string, unknown>;
 let request: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.stubGlobal("indexedDB", new IDBFactory());
   stored = { outbox: [], owner: "ana" };
   browser.storage.local.get.mockImplementation(async () =>
     structuredClone(stored)
@@ -87,7 +98,6 @@ it("omits page data when injection fails so the server can gather", async () => 
   expect(JSON.parse(save![1].body)).not.toHaveProperty("page");
 });
 it("uses the paste fallback immediately when the extractor reports failure", async () => {
-  vi.useFakeTimers();
   captureTab();
   browser.scripting.executeScript.mockImplementation(async () => {
     browser.runtime.onMessage.addListener.mock.calls[0]![0](
@@ -134,8 +144,11 @@ it("reports a permanent refusal once even when it occurred during an alarm", asy
   );
   background.main();
   await alarm();
-  expect(await message("status")).toEqual({ hasRows: false, refused: 400 });
-  expect(await message("status")).toEqual({ hasRows: false });
+  expect(await message("retry")).toMatchObject({
+    state: "error",
+    label: "Capture Refused",
+  });
+  expect(await message("retry")).toMatchObject({ state: "queued" });
 });
 it("creates the retry alarm only after adding an offline Capture", async () => {
   captureTab();
@@ -174,7 +187,7 @@ it("does not lose a refusal notice while showing Sign In", async () => {
   request.mockResolvedValue(new Response(null, { status: 401 }));
   background.main();
   expect(await message("capture")).toMatchObject({ state: "signed-out" });
-  expect(await message("status")).toEqual({ hasRows: false, refused: 400 });
+  expect(stored.outboxRefusal).toBe(400);
 });
 it("cannot clear a newly queued alarm using an earlier empty snapshot", async () => {
   let release!: (value: Record<string, unknown>) => void;
@@ -206,4 +219,42 @@ it("cannot clear a newly queued alarm using an earlier empty snapshot", async ()
   await Promise.all([tick, saving]);
   expect(stored.outbox).toHaveLength(1);
   expect(scheduled).toBe(true);
+});
+
+it("does not let an old refusal replace a successful new Capture", async () => {
+  stored.outboxRefusal = 400;
+  captureTab();
+  browser.scripting.executeScript.mockRejectedValue(new Error("restricted"));
+  background.main();
+  expect(await message("capture")).toMatchObject({ state: "duplicate" });
+  expect(stored.outboxRefusal).toBeNull();
+});
+it("retries queued Captures on installation/update", async () => {
+  stored.outbox = [{ owner: "ana", capture: { id: "capture", url: tab.url } }];
+  background.main();
+  await browser.runtime.onInstalled.addListener.mock.calls[0]![0]();
+  expect(stored.outbox).toEqual([]);
+});
+it("dispatches selection Capture through the text API", async () => {
+  captureTab();
+  browser.scripting.executeScript.mockResolvedValue([
+    {
+      result: {
+        text: "Basil",
+        context: "Growing Basil indoors",
+        title: "Garden",
+        url: tab.url,
+      },
+    },
+  ]);
+  background.main();
+  await message("selection");
+  const saved = request.mock.calls.find(([url]) => url.endsWith("/memories"));
+  expect(JSON.parse(saved![1].body)).toMatchObject({
+    body: "Basil",
+    source: {
+      url: tab.url + "#:~:text=Basil",
+      context: "Growing Basil indoors",
+    },
+  });
 });

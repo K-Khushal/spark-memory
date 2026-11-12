@@ -113,6 +113,70 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     await expect(
       popup.getByRole("button", { name: "Discard Outbox" })
     ).toHaveCount(0);
+    await fixture.evaluate(() => {
+      const range = document.createRange();
+      range.selectNodeContents(document.querySelector("p")!.firstChild!);
+      range.setEnd(document.querySelector("p")!.firstChild!, 48);
+      getSelection()!.removeAllRanges();
+      getSelection()!.addRange(range);
+    });
+    const selection = await popup.evaluate(() =>
+      (
+        globalThis as unknown as {
+          chrome: { runtime: { sendMessage(m: unknown): Promise<unknown> } };
+        }
+      ).chrome.runtime.sendMessage({ type: "selection" })
+    );
+    expect(selection).toMatchObject({ state: "saved" });
+    const selectionData = await (
+      await dashboard.request.get("/api/memories")
+    ).json();
+    expect(
+      selectionData.memories.find(
+        (m: { kind: string; sourceUrl?: string }) =>
+          m.kind === "text" && m.sourceUrl?.includes("#:~:text=")
+      )
+    ).toMatchObject({ body: expect.stringContaining("Basil") });
+
+    // Direct manipulation, cancellation, then real crop + upload through R2.
+    const cancelled = popup.evaluate(() =>
+      (
+        globalThis as unknown as {
+          chrome: { runtime: { sendMessage(m: unknown): Promise<unknown> } };
+        }
+      ).chrome.runtime.sendMessage({ type: "region" })
+    );
+    await fixture.waitForFunction(() =>
+      [...document.documentElement.children].some(
+        (el) => (el as HTMLElement).style.zIndex === "2147483647"
+      )
+    );
+    await fixture.keyboard.press("Escape");
+    expect(await cancelled).toMatchObject({ label: "Cancelled" });
+    const region = popup.evaluate(() =>
+      (
+        globalThis as unknown as {
+          chrome: { runtime: { sendMessage(m: unknown): Promise<unknown> } };
+        }
+      ).chrome.runtime.sendMessage({ type: "region" })
+    );
+    await fixture.waitForFunction(() =>
+      [...document.documentElement.children].some(
+        (el) => (el as HTMLElement).style.zIndex === "2147483647"
+      )
+    );
+    await fixture.mouse.move(40, 100);
+    await fixture.mouse.down();
+    await fixture.mouse.move(240, 240, { steps: 8 });
+    await fixture.mouse.up();
+    expect(await region).toMatchObject({ state: "saved" });
+    const images = await (await dashboard.request.get("/api/memories")).json();
+    expect(
+      images.memories.some(
+        (m: { kind: string; preservation: string }) =>
+          m.kind === "image" && m.preservation === "preserved"
+      )
+    ).toBe(true);
     const folder =
       process.env.EXTENSION_SCREENSHOTS_DIR ?? test.info().outputPath("popup");
     await mkdir(folder, { recursive: true });
@@ -126,7 +190,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
         );
         await popup.setViewportSize({ width, height: 700 });
         await popup.screenshot({
-          path: `${folder}/t17-${width}-${colorScheme}.png`,
+          path: `${folder}/t18-${width}-${colorScheme}.png`,
         });
       }
     await popup.setViewportSize({ width: 320, height: 900 });
@@ -143,7 +207,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
       )
     ).toBe(true);
     await popup.getByRole("button", { name: "Add Capture Note" }).focus();
-    await popup.screenshot({ path: `${folder}/t17-320-dark-worst.png` });
+    await popup.screenshot({ path: `${folder}/t18-320-dark-worst.png` });
   } finally {
     await context.close();
     await rm(profile, { recursive: true, force: true });

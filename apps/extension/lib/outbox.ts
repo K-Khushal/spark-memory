@@ -1,8 +1,9 @@
-import type { LinkCapture } from "@spark/core";
+import type { LinkCapture, TextCapture, ImageCapture } from "@spark/core";
 import { ApiError, type SavedMemory } from "./client";
 export type PendingCapture = {
   owner: string;
-  capture: LinkCapture;
+  capture: LinkCapture | TextCapture | ImageCapture;
+  image?: { original: string; thumbnail: string };
   screenshot?: string;
   addedAt: number;
 };

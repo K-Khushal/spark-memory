@@ -347,6 +347,10 @@ export function openLibrary(
           id,
           userId,
           kind: "text",
+          sourceUrl: parsed.source?.url,
+          metadata: parsed.source
+            ? { selectionContext: parsed.source.context }
+            : undefined,
           body,
           title,
           captureNote,

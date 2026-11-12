@@ -204,6 +204,7 @@ export type LinkCapture = z.input<typeof LinkCapture>;
  * the Memory's metadata. Every field is the page's own words, never a model's.
  */
 export type LinkMetadata = {
+  selectionContext?: string;
   title?: string;
   description?: string;
   siteName?: string;

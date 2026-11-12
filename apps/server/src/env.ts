@@ -17,8 +17,8 @@ export type Bindings = {
   /** Var. The public https origin; required outside local development. */
   BETTER_AUTH_URL?: string;
   /**
-   * Var. The pinned extension origin, `chrome-extension://` plus its 32
-   * character id. Anything else is ignored. Unset trusts no extension.
+   * Var. Up to eight comma-separated exact Chrome/Edge or Firefox origins.
+   * Invalid configuration or unset trusts no extension.
    */
   EXTENSION_ORIGIN?: string;
   /** Var (public) and secret. Cloudflare's test keys locally and in CI. */

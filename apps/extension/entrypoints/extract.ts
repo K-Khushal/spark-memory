@@ -12,5 +12,6 @@ export default defineUnlistedScript(() => {
     type: "extracted",
     url: location.href,
     ...result,
+    time: document.querySelector?.("video")?.currentTime,
   });
 });
