@@ -54,14 +54,10 @@ test("see this device, export the Library, delete the account", async ({
       new ClipboardEvent("paste", { clipboardData: data, bubbles: true })
     );
   });
-  await expect(page.getByRole("dialog", { name: "Capture" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(
-    page.getByRole("complementary").getByRole("button", { name: "Capture" })
-  ).toBeFocused();
-
-  await page.getByRole("link", { name: "Settings" }).click();
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  // Paste outside a field stays on Settings. The clipboard is not dropped
+  // into an empty Capture.
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole("dialog", { name: "Capture" })).toHaveCount(0);
 
   const sessions = page.getByRole("list", { name: "Sessions" });
   await expect(sessions.getByText("This Device")).toBeVisible();
@@ -97,12 +93,18 @@ test("see this device, export the Library, delete the account", async ({
   ).toBeVisible();
   await page.unroute("**/api/account/export");
 
-  // Deleting needs the address typed.
+  // Deleting needs the address typed. ⌘K in that field stays on Settings.
   await page.getByRole("button", { name: "Delete Account" }).click();
   const dialog = page.getByRole("dialog");
   const confirm = dialog.getByRole("button", { name: "Delete Account" });
   await expect(confirm).toBeDisabled();
-  await dialog.getByRole("textbox", { name: `Type ${email}` }).fill(email);
+  const emailField = dialog.getByRole("textbox", { name: `Type ${email}` });
+  await emailField.fill("keep-this");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(dialog).toBeVisible();
+  await expect(emailField).toHaveValue("keep-this");
+  await emailField.fill(email);
   await confirm.click();
   await expect(page).toHaveURL(/\/sign-in$/);
   await page.goto("/settings");

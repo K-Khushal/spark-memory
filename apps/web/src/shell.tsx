@@ -115,7 +115,7 @@ export function DeskSidebar({
   onSearch: () => void;
   /** ⌘K. Defaults to opening Search; the Library passes its toggle. */
   onToggleSearch?: () => void;
-  /** ⌘V outside a field. Defaults to opening Capture. */
+  /** ⌘V outside a field. Only the Library handles it. */
   onPaste?: (data: DataTransfer) => void;
   /** What Search shows: "Search", the query, or "More Like This". */
   searchLabel?: string;
@@ -125,10 +125,8 @@ export function DeskSidebar({
   useLibraryShortcuts({
     onSearch,
     onToggleSearch: onToggleSearch ?? onSearch,
-    onPaste: (data) => {
-      if (onPaste) onPaste(data);
-      else onCapture();
-    },
+    onPaste,
+    keepTyping: current !== "library",
   });
 
   return (

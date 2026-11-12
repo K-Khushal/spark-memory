@@ -338,20 +338,11 @@ export function accountJobs(db: Database) {
             sql`starts_with(${objectRemoval.key}, ${ownerPrefix(userId)})`
           );
         await tx.delete(user).where(eq(user.id, userId));
-        // The waiting pass only rewrites this person's rows. Calls already
-        // stored as the anonymised owner (an earlier deletion, or a call
-        // that landed after the owner was gone) can still name a Memory,
-        // and a finished deletion is not run again.
-        await tx
-          .update(aiCall)
-          .set({
-            userId: ANONYMISED_USER,
-            memoryId: null,
-            memoryGeneration: null,
-          })
-          .where(
-            or(eq(aiCall.userId, userId), eq(aiCall.userId, ANONYMISED_USER))
-          );
+        // A call can still arrive under this person's id after the waiting
+        // pass. Rows already stored as the anonymised owner are left alone:
+        // recordCall writes null Memory ids once the owner is gone, and the
+        // backfill migration cleared the older ones.
+        await anonymise(tx);
         // An admin's setting changes stay (values and history), not their id.
         await tx
           .update(appSetting)

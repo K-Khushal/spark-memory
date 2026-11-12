@@ -362,7 +362,7 @@ describe.skipIf(!databaseUrl)("an account", () => {
       expect(await count("ai_call", "user_id", ana)).toBe(1);
     });
 
-    it("clears Memory ids an earlier deletion already stored under the anonymised owner", async () => {
+    it("leaves calls already stored under the anonymised owner untouched", async () => {
       const memoryId = crypto.randomUUID();
       const generation = crypto.randomUUID();
       const model = `leftover-${memoryId}`;
@@ -377,19 +377,6 @@ describe.skipIf(!databaseUrl)("an account", () => {
         outputTokens: 1,
         costMicros: 1,
       });
-      const ben = await person();
-      const bensMemory = crypto.randomUUID();
-      await db.insert(schema.aiCall).values({
-        userId: ben,
-        memoryId: bensMemory,
-        memoryGeneration: bensMemory,
-        day: "2026-11-11",
-        provider: "gemini",
-        model: `live-${ben}`,
-        inputTokens: 1,
-        outputTokens: 1,
-        costMicros: 1,
-      });
 
       const ana = await person();
       await openAccount(db, ana).requestDeletion();
@@ -400,13 +387,8 @@ describe.skipIf(!databaseUrl)("an account", () => {
 
       expect(await callByModel(model)).toEqual({
         userId: ANONYMISED_USER,
-        memoryId: null,
-        memoryGeneration: null,
-      });
-      expect(await callByModel(`live-${ben}`)).toEqual({
-        userId: ben,
-        memoryId: bensMemory,
-        memoryGeneration: bensMemory,
+        memoryId,
+        memoryGeneration: generation,
       });
     });
 
