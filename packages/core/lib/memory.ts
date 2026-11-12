@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { FREE_ALLOWANCE } from "./allowance";
+import { normaliseUrl } from "./link";
 import { Palette } from "./indexing";
 
 /** What kind of thing a Memory is. See GLOSSARY.md → Memory. */
@@ -38,6 +39,15 @@ const optionalText = (max: number) =>
 export const TextCapture = z.object({
   id: z.uuid().optional(),
   body: z.string().trim().min(1).max(FREE_ALLOWANCE.textMaxChars),
+  source: z
+    .object({
+      url: z
+        .string()
+        .max(100_000)
+        .refine((url) => normaliseUrl(url) !== undefined),
+      context: z.string().max(2000),
+    })
+    .optional(),
   title: optionalText(FREE_ALLOWANCE.titleMaxChars),
   captureNote: optionalText(FREE_ALLOWANCE.captureNoteMaxChars),
   /**
@@ -49,7 +59,10 @@ export const TextCapture = z.object({
 export type TextCapture = z.input<typeof TextCapture>;
 
 /** An edit from Memory detail. Omitted fields stay as they are; empty title or note clears it. */
-export const MemoryEdit = TextCapture.omit({ id: true }).partial();
+export const MemoryEdit = TextCapture.omit({
+  id: true,
+  source: true,
+}).partial();
 export type MemoryEdit = z.input<typeof MemoryEdit>;
 
 /** An edit as clients send it: with the revision it was based on, so a late one is refused. */
@@ -97,6 +110,11 @@ const side = z.number().int().positive().max(100_000);
  * the Preserved copy, kept for duplicate detection later.
  */
 export const ImageCapture = z.object({
+  sourceUrl: z
+    .string()
+    .max(100_000)
+    .refine((url) => normaliseUrl(url) !== undefined)
+    .optional(),
   id: z.uuid(),
   mime: ImageType,
   /** Not capped here: the Free allowance check refuses it with its reason. */

@@ -8,6 +8,7 @@ import {
   PdfScanOutput,
   type IndexFailure,
   type ProviderName,
+  type TranscriptSegment,
 } from "@spark/core";
 import {
   embedCostMicros,
@@ -63,6 +64,7 @@ export type Claim = {
 
 /** A Memory waiting for Indexing, as the store loads it. `run` changes whenever Indexing restarts. */
 export type PendingMemory = MemoryContent & {
+  transcript?: TranscriptSegment[] | null;
   userId: string;
   generation: string;
   run: number;
@@ -500,6 +502,9 @@ export function createIndexer({
   }
 
   async function index(job: IndexJob): Promise<IndexOutcome> {
+    // A legacy delivery cannot identify the Memory it originally targeted.
+    // Its attempts must not exhaust a new Memory saved with the same id.
+    if (job.generation === undefined) job = { ...job, attempt: 1 };
     const loaded =
       job.task === "embed"
         ? embedder &&

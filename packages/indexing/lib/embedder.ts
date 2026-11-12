@@ -146,11 +146,11 @@ export function pagePassages(text: string, max: number, pages: number) {
 }
 
 /** Fixed overlapping windows cover a whole bounded transcript, even with tiny paragraphs. */
-function transcriptPassages(text: string) {
+function transcriptPassages(text: string, room: number) {
   const out: { start: number; end: number }[] = [];
   for (
     let start = 0;
-    start < text.length;
+    start < text.length && out.length < room;
     start += EMBEDDING.passageChars - EMBEDDING.passageOverlapChars
   ) {
     const end = Math.min(text.length, start + EMBEDDING.passageChars);
@@ -204,7 +204,7 @@ export function embeddingInputs(
     if (pdf && field === "body" && isScan(text, indexedPages(pdf))) continue;
     const cut =
       field === "body" && source.transcript?.length
-        ? transcriptPassages(text)
+        ? transcriptPassages(text, room)
         : pdf
           ? pagePassages(text, room, pdf)
           : passages(text, room);

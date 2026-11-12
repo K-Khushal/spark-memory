@@ -5,7 +5,7 @@ test.setTimeout(120_000);
 
 test("video transcript timestamps open the privacy-enhanced player", async ({
   page,
-}) => {
+}, testInfo) => {
   await signIn(page);
   // Recorded Gather result at the API boundary: independent of YouTube availability.
   await page.route("**/api/memories*", async (route) => {
@@ -103,7 +103,9 @@ test("video transcript timestamps open the privacy-enhanced player", async ({
       );
       await page.screenshot({
         animations: "disabled",
-        path: `/data/workspace/spark-memory/.git/factory/r/t19-${width}-${theme}.png`,
+        path: process.env.CI
+          ? testInfo.outputPath(`video-${width}-${theme}.png`)
+          : `/data/workspace/spark-memory/.git/factory/r/t19-${width}-${theme}.png`,
       });
     }
   await page.route("https://www.youtube-nocookie.com/**", (route) =>
@@ -116,6 +118,10 @@ test("video transcript timestamps open the privacy-enhanced player", async ({
   await expect(page.locator("iframe[title='YouTube Player']")).toHaveAttribute(
     "src",
     "https://www.youtube-nocookie.com/embed/abcdefghijk?start=760"
+  );
+  await expect(page.locator("iframe[title='YouTube Player']")).toHaveAttribute(
+    "sandbox",
+    "allow-scripts allow-same-origin allow-presentation"
   );
   await expect(page.getByRole("link", { name: /Open Source/ })).toHaveAttribute(
     "href",

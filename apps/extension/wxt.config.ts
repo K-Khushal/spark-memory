@@ -6,7 +6,11 @@ if (
   !(origin.protocol === "http:" && origin.hostname === "localhost")
 )
   throw new Error("Invalid API origin");
+const uploadOrigin = new URL(process.env.WXT_UPLOAD_ORIGIN || origin.origin);
+if (uploadOrigin.protocol !== "https:" && uploadOrigin.origin !== origin.origin)
+  throw new Error("Invalid upload origin");
 export default defineConfig({
+  manifestVersion: 3,
   modules: ["@wxt-dev/module-react"],
   manifest: {
     name: "Spark",
@@ -18,12 +22,35 @@ export default defineConfig({
       : process.env.WXT_EXTENSION_KEY
         ? { key: process.env.WXT_EXTENSION_KEY }
         : {}),
-    permissions: ["activeTab", "storage", "scripting", "alarms"],
+    permissions: [
+      "activeTab",
+      "storage",
+      "scripting",
+      "alarms",
+      "contextMenus",
+    ],
+    browser_specific_settings: {
+      gecko: {
+        id: "spark@sparkmemory.xyz",
+        strict_min_version: "142.0",
+        data_collection_permissions: { required: ["websiteContent"] },
+      },
+    },
+    optional_host_permissions: ["http://*/*", "https://*/*"],
     host_permissions: [
-      `${origin.origin}/*`,
+      ...new Set([`${origin.origin}/*`, `${uploadOrigin.origin}/*`]),
       ...(process.env.WXT_E2E === "1" ? ["<all_urls>"] : []),
     ],
     commands: {
+      "save-page": {
+        suggested_key: { default: "Alt+Shift+P" },
+        description: "Save Page",
+      },
+      "save-selection": {
+        suggested_key: { default: "Alt+Shift+T" },
+        description: "Save Selection",
+      },
+      "save-region": { description: "Save Region" },
       _execute_action: {
         suggested_key: { default: "Alt+Shift+S" },
         description: "Save This Page",

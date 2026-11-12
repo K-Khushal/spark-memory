@@ -30,6 +30,7 @@ export function VideoReader({
             key={moment}
             src={`https://www.youtube-nocookie.com/embed/${id}?start=${Math.floor(moment)}`}
             className="aspect-video w-full shrink-0 rounded-control border-0"
+            sandbox="allow-scripts allow-same-origin allow-presentation"
             allow="encrypted-media; picture-in-picture; fullscreen"
             allowFullScreen
             referrerPolicy="no-referrer"

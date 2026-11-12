@@ -128,3 +128,21 @@ it("embeds the end of a full allowance transcript even with frequent paragraph b
     anchor: { end: text.length },
   });
 });
+
+it("keeps transcript vectors within the available Passage budget", () => {
+  const text = "x".repeat(200_000);
+  const result = embeddingInputs({
+    title: null,
+    captureNote: null,
+    body: text,
+    transcript: [{ seconds: 0, text }],
+    found: {
+      title: "Film",
+      description: "",
+      ocrText: "Other text",
+      tags: [],
+      entities: [],
+    },
+  });
+  expect(result.parts.filter((p) => p.kind === "passage")).toHaveLength(60);
+});

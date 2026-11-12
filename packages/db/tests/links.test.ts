@@ -39,6 +39,23 @@ describe.skipIf(!databaseUrl)("link Memories", () => {
     if (!("memory" in result)) throw new Error("conflict");
     return result;
   };
+  it("resurfaces the same video with its latest playback Source", async () => {
+    const first = await link({
+      url: "https://www.youtube.com/watch?v=extension-round1&t=10s",
+      page: { title: "Basil" },
+    });
+    const second = await link({
+      url: "https://www.youtube.com/watch?v=extension-round1&t=42s",
+      page: { title: "Basil" },
+    });
+    expect(second.memory.id).toBe(first.memory.id);
+    expect(second).toMatchObject({
+      duplicate: true,
+      memory: {
+        sourceUrl: "https://www.youtube.com/watch?v=extension-round1&t=42s",
+      },
+    });
+  });
   const claimOf = async (memoryId: string) => {
     const [row] = await db
       .select({

@@ -14,6 +14,7 @@ import {
   normaliseUrl,
   isVideoUrl,
   type VideoMetadata,
+  isYouTubeVideo,
   SCREENSHOT_MAX_BYTES,
   TextCapture,
   type LinkMetadata,
@@ -372,6 +373,7 @@ export function openLibrary(
   function captureFiles(capture: {
     id: string;
     kind: "image" | "pdf";
+    sourceUrl?: string;
     contentHash: string;
     title: string | null;
     productAnalytics?: boolean;
@@ -476,6 +478,7 @@ export function openLibrary(
         id,
         userId,
         kind: capture.kind,
+        sourceUrl: capture.sourceUrl,
         title: capture.title,
         contentHash: capture.contentHash,
         indexState: "indexing",
@@ -524,6 +527,10 @@ export function openLibrary(
           id,
           userId,
           kind: "text",
+          sourceUrl: parsed.source?.url,
+          metadata: parsed.source
+            ? { selectionContext: parsed.source.context }
+            : undefined,
           body,
           title,
           captureNote,
@@ -589,6 +596,7 @@ export function openLibrary(
         .update(memory)
         .set({
           lastSavedAt: sql`now()`,
+          ...(isYouTubeVideo(url) && { sourceUrl: url }),
           captureNote: sql`coalesce(${memory.captureNote}, ${note}::text)`,
           // A new note is new text for the vectors: the sweep embeds it again.
           revision: sql`${memory.revision} + (${noteAdded})::int`,
@@ -636,9 +644,9 @@ export function openLibrary(
 
     /**
      * A slot for the visible-area screenshot, or `already` when this link
-     * has one. Nothing is written here: the caller stores the bytes, then
-     * {@link recordScreenshot}, so a lost upload cannot leave an unstored
-     * file (the sweep would delete the link with it).
+     * has one. Queue cleanup before uploading, due after the upload window.
+     * No unstored file is created: an abandoned screenshot must not hide
+     * the link or let the abandoned-upload sweep delete it.
      */
     async prepareScreenshot(
       id: string,
@@ -673,9 +681,15 @@ export function openLibrary(
         });
         if (!fit.ok) return { refused: fit.reason };
         const generation = crypto.randomUUID();
-        return {
-          key: keyFor(userId, id, generation, { role: "screenshot", page: 0 }),
-        };
+        const key = keyFor(userId, id, generation, {
+          role: "screenshot",
+          page: 0,
+        });
+        await tx.insert(objectRemoval).values({
+          key,
+          dueAt: sql`clock_timestamp() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
+        });
+        return { key };
       });
     },
 
@@ -721,6 +735,18 @@ export function openLibrary(
           n !== undefined && Number.isInteger(n) && n > 0 && n <= 8000
             ? n
             : null;
+        // Only the prepared, still-live upload may become a stored file.
+        // Consuming cleanup and recording the file commit together.
+        const pending = await tx
+          .delete(objectRemoval)
+          .where(
+            and(
+              eq(objectRemoval.key, file.key),
+              sql`${objectRemoval.dueAt} > clock_timestamp()`
+            )
+          )
+          .returning({ key: objectRemoval.key });
+        if (!pending.length) return false;
         await tx.insert(memoryFile).values({
           memoryId: id,
           role: "screenshot",
@@ -745,6 +771,7 @@ export function openLibrary(
       return captureFiles({
         id: capture.id,
         kind: "image",
+        sourceUrl: capture.sourceUrl,
         contentHash: capture.contentHash,
         title: null,
         productAnalytics: capture.productAnalytics,
@@ -1034,13 +1061,39 @@ export function openLibrary(
         : undefined;
     },
 
-    /** Deletes permanently. False when there was no such Memory. */
+    /** Deletes permanently, durably queuing all file keys under the owner's lock. */
     async remove(id: string): Promise<boolean> {
-      const rows = await db
-        .delete(memory)
-        .where(owned(id))
-        .returning({ id: memory.id });
-      return rows.length > 0;
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        const [row] = await tx
+          .select({ id: memory.id })
+          .from(memory)
+          .where(owned(id));
+        if (!row) return false;
+        const files = await tx
+          .select({ key: memoryFile.key, stored: memoryFile.storedAt })
+          .from(memoryFile)
+          .where(eq(memoryFile.memoryId, id));
+        if (files.length)
+          await tx
+            .insert(objectRemoval)
+            .values(
+              files.map((file) => ({
+                key: file.key,
+                // Pending PUTs can still land after deletion. Keep their cleanup
+                // until the upload window closes, even if storage is empty now.
+                dueAt: file.stored
+                  ? sql`now()`
+                  : sql`clock_timestamp() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
+              }))
+            )
+            .onConflictDoNothing();
+        const rows = await tx
+          .delete(memory)
+          .where(owned(id))
+          .returning({ id: memory.id });
+        return rows.length > 0;
+      });
     },
 
     /**

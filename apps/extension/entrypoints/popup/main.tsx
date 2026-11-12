@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { browser } from "wxt/browser";
-import { THEMES, RADIUS, TYPE_SCALE } from "@spark/ui/tokens";
+import "../../lib/theme";
 import "@spark/ui/fonts.css";
 import { API_ORIGIN } from "../../lib/config";
 import type { SavedMemory } from "../../lib/client";
@@ -131,16 +131,4 @@ function Popup() {
     </main>
   );
 }
-const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-for (const [key, value] of Object.entries(THEMES[dark ? "dark" : "light"]))
-  document.documentElement.style.setProperty(`--${key}`, value);
-document.documentElement.style.setProperty("--radius", `${RADIUS.control}px`);
-document.documentElement.style.setProperty(
-  "--font-size",
-  `${TYPE_SCALE.sm.size}px`
-);
-document.documentElement.style.setProperty(
-  "--leading",
-  `${TYPE_SCALE.sm.leading}px`
-);
 createRoot(document.getElementById("root")!).render(<Popup />);

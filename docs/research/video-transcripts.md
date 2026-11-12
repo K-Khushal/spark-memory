@@ -22,7 +22,7 @@ Read caption tracks only when a public YouTube watch page exposes them in
 `www.youtube.com/api/timedtext`, and is fetched as JSON3 through the existing
 public-fetch timeout, DNS, redirect and per-hop permission guard. This is a
 best-effort public-page format, not a supported YouTube API contract. Cloud
-IPs, consent pages and missing captions commonly make it unavailable. Never
+IPs, consent pages and empty timedtext responses commonly make it unavailable; many videos therefore fall back to Transcript Unavailable. Never
 work around those refusals. The 256 KB HTML cap may miss a player response
 late in a large page; that also becomes metadata fallback.
 

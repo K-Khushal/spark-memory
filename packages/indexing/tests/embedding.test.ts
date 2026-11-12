@@ -112,6 +112,7 @@ function store({
 const indexJob = { memoryId: "m1", priority: "fresh" as const, attempt: 1 };
 const embedJob = {
   memoryId: "m1",
+  generation: "g1",
   priority: "background" as const,
   attempt: 1,
   task: "embed" as const,

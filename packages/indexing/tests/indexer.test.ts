@@ -132,6 +132,7 @@ function memoryStore(
 
 const job = (over = {}) => ({
   memoryId: "m1",
+  generation: "g1",
   priority: "fresh" as const,
   attempt: 1,
   ...over,

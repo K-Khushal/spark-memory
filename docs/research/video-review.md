@@ -29,15 +29,14 @@ without timestamps; the original Source URL retains the captured moment.
 
 Deferred to existing #21: temporary media downloads, non-YouTube transcription,
 keyframes and Deep fetch retries. No platform login or bypass was introduced.
-No paid-provider live call was made. Existing pre-feature link rows are not
-rewritten or merged by the migration.
+No paid-provider live call was made. Migration 0020 upgrades supported legacy video links, preserves Source/title/text/note and AI opt-out, resets the video-gather marker (retaining page/selection metadata), clears derived indexes, and schedules background Indexing with a new run. Colliding rows are skipped intact with a count-only notice; it never deletes or merges a person's Memories. Replaying it is idempotent.
 
 ## Interface review
 
 Applied web-design-guidelines from its current upstream command.md to the reader,
 why-chip, and detail flow: native buttons/links, named iframe, visible token focus
 rings, literal React text, no autoplay, no new motion, wrapped long text, flexible
-footer controls. The player loads only after an explicit Play or timestamp click.
+footer controls. The player loads only after an explicit Play or timestamp click, inside a scripts/same-origin/presentation sandbox with no popup grants.
 The large transcript uses content-visibility to avoid laying out every offscreen
 row. The existing modal/press motion follows DESIGN.md; no motion was added.
 

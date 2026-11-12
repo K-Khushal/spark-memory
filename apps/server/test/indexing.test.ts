@@ -183,7 +183,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     const memory = await capture(call, "Everything is down");
     const down = () => withProviders(gemma(new Error("5000: oops")));
     geminiApi(500, 500, 500);
-    const body = { memoryId: memory.id, priority: "fresh" as const };
+    const body = sentFor(memory.id)[0]!.body;
     const first = await deliver("spark-index-local", body, 1, down());
     expect(first.retry).toHaveBeenCalledWith({ delaySeconds: 30 });
     expect((await read(call, memory.id)).indexState).toBe("indexing");
@@ -213,7 +213,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     const { call } = await signedIn();
     const memory = await capture(call, "Delivered twice");
     const ai = gemma(answer(), answer());
-    const body = { memoryId: memory.id, priority: "fresh" as const };
+    const body = sentFor(memory.id)[0]!.body;
     await deliver("spark-index-local", body, 1, withProviders(ai));
     const again = await deliver(
       "spark-index-local",
