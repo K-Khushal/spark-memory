@@ -118,6 +118,7 @@ function memoryStore(memory: PendingMemory) {
 
 const job = (attempt = 1) => ({
   memoryId: "m1",
+  generation: "g1",
   priority: "fresh" as const,
   attempt,
 });

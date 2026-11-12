@@ -46,3 +46,35 @@ test("paste a link, paste it again, open it to its Source", async ({
   );
   await expect(page.getByRole("textbox", { name: "Text" })).toHaveCount(0);
 });
+
+test("screenshot upload cannot revive a permanently deleted link", async ({
+  page,
+}) => {
+  await signIn(page);
+  const headers = { origin: new URL(page.url()).origin };
+  const capture = await page.request.post("/api/memories/links", {
+    headers,
+    data: {
+      url: `https://garden.test/${crypto.randomUUID()}`,
+      page: { title: "Basil" },
+    },
+  });
+  expect(capture.ok()).toBe(true);
+  const { id } = await capture.json();
+  const upload = () =>
+    page.request.post(`/api/memories/${id}/screenshot`, {
+      headers: { ...headers, "content-type": "image/jpeg" },
+      data: Buffer.from([255, 216, 255, 217]),
+    });
+  expect((await upload()).ok()).toBe(true);
+  expect((await page.request.get(`/api/memories/${id}/screenshot`)).ok()).toBe(
+    true
+  );
+  expect(
+    (await page.request.delete(`/api/memories/${id}`, { headers })).status()
+  ).toBe(204);
+  expect((await upload()).status()).toBe(404);
+  expect(
+    (await page.request.get(`/api/memories/${id}/screenshot`)).status()
+  ).toBe(404);
+});
