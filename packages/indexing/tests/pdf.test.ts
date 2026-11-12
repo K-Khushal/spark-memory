@@ -587,3 +587,37 @@ describe("Gemini's inline request limit", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 });
+
+describe("Gemini's inline limit in bytes", () => {
+  // 3 bytes a character in UTF-8: under the limit in characters, over it in bytes.
+  const wide = "€".repeat(Math.ceil(INDEXING.inlineRequestBytes / 2.5));
+
+  it("is measured in bytes for Extraction", async () => {
+    const fetch = vi.fn();
+    const flash = gemini({
+      apiKey: "k",
+      paidTier: true,
+      fetch: fetch as never,
+    });
+    expect(wide.length).toBeLessThan(INDEXING.inlineRequestBytes);
+    const error = await flash
+      .extract({ system: "s", user: wide })
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ kind: "unsupported" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("is measured in bytes for embedding", async () => {
+    const fetch = vi.fn();
+    const embedder = geminiEmbedding({
+      apiKey: "k",
+      paidTier: true,
+      fetch: fetch as never,
+    });
+    const error = await embedder
+      .embed([{ text: wide }])
+      .catch((e: unknown) => e);
+    expect(error).toMatchObject({ kind: "unsupported" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

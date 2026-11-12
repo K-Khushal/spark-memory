@@ -320,6 +320,23 @@ describe.skipIf(!databaseUrl)("PDF Memories", () => {
     });
   });
 
+  it("finds a PDF by what Indexing said when its text and a scan's are empty", async () => {
+    const memory = await stored(pdf(1, { title: "Scan" }));
+    const loaded = (await store().load(memory.id))!;
+    await store().complete(
+      { ...loaded, memoryId: memory.id },
+      {
+        output: found({ ocrText: "", description: "An otter by the weir" }),
+        model: "fake",
+      }
+    );
+    const [hit] = await library().search("otter");
+    expect(hit).toMatchObject({
+      id: memory.id,
+      part: { kind: "field", field: "description" },
+    });
+  });
+
   it("keeps only its file name and Capture note once AI opt-out is on: its text and vectors go", async () => {
     const id = await indexed(
       { body: "Badgers sett by the old oak", pages: 1 },

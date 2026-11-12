@@ -106,7 +106,10 @@ export function gemini({
         },
       });
       // Past the inline limit Gemini refuses it anyway: not sent, not billed.
-      if (body.length > INDEXING.inlineRequestBytes) {
+      // In bytes, as Gemini counts it (UTF-8), not characters.
+      if (
+        new TextEncoder().encode(body).byteLength > INDEXING.inlineRequestBytes
+      ) {
         throw new ProviderError("unsupported");
       }
       let res: Response;

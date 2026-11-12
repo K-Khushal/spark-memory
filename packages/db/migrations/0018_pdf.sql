@@ -15,7 +15,8 @@ LANGUAGE plpgsql IMMUTABLE AS $$
 DECLARE
   pages text[];
 BEGIN
-  IF p_doc IS NULL OR p_query IS NULL THEN RETURN NULL; END IF;
+  -- Empty text has no pages (string_to_array gives an empty array).
+  IF p_doc IS NULL OR p_doc = '' OR p_query IS NULL THEN RETURN NULL; END IF;
   pages := string_to_array(left(p_doc, 100000), chr(12));
   IF array_length(pages, 1) = 1 THEN
     RETURN CASE WHEN text_matches(p_config, pages[1], p_query) THEN 0 END;
