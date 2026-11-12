@@ -17,6 +17,7 @@ import {
 } from "./drafts";
 import {
   imageCapture,
+  type CaptureOutcome,
   type ImageTransport,
   type UploadState,
 } from "./image-capture";
@@ -290,7 +291,11 @@ export function libraryActions({
     );
 
   /** Captures pasted text, or a link when the paste is exactly one URL. */
-  function capture(text: string, captureNote?: string): boolean {
+  function capture(
+    text: string,
+    captureNote?: string,
+    shared?: { id: string; end: (outcome: CaptureOutcome) => void }
+  ): boolean {
     const body = text.trim();
     if (!body) {
       notify("Paste Text to Capture");
@@ -302,30 +307,44 @@ export function libraryActions({
     }
     const url = linkFromPaste(body);
     const now = new Date().toISOString();
-    send({
-      id: crypto.randomUUID(),
-      kind: url ? "link" : "text",
-      title: null,
-      body: url ? null : body,
-      sourceUrl: url ?? null,
-      pageTitle: null,
-      description: null,
-      captureNote: captureNote?.trim() || null,
-      // A link keeps nothing until gathering does.
-      preservation: url ? "reference_only" : "preserved",
-      indexState: "indexing",
-      indexError: null,
-      indexTitle: null,
-      aiOptOut: false,
-      hasVectors: false,
-      revision: 1,
-      capturedAt: now,
-      lastSavedAt: now,
-      updatedAt: now,
-      image: null,
-      fresh: true,
-    });
+    send(
+      {
+        id: shared?.id ?? crypto.randomUUID(),
+        kind: url ? "link" : "text",
+        title: null,
+        body: url ? null : body,
+        sourceUrl: url ?? null,
+        pageTitle: null,
+        description: null,
+        captureNote: captureNote?.trim() || null,
+        // A link keeps nothing until gathering does.
+        preservation: url ? "reference_only" : "preserved",
+        indexState: "indexing",
+        indexError: null,
+        indexTitle: null,
+        aiOptOut: false,
+        hasVectors: false,
+        revision: 1,
+        capturedAt: now,
+        lastSavedAt: now,
+        updatedAt: now,
+        image: null,
+        fresh: true,
+      },
+      shared?.end
+    );
     return true;
+  }
+
+  /**
+   * Captures what the share target held: the same as a paste, but under the
+   * share's own id, ending when the server has it (or Capture refused it, or
+   * Undo took it back). A failed request stays open for Try Again.
+   */
+  function captureShared(text: string, id: string): Promise<CaptureOutcome> {
+    return new Promise((resolve) => {
+      if (!capture(text, undefined, { id, end: resolve })) resolve("refused");
+    });
   }
 
   const images = imageCapture({
@@ -355,16 +374,35 @@ export function libraryActions({
 
   /** Captures image files: each lands and uploads on its own; Undo takes the batch back. */
   async function captureImages(files: File[]) {
-    const ids = await images.capture(files);
-    if (!ids.length) return;
+    await landImages(files);
+  }
+
+  async function landImages(files: File[], ids?: string[]) {
+    const landed = await images.capture(files, ids);
+    if (!landed.length) return landed;
     notify("Captured", {
       duration: UNDO_MS,
-      action: { label: "Undo", onClick: () => removeNow(ids) },
+      action: { label: "Undo", onClick: () => removeNow(landed) },
     });
+    return landed;
+  }
+
+  /** Image files the share target held, each under its own id; see captureShared. */
+  async function captureSharedImages(
+    held: { id: string; file: File }[]
+  ): Promise<CaptureOutcome[]> {
+    await landImages(
+      held.map(({ file }) => file),
+      held.map(({ id }) => id)
+    );
+    // A file that never landed was refused up front, and said so.
+    return Promise.all(
+      held.map(({ id }) => images.outcome(id) ?? ("refused" as const))
+    );
   }
 
   /** Puts `memory` on the wall and sends it; Try Again resends the same one (same id). */
-  function send(memory: WallMemory) {
+  function send(memory: WallMemory, end?: (outcome: CaptureOutcome) => void) {
     setMemories((all) =>
       all.some((m) => m.id === memory.id) ? all : [memory, ...all]
     );
@@ -385,6 +423,7 @@ export function libraryActions({
     );
 
     const undo = () => {
+      end?.("dropped");
       removeLocal(memory.id);
       inOrder(memory.id, () =>
         transport.remove(memory.id, { keepalive: true })
@@ -405,6 +444,7 @@ export function libraryActions({
 
     created.then(
       (saved) => {
+        end?.("stored");
         onSaved();
         if (memory.kind === "link" && saved.id !== memory.id) {
           return resurface(memory.id, saved, toastId);
@@ -419,7 +459,7 @@ export function libraryActions({
         notify("Capture Did Not Finish", {
           id: toastId,
           duration: 8000,
-          action: { label: "Try Again", onClick: () => send(memory) },
+          action: { label: "Try Again", onClick: () => send(memory, end) },
         });
       }
     );
@@ -756,7 +796,9 @@ export function libraryActions({
 
   return {
     capture,
+    captureShared,
     captureImages,
+    captureSharedImages,
     retryUpload: images.retry,
     /** A request for this Memory (Capture, Try Again, edit, delete) is still out. */
     isPending: (id: string) => queues.has(id),

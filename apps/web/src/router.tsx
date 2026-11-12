@@ -11,6 +11,8 @@ import { Button } from "@spark/ui";
 import { api } from "./api";
 import { redirectIfSignedIn, requireSession } from "./auth";
 import { LibraryPage } from "./library/library-page";
+import { isShareRefusal, ShareRefused } from "./pwa/share-refused";
+import type { ShareRefusal } from "./pwa/validate";
 import { DATA_SETS, type DataSet } from "./prototypes/data-sets";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
@@ -18,8 +20,16 @@ const rootRoute = createRootRoute({ component: () => <Outlet /> });
 const shareRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/share",
-  beforeLoad: () => {
-    throw redirect({ to: "/" });
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { refused?: ShareRefusal } =>
+    isShareRefusal(search.refused) ? { refused: search.refused } : {},
+  beforeLoad: ({ search }) => {
+    if (!search.refused) throw redirect({ to: "/" });
+  },
+  component: function Share() {
+    const { refused } = shareRoute.useSearch();
+    return refused ? <ShareRefused reason={refused} /> : null;
   },
 });
 

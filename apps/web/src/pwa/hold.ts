@@ -1,9 +1,23 @@
-/** One share-target payload, as the service worker stored it. */
+/** A shared file with the Capture id it will keep until the server has it. */
+export type HeldFile = { id: string; file: File };
+
+/**
+ * One share-target payload, as the service worker stored it. The ids are
+ * made once, here, so every retry of a Capture sends the same id and the
+ * server's idempotent create cannot make a second Memory.
+ */
 export type PendingShare = {
+  /** The Capture id of the text or link. */
+  id: string;
+  /**
+   * False when the post could have come from another site's form: it is
+   * Captured only after the person says so (see judgeShare).
+   */
+  verified: boolean;
   title: string;
   text: string;
   url: string;
-  files: File[];
+  files: HeldFile[];
 };
 
 /**
@@ -53,25 +67,34 @@ async function inStore<T>(
 }
 
 /** The multipart form Android posts, as a share. Empty files are dropped. */
-export function shareFromForm(form: FormData): PendingShare {
+export function shareFromForm(form: FormData, verified: boolean): PendingShare {
   const read = (name: string) => {
     const value = form.get(name);
     return typeof value === "string" ? value : "";
   };
   return {
+    id: crypto.randomUUID(),
+    verified,
     title: read("title"),
     text: read("text"),
     url: read("url"),
     files: form
       .getAll("files")
-      .filter(
-        (value): value is File => value instanceof File && value.size > 0
-      ),
+      .filter((value): value is File => value instanceof File && value.size > 0)
+      .map((file) => ({ id: crypto.randomUUID(), file })),
   };
 }
 
-export async function holdShare(share: PendingShare): Promise<void> {
-  await inStore("readwrite", (store) => void store.add(share));
+/** Holds a share; refuses once `limit` are already held, so a page cannot fill the disk. */
+export async function holdShare(
+  share: PendingShare,
+  limit = Infinity
+): Promise<boolean> {
+  return inStore("readwrite", async (store) => {
+    if ((await request(store.count())) >= limit) return false;
+    store.add(share);
+    return true;
+  });
 }
 
 export type HeldShare = { key: IDBValidKey; share: PendingShare };
@@ -85,6 +108,13 @@ export function heldShares(): Promise<HeldShare[]> {
     ]);
     return keys.map((key, i) => ({ key, share: shares[i]! }));
   });
+}
+
+/** One held share, or nothing when another tab has already dropped it. */
+export function heldShare(key: IDBValidKey): Promise<PendingShare | undefined> {
+  return inStore("readonly", (store) =>
+    request(store.get(key) as IDBRequest<PendingShare | undefined>)
+  );
 }
 
 export function dropShares(keys: IDBValidKey[]): Promise<void> {

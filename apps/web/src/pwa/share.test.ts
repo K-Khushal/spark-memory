@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PendingShare } from "./hold";
-import { applyShare, planShare } from "./share";
+import type { HeldFile, PendingShare } from "./hold";
+import { applyShare, planShare, type ShareLibrary } from "./share";
 
-const file = (name: string, type: string, bytes = 8) =>
-  new File([new Uint8Array(bytes)], name, { type });
+const held = (name: string, type: string): HeldFile => ({
+  id: crypto.randomUUID(),
+  file: new File([new Uint8Array(8)], name, { type }),
+});
 
 const share = (over: Partial<PendingShare> = {}): PendingShare => ({
+  id: crypto.randomUUID(),
+  verified: true,
   title: "",
   text: "",
   url: "",
@@ -14,49 +18,43 @@ const share = (over: Partial<PendingShare> = {}): PendingShare => ({
 });
 
 describe("planShare", () => {
-  it("Captures an image file as images", () => {
-    const png = file("shot.png", "image/png");
-    expect(planShare(share({ files: [png] }))).toEqual({
+  it("Captures an image file as an image, keeping its id", () => {
+    const png = held("shot.png", "image/png");
+    const input = share({ files: [png] });
+    expect(planShare(input)).toEqual({
+      id: input.id,
       images: [png],
       pdfs: [],
-      other: [],
     });
   });
 
   it("treats a JPEG with a .jpg name and empty type as an image", () => {
-    const jpg = file("IMG_0001.jpg", "");
+    const jpg = held("IMG_0001.jpg", "");
     expect(planShare(share({ files: [jpg] })).images).toEqual([jpg]);
   });
 
-  it("refuses a PDF, including one named .pdf with no type", () => {
-    const pdf = file("lease.pdf", "application/pdf");
-    const named = file("scan.PDF", "");
+  it("sorts a PDF, including one named .pdf with no type", () => {
+    const pdf = held("lease.pdf", "application/pdf");
+    const named = held("scan.PDF", "");
     expect(planShare(share({ files: [pdf] })).pdfs).toEqual([pdf]);
     expect(planShare(share({ files: [named] })).pdfs).toEqual([named]);
   });
 
   it("keeps images when a PDF is shared beside them, and ignores text", () => {
-    const png = file("shot.png", "image/png");
-    const pdf = file("doc.pdf", "application/pdf");
-    expect(
-      planShare(
-        share({
-          files: [png, pdf],
-          text: "https://example.com",
-        })
-      )
-    ).toEqual({ images: [png], pdfs: [pdf], other: [] });
+    const png = held("shot.png", "image/png");
+    const pdf = held("doc.pdf", "application/pdf");
+    const plan = planShare(
+      share({ files: [png, pdf], text: "https://example.com" })
+    );
+    expect(plan.images).toEqual([png]);
+    expect(plan.pdfs).toEqual([pdf]);
+    expect(plan.link).toBeUndefined();
   });
 
   it("Captures a URL field as a link", () => {
     expect(
       planShare(share({ url: "https://example.com/a", title: "Example" }))
-    ).toEqual({
-      images: [],
-      pdfs: [],
-      other: [],
-      link: "https://example.com/a",
-    });
+    ).toMatchObject({ link: "https://example.com/a" });
   });
 
   it("Captures text that is exactly one URL, even when the URL field is empty", () => {
@@ -91,54 +89,66 @@ describe("planShare", () => {
   it("does not treat mixed prose and a URL as a link", () => {
     expect(
       planShare(share({ text: "read this https://example.com" }))
-    ).toMatchObject({
-      text: "read this https://example.com",
-    });
+    ).toMatchObject({ text: "read this https://example.com" });
   });
 });
 
 describe("applyShare", () => {
-  it("sends images, refuses PDFs, and does not Capture leftover text", async () => {
-    const png = file("shot.png", "image/png");
-    const pdf = file("doc.pdf", "application/pdf");
-    const capture = vi.fn();
-    const captureImages = vi.fn(async () => {});
+  const library = () => {
+    const captureShared = vi.fn(async () => "stored" as const);
+    const captureSharedImages = vi.fn(async (files: HeldFile[]) =>
+      files.map(() => "stored" as const)
+    );
+    return { captureShared, captureSharedImages } satisfies ShareLibrary;
+  };
+
+  it("sends images with their ids, refuses PDFs, and leaves text alone", async () => {
+    const png = held("shot.png", "image/png");
+    const pdf = held("doc.pdf", "application/pdf");
+    const lib = library();
     const notify = vi.fn();
     await applyShare(
       planShare(share({ files: [png, pdf], text: "hello" })),
-      { capture, captureImages },
+      lib,
       notify
     );
-    expect(captureImages).toHaveBeenCalledWith([png]);
-    expect(capture).not.toHaveBeenCalled();
+    expect(lib.captureSharedImages).toHaveBeenCalledWith([png]);
+    expect(lib.captureShared).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledWith("PDFs Can't Be Captured Yet");
   });
 
-  it("Captures a link, or text when there is no link", async () => {
-    const capture = vi.fn(() => true);
-    const captureImages = vi.fn(async () => {});
-    await applyShare(
-      planShare(share({ url: "https://example.com" })),
-      { capture, captureImages },
-      vi.fn()
+  it("Captures a link, or text when there is no link, under the share's id", async () => {
+    const lib = library();
+    const link = share({ url: "https://example.com" });
+    await applyShare(planShare(link), lib, vi.fn());
+    expect(lib.captureShared).toHaveBeenCalledWith(
+      "https://example.com",
+      link.id
     );
-    expect(capture).toHaveBeenCalledWith("https://example.com");
-    capture.mockClear();
-    await applyShare(
-      planShare(share({ text: "Lemon tart" })),
-      { capture, captureImages },
-      vi.fn()
-    );
-    expect(capture).toHaveBeenCalledWith("Lemon tart");
+    const text = share({ text: "Lemon tart" });
+    await applyShare(planShare(text), lib, vi.fn());
+    expect(lib.captureShared).toHaveBeenCalledWith("Lemon tart", text.id);
   });
 
-  it("names a file Spark cannot Capture", async () => {
-    const notify = vi.fn();
-    await applyShare(
-      planShare(share({ files: [file("clip.mp4", "video/mp4")] })),
-      { capture: vi.fn(), captureImages: vi.fn(async () => {}) },
-      notify
-    );
-    expect(notify).toHaveBeenCalledWith("This Can't Be Captured");
+  it("is not done until the server has the Capture", async () => {
+    let finish: (outcome: "stored") => void = () => {};
+    const lib = {
+      ...library(),
+      captureShared: vi.fn(
+        () => new Promise<"stored">((resolve) => (finish = resolve))
+      ),
+    };
+    let done = false;
+    const applied = applyShare(
+      planShare(share({ text: "hello" })),
+      lib,
+      vi.fn()
+    ).then(() => (done = true));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(done).toBe(false);
+    finish("stored");
+    await applied;
+    expect(done).toBe(true);
   });
 });

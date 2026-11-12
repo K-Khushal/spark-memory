@@ -43,6 +43,13 @@ export type ImageTransport = {
   preload: (url: string) => Promise<void>;
 };
 
+/**
+ * How a Capture ended: the server has it, Capture refused it for good, or
+ * the person took it back. A failed upload is none of these: it stays open,
+ * and Try Again can still finish it.
+ */
+export type CaptureOutcome = "stored" | "refused" | "dropped";
+
 /** An image upload as the wall shows it. Stored images have none. */
 export type UploadState =
   | { step: "sending"; progress: number }
@@ -83,6 +90,13 @@ export function imageCapture({
     failed: boolean;
   };
   const entries = new Map<string, Entry>();
+  /** Per Memory: how its Capture ended (see CaptureOutcome), once it has. */
+  const outcomes = new Map<
+    string,
+    { ended: Promise<CaptureOutcome>; end: (outcome: CaptureOutcome) => void }
+  >();
+  const end = (id: string, outcome: CaptureOutcome) =>
+    outcomes.get(id)?.end(outcome);
   /** Bytes being Captured now, counted against storage before the server knows. */
   const reserved = () =>
     [...entries.values()].reduce(
@@ -149,6 +163,7 @@ export function imageCapture({
       const saved = await transport.confirm(id);
       if (!current()) return;
       entries.delete(id);
+      end(id, "stored");
       // The server's copy, but the local files stay on screen (no reload
       // flash) until the stored thumbnail has loaded; then they are freed.
       const urls = entry.urls;
@@ -191,7 +206,7 @@ export function imageCapture({
       // One file failed: stop the other, so no PUT outlives its run.
       entry.abort?.abort();
       if (error instanceof Refused) {
-        drop(id);
+        drop(id, "refused");
         refuse(error.reason);
         return;
       }
@@ -206,10 +221,11 @@ export function imageCapture({
     }
   }
 
-  function drop(id: string) {
+  function drop(id: string, outcome: CaptureOutcome = "dropped") {
     const entry = entries.get(id);
     if (!entry) return false;
     entries.delete(id);
+    end(id, outcome);
     entry.abort?.abort();
     removeLocal(id);
     URL.revokeObjectURL(entry.urls.url);
@@ -233,39 +249,46 @@ export function imageCapture({
    * Captures `files` as image Memories. Each is checked against the Free
    * allowance first; a refused one never reaches the wall. The rest land as
    * soon as they are decoded, newest first, and upload in the background.
-   * Returns the ids that landed, for Undo.
+   * Returns the ids that landed, for Undo. `ids[i]` is the Memory id for
+   * `files[i]`, for a Capture that must send the same id again if it is
+   * repeated (a share held until the server has it); otherwise one is made.
    */
-  async function capture(files: File[]): Promise<string[]> {
+  async function capture(files: File[], ids?: string[]): Promise<string[]> {
     const { usedBytes } = await transport
       .storage()
       .catch(() => ({ usedBytes: 0 }));
     let used = usedBytes + reserved();
-    const accepted: File[] = [];
-    for (const file of files) {
+    const accepted: { file: File; id: string }[] = [];
+    files.forEach((file, i) => {
       const refusal = checkImage(file, used);
       if (refusal) refuse(refusal);
       else {
-        accepted.push(file);
+        accepted.push({ file, id: ids?.[i] ?? crypto.randomUUID() });
         used += file.size;
       }
-    }
-    const ids: string[] = [];
+    });
+    const landed: string[] = [];
     // Decoding is heavy: two at a time.
     const queue = [...accepted];
     const worker = async () => {
-      for (let file = queue.shift(); file; file = queue.shift()) {
-        const prepared = await prepareImage(file).catch((reason: unknown) => {
-          refuse(reason === "file_too_large" ? reason : "unreadable");
-        });
-        if (prepared) ids.push(land(prepared));
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        const prepared = await prepareImage(next.file).catch(
+          (reason: unknown) => {
+            refuse(reason === "file_too_large" ? reason : "unreadable");
+          }
+        );
+        if (prepared) landed.push(land(prepared, next.id));
       }
     };
     await Promise.all([worker(), worker()]);
-    return ids;
+    return landed;
   }
 
-  function land(prepared: PreparedImage) {
-    const id = crypto.randomUUID();
+  function land(prepared: PreparedImage, id: string) {
+    if (entries.has(id)) return id; // this Memory is already on its way
+    let end!: (outcome: CaptureOutcome) => void;
+    const ended = new Promise<CaptureOutcome>((resolve) => (end = resolve));
+    outcomes.set(id, { ended, end });
     const urls = {
       url: URL.createObjectURL(prepared.file),
       thumbnailUrl: URL.createObjectURL(prepared.thumbnail),
@@ -310,7 +333,9 @@ export function imageCapture({
     capture,
     retry,
     /** Stops an upload and takes its tile away; false when none was running. */
-    cancel: drop,
+    cancel: (id: string) => drop(id),
+    /** Resolves when the Capture of `id` ends; undefined when it never landed (refused up front). */
+    outcome: (id: string) => outcomes.get(id)?.ended,
     isUploading: (id: string) => entries.has(id),
   };
 }

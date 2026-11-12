@@ -142,3 +142,191 @@ test("offline, opening Spark shows the offline page", async ({
   ).toBeVisible();
   await context.setOffline(false);
 });
+
+const memories = async (page: Page) =>
+  (
+    (await (await page.request.get("/api/memories")).json()) as {
+      memories: { body: string | null }[];
+    }
+  ).memories;
+
+/** Puts a text share straight into the hold, as the worker would. */
+async function holdText(page: Page, text: string) {
+  await page.evaluate(async (text) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("spark-share", 1);
+      req.onupgradeneeded = () =>
+        req.result.createObjectStore("pending", { autoIncrement: true });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("pending", "readwrite");
+      tx.objectStore("pending").add({
+        id: crypto.randomUUID(),
+        verified: true,
+        title: "",
+        text,
+        url: "",
+        files: [],
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }, text);
+}
+
+const heldCount = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<number>((resolve, reject) => {
+        const req = indexedDB.open("spark-share", 1);
+        req.onsuccess = () => {
+          const count = req.result
+            .transaction("pending")
+            .objectStore("pending")
+            .count();
+          count.onsuccess = () => resolve(count.result);
+          count.onerror = () => reject(count.error);
+        };
+        req.onerror = () => reject(req.error);
+      })
+  );
+
+/** A page on another site that posts a text share to Spark when its form is sent. */
+async function attackerPost(
+  page: Page,
+  baseURL: string | undefined,
+  policy: string
+) {
+  const attacker = await page.context().newPage();
+  await attacker.route("https://evil.example/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<meta name="referrer" content="${policy}" />
+        <form id="f" method="POST" action="${baseURL}/share" enctype="multipart/form-data">
+        <input name="text" value="Free money" /></form>`,
+    })
+  );
+  await attacker.goto("https://evil.example/");
+  await attacker.evaluate(() =>
+    (document.getElementById("f") as HTMLFormElement).submit()
+  );
+  return attacker;
+}
+
+test("a form that names its own site is refused and holds nothing", async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page);
+  await swReady(page);
+  const attacker = await attackerPost(page, baseURL, "origin");
+  await expect(
+    attacker.getByRole("heading", { name: "This Share Can't Be Verified" })
+  ).toBeVisible();
+  expect(await heldCount(attacker)).toBe(0);
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "No Memories Yet" })
+  ).toBeVisible();
+  expect(await memories(page)).toEqual([]);
+});
+
+test("a form that hides its site waits for the person, and Discard drops it", async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page);
+  await swReady(page);
+  // https to http sends Origin: null, as no-referrer does from any page.
+  const attacker = await attackerPost(page, baseURL, "no-referrer");
+  await expect(
+    attacker.getByRole("heading", { name: "Capture This Share?" })
+  ).toBeVisible();
+  await expect(attacker.getByText("Free money")).toBeVisible();
+  expect(await memories(page)).toEqual([]);
+
+  await attacker.getByRole("button", { name: "Discard", exact: true }).click();
+  await expect.poll(() => heldCount(attacker)).toBe(0);
+  await attacker.reload();
+  await expect(
+    attacker.getByRole("heading", { name: "No Memories Yet" })
+  ).toBeVisible();
+  expect(await memories(page)).toEqual([]);
+});
+
+test("a share the person agrees to is Captured once", async ({
+  page,
+  baseURL,
+}) => {
+  await signIn(page);
+  await swReady(page);
+  const sheet = await attackerPost(page, baseURL, "no-referrer");
+  await sheet.getByRole("button", { name: "Capture", exact: true }).click();
+  await expect(
+    sheet.getByRole("listitem", { name: "Free money" })
+  ).toBeVisible();
+  await expect.poll(() => heldCount(sheet)).toBe(0);
+  expect((await memories(page)).map((m) => m.body)).toEqual(["Free money"]);
+});
+
+test("a share past the allowance is refused with a page, not delivered", async ({
+  page,
+}) => {
+  await signIn(page);
+  await swReady(page);
+  await sharePost(page, { text: "a".repeat(100_001) });
+  await expect(
+    page.getByRole("heading", { name: "Too Long to Capture" })
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Open Library" }).click();
+  await expect(
+    page.getByRole("heading", { name: "No Memories Yet" })
+  ).toBeVisible();
+  expect(await memories(page)).toEqual([]);
+});
+
+test("two tabs opening at once Capture a held share once", async ({ page }) => {
+  await signIn(page);
+  await swReady(page);
+  const other = await page.context().newPage();
+  await other.goto("/");
+  await expect(
+    other.getByRole("heading", { name: "No Memories Yet" })
+  ).toBeVisible();
+  await holdText(page, "Only once");
+  await Promise.all([page.reload(), other.reload()]);
+  await expect(page.getByRole("listitem", { name: "Only once" })).toBeVisible();
+  await expect(
+    other.getByRole("listitem", { name: "Only once" })
+  ).toBeVisible();
+  await expect.poll(() => heldCount(page)).toBe(0);
+  expect((await memories(page)).map((m) => m.body)).toEqual(["Only once"]);
+});
+
+test("a share stays held until the server has it, then Captures once", async ({
+  page,
+}) => {
+  await signIn(page);
+  await swReady(page);
+  await page.route("**/api/memories", (route) =>
+    route.request().method() === "POST" ? route.abort() : route.fallback()
+  );
+  await holdText(page, "Survives a bad connection");
+  await page.reload();
+  await expect(page.getByText("Capture Did Not Finish")).toBeVisible();
+  expect(await heldCount(page)).toBe(1);
+  expect(await memories(page)).toEqual([]);
+
+  await page.unroute("**/api/memories");
+  await page.reload();
+  await expect(
+    page.getByRole("listitem", { name: "Survives a bad connection" })
+  ).toBeVisible();
+  await expect.poll(() => heldCount(page)).toBe(0);
+  expect((await memories(page)).map((m) => m.body)).toEqual([
+    "Survives a bad connection",
+  ]);
+});

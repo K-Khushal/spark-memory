@@ -303,3 +303,154 @@ describe("image Capture", () => {
     expect(wall()[0]!.upload).toBeUndefined();
   });
 });
+
+describe("Capture from a share", () => {
+  const held = (id: string, bytes = 8) => ({ id, file: png(bytes) });
+
+  it("keeps the ids it was given, and is stored only when the server has the files", async () => {
+    const sent = later();
+    const { actions, wall, calls } = setup({
+      put: async () => sent.promise,
+    });
+    const id = crypto.randomUUID();
+    let outcome: string | undefined;
+    void actions
+      .captureSharedImages([held(id)])
+      .then(([first]) => (outcome = first));
+    await settle();
+    expect(wall()[0]!.id).toBe(id);
+    expect(calls).toEqual([`create ${id}`]);
+    expect(outcome).toBeUndefined(); // landed, uploading: not done
+    sent.resolve();
+    await settle();
+    expect(calls).toEqual([`create ${id}`, `confirm ${id}`]);
+    expect(outcome).toBe("stored");
+  });
+
+  it("stays open through a failed upload, and ends when Try Again finishes it", async () => {
+    const put = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(undefined);
+    const { actions, notify } = setup({ put });
+    let outcome: string | undefined;
+    void actions
+      .captureSharedImages([held(crypto.randomUUID())])
+      .then(([first]) => (outcome = first));
+    await settle();
+    expect(outcome).toBeUndefined();
+    toastAction(notify, "Try Again")();
+    await settle();
+    expect(outcome).toBe("stored");
+  });
+
+  it("ends as dropped when Undo takes the Capture back", async () => {
+    const sent = later();
+    const { actions, notify } = setup({ put: async () => sent.promise });
+    let outcome: string | undefined;
+    void actions
+      .captureSharedImages([held(crypto.randomUUID())])
+      .then(([first]) => (outcome = first));
+    await settle();
+    toastAction(notify, "Undo")();
+    await settle();
+    expect(outcome).toBe("dropped");
+  });
+
+  it("ends as refused for a file the Free allowance turns away", async () => {
+    const { actions } = setup();
+    const outcomes = await actions.captureSharedImages([
+      held(crypto.randomUUID(), FREE_ALLOWANCE.maxUploadBytes + 1),
+    ]);
+    expect(outcomes).toEqual(["refused"]);
+  });
+
+  it("sends the same id again when the same share comes back", async () => {
+    const { actions, transport } = setup();
+    const id = crypto.randomUUID();
+    await actions.captureSharedImages([held(id)]);
+    await actions.captureSharedImages([held(id)]);
+    const ids = vi.mocked(transport.createImage).mock.calls.map(([i]) => i.id);
+    expect(ids).toEqual([id, id]);
+  });
+
+  describe("text and links", () => {
+    it("is stored when the server's create answers, under the share's id", async () => {
+      const made = later<Memory>();
+      const create = vi.fn(() => made.promise);
+      const { actions, transport } = setup({ create });
+      const id = crypto.randomUUID();
+      let outcome: string | undefined;
+      void actions.captureShared("Lemon tart", id).then((o) => (outcome = o));
+      await settle();
+      expect(outcome).toBeUndefined();
+      made.resolve({ ...serverCopy(id), kind: "text", image: null });
+      await settle();
+      expect(outcome).toBe("stored");
+      expect(transport.create).toHaveBeenCalledWith(
+        expect.objectContaining({ id, body: "Lemon tart" })
+      );
+    });
+
+    it("stays open when the request fails, and ends when Try Again lands", async () => {
+      const create = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockImplementation(async (input: { id: string }) => ({
+          ...serverCopy(input.id),
+          kind: "text",
+          image: null,
+        }));
+      const { actions, notify } = setup({ create });
+      let outcome: string | undefined;
+      void actions
+        .captureShared("Lemon tart", "id-1")
+        .then((o) => (outcome = o));
+      await settle();
+      expect(outcome).toBeUndefined();
+      toastAction(notify, "Try Again")();
+      await settle();
+      expect(outcome).toBe("stored");
+      expect(create.mock.calls.map(([i]) => i.id)).toEqual(["id-1", "id-1"]);
+    });
+
+    it("sends a link under the share's id, and a page saved before still ends it", async () => {
+      const createLink = vi.fn(async () => ({
+        ...serverCopy("saved-earlier"),
+        kind: "link" as const,
+        image: null,
+      }));
+      const { actions } = setup({ createLink });
+      const outcome = await actions.captureShared(
+        "https://example.com",
+        "id-2"
+      );
+      expect(outcome).toBe("stored");
+      expect(createLink).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "id-2", url: "https://example.com" })
+      );
+    });
+
+    it("is refused, not stored, when the text is empty or too long", async () => {
+      const { actions } = setup();
+      expect(await actions.captureShared("   ", "id-3")).toBe("refused");
+      expect(
+        await actions.captureShared(
+          "a".repeat(FREE_ALLOWANCE.textMaxChars + 1),
+          "id-4"
+        )
+      ).toBe("refused");
+    });
+
+    it("ends as dropped when Undo takes it back", async () => {
+      const made = later<Memory>();
+      const { actions, notify } = setup({ create: () => made.promise });
+      let outcome: string | undefined;
+      void actions.captureShared("Oops", "id-5").then((o) => (outcome = o));
+      await settle();
+      toastAction(notify, "Undo")();
+      await settle();
+      expect(outcome).toBe("dropped");
+    });
+  });
+});

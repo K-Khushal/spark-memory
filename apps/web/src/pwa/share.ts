@@ -1,32 +1,16 @@
-import { IMAGE_TYPES, linkFromPaste } from "@spark/core";
-import type { PendingShare } from "./hold";
+import { linkFromPaste } from "@spark/core";
+import type { HeldFile, PendingShare } from "./hold";
+import { isImage, isPdf } from "./validate";
 
 /** What Capture should do with a share. Files win over text and URLs. */
 export type SharePlan = {
-  images: File[];
-  pdfs: File[];
-  other: File[];
+  /** The Capture id of the link or text. */
+  id: string;
+  images: HeldFile[];
+  pdfs: HeldFile[];
   link?: string;
   text?: string;
 };
-
-const IMAGE_NAME = /\.(png|jpe?g|webp|gif|avif|heic|heif)$/i;
-const EXTRA_IMAGE_TYPES = new Set([
-  "image/jpg",
-  "image/pjpeg",
-  "image/heic",
-  "image/heif",
-]);
-
-function isImage(file: File): boolean {
-  if ((IMAGE_TYPES as readonly string[]).includes(file.type)) return true;
-  if (EXTRA_IMAGE_TYPES.has(file.type)) return true;
-  return !file.type && IMAGE_NAME.test(file.name);
-}
-
-function isPdf(file: File): boolean {
-  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-}
 
 function textBody({ title, text }: PendingShare): string {
   const heading = title.trim();
@@ -54,43 +38,43 @@ export function linkFromShare(share: PendingShare): string | undefined {
 }
 
 export function planShare(share: PendingShare): SharePlan {
-  const images: File[] = [];
-  const pdfs: File[] = [];
-  const other: File[] = [];
-  for (const file of share.files) {
-    if (isImage(file)) images.push(file);
-    else if (isPdf(file)) pdfs.push(file);
-    else other.push(file);
-  }
-  if (images.length || pdfs.length || other.length) {
-    return { images, pdfs, other };
-  }
+  const images = share.files.filter(({ file }) => isImage(file));
+  const pdfs = share.files.filter(({ file }) => isPdf(file));
+  const plan = { id: share.id, images, pdfs };
+  if (images.length || pdfs.length) return plan;
   const link = linkFromShare(share);
-  if (link) return { images, pdfs, other, link };
-  const text = textBody(share);
-  return { images, pdfs, other, text: text || undefined };
+  if (link) return { ...plan, link };
+  return { ...plan, text: textBody(share) || undefined };
 }
 
-/** The part of the Library a share needs. */
+/**
+ * How a Capture ended. Only these end it: a failed one stays open, and Try
+ * Again on its toast can still finish it.
+ */
+export type CaptureOutcome = "stored" | "refused" | "dropped";
+
+/** The part of the Library a share needs. Each id is the Memory's id. */
 export type ShareLibrary = {
-  capture: (text: string) => boolean;
-  captureImages: (files: File[]) => Promise<void>;
+  /** Resolves once the server has the text or link, or Capture refused it. */
+  captureShared: (text: string, id: string) => Promise<CaptureOutcome>;
+  /** One outcome per file, once each is stored on the server or refused. */
+  captureSharedImages: (files: HeldFile[]) => Promise<CaptureOutcome[]>;
 };
 
+/**
+ * Captures a share and resolves when the server has every part of it, which
+ * is when the hold may let it go.
+ */
 export async function applyShare(
   plan: SharePlan,
   library: ShareLibrary,
   notify: (message: string) => void
-) {
+): Promise<void> {
   if (plan.pdfs.length) notify("PDFs Can't Be Captured Yet");
-  if (plan.other.length) notify("This Can't Be Captured");
   if (plan.images.length) {
-    await library.captureImages(plan.images);
+    await library.captureSharedImages(plan.images);
     return;
   }
-  if (plan.link) {
-    library.capture(plan.link);
-    return;
-  }
-  if (plan.text) library.capture(plan.text);
+  const text = plan.link ?? plan.text;
+  if (text) await library.captureShared(text, plan.id);
 }
