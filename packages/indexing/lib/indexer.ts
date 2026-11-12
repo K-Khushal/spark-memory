@@ -13,6 +13,7 @@ import {
   type Embedder,
   type Embedding,
 } from "./embedder";
+import type { Gathered, Gatherer } from "./link/gather";
 import { memoryPart, SYSTEM, type MemoryContent } from "./prompt";
 import {
   ProviderError,
@@ -63,6 +64,8 @@ export type PendingMemory = MemoryContent & {
   /** The text's revision, so vectors made from it are dropped once it is edited. */
   revision: number;
   aiOptOut: boolean;
+  /** A link Memory: false until its Source has been gathered (once). */
+  gathered?: boolean;
   /** Storage keys of an image Memory's files. */
   image?: {
     key: string;
@@ -135,6 +138,25 @@ export type IndexStore = {
   /** Replaces the vectors if nothing changed since loading; gives the lease back. */
   writeVectors(claim: Claim, embedding: Embedding): Promise<boolean>;
   fail(claim: Claim, reason: IndexFailure): Promise<boolean>;
+  /**
+   * Keeps what gathering a link found, once, if the Claim is still current:
+   * its content as Extraction should now see it, else undefined.
+   */
+  saveGathered(
+    claim: Claim,
+    gathered: Omit<Gathered, "transient">
+  ): Promise<
+    | (Pick<
+        PendingMemory,
+        | "title"
+        | "body"
+        | "captureNote"
+        | "sourceUrl"
+        | "pageTitle"
+        | "description"
+      > & { gathered: boolean })
+    | undefined
+  >;
   spentTodayMicros(): Promise<number>;
   /** The effective daily budget (the admin's setting, or the config default). */
   dailyBudgetMicros(): Promise<number>;
@@ -236,12 +258,15 @@ export function createIndexer({
   store,
   providers,
   embedder,
+  gatherer,
   readFile,
   now = () => new Date(),
 }: {
   store: IndexStore;
   /** In chain order (INDEXING.chain). */
   providers: Provider[];
+  /** Gathers a link's Source; without one, links are found by their URL and note. */
+  gatherer?: Gatherer;
   /** Makes the vectors; without one, Memories are found by keyword only. */
   embedder?: Embedder;
   /** An object's bytes from storage; undefined when it is not there. */
@@ -470,7 +495,31 @@ export function createIndexer({
     return { result: written ? "searchable" : "skipped" };
   }
 
-  async function indexLoaded(job: IndexJob, work: Work): Promise<IndexOutcome> {
+  async function indexLoaded(
+    job: IndexJob,
+    loaded: Work
+  ): Promise<IndexOutcome> {
+    let work = loaded;
+    // A link's Source first (not an AI call, so AI opt-out too, but then
+    // never through oEmbed or a reader: `isCurrent` is false for it). Kept
+    // once; a Source that is down, or whose name could not be looked up,
+    // is asked again, and after the last attempt it stays Reference only.
+    if (work.kind === "link" && work.gathered === false && work.sourceUrl) {
+      if (gatherer) {
+        const claim = work;
+        const { transient, ...found } = await gatherer.gather(work.sourceUrl, {
+          // Asked again right before each third party: the run may have
+          // moved on, or AI opt-out been switched on, while the page loaded.
+          thirdParty: () => store.isCurrent(claim),
+        });
+        if (transient && job.attempt < INDEXING.maxAttempts) {
+          return { result: "retry", delaySeconds: backoffSeconds(job.attempt) };
+        }
+        const saved = await store.saveGathered(work, found);
+        if (!saved) return { result: "skipped" };
+        work = { ...work, ...saved };
+      }
+    }
     // AI opt-out: keyword-indexed from its own text, never sent anywhere.
     if (work.aiOptOut) {
       await store.complete(work, null);

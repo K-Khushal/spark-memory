@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { RotateCwIcon, Trash2Icon } from "lucide-react";
+import { ArrowUpRightIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
 import { FREE_ALLOWANCE } from "@spark/core";
 import {
   Button,
@@ -11,6 +11,7 @@ import {
 import type { Draft } from "./drafts";
 import { AiOptOutSwitch, IndexStatus, type IndexingProps } from "./index-state";
 import { textOf, type libraryActions } from "./library-actions";
+import { hostOf, isReferenceOnly, ReferenceOnlyBadge } from "./memory-tile";
 import type { Memory } from "./use-library";
 import { MoreLikeThis } from "./why";
 
@@ -90,6 +91,7 @@ function Fields({
     () => edit?.fields ?? textOf(memory)
   );
   const bodyField = useRef<HTMLTextAreaElement>(null);
+  const titleField = useRef<HTMLInputElement>(null);
   const autosave = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closing = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -136,22 +138,27 @@ function Fields({
     >
       <DialogTitle className="sr-only">Memory</DialogTitle>
       <input
+        ref={titleField}
         value={shown.title}
         onChange={(e) => change({ ...shown, title: e.target.value })}
         maxLength={FREE_ALLOWANCE.titleMaxChars}
         placeholder="Title"
         aria-label="Title"
         dir="auto"
-        className="mr-8 min-w-0 rounded-chip bg-transparent font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
+        className="mr-8 min-w-0 rounded-chip bg-transparent text-ellipsis font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
       />
-      <Textarea
-        ref={bodyField}
-        value={shown.body}
-        onChange={(e) => change({ ...shown, body: e.target.value })}
-        aria-label="Text"
-        dir="auto"
-        className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0 text-base"
-      />
+      {memory.kind === "link" ? (
+        <Reader memory={memory} />
+      ) : (
+        <Textarea
+          ref={bodyField}
+          value={shown.body}
+          onChange={(e) => change({ ...shown, body: e.target.value })}
+          aria-label="Text"
+          dir="auto"
+          className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0 text-base"
+        />
+      )}
       <input
         value={shown.captureNote}
         onChange={(e) => change({ ...shown, captureNote: e.target.value })}
@@ -178,6 +185,9 @@ function Fields({
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <div className="flex items-center gap-2">
+            {isReferenceOnly(memory) && (
+              <ReferenceOnlyBadge className="text-sm" />
+            )}
             <IndexStatus memory={memory} />
             {memory.indexState === "failed" && (
               <Button
@@ -197,7 +207,7 @@ function Fields({
                 const restored = edits.restoreEdit(id);
                 if (restored) setFields(restored);
                 // The button goes; focus moves to the restored text.
-                bodyField.current?.focus();
+                (bodyField.current ?? titleField.current)?.focus();
               }}
             >
               Restore Your Edit
@@ -209,5 +219,60 @@ function Fields({
         </div>
       </div>
     </DialogContent>
+  );
+}
+
+/** Only a web link is ever an href: the server keeps http(s) Sources alone, and so does this. */
+const webLink = (url: string | null) =>
+  url && /^https?:\/\//i.test(url) ? url : undefined;
+
+/**
+ * A link's reader view: the Source, then its Preserved copy as plain
+ * paragraphs (React text, so nothing from the page can run or load), or
+ * the page's description when it is Reference Only.
+ */
+function Reader({ memory }: { memory: Memory }) {
+  const text = memory.body || memory.description || "";
+  const href = webLink(memory.sourceUrl);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {href && (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          referrerPolicy="no-referrer"
+          dir="ltr"
+          className="inline-flex min-h-6 max-w-full items-center gap-1 self-start rounded-chip text-sm text-ink-muted transition-colors duration-(--duration-press) hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        >
+          <span className="truncate" translate="no">
+            {hostOf(memory)}
+          </span>
+          <span className="sr-only">, Opens in New Tab</span>
+          <ArrowUpRightIcon className="size-4 shrink-0" aria-hidden />
+        </a>
+      )}
+      {text && (
+        <article
+          // Scrolls on its own, so the keyboard needs to reach it.
+          tabIndex={0}
+          aria-label="Text"
+          dir="auto"
+          className="max-h-[55dvh] min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-chip text-base break-words text-ink focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          {text
+            .split(/\n\s*\n/)
+            .filter((paragraph) => paragraph.trim())
+            .map((paragraph, i) => (
+              <p
+                key={i}
+                className="mb-4 max-w-[65ch] whitespace-pre-line last:mb-0"
+              >
+                {paragraph}
+              </p>
+            ))}
+        </article>
+      )}
+    </div>
   );
 }

@@ -408,7 +408,7 @@ describe.skipIf(!databaseUrl)("an account", () => {
       });
       const statement = readFileSync(
         new URL(
-          "../migrations/0016_clear_deleted_memory_ids.sql",
+          "../migrations/0017_clear_deleted_memory_ids.sql",
           import.meta.url
         ),
         "utf8"

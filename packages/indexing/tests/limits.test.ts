@@ -13,6 +13,7 @@ import {
 // Delimiters that cannot be rebuilt or faked, and provider calls that end.
 
 const noEmbedding = {
+  saveGathered: async () => undefined,
   loadForEmbedding: async () => undefined,
   stillEmbeddable: async () => false,
   writeVectors: async () => false,

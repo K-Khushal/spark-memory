@@ -8,6 +8,7 @@ import {
   embeddingSpace,
   FREE_ALLOWANCE,
   ImageCapture,
+  LinkCapture,
   MemoryEditRequest,
   TextCapture,
 } from "@spark/core";
@@ -163,6 +164,23 @@ export const memories = new Hono<AppEnv>()
     }
     // A retry of a Capture still Indexing enqueues again: duplicates are harmless.
     if (result.memory.indexState === "indexing") {
+      await enqueue(c.env, result.memory);
+    }
+    const memory = await forClient(c.var.files, result.memory);
+    return c.json(memory, result.created ? 201 : 200);
+  })
+  /**
+   * A pasted link: the Memory at once (201), Indexing gathers its Source.
+   * The same page again answers 200 with the Memory already saved, moved
+   * to the top; its id differs from the one sent, which is how the
+   * dashboard tells it apart from a retry of this Capture.
+   */
+  .post("/memories/links", limitBody, json(LinkCapture), async (c) => {
+    const result = await c.var.library.captureLink(c.req.valid("json"));
+    if ("conflict" in result) {
+      return c.json({ ok: false, error: "conflict" } as const, 409);
+    }
+    if (result.memory.indexState === "indexing" && !result.duplicate) {
       await enqueue(c.env, result.memory);
     }
     const memory = await forClient(c.var.files, result.memory);

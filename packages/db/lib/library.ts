@@ -5,9 +5,13 @@ import {
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
+  LinkCapture,
   MemoryEdit,
+  normaliseUrl,
   TextCapture,
+  type LinkMetadata,
   type MemoryKind,
+  type Preservation,
 } from "@spark/core";
 import type { Database } from "./client";
 import {
@@ -70,17 +74,27 @@ const baseColumns = {
   indexError: memory.indexError,
   indexTitle,
   capturedAt: memory.capturedAt,
+  lastSavedAt: memory.lastSavedAt,
   updatedAt: memory.updatedAt,
+  /** A link's Source, and the page's own title and description once gathered. */
+  sourceUrl: memory.sourceUrl,
+  pageTitle: sql<string | null>`${memory.metadata}->>'title'`,
+  description: sql<string | null>`${memory.metadata}->>'description'`,
   image,
 };
 
 /** A Memory as the API reads it; routes turn `image` keys into signed URLs. */
 export type Memory = Pick<
   typeof memory.$inferSelect,
-  Exclude<keyof typeof baseColumns, "image" | "indexTitle">
+  Exclude<
+    keyof typeof baseColumns,
+    "image" | "indexTitle" | "pageTitle" | "description"
+  >
 > & {
   image: MemoryImage | null;
   indexTitle: string | null;
+  pageTitle: string | null;
+  description: string | null;
   /**
    * It has vectors in the space search uses now, so More Like This can
    * find something; false without an embedder (no paid tier).
@@ -176,7 +190,8 @@ export type MatchedBy = "keyword" | "typo" | "vector";
 export type MatchedPart =
   | {
       kind: "field";
-      field?: "title" | "note" | "tags" | "text" | "ocr" | "description";
+      field?:
+        "title" | "note" | "tags" | "text" | "ocr" | "description" | "source";
     }
   | ({ kind: "passage" } & PassageAnchor)
   | { kind: "overview" | "visual" };
@@ -204,6 +219,10 @@ export type EditResult = Memory | { stale: true } | undefined;
 export type CaptureResult =
   { created: boolean; memory: Memory } | { conflict: true };
 
+/** `duplicate`: the page was already saved, so that Memory came back (moved to the top). */
+export type LinkCaptureResult =
+  { created: boolean; duplicate?: true; memory: Memory } | { conflict: true };
+
 export type Page = { memories: Memory[]; next?: string };
 
 /** A Memory as an export writes it: everything the person gave and Indexing found, and its original's key. */
@@ -214,6 +233,10 @@ export type ExportedMemory = {
   body: string | null;
   captureNote: string | null;
   aiOptOut: boolean;
+  /** A link's Source as the person gave it, whether a copy was kept, and what gathering found. */
+  sourceUrl: string | null;
+  preservation: Preservation;
+  metadata: LinkMetadata | null;
   capturedAt: Date;
   updatedAt: Date;
   index: {
@@ -233,9 +256,9 @@ export type ExportedMemory = {
 };
 
 // A cursor is one shape only, which this module writes: the last Memory's
-// Capture time as UTC microseconds since 1970 (exact, unlike a JS Date) and
+// last-saved time as UTC microseconds since 1970 (exact, unlike a JS Date) and
 // its id. Anything else is refused before it reaches Postgres.
-const capturedAtMicros = sql<string>`(extract(epoch from ${memory.capturedAt}) * 1000000)::bigint::text`;
+const savedAtMicros = sql<string>`(extract(epoch from ${memory.lastSavedAt}) * 1000000)::bigint::text`;
 const fromMicros = (micros: number) =>
   sql`(to_timestamp(0) + ${micros}::bigint * interval '1 microsecond')`;
 
@@ -333,6 +356,66 @@ export function openLibrary(
       const existing = id ? await get(id) : undefined;
       return existing
         ? { created: false, memory: existing }
+        : { conflict: true };
+    },
+
+    /**
+     * Saves a pasted link, Indexing and Reference only until gathering keeps
+     * its text; findable by its host at once. The caller enqueues Indexing.
+     * A retry with the same `id` returns the same Memory. A page already in
+     * the Library (same normalised URL) comes back as `duplicate`, moved to
+     * the top, with this Capture note only if it had none.
+     */
+    async captureLink(input: LinkCapture): Promise<LinkCaptureResult> {
+      const { id, url, captureNote, productAnalytics } =
+        LinkCapture.parse(input);
+      const normalised = normaliseUrl(url)!;
+      const [row] = await db
+        .insert(memory)
+        .values({
+          id,
+          userId,
+          kind: "link",
+          sourceUrl: url,
+          sourceUrlNormalised: normalised,
+          captureNote,
+          preservation: "reference_only",
+          indexPriority: "fresh",
+          productAnalytics: productAnalytics === true,
+        })
+        .onConflictDoNothing()
+        .returning(columns);
+      if (row) return { created: true, memory: row };
+      if (id) {
+        const [taken] = await db
+          .select({ userId: memory.userId, url: memory.sourceUrlNormalised })
+          .from(memory)
+          .where(eq(memory.id, id));
+        if (taken?.userId === userId && taken.url === normalised) {
+          const retried = await get(id);
+          if (retried) return { created: false, memory: retried };
+        }
+        if (taken) return { conflict: true };
+      }
+      const note = captureNote ?? null;
+      const noteAdded = sql`(${memory.captureNote} is null and ${note}::text is not null)`;
+      const [existing] = await db
+        .update(memory)
+        .set({
+          lastSavedAt: sql`now()`,
+          captureNote: sql`coalesce(${memory.captureNote}, ${note}::text)`,
+          // A new note is new text for the vectors: the sweep embeds it again.
+          revision: sql`${memory.revision} + (${noteAdded})::int`,
+        })
+        .where(
+          and(
+            eq(memory.userId, userId),
+            eq(memory.sourceUrlNormalised, normalised)
+          )
+        )
+        .returning(columns);
+      return existing
+        ? { created: false, duplicate: true, memory: existing }
         : { conflict: true };
     },
 
@@ -587,7 +670,7 @@ export function openLibrary(
         .limit(limit),
 
     /**
-     * Newest first, `limit` at a time; pass `next` back as `after`.
+     * Last saved first (a duplicate Capture moves a Memory up), `limit` at a time; pass `next` back as `after`.
      * Undefined for a cursor this did not make.
      */
     async list({
@@ -597,7 +680,7 @@ export function openLibrary(
       const cursor = after ? parseCursor(after) : undefined;
       if (after && !cursor) return undefined;
       const rows = await db
-        .select({ ...columns, cursorAt: capturedAtMicros })
+        .select({ ...columns, cursorAt: savedAtMicros })
         .from(memory)
         .where(
           and(
@@ -605,15 +688,15 @@ export function openLibrary(
             allStored,
             cursor &&
               or(
-                sql`${memory.capturedAt} < ${fromMicros(cursor.micros)}`,
+                sql`${memory.lastSavedAt} < ${fromMicros(cursor.micros)}`,
                 and(
-                  sql`${memory.capturedAt} = ${fromMicros(cursor.micros)}`,
+                  sql`${memory.lastSavedAt} = ${fromMicros(cursor.micros)}`,
                   lt(memory.id, cursor.id)
                 )
               )
           )
         )
-        .orderBy(desc(memory.capturedAt), desc(memory.id))
+        .orderBy(desc(memory.lastSavedAt), desc(memory.id))
         .limit(limit + 1);
       const page = rows.slice(0, limit);
       const memories = page.map(({ cursorAt: _, ...m }) => m);
@@ -749,6 +832,9 @@ export function openLibrary(
           body: memory.body,
           captureNote: memory.captureNote,
           aiOptOut: memory.aiOptOut,
+          sourceUrl: memory.sourceUrl,
+          preservation: memory.preservation,
+          metadata: memory.metadata,
           capturedAt: memory.capturedAt,
           updatedAt: memory.updatedAt,
           index: sql<

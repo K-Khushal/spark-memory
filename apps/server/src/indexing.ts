@@ -7,7 +7,9 @@ import {
 import { indexingStore, openDatabase } from "@spark/db";
 import {
   backoffSeconds,
+  createGatherer,
   createIndexer,
+  dohResolver,
   embedderFor,
   providerChain,
   type ChainOptions,
@@ -46,6 +48,22 @@ export async function enqueue(
   } catch {
     console.error("indexing: enqueue failed");
   }
+}
+
+/**
+ * Gathers pasted links from their Source over the public web only, with
+ * Jina Reader as the fallback only where LINK_READER says so.
+ */
+export function gathererFor(env: Bindings) {
+  // Looked up per call (tests stub it) and called unbound-safe on Workers.
+  const web: typeof fetch = (input, init) => fetch(input, init);
+  return createGatherer({
+    fetch: web,
+    resolve: dohResolver(web),
+    ...(env.LINK_READER === "jina" && {
+      reader: { ...(env.JINA_API_KEY && { apiKey: env.JINA_API_KEY }) },
+    }),
+  });
 }
 
 /** What this environment's providers are (secrets and vars in wrangler.jsonc). */
@@ -123,6 +141,7 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
       store,
       providers: providerChain(options),
       ...(embedder && { embedder }),
+      gatherer: gathererFor(env),
       readFile: async (key) => {
         const object = await env.FILES.get(key);
         return object
