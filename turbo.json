@@ -38,6 +38,10 @@
     "@spark/server#build": {
       "dependsOn": ["@spark/web#build"],
       "outputs": ["dist/**"]
+    },
+    "@spark/extension#build": {
+      "env": ["WXT_API_ORIGIN", "WXT_EXTENSION_KEY", "WXT_E2E"],
+      "outputs": [".output/**"]
     }
   }
 }

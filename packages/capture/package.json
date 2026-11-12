@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./page": "./page.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -12,10 +13,12 @@
   },
   "dependencies": {
     "@spark/core": "workspace:*",
+    "defuddle": "^0.19.6",
     "heic-to": "1.6.7",
     "thumbhash": "0.1.1"
   },
   "devDependencies": {
-    "@spark/config": "workspace:*"
+    "@spark/config": "workspace:*",
+    "happy-dom": "^21.0.4"
   }
 }
