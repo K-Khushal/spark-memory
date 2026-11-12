@@ -93,6 +93,14 @@ describe("daily budget", () => {
 });
 
 describe("product events", () => {
+  it("sends the activation event with no properties, whatever it is given", () => {
+    expect(
+      productPayload({
+        event: "first_successful_search",
+        properties: { query: "secret" } as unknown as Record<string, never>,
+      })
+    ).toEqual({ event: "first_successful_search", properties: {} });
+  });
   it("sends only the allowed properties for each event", () => {
     expect(
       productPayload({ event: "save_success", properties: { kind: "text" } })

@@ -282,7 +282,8 @@ export async function runEvals({
 
     const search = createSearch({
       userId,
-      find: (query, options) => library.search(query, options),
+      find: (query, options) =>
+        library.search(query, { ...options, excludeSamples: true }),
       embedder,
       // The daily AI budget protects users, not this throwaway Library: a
       // search that fell back to keywords would quietly score the wrong thing.
