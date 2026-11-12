@@ -68,15 +68,9 @@ export async function categorise({
   ) => Promise<void>;
 }): Promise<Category[] | undefined> {
   if (jev && (await allow())) {
+    let reply;
     try {
-      const reply = await jev.classify(text, CATEGORY_NAMES);
-      await record({
-        provider: "jev",
-        model: jev.model,
-        usage: { inputTokens: reply.inputTokens, outputTokens: 0 },
-        costMicros: jevCostMicros(jev.model, reply.inputTokens),
-      });
-      return chooseCategories(reply.scores, CATEGORISING.jevThreshold);
+      reply = await jev.classify(text, CATEGORY_NAMES);
     } catch {
       // It may still have been billed: count the most it could have cost.
       const inputTokens = jevTokenEstimate(text);
@@ -87,6 +81,15 @@ export async function categorise({
         costMicros: jevCostMicros(jev.model, inputTokens),
         estimated: true,
       }).catch(() => {});
+    }
+    if (reply) {
+      await record({
+        provider: "jev",
+        model: jev.model,
+        usage: { inputTokens: reply.inputTokens, outputTokens: 0 },
+        costMicros: jevCostMicros(jev.model, reply.inputTokens),
+      }).catch(() => {});
+      return chooseCategories(reply.scores, CATEGORISING.jevThreshold);
     }
   }
   if (!(await allow())) return undefined;

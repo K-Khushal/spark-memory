@@ -96,7 +96,7 @@ const vectorsStaleIn = (space: string) =>
 /** Not locked by the user, and not yet categorised at this revision. */
 const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and ${memory.categoriesRevision} is distinct from ${memory.revision})`;
 /** What the hourly sweep and `embed` jobs pick up: vectors or Categories to make. */
-const staleIn = (space: string) =>
+const workDueIn = (space: string) =>
   sql`(${vectorsStaleIn(space)} or ${categoriesStale})`;
 
 /** Today in UTC, by the database's clock: the day the budget counts. */
@@ -423,7 +423,7 @@ export function indexingStore(db: Database) {
           and(
             named({ memoryId: id, generation }),
             embeddable,
-            staleIn(space),
+            workDueIn(space),
             unleased
           )
         )
@@ -512,7 +512,7 @@ export function indexingStore(db: Database) {
       return db
         .select({ id: memory.id, generation: memory.indexGeneration })
         .from(memory)
-        .where(and(embeddable, staleIn(space), unleased))
+        .where(and(embeddable, workDueIn(space), unleased))
         .orderBy(memory.updatedAt)
         .limit(limit);
     },

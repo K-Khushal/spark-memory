@@ -589,16 +589,22 @@ export function createIndexer({
     ) {
       return;
     }
-    const categories = await categorise({
-      text,
-      vector,
-      embedder,
-      ...(jev && { jev }),
-      allow: async () => !(await budgetSpent()) && (await current()),
-      record: (call) => recordCall({ ...callOf(work), ...call }),
-    });
-    if (categories) {
-      await store.writeCategories(work, work.revision, categories);
+    // Categories are a bonus on the embedding already paid for: whatever
+    // goes wrong here leaves them stale for the sweep, never fails the run.
+    try {
+      const categories = await categorise({
+        text,
+        vector,
+        embedder,
+        ...(jev && { jev }),
+        allow: async () => !(await budgetSpent()) && (await current()),
+        record: (call) => recordCall({ ...callOf(work), ...call }),
+      });
+      if (categories) {
+        await store.writeCategories(work, work.revision, categories);
+      }
+    } catch {
+      console.error("indexing: categories not made");
     }
   }
 

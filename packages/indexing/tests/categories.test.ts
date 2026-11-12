@@ -69,6 +69,30 @@ describe("categorise", () => {
     ]);
   });
 
+  it("counts a Jev call once even when recording it fails", async () => {
+    const e = embedder("record-fails");
+    const jev: CategoryClient = {
+      model: "jev-1.14.0",
+      classify: async () => ({ scores: { Recipe: 0.9 }, inputTokens: 10 }),
+    };
+    const seen: unknown[] = [];
+    expect(
+      await categorise({
+        text: "tart",
+        vector: toward("Code"),
+        embedder: e,
+        jev,
+        allow: yes,
+        record: async (call) => {
+          seen.push(call);
+          throw new Error("database away");
+        },
+      })
+    ).toEqual(["Recipe"]);
+    expect(seen).toHaveLength(1);
+    expect(e.calls).toBe(0);
+  });
+
   it("falls back to the prototypes, embedded once for all Memories", async () => {
     const e = embedder("fallback");
     const down: CategoryClient = {

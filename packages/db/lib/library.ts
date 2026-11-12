@@ -1022,7 +1022,9 @@ export function openLibrary(
       if (Object.keys(changes).length === 0) return get(id);
       // Categories are not text: choosing them leaves the revision, and so
       // the vectors, alone. A choice locks them (GLOSSARY.md).
-      const textChanged = Object.keys(changes).some((k) => k !== "categories");
+      const textChanged = Object.entries(changes).some(
+        ([key, value]) => key !== "categories" && value !== undefined
+      );
       const reindex =
         changes.body === undefined
           ? sql`false`
@@ -1136,6 +1138,10 @@ export function openLibrary(
                   indexRun: sql`${memory.indexRun} + 1`,
                   language: null,
                   body: sql`case when ${memory.kind} = 'pdf' then null else ${memory.body} end`,
+                  // What a model decided goes with the rest of what it found
+                  // (ADR-0011); a user's own choice stays.
+                  categories: sql`case when ${memory.categoriesLocked} then ${memory.categories} else '{Other}'::text[] end`,
+                  categoriesRevision: sql`case when ${memory.categoriesLocked} then ${memory.categoriesRevision} else null end`,
                 }
               : { aiOptOut: false, ...restartIndexing }
           )

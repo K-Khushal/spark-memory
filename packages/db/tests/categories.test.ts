@@ -389,6 +389,55 @@ describe.skipIf(!url)("Categories", () => {
     });
   });
 
+  it("takes back what a model decided on AI opt-out, keeps a user's choice, and categorises again after", async () => {
+    const auto = await capture("Lemon tart");
+    const chosen = await capture("Lemon tart");
+    const embed = embedder();
+    await indexer(embed)(job(auto.id, 1));
+    await indexer(embed)(job(chosen.id, 1));
+    await library().edit(chosen.id, { categories: ["Quote"] });
+    expect((await row(auto.id)).categories).toEqual(["Recipe"]);
+
+    await library().setAiOptOut(auto.id, true);
+    await library().setAiOptOut(chosen.id, true);
+    expect(await row(auto.id)).toMatchObject({
+      categories: ["Other"],
+      categoriesRevision: null,
+    });
+    expect(await row(chosen.id)).toMatchObject({
+      categories: ["Quote"],
+      locked: true,
+    });
+
+    await library().setAiOptOut(auto.id, false);
+    await indexer(embed)(job(auto.id, (await row(auto.id)).run));
+    expect((await row(auto.id)).categories).toEqual(["Recipe"]);
+  });
+
+  it("does not count an absent field as a text change", async () => {
+    const m = await capture("Lemon tart");
+    const edited = await library().edit(m.id, {
+      categories: ["Idea"],
+      title: undefined,
+    });
+    expect(edited).toMatchObject({ revision: m.revision });
+  });
+
+  it("finishes Indexing even when keeping the Categories fails", async () => {
+    const m = await capture("Lemon tart");
+    const real = indexingStore(db);
+    const failing = {
+      ...real,
+      writeCategories: async () => {
+        throw new Error("database away");
+      },
+    } as typeof real;
+    expect(await indexer(embedder(), undefined, failing)(job(m.id, 1))).toEqual(
+      { result: "searchable" }
+    );
+    expect((await row(m.id)).categoriesRevision).toBeNull();
+  });
+
   it("recategorises an unlocked Memory when its text changes", async () => {
     const m = await capture("Lemon tart");
     const embed = embedder();
