@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMBEDDING, INDEXING, SEARCH_PAGE_SIZE } from "@spark/core";
+import { EMBEDDING, INDEXING, JUDGING, SEARCH_PAGE_SIZE } from "@spark/core";
 import { ProviderError, type AiCall, type Embedder } from "@spark/indexing";
 import {
   createSearch,
@@ -9,10 +9,18 @@ import {
   type Probe,
 } from "../index";
 
-type Hit = { id: string; matched: string[]; distance: number | null };
+type Hit = {
+  id: string;
+  matched: string[];
+  distance: number | null;
+  score: number;
+};
+/** What a test says of a result; the rank score defaults to a middling one. */
+type Said = Omit<Hit, "score"> & { score?: number };
 
 /** The Library's search as a stub: records each call, answers `hits`. */
-function library(hits: Hit[] = []) {
+function library(said: Said[] = []) {
+  const hits = said.map((hit): Hit => ({ score: 1, ...hit }));
   const calls: { query: string; probe?: Probe }[] = [];
   const asked: Record<string, unknown>[] = [];
   const find = vi.fn(
@@ -57,7 +65,7 @@ function spend(spent = 0) {
 let user = 0;
 /** A fresh person per test, so the query cache never leaks between tests. */
 const setup = ({
-  hits = [] as Hit[],
+  hits = [] as Said[],
   model = embedder() as ReturnType<typeof embedder> | null,
   spent = 0,
   now = (): number => 0,
@@ -204,7 +212,11 @@ describe("search", () => {
   it("splits Direct Matches (a keyword, or a very close vector) from Related ones, keeping the order", async () => {
     const { search } = setup({
       hits: [
-        { id: "a", matched: ["vector"], distance: EMBEDDING.directDistance },
+        {
+          id: "a",
+          matched: ["vector"],
+          distance: JUDGING.thresholds.directDistance,
+        },
         { id: "b", matched: ["typo"], distance: null },
         { id: "c", matched: ["keyword", "vector"], distance: 0.5 },
         { id: "d", matched: ["vector"], distance: 0.5 },
@@ -439,7 +451,7 @@ describe("search", () => {
   });
 
   describe("pages", () => {
-    const hits = (n: number): Hit[] =>
+    const hits = (n: number): Said[] =>
       Array.from({ length: n }, (_, i) => ({
         id: `m${i}`,
         matched: ["filter"],

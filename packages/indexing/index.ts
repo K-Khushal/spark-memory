@@ -70,5 +70,10 @@ export {
   type PublicResponse,
   type Resolve,
 } from "./lib/link/public-fetch";
-export { categorise, type CategoryClient } from "./lib/categories";
-export { jevCategories } from "./lib/jev";
+export {
+  categorise,
+  jevCostMicros,
+  jevTokenEstimate,
+  type CategoryClient,
+} from "./lib/categories";
+export { jevCategories, jevJudge, type JudgeClient } from "./lib/jev";
