@@ -1,3 +1,4 @@
+import { signInReturnTo } from "./sign-in/return-to";
 import {
   createRootRoute,
   createRoute,
@@ -69,9 +70,15 @@ const settingsRoute = createRoute({
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sign-in",
-  validateSearch: (search: Record<string, unknown>): { failed?: 1 } =>
-    search.failed ? { failed: 1 } : {},
-  beforeLoad: redirectIfSignedIn,
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { failed?: 1; returnTo?: string } => ({
+    ...(search.failed ? { failed: 1 as const } : {}),
+    ...(signInReturnTo(search.returnTo) && {
+      returnTo: signInReturnTo(search.returnTo),
+    }),
+  }),
+  beforeLoad: ({ search }) => redirectIfSignedIn(search.returnTo),
   loader: async () => {
     const res = await api.api["sign-in-options"].$get();
     if (!res.ok) throw new Error(`sign-in options: ${res.status}`);

@@ -646,6 +646,126 @@ export const onboarding = pgTable("onboarding", {
     withTimezone: true,
   }),
 });
+
+/** Connected assistants hold read-only, owner-bound opaque credentials. */
+export const assistantClient = pgTable("assistant_client", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  redirects: jsonb("redirects").$type<string[]>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const assistantCode = pgTable("assistant_code", {
+  digest: text("digest").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => assistantClient.id, { onDelete: "cascade" }),
+  redirect: text("redirect").notNull(),
+  challenge: text("challenge").notNull(),
+  resource: text("resource").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true })
+    .default(sql`now() + interval '5 minutes'`)
+    .notNull(),
+});
+export const assistantGrant = pgTable(
+  "assistant_grant",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => assistantClient.id, { onDelete: "cascade" }),
+    resource: text("resource").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true })
+      .default(sql`now() + interval '90 days'`)
+      .notNull(),
+  },
+  (t) => [index("assistant_grant_owner_client").on(t.userId, t.clientId)]
+);
+export const assistantRefresh = pgTable(
+  "assistant_refresh",
+  {
+    digest: text("digest").primaryKey(),
+    grantId: text("grant_id")
+      .notNull()
+      .references(() => assistantGrant.id, { onDelete: "cascade" }),
+    used: boolean("used").default(false).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (t) => [index("assistant_refresh_used_at").on(t.usedAt)]
+);
+export const assistantToken = pgTable(
+  "assistant_token",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    clientId: text("client_id").references(() => assistantClient.id, {
+      onDelete: "cascade",
+    }),
+    grantId: text("grant_id").references(() => assistantGrant.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    digest: text("digest").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    calls: integer("calls").default(0).notNull(),
+    windowAt: timestamp("window_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("assistant_token_owner").on(t.userId)]
+);
+export const assistantActivity = pgTable(
+  "assistant_activity",
+  {
+    id: bigint("id", { mode: "number" })
+      .primaryKey()
+      .generatedAlwaysAsIdentity(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    clientId: text("client_id").references(() => assistantClient.id, {
+      onDelete: "set null",
+    }),
+    assistant: text("assistant").notNull(),
+    tool: text("tool").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    resultCount: integer("result_count").notNull(),
+  },
+  (t) => [index("assistant_activity_owner").on(t.userId, t.occurredAt)]
+);
+
+/** A digest-only receipt survives code consumption so replay can revoke its credentials. */
+export const assistantCodeUse = pgTable(
+  "assistant_code_use",
+  {
+    digest: text("digest").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    grantId: text("grant_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true })
+      .default(sql`now() + interval '1 day'`)
+      .notNull(),
+  },
+  (t) => [index("assistant_code_use_expiry").on(t.expiresAt)]
+);
 /** A person's own Category (ADR-0008); the built-ins are not rows. A Memory names it by `name`. */
 export const category = pgTable(
   "category",

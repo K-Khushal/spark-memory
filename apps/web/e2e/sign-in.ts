@@ -1,7 +1,33 @@
 import { expect, type Page } from "@playwright/test";
 
 /** Signs a person in with an email code from the local dev outbox; returns their address. */
-export async function signIn(page: Page, address?: string): Promise<string> {
+export async function signIn(
+  page: Page,
+  address?: string,
+  returnTo?: string
+): Promise<string> {
+  // The widget is a third-party boundary. Use Cloudflare's public test
+  // token so smoke tests exercise real Spark sign-in without depending on
+  // the challenge iframe's availability in this sandbox.
+  await page.route(
+    "https://challenges.cloudflare.com/turnstile/v0/api.js**",
+    (route) =>
+      route.fulfill({
+        contentType: "application/javascript",
+        body: `(() => {
+      const widgets = new Map();
+      const complete = id => setTimeout(() => widgets.get(id)?.callback?.("XXXX.DUMMY.TOKEN.XXXX"), 0);
+      window.turnstile = {
+        render: (_container, options) => { const id = "test-" + widgets.size; widgets.set(id, options); complete(id); return id; },
+        getResponse: () => "XXXX.DUMMY.TOKEN.XXXX",
+        reset: id => complete(id), remove: id => widgets.delete(id),
+        execute: () => {}, isExpired: () => false, ready: fn => fn()
+      };
+      const callback = new URL(document.currentScript.src).searchParams.get("onload");
+      if (callback) window[callback]?.();
+    })();`,
+      })
+  );
   const email =
     address ??
     `smoke-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
@@ -15,8 +41,8 @@ export async function signIn(page: Page, address?: string): Promise<string> {
     })
   );
 
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/sign-in$/);
+  await page.goto(returnTo ?? "/");
+  await expect(page).toHaveURL(/\/sign-in(?:\?|$)/);
 
   await page.getByPlaceholder("Email").fill(email);
   await page.getByRole("button", { name: "Continue with Email" }).click();
@@ -30,6 +56,10 @@ export async function signIn(page: Page, address?: string): Promise<string> {
   );
   const { code } = (await res.json()) as { code: string };
   await page.getByRole("textbox", { name: "Code" }).fill(code);
+  if (returnTo) {
+    await expect(page).toHaveURL(/\/api\/oauth\/authorize\?/);
+    return email;
+  }
   await expect(page).toHaveURL(/\/$/);
   // LibraryPage has mounted (its shortcuts are listening). The empty
   // heading or the wall, not the sidebar link, is what it renders. A

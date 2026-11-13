@@ -83,6 +83,9 @@ export default defineConfig({
     port: Number(env.SPARK_WEB_PORT ?? 5173),
     strictPort: true,
     // In dev the API runs in `wrangler dev`; in prod the Worker serves both.
-    proxy: { "/api": `http://localhost:${env.SPARK_API_PORT ?? 8787}` },
+    proxy: {
+      "/api": `http://localhost:${env.SPARK_API_PORT ?? 8787}`,
+      "/.well-known": `http://localhost:${env.SPARK_API_PORT ?? 8787}`,
+    },
   },
 });
