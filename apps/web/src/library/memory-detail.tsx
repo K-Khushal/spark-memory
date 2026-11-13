@@ -1,3 +1,4 @@
+import { SearchByImage } from "./image-query";
 import { CategoryEditor, type CategoryEdit } from "./categories";
 import { restoreLibraryFocus } from "./focus";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
@@ -61,6 +62,7 @@ export function MemoryDetail({
   onAiOptOut,
   onCategories,
   onMoreLikeThis,
+  onSearchByImage,
 }: {
   seconds?: number;
   memory: Memory | undefined;
@@ -69,6 +71,7 @@ export function MemoryDetail({
   onDelete: (memory: Memory) => void;
   onRetryDeepFetch: (memory: Memory) => void;
   onMoreLikeThis: (memory: Memory) => void;
+  onSearchByImage?: (memory: Memory) => void;
 } & IndexingProps & { onCategories?: CategoryEdit }) {
   return (
     <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
@@ -85,6 +88,7 @@ export function MemoryDetail({
           onCategories={onCategories}
           onAiOptOut={onAiOptOut}
           onMoreLikeThis={onMoreLikeThis}
+          onSearchByImage={onSearchByImage}
         />
       )}
     </Dialog>
@@ -102,6 +106,7 @@ function Fields({
   onAiOptOut,
   onCategories,
   onMoreLikeThis,
+  onSearchByImage,
 }: {
   seconds?: number;
   memory: Memory;
@@ -110,6 +115,7 @@ function Fields({
   onDelete: (memory: Memory) => void;
   onRetryDeepFetch: (memory: Memory) => void;
   onMoreLikeThis: (memory: Memory) => void;
+  onSearchByImage?: (memory: Memory) => void;
 } & IndexingProps & { onCategories?: CategoryEdit }) {
   const id = memory.id;
   const [opening] = useState(memory);
@@ -217,6 +223,7 @@ function Fields({
             <Trash2Icon aria-hidden /> Delete
           </Button>
           <MoreLikeThis memory={memory} onSelect={onMoreLikeThis} />
+          <SearchByImage memory={memory} onSelect={onSearchByImage} />
           <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">

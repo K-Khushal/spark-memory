@@ -197,6 +197,13 @@
       "when": 1794530000000,
       "tag": "0028_custom_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794572552722,
+      "tag": "0029_image_search",
+      "breakpoints": true
     }
   ]
 }

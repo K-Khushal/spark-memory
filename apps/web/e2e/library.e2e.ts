@@ -22,7 +22,9 @@ test("search keeps up with Captures, and a failed Undo says so", async ({
   // Results on the wall pick up a Capture made while they are showing.
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("lemon");
-  await expect(page.getByRole("option", { name: /Lemon tart/ })).toBeVisible();
+  await expect(
+    page.getByRole("listbox").getByRole("option", { name: /Lemon tart/ })
+  ).toBeVisible();
   await page.keyboard.press("Enter");
   const direct = page.getByRole("list", { name: "Direct Matches" });
   await expect(direct.getByRole("listitem")).toHaveCount(1);
@@ -109,7 +111,10 @@ test("paste a Memory, find it by a typo, delete it with Undo", async ({
   // Instant search finds it despite the typo.
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("cardamon");
-  await page.getByRole("option", { name: /Cardamom buns/ }).click();
+  await page
+    .getByRole("listbox")
+    .getByRole("option", { name: /Cardamom buns/ })
+    .click();
 
   // Delete, then Undo: it comes back.
   await page.getByRole("button", { name: "Delete" }).click();
@@ -227,7 +232,9 @@ test("change a Memory's Categories, then filter the Library by them", async ({
   await categories.getByRole("button", { name: "Recipe" }).click();
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("sourdough");
-  await expect(page.getByRole("option", { name: /Sourdough/ })).toBeVisible();
+  await expect(
+    page.getByRole("listbox").getByRole("option", { name: /Sourdough/ })
+  ).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(
     page.getByRole("list", { name: "Direct Matches" }).getByRole("listitem")
@@ -238,7 +245,9 @@ test("change a Memory's Categories, then filter the Library by them", async ({
   await categories.getByRole("button", { name: "Other" }).click();
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("sourdough");
-  await expect(page.getByRole("option", { name: /Sourdough/ })).toBeVisible();
+  await expect(
+    page.getByRole("listbox").getByRole("option", { name: /Sourdough/ })
+  ).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(page.getByText("No Direct Matches")).toBeVisible();
   await page.getByRole("button", { name: "All Memories" }).click();

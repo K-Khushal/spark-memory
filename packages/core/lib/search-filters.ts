@@ -159,8 +159,49 @@ export const SearchRequest = z
     timezone: z.string().max(64).optional(),
     chips: SearchChips.optional(),
     page: SearchPage.optional(),
+    image: z
+      .object({
+        mime: z.enum(["image/jpeg", "image/png", "image/webp"]),
+        data: z
+          .string()
+          .min(4)
+          .max(1_398_104)
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+          .refine(
+            (data) =>
+              data.length % 4 === 0 &&
+              (data.length / 4) * 3 -
+                (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0) <=
+                1_048_576
+          ),
+      })
+      .strict()
+      .refine(({ mime, data }) => {
+        // Check a bounded signature before sending bytes to any provider.
+        const alphabet =
+          "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let bits = 0,
+          count = 0,
+          head = "";
+        for (const char of data.slice(0, 16).replace(/=+$/, "")) {
+          bits = (bits << 6) | alphabet.indexOf(char);
+          count += 6;
+          if (count >= 8) {
+            count -= 8;
+            head += String.fromCharCode((bits >> count) & 255);
+          }
+        }
+        return mime === "image/png"
+          ? head.startsWith("\x89PNG\r\n\x1a\n")
+          : mime === "image/jpeg"
+            ? head.startsWith("\xff\xd8\xff")
+            : head.startsWith("RIFF") && head.slice(8, 12) === "WEBP";
+      })
+      .optional(),
+    memory: z.string().uuid().optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => !(v.image && v.memory));
 export type SearchRequest = z.input<typeof SearchRequest>;
 
 /**

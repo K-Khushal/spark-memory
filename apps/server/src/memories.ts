@@ -29,7 +29,12 @@ import {
   type Library,
   type Memory,
 } from "@spark/db";
-import { embedderFor, jevJudge, transcriberFor } from "@spark/indexing";
+import {
+  embedderFor,
+  jevJudge,
+  ProviderError,
+  transcriberFor,
+} from "@spark/indexing";
 import { createSearch, jevMatchJudge } from "@spark/search";
 import type { AppEnv } from "./env";
 import { requireUser, withAuth, type UserVariables } from "./auth";
@@ -169,7 +174,7 @@ const limitImageBody = bodyLimit({
 });
 /** A search: the words (up to 2,000 characters, in any script) and a few chips. */
 const limitSearchBody = bodyLimit({
-  maxSize: 16_384,
+  maxSize: 1_420_000,
   onError: (c) => c.json({ ok: false, error: "too_large" } as const, 413),
 });
 /** A PDF Capture describes up to 30 page images too. */
@@ -666,7 +671,8 @@ export const memories = new Hono<AppEnv>()
     async (c) => {
       // A POST, so what was typed and chosen is in the body, never in a URL
       // that a request log keeps.
-      const { q, mode, timezone, chips, page } = c.req.valid("json");
+      const { q, mode, timezone, chips, page, image, memory } =
+        c.req.valid("json");
       // A Category chip is a built-in or the person's own, never another's.
       if (
         chips?.category &&
@@ -679,11 +685,29 @@ export const memories = new Hono<AppEnv>()
         c.var.db,
         c.var.user.id,
         c.var.library
-      ).search(q, mode, {
-        ...(timezone && { timezone }),
-        ...(chips && { chips }),
-        ...(page && { page }),
-      });
+      )
+        .search(q, mode, {
+          ...(image && { image }),
+          ...(memory && { memory }),
+          ...(timezone && { timezone }),
+          ...(chips && { chips }),
+          ...(page && { page }),
+        })
+        .catch((error: unknown) => {
+          if (
+            (image || memory) &&
+            (error instanceof ProviderError ||
+              (error instanceof Error &&
+                error.message.startsWith("image_search_")))
+          )
+            return undefined;
+          throw error;
+        });
+      if (!answer)
+        return c.json(
+          { ok: false, error: "image_search_unavailable" } as const,
+          503
+        );
       return c.json({
         // "instant" when full mode fell back (no embedder, budget, provider).
         mode: answer.mode,

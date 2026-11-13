@@ -68,19 +68,21 @@ export function DeskSearchField({
   active,
   onSearch,
   onClear,
+  imageControl,
 }: {
   label: string;
   active?: boolean;
   onSearch: () => void;
   onClear?: () => void;
+  imageControl?: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-1">
+    <div className="group/search flex min-w-0 items-center gap-1">
       <button
         type="button"
         data-desk="search"
         onClick={onSearch}
-        className="flex h-9 w-full min-w-0 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-[transform,color] duration-(--duration-press) ease-out hover:text-ink active:scale-[0.97]"
+        className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-control bg-surface px-2.5 text-left text-sm text-ink-muted shadow-raised transition-[transform,color] duration-(--duration-press) ease-out hover:text-ink active:scale-[0.97]"
       >
         <SearchIcon className="size-4 shrink-0" aria-hidden />
         <span
@@ -91,6 +93,16 @@ export function DeskSearchField({
         </span>
         {!active && <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>}
       </button>
+      {imageControl && (
+        <div
+          className={cn(
+            "hidden shrink-0 group-focus-within/search:block",
+            active && "block"
+          )}
+        >
+          {imageControl}
+        </div>
+      )}
       {onClear && (
         <Button
           variant="quiet"
@@ -123,6 +135,7 @@ export function DeskSidebar({
   onPaste,
   searchLabel = "Search",
   searchActive = false,
+  searchImageControl,
   onClearSearch,
   filters,
   filtered = false,
@@ -141,6 +154,7 @@ export function DeskSidebar({
   /** What Search shows: "Search", the query, or "More Like This". */
   searchLabel?: string;
   searchActive?: boolean;
+  searchImageControl?: ReactNode;
   onClearSearch?: () => void;
   /** Filter chips under the navigation (the Library). */
   filters?: ReactNode;
@@ -171,6 +185,7 @@ export function DeskSidebar({
       <DeskSearchField
         label={searchLabel}
         active={searchActive}
+        imageControl={searchImageControl}
         onSearch={onSearch}
         onClear={onClearSearch}
       />

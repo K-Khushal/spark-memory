@@ -1,3 +1,4 @@
+import { ImageQueryControls, type ImageQueryProps } from "./image-query";
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useRecentSearches } from "./search-history";
 import { restoreLibraryFocus } from "./focus";
@@ -29,6 +30,7 @@ import { whyLabel } from "./why";
 export function SearchCommand({
   open,
   draft,
+  imageQuery,
   instant,
   onOpenChange,
   onDraft,
@@ -39,6 +41,7 @@ export function SearchCommand({
   onSignOut,
 }: {
   open: boolean;
+  imageQuery: ImageQueryProps;
   draft: string;
   instant: Results | "failed" | undefined;
   onOpenChange: (open: boolean) => void;
@@ -49,6 +52,7 @@ export function SearchCommand({
   onSettings: () => void;
   onSignOut: () => void;
 }) {
+  const visual = imageQuery.value;
   const { recent, forget } = useRecentSearches(open);
   const listRef = useRef<HTMLDivElement>(null);
   // The highlighted row. With nothing typed, Recent searches open on their
@@ -90,33 +94,34 @@ export function SearchCommand({
       value={highlight}
       onValueChange={setHighlight}
     >
-      <CommandInput
-        value={draft}
-        onValueChange={onDraft}
-        onKeyDown={forgetHighlighted}
-        placeholder="Search…"
-        className="text-[1rem] md:text-md"
-      />
+      <ImageQueryControls {...imageQuery}>
+        <CommandInput
+          value={draft}
+          onValueChange={onDraft}
+          onKeyDown={forgetHighlighted}
+          placeholder="Search…"
+          className="text-[1rem] md:text-md"
+        />
+      </ImageQueryControls>
       <CommandList ref={listRef}>
-        {draft.trim() ? (
+        {(draft.trim() || visual) && (
+          <CommandItem value="__wall" onSelect={() => onShowOnWall(draft)}>
+            <SearchIcon className="size-4 text-ink-muted" aria-hidden />
+            <span className="min-w-0 flex-1 truncate" dir="auto">
+              {draft || "Search By Image"}
+            </span>
+            <Kbd>↵</Kbd>
+          </CommandItem>
+        )}
+        {draft.trim() || visual ? (
           instant === "failed" ? (
-            <ListNote>Search Is Unreachable</ListNote>
+            <ListNote>Search Unavailable</ListNote>
           ) : instant &&
             instant.direct.length + instant.related.length === 0 ? (
             <ListNote>No Direct Matches</ListNote>
           ) : (
             instant && (
               <>
-                <CommandItem
-                  value="__wall"
-                  onSelect={() => onShowOnWall(draft)}
-                >
-                  <SearchIcon className="size-4 text-ink-muted" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate" dir="auto">
-                    {draft}
-                  </span>
-                  <Kbd>↵</Kbd>
-                </CommandItem>
                 {instant.direct.length ? (
                   <ResultGroup
                     heading="Direct Matches"
@@ -211,8 +216,8 @@ function ListNote({ children }: { children: string }) {
 }
 
 function ResultGroup({
-  heading,
   memories,
+  heading,
   onOpen,
 }: {
   heading: string;
