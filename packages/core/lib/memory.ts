@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Categories } from "./categories";
 import { FREE_ALLOWANCE, IMAGE_TYPES } from "./allowance";
 import { normaliseUrl } from "./link";
 import { Palette } from "./indexing";
@@ -62,7 +63,9 @@ export type TextCapture = z.input<typeof TextCapture>;
 export const MemoryEdit = TextCapture.omit({
   id: true,
   source: true,
-}).partial();
+})
+  .partial()
+  .extend({ categories: Categories.optional() });
 export type MemoryEdit = z.input<typeof MemoryEdit>;
 
 /** An edit as clients send it: with the revision it was based on, so a late one is refused. */

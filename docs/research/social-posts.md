@@ -81,5 +81,5 @@ The copy goes to R2 through the existing presigned PUT flow, is read once for
 a transcript (Gemini Flash-Lite on the paid tier, inline, so up to about 15 MB
 of video; larger videos still get Visual vectors from their frames) and for
 Visual vectors, then is deleted: immediately when Indexing ends (done or Failed),
-within an hour by the sweep otherwise, and after six hours whatever happened.
+within an hour by the sweep otherwise, and after 24 hours whatever happened.
 The transcript is model-written from the user's copy, so AI opt-out removes it.

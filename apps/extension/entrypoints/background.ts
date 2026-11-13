@@ -15,7 +15,7 @@ import {
   SCREENSHOT_MAX_BYTES,
 } from "@spark/core";
 import { adapterFor } from "../lib/sites";
-import { readReel } from "../lib/sites/reel";
+import { readReel, REEL_READ } from "../lib/sites/reel";
 import { captureClient, ApiError, type SavedMemory } from "../lib/client";
 import { API_ORIGIN } from "../lib/config";
 import {
@@ -283,6 +283,7 @@ export default defineBackground(() => {
         args: [
           code,
           {
+            appId: REEL_READ.appId,
             maxBytes: FREE_ALLOWANCE.maxUploadBytes,
             maxFrames: REEL_COPY.maxFrames,
             frameMaxBytes: REEL_COPY.frameMaxBytes,
@@ -517,7 +518,10 @@ export default defineBackground(() => {
       addedAt: Date.now(),
     });
     const reel = instagramReel(url);
-    if (sent && adapter && reel) void copyReel(owner, sent.id, tabId, reel);
+    // Only the Capture that made the Memory: saving a reel again must not
+    // download, upload and transcribe it again.
+    if (sent && sent.id === id && adapter && reel)
+      void copyReel(owner, sent.id, tabId, reel);
     return sent
       ? {
           state: sent.id === id ? "saved" : "duplicate",

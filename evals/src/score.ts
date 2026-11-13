@@ -134,6 +134,13 @@ export function formatReport(report: Report) {
       return `  ${o.id.padEnd(26)} ${where.padEnd(10)}${legs}`;
     }),
   ];
+  if (report.categories) {
+    const c = report.categories;
+    lines.push(
+      "",
+      `Categories  first ${c.first}/${c.labelled}  ${pct(c.first, c.labelled)}  all ${c.all}/${c.labelled}  ${pct(c.all, c.labelled)}`
+    );
+  }
   if (report.costMicros) {
     lines.push("", `AI cost  $${(report.costMicros / 1e6).toFixed(4)}`);
   }

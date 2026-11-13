@@ -40,7 +40,7 @@ export function colourName(hex: string) {
   return best.name;
 }
 
-/** What a filter chip found a Memory by: its colour, Source, day or kind. */
+/** What a filter chip found a Memory by: its colour, Source, day, Category or kind. */
 function filterWhy({
   field,
   value,
@@ -52,6 +52,8 @@ function filterWhy({
       return sourceLabel(sourceOf(`https://${value}/`) ?? value);
     case "date":
       return `Saved ${new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+    case "category":
+      return value;
     case "kind":
       return KIND_WHY[value];
   }

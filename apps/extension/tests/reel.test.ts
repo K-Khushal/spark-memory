@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readReel, REEL_READ } from "../lib/sites/reel";
 
 const LIMITS = {
+  appId: REEL_READ.appId,
   maxBytes: 100,
   maxFrames: 3,
   frameMaxBytes: 50,

@@ -1,6 +1,8 @@
 import { and, eq, lt, sql } from "drizzle-orm";
 import {
+  CATEGORISING,
   EMBEDDING,
+  Categories,
   embeddingSpace,
   type IndexFailure,
   type IndexingOutput,
@@ -92,8 +94,13 @@ async function replaceVectors(
 /** Searchable, AI allowed, and Indexing found something to embed. */
 const embeddable = sql`${memory.indexState} = 'searchable' and not ${memory.sample} and not ${memory.aiOptOut} and exists (select 1 from memory_index i where i.memory_id = ${memory.id})`;
 /** Vectors missing, from another model or size, or from an older revision. */
-const staleIn = (space: string) =>
+const vectorsStaleIn = (space: string) =>
   sql`(${memory.vectorsSpace} is distinct from ${space} or ${memory.vectorsRevision} is distinct from ${memory.revision})`;
+/** Not locked by the user, and not categorised at this revision by this version of the categoriser. */
+const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version}))`;
+/** What the hourly sweep and `embed` jobs pick up: vectors or Categories to make. */
+const workDueIn = (space: string) =>
+  sql`(${vectorsStaleIn(space)} or ${categoriesStale})`;
 
 /** Today in UTC, by the database's clock: the day the budget counts. */
 const today = sql`(now() at time zone 'utc')::date`;
@@ -220,6 +227,7 @@ export function indexingStore(db: Database) {
         mime: memoryCopy.mime,
         bytes: memoryCopy.bytes,
         seconds: memoryCopy.seconds,
+        generation: memoryCopy.generation,
         stored: sql<boolean>`${memoryCopy.storedAt} is not null`,
       })
       .from(memoryCopy)
@@ -228,6 +236,7 @@ export function indexingStore(db: Database) {
     const video = files.find((f) => f.role === "video");
     if (!video || files.some((f) => !f.stored)) return undefined;
     return {
+      generation: video.generation,
       video: {
         key: video.key,
         mime: video.mime,
@@ -293,16 +302,19 @@ export function indexingStore(db: Database) {
       },
 
       /**
-       * The copy's rows are deleted whatever the run, for the Memory and
-       * owner the Claim names; a trigger queues their objects for removal.
-       * Returns the keys, for the caller to delete from storage at once.
+       * The copy's rows of that `generation` (the one loaded) are deleted
+       * whatever the run, for the Memory and owner the Claim names; a copy
+       * attached since, which a newer run will read, stays. A trigger queues
+       * the objects for removal. Returns the keys, for the caller to delete
+       * from storage at once.
        */
-      async drop(claim: Claim) {
+      async drop(claim: Claim, generation: string) {
         const rows = await db
           .delete(memoryCopy)
           .where(
             and(
               eq(memoryCopy.memoryId, claim.memoryId),
+              eq(memoryCopy.generation, generation),
               sql`exists (select 1 from ${memory} m where m.id = ${memoryCopy.memoryId}
                 and m.user_id = ${claim.userId} and m.index_generation = ${claim.generation})`
             )
@@ -312,6 +324,30 @@ export function indexingStore(db: Database) {
       },
     },
 
+    /**
+     * Automatic Categories for the Memory at `revision`, once: never over a
+     * user's edit (Locked categories), AI opt-out, a newer revision or run.
+     */
+    async writeCategories(claim: Claim, revision: number, input: unknown) {
+      const categories = Categories.parse(input);
+      const rows = await db
+        .update(memory)
+        .set({
+          categories,
+          categoriesRevision: revision,
+          categoriesVersion: CATEGORISING.version,
+        })
+        .where(
+          and(
+            claimed(claim),
+            eq(memory.revision, revision),
+            eq(memory.aiOptOut, false),
+            categoriesStale
+          )
+        )
+        .returning({ id: memory.id });
+      return rows.length > 0;
+    },
     /**
      * Takes a Memory waiting for Indexing (at `run` and `generation`, when
      * given) and leases it for LEASE_MINUTES. Undefined when it is gone, not
@@ -336,6 +372,7 @@ export function indexingStore(db: Database) {
           kind: memory.kind,
           run: memory.indexRun,
           revision: memory.revision,
+          categoriesStale,
           title: memory.title,
           body: memory.body,
           captureNote: memory.captureNote,
@@ -488,7 +525,7 @@ export function indexingStore(db: Database) {
           and(
             named({ memoryId: id, generation }),
             embeddable,
-            staleIn(space),
+            workDueIn(space),
             unleased
           )
         )
@@ -498,12 +535,15 @@ export function indexingStore(db: Database) {
           kind: memory.kind,
           run: memory.indexRun,
           revision: memory.revision,
+          categoriesStale,
+          vectorsCurrent: sql<boolean>`not ${vectorsStaleIn(space)}`,
           title: memory.title,
           body: memory.body,
           captureNote: memory.captureNote,
           transcript: linkColumns.transcript,
         });
       if (!row) return undefined;
+      const { vectorsCurrent, ...loaded } = row;
       const [found] = await db
         .select({
           title: memoryIndex.title,
@@ -515,7 +555,24 @@ export function indexingStore(db: Database) {
         .from(memoryIndex)
         .where(eq(memoryIndex.memoryId, id));
       if (!found) return undefined;
-      return { ...row, found, ...(await filesOf(id, row.kind)) };
+      // Only Categories are due: they are made from the vector already kept.
+      const [kept] = vectorsCurrent
+        ? await db
+            .select({ embedding: memoryVector.embedding })
+            .from(memoryVector)
+            .where(
+              and(
+                eq(memoryVector.memoryId, id),
+                eq(memoryVector.kind, "overview")
+              )
+            )
+        : [];
+      return {
+        ...loaded,
+        found,
+        overview: kept?.embedding,
+        ...(await filesOf(id, row.kind)),
+      };
     },
 
     /**
@@ -557,7 +614,7 @@ export function indexingStore(db: Database) {
       return db
         .select({ id: memory.id, generation: memory.indexGeneration })
         .from(memory)
-        .where(and(embeddable, staleIn(space), unleased))
+        .where(and(embeddable, workDueIn(space), unleased))
         .orderBy(memory.updatedAt)
         .limit(limit);
     },

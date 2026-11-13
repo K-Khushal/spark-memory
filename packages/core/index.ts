@@ -115,3 +115,13 @@ export {
   type SearchWhen,
 } from "./lib/search-filters";
 export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";
+export {
+  CATEGORY_NAMES,
+  CATEGORISING,
+  Categories,
+  Category,
+  chooseCategories,
+  cosine,
+  JevChoiceReply,
+  MAX_CATEGORIES,
+} from "./lib/categories";

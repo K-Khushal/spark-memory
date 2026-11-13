@@ -1,4 +1,6 @@
+import { categorise, type CategoryClient } from "./categories";
 import {
+  type Category,
   EMBEDDING,
   embeddingSpace,
   FREE_ALLOWANCE,
@@ -73,6 +75,8 @@ export type PendingMemory = MemoryContent & {
   /** The text's revision, so vectors made from it are dropped once it is edited. */
   revision: number;
   aiOptOut: boolean;
+  /** Not locked by the user and not yet categorised at this revision. */
+  categoriesStale?: boolean;
   /** A link Memory: false until its Source has been gathered (once). */
   gathered?: boolean;
   /** Storage keys of an image Memory's files. */
@@ -91,6 +95,8 @@ export type PendingMemory = MemoryContent & {
 
 /** A reel's video and the frames drawn from it in the person's browser. */
 type CopyKeys = {
+  /** Which attempt's upload this is: a copy attached later is not the one to delete. */
+  generation: string;
   video: { key: string; mime: string; bytes: number; duration: number };
   frames: { key: string; mime: string; seconds: number }[];
 };
@@ -108,6 +114,9 @@ type Image = { bytes: Uint8Array; mime: string };
 
 /** A Searchable Memory whose vectors are to be made again. */
 export type EmbedMemory = EmbedSource & {
+  categoriesStale?: boolean;
+  /** Its Overview vector when the vectors are current, so Categories alone are due. */
+  overview?: number[];
   userId: string;
   generation: string;
   run: number;
@@ -127,6 +136,12 @@ export type Extraction = { output: IndexingOutput; model: string };
  * Memory it loaded is gone.
  */
 export type IndexStore = {
+  /** Automatic Categories, once per revision, never over a user's edit; false if refused. */
+  writeCategories?(
+    claim: Claim,
+    revision: number,
+    categories: Category[]
+  ): Promise<boolean>;
   /**
    * Takes the Memory for this delivery (a short lease, so a duplicate
    * delivery skips). Undefined when it is gone, not waiting for Indexing, at
@@ -205,7 +220,7 @@ export type IndexStore = {
       | { transcript: TranscriptSegment[] | null; body: string | null }
       | undefined
     >;
-    drop(claim: Claim): Promise<string[]>;
+    drop(claim: Claim, generation: string): Promise<string[]>;
   };
   spentTodayMicros(): Promise<number>;
   /** The effective daily budget (the admin's setting, or the config default). */
@@ -312,6 +327,7 @@ export function createIndexer({
   providers,
   embedder,
   gatherer,
+  jev,
   readPdf,
   readFile,
   transcriber,
@@ -319,6 +335,7 @@ export function createIndexer({
   now = () => new Date(),
 }: {
   store: IndexStore;
+  jev?: CategoryClient;
   /** In chain order (INDEXING.chain). */
   providers: Provider[];
   /** Gathers a link's Source; without one, links are found by their URL and note. */
@@ -482,6 +499,9 @@ export function createIndexer({
     }
   }
 
+  const overviewOf = (embedding: Embedding) =>
+    embedding.vectors.find((v) => v.kind === "overview")?.embedding;
+
   const embedderReads = (mime: string) =>
     (EMBEDDING.imageTypes as readonly string[]).includes(mime);
 
@@ -555,12 +575,14 @@ export function createIndexer({
           : await indexLoaded(job, work);
       // A reel's copy exists only for this Indexing: gone once it has ended
       // for good, whatever the end (a Failed reel too). A retry keeps it.
+      // An embed job never reads it, so it never deletes it.
       if (
+        job.task !== "embed" &&
         "copy" in work &&
         work.copy &&
         (outcome.result === "searchable" || outcome.result === "failed")
       ) {
-        await dropCopy(work);
+        await dropCopy(work, work.copy.generation);
       }
       // The next delivery of this message (or the next embed job, after an
       // edit superseded this one) must be able to take it again.
@@ -583,9 +605,9 @@ export function createIndexer({
    * Indexing reached stands, and the sweep deletes any object this misses
    * (the rows' trigger queued it).
    */
-  async function dropCopy(claim: Claim) {
+  async function dropCopy(claim: Claim, generation: string) {
     try {
-      const keys = (await store.copy?.drop(claim)) ?? [];
+      const keys = (await store.copy?.drop(claim, generation)) ?? [];
       if (keys.length) await removeFiles?.(keys);
     } catch {
       console.error("indexing: a reel's copy was not deleted yet");
@@ -685,6 +707,43 @@ export function createIndexer({
       ? { result: "paused", delaySeconds: secondsToNextUtcDay(now()) }
       : undefined;
 
+  /**
+   * Categorise (after the embedding) and keep the answer. A failure leaves
+   * the Memory's Categories stale: the hourly sweep tries again.
+   */
+  async function assignCategories(
+    work: Claim & { revision: number; categoriesStale?: boolean },
+    vector: number[] | undefined,
+    text: string,
+    current: () => Promise<boolean>
+  ) {
+    if (
+      !work.categoriesStale ||
+      !store.writeCategories ||
+      !embedder ||
+      !vector
+    ) {
+      return;
+    }
+    // Categories are a bonus on the embedding already paid for: whatever
+    // goes wrong here leaves them stale for the sweep, never fails the run.
+    try {
+      const categories = await categorise({
+        text,
+        vector,
+        embedder,
+        ...(jev && { jev }),
+        allow: async () => !(await budgetSpent()) && (await current()),
+        record: (call) => recordCall({ ...callOf(work), ...call }),
+      });
+      if (categories) {
+        await store.writeCategories(work, work.revision, categories);
+      }
+    } catch {
+      console.error("indexing: categories not made");
+    }
+  }
+
   /** An `embed` job: the vectors again, nothing else. */
   async function embedLoaded(
     job: IndexJob,
@@ -692,11 +751,26 @@ export function createIndexer({
   ): Promise<IndexOutcome> {
     const paused = await overBudget(job);
     if (paused) return paused;
+    const current = () => store.stillEmbeddable(work, work.revision);
+    const text = [
+      work.title,
+      work.body,
+      work.captureNote,
+      work.found.title,
+      work.found.description,
+      work.found.ocrText,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (work.overview) {
+      // Only Categories were due; the vectors stay as they are.
+      await assignCategories(work, work.overview, text, current);
+      await store.release(work);
+      return { result: "searchable" };
+    }
     let embedding;
     try {
-      embedding = await embed(work, () =>
-        store.stillEmbeddable(work, work.revision)
-      );
+      embedding = await embed(work, current);
     } catch (error) {
       if (error instanceof Superseded) return { result: "skipped" };
       throw error;
@@ -707,6 +781,7 @@ export function createIndexer({
         ? { result: "retry", delaySeconds: backoffSeconds(job.attempt) }
         : { result: "skipped" };
     }
+    await assignCategories(work, overviewOf(embedding), text, current);
     const written = await store.writeVectors(work, embedding);
     return { result: written ? "searchable" : "skipped" };
   }
@@ -804,6 +879,14 @@ export function createIndexer({
                 () => store.isCurrent(work),
                 visuals
               );
+        if (embedding) {
+          await assignCategories(
+            work,
+            overviewOf(embedding),
+            `${memoryPart(work)}\n${output.title}\n${output.description}\n${output.ocrText}`,
+            () => store.isCurrent(work)
+          );
+        }
         const written = await store.complete(
           work,
           { output, model: provider.model },

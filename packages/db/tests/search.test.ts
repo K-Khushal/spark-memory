@@ -437,6 +437,13 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
           embedding(job.revision)
         )
       ).toBe(true);
+      // Categories are due too (made by the indexer between embedding and writing).
+      expect(await stale()).toContain(id);
+      expect(
+        await store().writeCategories({ ...job, memoryId: id }, job.revision, [
+          "Other",
+        ])
+      ).toBe(true);
       expect(await stale()).not.toContain(id);
       expect((await search("x", mix({ 70: 1 })))[0]?.id).toBe(id);
 

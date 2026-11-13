@@ -1,7 +1,9 @@
 import { useMemo, type ReactNode } from "react";
 import {
+  CATEGORY_NAMES,
   SEARCH_KINDS,
   sourceOf,
+  type Category,
   type SearchChips,
   type SearchColour,
   type SearchKind,
@@ -51,8 +53,10 @@ export function useFilterOptions(memories: Memory[]) {
   return useMemo(() => {
     const kinds = new Set<SearchKind>();
     const sources = new Map<string, number>();
+    const categories = new Set<Category>();
     let colours = false;
     for (const memory of memories) {
+      for (const category of memory.categories) categories.add(category);
       const kind = kindOf(memory.kind);
       if (kind) kinds.add(kind);
       if (memory.image) colours = true;
@@ -67,6 +71,7 @@ export function useFilterOptions(memories: Memory[]) {
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .slice(0, SOURCES_SHOWN)
         .map(([name]) => name),
+      categories: CATEGORY_NAMES.filter((c) => categories.has(c)),
       colours,
     };
   }, [memories]);
@@ -77,7 +82,7 @@ export type FilterOptions = ReturnType<typeof useFilterOptions>;
  * The filter chips (DESIGN.md → Pick): kinds, colours, Sources and when,
  * one choice per group, pressing a chosen one again lets go. They work
  * with an empty search box. `layout` is the sidebar's lists or the phone's
- * one scrolling row. A Category group joins with #24.
+ * one scrolling row.
  */
 export function LibraryFilters({
   layout,
@@ -102,6 +107,12 @@ export function LibraryFilters({
     label: KIND_LABELS[kind],
     on: chips.kind === kind,
     press: () => set("kind", kind),
+  }));
+  const categories = options.categories.map((category) => ({
+    id: category,
+    label: category,
+    on: chips.category === category,
+    press: () => set("category", category),
   }));
   const sources = options.sources.map((source) => ({
     id: source,
@@ -156,6 +167,9 @@ export function LibraryFilters({
         {whens.map((item) => (
           <Chip key={item.id} {...item} />
         ))}
+        {categories.map((item) => (
+          <Chip key={item.id} {...item} />
+        ))}
       </div>
     );
   }
@@ -165,6 +179,7 @@ export function LibraryFilters({
       {colours}
       <Group label="Source" items={sources} />
       <Group label="When" items={whens} />
+      <Group label="Category" items={categories} />
     </div>
   );
 }

@@ -551,27 +551,48 @@ const readOk = {
     },
   ],
 };
-function copyApi() {
-  request.mockImplementation(async (url: string) => {
+/** A server that saves the Capture under the id it was sent: a new Memory, not a duplicate. */
+function savesNew(
+  extra: (url: string) => Response | undefined = () => undefined
+) {
+  request.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url.endsWith("/me")) return Response.json({ id: "ana" });
-    if (url.endsWith("/copy"))
-      return Response.json({
-        uploads: [
-          { role: "video", page: 0, url: "https://files.test/v", headers: {} },
-          { role: "frame", page: 0, url: "https://files.test/f", headers: {} },
-        ],
-      });
-    return Response.json({ id: "memory", revision: 1 });
+    const answer = extra(url);
+    if (answer) return answer;
+    return Response.json({
+      id: url.endsWith("/links") ? JSON.parse(String(init?.body)).id : "memory",
+      revision: 1,
+    });
   });
 }
 
 it("copies a reel with the person's own session after saving it, without waiting on it", async () => {
   pageSays(reel, { description: "Sourdough in 60 seconds" }, readOk);
   browser.permissions.contains.mockResolvedValue(true);
-  copyApi();
+  savesNew((url) =>
+    url.endsWith("/copy")
+      ? Response.json({
+          uploads: [
+            {
+              role: "video",
+              page: 0,
+              url: "https://files.test/v",
+              headers: {},
+            },
+            {
+              role: "frame",
+              page: 0,
+              url: "https://files.test/f",
+              headers: {},
+            },
+          ],
+        })
+      : undefined
+  );
   background.main();
-  expect(await message("capture")).toMatchObject({ memory: { id: "memory" } });
+  expect(await message("capture")).toMatchObject({ state: "saved" });
   await vi.waitFor(() => expect(saved("/copy/stored")).toHaveLength(1));
+  const memoryId = JSON.parse(saved("/links")[0]![1].body).id;
   const run = browser.scripting.executeScript.mock.calls.find(
     ([i]) => i.func
   )![0];
@@ -579,7 +600,7 @@ it("copies a reel with the person's own session after saving it, without waiting
   expect(run.args[0]).toBe("C1a_b2");
   // The copy is bound to the Memory just saved and to this account.
   expect(saved("/copy")[0]![0]).toBe(
-    "https://sparkmemory.xyz/api/memories/memory/copy"
+    `https://sparkmemory.xyz/api/memories/${memoryId}/copy`
   );
   expect(saved("/copy")[0]![1].headers).toMatchObject({
     "x-spark-user": "ana",
@@ -605,13 +626,11 @@ it("saves a reel as Reference only when its video cannot be read", async () => {
 it("keeps the reel saved when uploading its copy fails, and says nothing of it", async () => {
   pageSays(reel, { description: "Sourdough in 60 seconds" }, readOk);
   browser.permissions.contains.mockResolvedValue(true);
-  request.mockImplementation(async (url: string) => {
-    if (url.endsWith("/me")) return Response.json({ id: "ana" });
-    if (url.endsWith("/copy")) return new Response(null, { status: 500 });
-    return Response.json({ id: "memory", revision: 1 });
-  });
+  savesNew((url) =>
+    url.endsWith("/copy") ? new Response(null, { status: 500 }) : undefined
+  );
   background.main();
-  expect(await message("capture")).toMatchObject({ memory: { id: "memory" } });
+  expect(await message("capture")).toMatchObject({ state: "saved" });
   await vi.waitFor(() => expect(saved("/copy")).toHaveLength(1));
   expect(browser.action.setBadgeText).not.toHaveBeenCalledWith({ text: "!" });
 });
@@ -625,6 +644,18 @@ it("does not copy a reel that was only queued offline", async () => {
   });
   background.main();
   expect(await message("capture")).toMatchObject({ state: "queued" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(browser.scripting.executeScript.mock.calls.some(([i]) => i.func)).toBe(
+    false
+  );
+});
+
+it("does not copy a reel the person already had: saving it again costs nothing", async () => {
+  pageSays(reel, { description: "Sourdough in 60 seconds" }, readOk);
+  browser.permissions.contains.mockResolvedValue(true);
+  // The default server answers with another id: the Memory was already there.
+  background.main();
+  expect(await message("capture")).toMatchObject({ state: "duplicate" });
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(browser.scripting.executeScript.mock.calls.some(([i]) => i.func)).toBe(
     false

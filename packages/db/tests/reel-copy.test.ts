@@ -272,10 +272,50 @@ describe.skipIf(!databaseUrl)("a reel's user-provided copy", () => {
     const memory = await reel();
     const { uploads } = await attach(memory.id);
     await library().markCopyStored(memory.id, async () => "stored");
-    const keys = await store().copy.drop(await claimOf(memory.id));
+    const generation = (await store().load(memory.id))!.copy!.generation;
+    const keys = await store().copy.drop(await claimOf(memory.id), generation);
     expect(keys.toSorted()).toEqual(uploads.map((u) => u.key).toSorted());
     expect((await store().load(memory.id))?.copy).toBeUndefined();
     expect((await removals()).toSorted()).toEqual(expect.arrayContaining(keys));
+  });
+
+  it("drops only the generation Indexing read, so a copy attached since is kept", async () => {
+    const memory = await reel();
+    await attach(memory.id);
+    await library().markCopyStored(memory.id, async () => "stored");
+    const read = (await store().load(memory.id))!.copy!;
+    await store().release(await claimOf(memory.id));
+    // The person saves the reel again while that run is still going.
+    const newer = await attach(memory.id);
+    await library().markCopyStored(memory.id, async () => "stored");
+    expect(
+      await store().copy.drop(await claimOf(memory.id), read.generation)
+    ).toEqual([]);
+    const kept = (await store().load(memory.id))!.copy!;
+    expect(kept.generation).not.toBe(read.generation);
+    expect(newer.uploads).toHaveLength(3);
+  });
+
+  it("answers a confirm sent twice, and a confirm for a copy that is gone", async () => {
+    const memory = await reel();
+    await attach(memory.id);
+    const first = await library().markCopyStored(
+      memory.id,
+      async () => "stored"
+    );
+    const again = await library().markCopyStored(
+      memory.id,
+      async () => "stored"
+    );
+    expect(again).toMatchObject({ id: memory.id });
+    expect(first).toMatchObject({ id: memory.id });
+    await store().copy.drop(
+      await claimOf(memory.id),
+      (await store().load(memory.id))!.copy!.generation
+    );
+    expect(
+      await library().markCopyStored(memory.id, async () => "stored")
+    ).toBeUndefined();
   });
 
   it("queues the copy's objects when the Memory is deleted", async () => {
@@ -294,7 +334,7 @@ describe.skipIf(!databaseUrl)("a reel's user-provided copy", () => {
     await library().markCopyStored(memory.id, async () => "stored");
     await db
       .update(schema.memoryCopy)
-      .set({ createdAt: sql`now() - interval '7 hours'` })
+      .set({ createdAt: sql`now() - interval '25 hours'` })
       .where(eq(schema.memoryCopy.memoryId, memory.id));
     expect(await removals()).toEqual(
       expect.arrayContaining(uploads.map((u) => u.key))

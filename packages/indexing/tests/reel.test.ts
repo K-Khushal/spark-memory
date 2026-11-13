@@ -55,6 +55,7 @@ const reel = (over: Partial<PendingMemory> = {}): PendingMemory => ({
   sourceUrl: "https://www.instagram.com/reel/C1a/",
   transcript: [],
   copy: {
+    generation: "copy-1",
     video: { key: "video", mime: "video/mp4", bytes: 4, duration: 30 },
     frames: [
       { key: "f0", mime: "image/jpeg", seconds: 0 },
@@ -76,15 +77,18 @@ function setup(
     }),
     files = ["video", "f0", "f1"],
     embedding = true,
+    removing = false,
   }: {
     transcribe?: Transcriber["transcribe"];
     files?: string[];
     embedding?: boolean;
+    removing?: boolean;
   } = {}
 ) {
   const state = {
     memory,
     dropped: [] as string[][],
+    generations: [] as string[],
     deleted: [] as string[][],
     completed: [] as { extraction: Extraction | null; embedding?: Embedding }[],
     failed: [] as string[],
@@ -130,7 +134,8 @@ function setup(
         };
         return { transcript, body: state.memory.body };
       },
-      drop: async () => {
+      drop: async (_: Claim, generation: string) => {
+        state.generations.push(generation);
         const keys = ["video", "f0", "f1"];
         state.dropped.push(keys);
         return keys;
@@ -160,6 +165,7 @@ function setup(
     readFile: async (key) =>
       files.includes(key) ? new Uint8Array([1, 2, 3, 4]) : undefined,
     removeFiles: async (keys) => {
+      if (removing) throw new Error("storage down");
       state.deleted.push(keys);
     },
   });
@@ -215,6 +221,29 @@ describe("a reel's copy", () => {
     vi.mocked(gemini.extract).mockRejectedValue(new ProviderError("failed"));
     expect((await index(job)).result).toBe("retry");
     expect(state.deleted).toEqual([]);
+    expect(state.dropped).toEqual([]);
+  });
+
+  it("is dropped by the generation it read, so a copy attached since survives", async () => {
+    const { state, index } = setup(reel());
+    await index(job);
+    expect(state.generations).toEqual(["copy-1"]);
+  });
+
+  it("keeps the answer Indexing reached when storage cannot delete yet", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { state, index } = setup(reel(), { removing: true });
+    expect(await index(job)).toEqual({ result: "searchable" });
+    // The rows are gone and their objects queued: the sweep finishes the job.
+    expect(state.dropped).toHaveLength(1);
+    expect(state.deleted).toEqual([]);
+  });
+
+  it("is never deleted by an embed job, which does not read it", async () => {
+    const { state, index } = setup(reel());
+    const store = state.memory;
+    expect(store.copy).toBeDefined();
+    expect((await index({ ...job, task: "embed" })).result).toBe("skipped");
     expect(state.dropped).toEqual([]);
   });
 

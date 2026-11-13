@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm/pg-core";
 import {
   DEFAULT_PLAN,
+  type Category,
   type IndexFailure,
   type IndexState,
   type LinkMetadata,
@@ -135,6 +136,15 @@ export const memory = pgTable(
     /** The text of a text Memory. */
     body: text("body"),
     captureNote: text("capture_note"),
+    categories: text("categories")
+      .array()
+      .$type<Category[]>()
+      .default(["Other"])
+      .notNull(),
+    categoriesLocked: boolean("categories_locked").default(false).notNull(),
+    categoriesRevision: integer("categories_revision"),
+    /** `CATEGORISING.version` of the categoriser that chose them; null before any did. */
+    categoriesVersion: integer("categories_version"),
     /**
      * SHA-256 (hex) of the Preserved copy: a file Memory's file, a link's
      * readable text. Unique per person among links.
@@ -288,11 +298,14 @@ export const memoryFile = pgTable(
   ]
 );
 
-/** A copy Indexing never got to is deleted after this long (the hourly sweep). */
-export const COPY_LIFETIME_HOURS = 6;
+/**
+ * A copy Indexing never got to is deleted after this long (the hourly
+ * sweep): longer than a run held back by the daily budget can wait (12 hours).
+ */
+export const COPY_LIFETIME_HOURS = 24;
 
 /**
- * A reel's user-provided copy (ADR-0010, migrations/0023): the video and a
+ * A reel's user-provided copy (ADR-0010, migrations/0024): the video and a
  * few frames the person's own browser fetched, kept only for Indexing and
  * deleted when it ends. Not a `memory_file`: an unfinished copy never hides
  * its reel or counts as an abandoned upload. A trigger queues the object of

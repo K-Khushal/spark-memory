@@ -35,6 +35,8 @@ export type ReelRead =
 export async function readReel(
   code: string,
   limits: {
+    /** The `x-ig-app-id` every instagram.com page sends. */
+    appId: string;
     maxBytes: number;
     maxFrames: number;
     frameMaxBytes: number;
@@ -73,7 +75,7 @@ export async function readReel(
     const info = await fetch(`/api/v1/media/${id}/info/`, {
       credentials: "include",
       headers: {
-        "x-ig-app-id": "936619743392459",
+        "x-ig-app-id": limits.appId,
         "x-requested-with": "XMLHttpRequest",
       },
       signal: AbortSignal.timeout(15_000),
