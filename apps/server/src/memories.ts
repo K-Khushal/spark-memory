@@ -27,7 +27,12 @@ import {
   type Library,
   type Memory,
 } from "@spark/db";
-import { embedderFor, jevJudge, transcriberFor } from "@spark/indexing";
+import {
+  embedderFor,
+  jevJudge,
+  ProviderError,
+  transcriberFor,
+} from "@spark/indexing";
 import { createSearch, jevMatchJudge } from "@spark/search";
 import type { AppEnv } from "./env";
 import { requireUser, withAuth, type UserVariables } from "./auth";
@@ -662,7 +667,13 @@ export const memories = new Hono<AppEnv>()
           ...(page && { page }),
         })
         .catch((error: unknown) => {
-          if (image || memory) return undefined;
+          if (
+            (image || memory) &&
+            (error instanceof ProviderError ||
+              (error instanceof Error &&
+                error.message.startsWith("image_search_")))
+          )
+            return undefined;
           throw error;
         });
       if (!answer)

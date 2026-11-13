@@ -1,3 +1,4 @@
+import { SearchByImage } from "./image-query";
 import { CategoryEditor, type CategoryEdit } from "./categories";
 import { restoreLibraryFocus } from "./focus";
 import { useState, type KeyboardEvent } from "react";
@@ -14,7 +15,7 @@ import { DURATION, EASING, SPRING } from "@spark/ui/tokens";
 import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
 import { MoreLikeThis } from "./why";
 import { memoryName, UploadBadge } from "./memory-tile";
-import type { WallMemory } from "./use-library";
+import type { Memory, WallMemory } from "./use-library";
 
 /** A swipe moves on past 120px, or when flung. */
 const SWIPE = { offset: 120, velocity: 500 };
@@ -40,6 +41,7 @@ export function ImageViewer({
   onAiOptOut,
   onCategories,
   onMoreLikeThis,
+  onSearchByImage,
 }: {
   /** The image Memories in wall order. */
   memories: WallMemory[];
@@ -50,6 +52,7 @@ export function ImageViewer({
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onMoreLikeThis: (memory: WallMemory) => void;
+  onSearchByImage?: (memory: Memory) => void;
 } & IndexingProps & { onCategories?: CategoryEdit }) {
   const index = memories.findIndex((m) => m.id === openId);
   const memory = memories[index];
@@ -160,6 +163,12 @@ export function ImageViewer({
                 <MoreLikeThis
                   memory={memory}
                   onSelect={onMoreLikeThis}
+                  compact
+                  className="h-11"
+                />
+                <SearchByImage
+                  memory={memory}
+                  onSelect={onSearchByImage}
                   compact
                   className="h-11"
                 />

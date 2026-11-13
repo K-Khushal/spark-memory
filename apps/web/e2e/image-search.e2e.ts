@@ -1,5 +1,21 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./sign-in";
+
+async function screenshots(page: Page, surface: string) {
+  if (!process.env.IMAGE_SCREENSHOTS_DIR) return;
+  for (const width of [1440, 390])
+    for (const scheme of ["light", "dark"] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: scheme });
+      await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
+      await page.screenshot({
+        animations: "disabled",
+        path: `${process.env.IMAGE_SCREENSHOTS_DIR}/t14-${surface}-${width}-${scheme}.png`,
+      });
+    }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ colorScheme: "light" });
+}
 
 test("image search accepts files, paste and drop without Capturing the query", async ({
   page,
@@ -12,6 +28,21 @@ test("image search accepts files, paste and drop without Capturing the query", a
   expect(captured.ok()).toBe(true);
   await page.reload();
   const before = await (await page.request.get("/api/memories")).json();
+  await expect(
+    page
+      .getByRole("button", { name: "Search By Image", exact: true })
+      .filter({ visible: true })
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("combobox", { name: "Choose From Library" })
+  ).toHaveCount(0);
+  await screenshots(page, "wall");
+  await page.locator('[data-desk="search"]:visible').focus();
+  await expect(
+    page
+      .getByRole("button", { name: "Search By Image", exact: true })
+      .filter({ visible: true })
+  ).toBeVisible();
   const data = await page.evaluate(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 2400;
@@ -55,21 +86,7 @@ test("image search accepts files, paste and drop without Capturing the query", a
   await expect(
     dialog.getByRole("listbox").getByRole("option", { name: /Lemon tart/ })
   ).toBeVisible();
-  if (process.env.IMAGE_SCREENSHOTS_DIR) {
-    for (const width of [1440, 390])
-      for (const scheme of ["light", "dark"] as const) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.emulateMedia({ colorScheme: scheme });
-        await expect(page.locator("html")).toHaveAttribute(
-          "data-theme",
-          scheme
-        );
-        await page.screenshot({
-          animations: "disabled",
-          path: `${process.env.IMAGE_SCREENSHOTS_DIR}/t14-search-${width}-${scheme}.png`,
-        });
-      }
-  }
+  await screenshots(page, "search");
   await dialog
     .getByRole("button", { name: "Remove Query Image" })
     .press("Enter");
@@ -101,29 +118,67 @@ test("image search accepts files, paste and drop without Capturing the query", a
     ).toBeVisible();
     await dialog.getByRole("button", { name: "Remove Query Image" }).click();
   }
+  await page.keyboard.press("Escape");
+  for (const type of ["paste", "drop"]) {
+    await page.locator('[data-desk="search"]:visible').evaluate(
+      (field, { type, data }) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File(
+            [Uint8Array.from(atob(data), (c) => c.charCodeAt(0))],
+            "query.png",
+            { type: "image/png" }
+          )
+        );
+        field.dispatchEvent(
+          type === "paste"
+            ? new ClipboardEvent("paste", {
+                clipboardData: transfer,
+                bubbles: true,
+                cancelable: true,
+              })
+            : new DragEvent("drop", {
+                dataTransfer: transfer,
+                bubbles: true,
+                cancelable: true,
+              })
+        );
+      },
+      { type, data }
+    );
+    await page
+      .getByRole("button", { name: "Remove Query Image" })
+      .filter({ visible: true })
+      .click();
+  }
+  await page.keyboard.press("ControlOrMeta+k");
   const memoryId = before.memories.find(
     (m: { body: string }) => m.body === "Lemon tart with a short crust"
   ).id as string;
+  await page.keyboard.press("Escape");
+  await page.getByRole("link", { name: "All Memories", exact: true }).click();
+  await page
+    .getByRole("list", { name: "All Memories" })
+    .getByRole("listitem", { name: /Lemon tart/ })
+    .click();
   await expect(
-    dialog
-      .getByRole("combobox", { name: "Choose From Library" })
-      .locator(`option[value="${memoryId}"]`)
-  ).toHaveCount(1);
+    dialog.getByRole("button", { name: "More Like This", exact: true })
+  ).toBeVisible();
   const picked = page.waitForRequest(
     (req) =>
       req.url().endsWith("/api/search") &&
       req.postDataJSON()?.memory === memoryId
   );
   await dialog
-    .getByRole("combobox", { name: "Choose From Library" })
-    .selectOption(memoryId);
+    .getByRole("button", { name: "Search By Image", exact: true })
+    .click();
   expect((await picked).postDataJSON().image).toBeUndefined();
-  await expect(
-    dialog.getByRole("button", { name: "Remove Query Image" })
-  ).toBeVisible();
-  await dialog.getByRole("combobox", { name: "Choose From Library" }).focus();
-  await page.keyboard.press("ControlOrMeta+k");
   await expect(dialog).toBeHidden();
+  await expect(
+    page
+      .getByRole("button", { name: "Remove Query Image" })
+      .filter({ visible: true })
+  ).toContainText("Lemon tart with a short crust");
   const after = await (await page.request.get("/api/memories")).json();
   expect(after.memories.length).toBe(before.memories.length);
 });
@@ -142,7 +197,7 @@ test("image query controls fit worst-case Library titles and collections", async
   ]) {
     await page.getByRole("button", { name: state, exact: true }).click();
     await expect(
-      page.getByRole("combobox", { name: "Choose From Library" })
+      page.getByRole("button", { name: "Search By Image", exact: true }).first()
     ).toBeVisible();
     expect(
       await page.evaluate(
@@ -151,6 +206,13 @@ test("image query controls fit worst-case Library titles and collections", async
     ).toBe(true);
   }
   await page.getByRole("button", { name: "Worst Case", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Search By Image", exact: true })
+    .nth(2)
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Remove Query Image" })
+  ).toContainText("https://example.com/");
   await page.evaluate(() => {
     document.documentElement.style.fontSize = "32px";
     document.documentElement.dir = "rtl";
@@ -161,4 +223,59 @@ test("image query controls fit worst-case Library titles and collections", async
       () => document.documentElement.scrollWidth <= innerWidth
     )
   ).toBe(true);
+});
+
+test("an image viewer reuses its Memory vectors and identifies the query chip", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(64, 48);
+    canvas.getContext("2d")!.fillRect(0, 0, 64, 48);
+    const png = await canvas.convertToBlob({ type: "image/png" });
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([png], "square.png", { type: "image/png" }));
+    window.dispatchEvent(
+      new DragEvent("drop", { dataTransfer: transfer, bubbles: true })
+    );
+  });
+  await expect
+    .poll(
+      async () =>
+        (await (await page.request.get("/api/memories")).json()).memories[0]
+          ?.hasVectors,
+      { timeout: 60000 }
+    )
+    .toBe(true);
+  const {
+    memories: [memory],
+  } = await (await page.request.get("/api/memories")).json();
+  await page.reload();
+  await page
+    .getByRole("list", { name: "All Memories" })
+    .getByRole("listitem")
+    .click();
+  const viewer = page.getByRole("dialog");
+  await expect(
+    viewer.getByRole("button", { name: "More Like This", exact: true })
+  ).toBeVisible();
+  const sent = page.waitForRequest(
+    (req) =>
+      req.url().endsWith("/api/search") &&
+      req.postDataJSON()?.memory === memory.id
+  );
+  await viewer
+    .getByRole("button", { name: "Search By Image", exact: true })
+    .click();
+  expect((await sent).postDataJSON().image).toBeUndefined();
+  await expect(viewer).toBeHidden();
+  const chip = page
+    .getByRole("button", { name: "Remove Query Image" })
+    .filter({ visible: true });
+  await expect(chip).toContainText(memory.title || memory.indexTitle);
+  await expect(chip.locator("img")).toHaveAttribute(
+    "src",
+    memory.image.thumbnailUrl
+  );
+  await screenshots(page, "picked");
 });

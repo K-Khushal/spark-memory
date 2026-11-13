@@ -6,7 +6,7 @@ import { memoryName } from "./memory-tile";
 
 export type ImageQuery =
   | { id: string; image: { data: string; mime: "image/jpeg" } }
-  | { id: string; memory: string };
+  | { id: string; memory: string; name: string; thumbnailUrl?: string };
 
 /** A transient query: decode locally, cap both dimensions, send no original file. */
 export async function prepareQueryImage(file: File): Promise<ImageQuery> {
@@ -14,7 +14,7 @@ export async function prepareQueryImage(file: File): Promise<ImageQuery> {
     !["image/jpeg", "image/png", "image/webp"].includes(file.type) ||
     file.size > 20 * 1024 * 1024
   )
-    throw new Error("Choose A JPEG, PNG Or WebP Under 20 MB");
+    throw new Error("Use a JPEG, PNG or WebP Under 20 MB");
   const bitmap = await createImageBitmap(file);
   try {
     const ratio = Math.min(1, 1024 / Math.max(bitmap.width, bitmap.height));
@@ -85,14 +85,14 @@ export type ImageQueryProps = {
 export function ImageQueryControls({
   value,
   onChange,
-  memories,
   children,
   onFile: choose,
   busy,
   showChip = true,
+  compact = false,
 }: ImageQueryProps & {
   showChip?: boolean;
-  memories: Memory[];
+  compact?: boolean;
   children?: ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
@@ -119,7 +119,11 @@ export function ImageQueryControls({
     >
       {children}
       <div
-        className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2"
+        className={
+          compact
+            ? "flex items-center"
+            : "flex min-w-0 flex-wrap items-center gap-2 px-3 py-2"
+        }
         onKeyDown={(event) => {
           if (
             ["Enter", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)
@@ -148,25 +152,6 @@ export function ImageQueryControls({
         >
           <ImagePlusIcon aria-hidden />
         </Button>
-        <select
-          aria-label="Choose From Library"
-          value=""
-          className="min-w-0 max-w-full min-h-9 rounded-control bg-surface text-[1rem] text-ink md:text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          onChange={(event) => {
-            if (event.target.value) {
-              onChange({ id: crypto.randomUUID(), memory: event.target.value });
-            }
-          }}
-        >
-          <option value="">Choose From Library</option>
-          {memories
-            .filter((m) => m.hasVectors && !m.aiOptOut)
-            .map((m) => (
-              <option key={m.id} value={m.id}>
-                {memoryName(m) || "Memory"}
-              </option>
-            ))}
-        </select>
         {showChip && (
           <QueryImageChip value={value} busy={busy} onChange={onChange} />
         )}
@@ -182,24 +167,71 @@ export function QueryImageChip({
   onChange,
 }: Pick<ImageQueryProps, "value" | "busy" | "onChange">) {
   if (!value && !busy) return null;
+  const name = value && "memory" in value ? value.name : "Query Image";
+  const thumbnail =
+    value &&
+    ("image" in value
+      ? `data:${value.image.mime};base64,${value.image.data}`
+      : value.thumbnailUrl);
   return (
     <FilterChip
       aria-pressed
       aria-label="Remove Query Image"
       onClick={() => onChange(undefined)}
-      className="max-w-full shrink-0"
+      className="max-w-full min-w-0"
     >
-      {value && "image" in value && (
+      {thumbnail && (
         <img
           className="size-6 shrink-0 rounded-chip object-cover"
           width={24}
           height={24}
           alt=""
-          src={`data:${value.image.mime};base64,${value.image.data}`}
+          src={thumbnail}
         />
       )}
-      {busy ? "Reading Image" : "Query Image"}
+      <span className="min-w-0 truncate" dir="auto">
+        {busy ? "Reading Image" : name}
+      </span>
       <XIcon className="size-4" aria-hidden />
     </FilterChip>
   );
+}
+
+/** Search with this Memory's stored Visual / Overview vectors, without uploading it again. */
+export function SearchByImage({
+  memory,
+  onSelect,
+  compact = false,
+  className,
+}: {
+  memory: Memory;
+  onSelect?: (memory: Memory) => void;
+  compact?: boolean;
+  className?: string;
+}) {
+  if (!memory.hasVectors || memory.aiOptOut || !onSelect) return null;
+  return (
+    <Button
+      variant="quiet"
+      size="sm"
+      className={className}
+      onClick={() => onSelect(memory)}
+    >
+      <ImagePlusIcon aria-hidden />
+      <span className={compact ? "max-sm:sr-only" : undefined}>
+        Search By Image
+      </span>
+    </Button>
+  );
+}
+
+export function memoryImageQuery(memory: Memory): ImageQuery {
+  return {
+    id: crypto.randomUUID(),
+    memory: memory.id,
+    name: memoryName(memory) || "Memory",
+    ...(memory.image?.thumbnailUrl && {
+      thumbnailUrl: memory.image.thumbnailUrl,
+    }),
+  };
 }

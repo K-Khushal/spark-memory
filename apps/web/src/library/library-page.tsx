@@ -1,5 +1,6 @@
 import {
   ImageQueryControls,
+  memoryImageQuery,
   QueryImageChip,
   useImageQuery,
   type ImageQueryProps,
@@ -288,6 +289,17 @@ export function LibraryPage({
     setLike(memory);
     window.scrollTo({ top: 0 });
   };
+  const searchByImage = (memory: Memory) => {
+    setOpenId(undefined);
+    setImageId(undefined);
+    setPdf(undefined);
+    setSearchOpen(false);
+    setQuery("");
+    setDraft("");
+    setLike(undefined);
+    setVisual(memoryImageQuery(memory));
+    window.scrollTo({ top: 0 });
+  };
   const changeChips = (next: SearchChips) => {
     setChips(next);
     setLike(undefined);
@@ -392,6 +404,9 @@ export function LibraryPage({
         onPaste={pasteOntoWall}
         searchLabel={searchLabel}
         searchActive={searching}
+        searchImageControl={
+          <ImageQueryControls {...queryImage} showChip={false} compact />
+        }
         onClearSearch={clearSearchClick}
         filters={
           (library.memories.length > 0 || visual || imageBusy) && (
@@ -419,6 +434,13 @@ export function LibraryPage({
               <DeskSearchField
                 label={searchLabel}
                 active={searching}
+                imageControl={
+                  <ImageQueryControls
+                    {...queryImage}
+                    showChip={false}
+                    compact
+                  />
+                }
                 onSearch={openSearch}
                 onClear={clearSearchClick}
               />
@@ -444,11 +466,6 @@ export function LibraryPage({
           )}
         </div>
         <h1 className="sr-only">Library</h1>
-        <ImageQueryControls
-          {...queryImage}
-          showChip={false}
-          memories={library.memories}
-        />
         {library.state === "ready" && (
           <Onboarding
             activationVersion={activationVersion}
@@ -526,7 +543,6 @@ export function LibraryPage({
         onCatch={() => setOverlaysDown(true)}
         searchOpen={searchOpen}
         imageQuery={queryImage}
-        memories={library.memories}
         draft={draft}
         instant={instant}
         onSearchOpenChange={(open) => {
@@ -562,6 +578,7 @@ export function LibraryPage({
         onCategories={library.setCategories}
         onAiOptOut={library.setAiOptOut}
         onMoreLikeThis={moreLikeThis}
+        onSearchByImage={searchByImage}
       />
       {dropping && (
         <div

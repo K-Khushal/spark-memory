@@ -8,12 +8,12 @@ Fixed base: `963a565` (Direct/Related). Independent Standards and Spec reviews i
 
 ### Standards
 
-| Finding                                                                    | Resolution                                                     |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| The Library select used 13px on phones and had no explicit minimum target. | 16px on phones; minimum 36px height.                           |
-| An error used an em dash and loading copy used an ellipsis.                | “Search Unavailable” and “Reading Image”, following DESIGN.md. |
-| The embedding path decoded the image twice.                                | Reuse the bounded bytes for hashing and embedding.             |
-| Image-query callbacks were repeated across three component interfaces.     | Pass the shared `ImageQueryProps` contract.                    |
+| Finding                                                                   | Resolution                                                     |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| The initial Library select used 13px on phones and had no minimum target. | Removed in the Opus revision; use Memory actions.              |
+| An error used an em dash and loading copy used an ellipsis.               | “Search Unavailable” and “Reading Image”, following DESIGN.md. |
+| The embedding path decoded the image twice.                               | Reuse the bounded bytes for hashing and embedding.             |
+| Image-query callbacks were repeated across three component interfaces.    | Pass the shared `ImageQueryProps` contract.                    |
 
 Two documented-rule findings and two heuristic smells; all fixed.
 
@@ -36,17 +36,17 @@ The `better-interface` orchestrator skill was read. Its six owning skills (`bett
 | Colors        | Owning skill unavailable | Not reviewed |
 | UI            | Owning skill unavailable | Not reviewed |
 
-Web Interface Guidelines were fetched from their primary source on 2026-11-13. Checked controls for accessible names, native keyboard behavior, visible focus, phone input size, narrow layout, dark-theme tokens, image dimensions and non-animated state changes. Image paste is intentionally intercepted to implement the requested search action; ordinary text paste is preserved. The existing native select provides the file-drop alternative. No new motion was added: Search is a frequent keyboard action under `animate`.
+Web Interface Guidelines were fetched from their primary source on 2026-11-13. Checked controls for accessible names, native keyboard behavior, visible focus, phone input size, narrow layout, dark-theme tokens, image dimensions and non-animated state changes. Image paste is intentionally intercepted to implement the requested search action; ordinary text paste is preserved. The file button and Memory action provide alternatives to file drop. No new motion was added: Search is a frequent keyboard action under `animate`.
 
 ## Break UI
 
-Development fixture: `/prototypes?imageSearch=1`, with Demo Data, Worst Case, Empty, One, and 1,000 Memories controls. It uses the production image-query component and typed Memory props. Values include a long filename, a long URL title within the 300-character title limit, CJK/RTL/emoji, an empty title and a one-letter title. The picker uses the existing Memory-name helper, so note bodies do not become unbounded option labels. Native options retain their full label; missing titles have a Memory-name fallback.
+Development fixture: `/prototypes?imageSearch=1`, with Demo Data, Worst Case, Empty, One, and 1,000 Memories controls. It uses the production Memory action and named query chip with typed Memory props. Values include a long filename, a 300-character URL title, CJK/RTL/emoji, an empty title and a one-letter title. Memory names and chip text are bounded and truncated; query chips keep the selected Memory's thumbnail when available.
 
-| Severity | Field                    | Failure Found                                                   | Fix                                                    |
-| -------- | ------------------------ | --------------------------------------------------------------- | ------------------------------------------------------ |
-| Fragile  | Library title            | Native select's intrinsic width could exceed a phone container. | `min-w-0`, `max-w-full`, wrapping controls.            |
-| Fragile  | Note body                | The first picker version rendered an entire note as its option. | Reuse the bounded Memory-name helper.                  |
-| Broken   | Search with zero matches | There was no wall action to commit an image query.              | Keep the Search action available even with no results. |
+| Severity | Field                    | Failure Found                                      | Fix                                                    |
+| -------- | ------------------------ | -------------------------------------------------- | ------------------------------------------------------ |
+| Fragile  | Long Memory name         | A query label could exceed a phone container.      | `min-w-0`, `max-w-full`, truncated chip text.          |
+| Fragile  | Note body                | An entire note could become an unbounded label.    | Reuse the bounded Memory-name helper.                  |
+| Broken   | Search with zero matches | There was no wall action to commit an image query. | Keep the Search action available even with no results. |
 
 A further self-audit reproduced an account-deletion race during asynchronous image hashing. Owner purge tracking now starts before hashing; the new public-interface test failed before the fix and the full 108-test search suite passed afterward.
 
@@ -54,7 +54,7 @@ Browser verification also caught a synthetic query drop bubbling into Capture; n
 
 A keyboard probe reproduced CmdK intercepting Enter on query controls. The control row now keeps native activation and navigation keys local while preserving Tab, Escape and the global Search shortcut; the browser test verifies Enter removes the chip without closing Search.
 
-Existing smoke locators are scoped to Search's listbox so they cannot select options from the new native Library picker. Their assertions are unchanged.
+Existing smoke locators remain scoped to Search's listbox. The native Library picker has been removed entirely.
 
 The merged allowance API test exposed a harness timing dependency: recording a mocked Jev call sometimes exceeded its production 350ms deadline under VM contention. This real-Postgres policy test now uses a generous test-only judging deadline; production limits and the controlled-clock deadline/fallback tests are unchanged. All 16 search API tests passed after the adjustment.
 
@@ -66,3 +66,15 @@ No product decisions remain open. Final verification on the branch after merging
 - Screenshots: 1440 and 390, light and dark, at `/data/workspace/spark-memory/.git/factory/r/t14-search-*.png`. Inspected for wrapping, contrast and chip placement; finite transitions are disabled for stable screenshots.
 
 Verdict: the independent code reviews' actionable findings are fixed. Interface approval is limited to the available guidelines and project rules; the six owning-skill domains above remain Not reviewed. No unresolved HIGH interface finding is known.
+
+## Opus Revision
+
+- S1: Removed the permanent wall control row. Upload is available inside Search and at the desk search field only while focused or searching; paste/drop remain on both surfaces.
+- S2: Replaced the loaded-Memory dropdown with Search By Image beside More Like This in detail and the image viewer. It reuses the stored vectors without an embedding call.
+- S3: Only `image_search_*` errors and `ProviderError` become 503; other errors reach the normal 500/Sentry path. The public HTTP regression failed before the fix (503 instead of 500), then all three expected/provider/unexpected cases passed.
+- S4: A Library query chip shows the selected Memory's bounded name and thumbnail.
+- S5: The type/size message is “Use a JPEG, PNG or WebP Under 20 MB”.
+
+The three updated browser tests passed, including field visibility, paste/drop on both surfaces, detail and viewer actions, thumbnail/name identification, no Capture side effects, and worst-case chip labels. Retook `t14-wall-*`, `t14-search-*` and `t14-picked-*` at 1440 and 390 in light and dark themes. Migration 0028 and its timestamp remain unchanged per coordination with #25.
+
+Revision verification: `pnpm check` passed, including the full real-Postgres/API suites and builds; `eval:check` passed without regression (27/36 top-1, 31/36 top-5, all three image cases first). Nine neighboring image/search/focus browser smoke tests also passed. Temporary runner configuration was restored after the check.

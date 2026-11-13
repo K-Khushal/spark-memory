@@ -282,12 +282,12 @@ describe("filters without words", () => {
 it("image-only searches use full mode and discard a removed image's late answer", async () => {
   const s = setup(0);
   s.session.set(
-    { query: "", visual: { id: "one", memory: "memory-one" } },
+    { query: "", visual: { id: "one", memory: "memory-one", name: "One" } },
     "0"
   );
   expect(s.pending.map((p) => p.mode)).toEqual(["full"]);
   s.session.set(
-    { query: "", visual: { id: "two", memory: "memory-two" } },
+    { query: "", visual: { id: "two", memory: "memory-two", name: "Two" } },
     "0"
   );
   s.pending[1]!.answer(["new"]);

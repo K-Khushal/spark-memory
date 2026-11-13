@@ -31,7 +31,6 @@ export function SearchCommand({
   open,
   draft,
   imageQuery,
-  memories,
   instant,
   onOpenChange,
   onDraft,
@@ -43,7 +42,6 @@ export function SearchCommand({
 }: {
   open: boolean;
   imageQuery: ImageQueryProps;
-  memories: Memory[];
   draft: string;
   instant: Results | "failed" | undefined;
   onOpenChange: (open: boolean) => void;
@@ -96,7 +94,7 @@ export function SearchCommand({
       value={highlight}
       onValueChange={setHighlight}
     >
-      <ImageQueryControls {...imageQuery} memories={memories}>
+      <ImageQueryControls {...imageQuery}>
         <CommandInput
           value={draft}
           onValueChange={onDraft}
@@ -218,8 +216,8 @@ function ListNote({ children }: { children: string }) {
 }
 
 function ResultGroup({
-  heading,
   memories,
+  heading,
   onOpen,
 }: {
   heading: string;

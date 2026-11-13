@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { Button } from "@spark/ui";
-import { ImageQueryControls, useImageQuery } from "../library/image-query";
+import {
+  ImageQueryControls,
+  SearchByImage,
+  memoryImageQuery,
+  useImageQuery,
+} from "../library/image-query";
 import type { Memory } from "../library/use-library";
 
 const titles = [
@@ -75,9 +80,21 @@ export default function ImageQueryPrototype() {
           busy={query.busy}
           onChange={query.change}
           onFile={query.choose}
-          memories={names.map(memory)}
         />
       </div>
+      <ul className="mx-auto max-h-[60dvh] max-w-xl overflow-auto">
+        {names.map((name, index) => (
+          <li key={index} className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate" dir="auto">
+              {name || "Memory"}
+            </span>
+            <SearchByImage
+              memory={memory(name, index)}
+              onSelect={(m) => query.change(memoryImageQuery(m))}
+            />
+          </li>
+        ))}
+      </ul>
       <div className="fixed inset-x-0 bottom-4 flex flex-wrap justify-center gap-2 bg-canvas">
         {states.map((label) => (
           <Button

@@ -3,6 +3,9 @@ import { Client } from "pg";
 import { EMBEDDING } from "@spark/core";
 import type * as Core from "@spark/core";
 import { queryVectorsCached } from "@spark/search";
+import * as Search from "@spark/search";
+import * as Sentry from "@sentry/cloudflare";
+import { ProviderError } from "@spark/indexing";
 import { requeueStalled } from "../src/indexing";
 import {
   newClient,
@@ -14,6 +17,8 @@ import {
   queues,
   signedIn,
 } from "./worker";
+
+vi.mock("@sentry/cloudflare", { spy: true });
 
 // Real Postgres and fake-provider policy assertions must not depend on the
 // shared VM completing database cost writes inside the production 350ms SLA.
@@ -99,6 +104,36 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       ).status
     ).toBe(413);
   });
+
+  it.each([
+    { failure: new Error("image_search_budget"), status: 503 },
+    { failure: new ProviderError("failed"), status: 503 },
+    { failure: new Error("database failed"), status: 500 },
+  ])(
+    "reports image-search failure with status $status through the appropriate error path",
+    async ({ failure, status }) => {
+      const { call } = await signedIn();
+      const reported = vi.mocked(Sentry.captureException);
+      reported.mockClear();
+      vi.spyOn(Search, "createSearch").mockReturnValueOnce({
+        search: async () => {
+          throw failure;
+        },
+        similar: async () => [],
+      });
+      const response = await postSearch(call, {
+        mode: "full",
+        memory: "00000000-0000-4000-8000-000000000001",
+      });
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({
+        ok: false,
+        error: status === 503 ? "image_search_unavailable" : "internal_error",
+      });
+      if (status === 500) expect(reported).toHaveBeenCalledWith(failure);
+      else expect(reported).not.toHaveBeenCalled();
+    }
+  );
 
   it("records committed searches behind authentication and isolates their history", async () => {
     expect((await newClient()("/api/search/recent")).status).toBe(401);
