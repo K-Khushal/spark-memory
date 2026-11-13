@@ -31,6 +31,7 @@ export {
   isFileWithinAllowance,
   PLANS,
   type AllowanceUsage,
+  type CaptureRefusal,
   type FileRefusal,
   type Meter,
   DEFAULT_PLAN,

@@ -31,8 +31,11 @@ export const IMAGE_TYPES = [
   "image/avif",
 ] as const;
 
-/** Why a file is refused. `captures_full` is the daily limit, which resets at midnight UTC. */
+/** Why a file does not fit: too big, or no storage left. */
 export type FileRefusal = "file_too_large" | "storage_full";
+
+/** Why a Capture of a file is refused: `captures_full` is the daily limit, which resets at midnight UTC. */
+export type CaptureRefusal = FileRefusal | "captures_full";
 
 export function isFileWithinAllowance(input: {
   fileBytes: number;

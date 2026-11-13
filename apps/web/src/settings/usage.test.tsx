@@ -5,7 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FREE_ALLOWANCE } from "@spark/core";
-import { nameOf, UsageSection, type Usage } from "./usage";
+import { nameOf, UsageSection, type Heaviest, type Usage } from "./usage";
 
 const MB = 1024 * 1024;
 
@@ -102,7 +102,7 @@ describe("Usage in Settings", () => {
   });
 
   it("lists what takes the most storage only when storage is nearly full", async () => {
-    const largest = [
+    const largest: Heaviest[] = [
       { id: "a", kind: "pdf", title: "Lease", sourceUrl: null, bytes: 9 * MB },
     ];
     await show(usage({ largest }));
@@ -158,7 +158,7 @@ describe("Usage in Settings", () => {
 });
 
 describe("naming a Memory in the list (worst case)", () => {
-  const row = (over: object) => ({
+  const row = (over: Partial<Heaviest>): Heaviest => ({
     id: "x",
     kind: "link",
     title: null,
@@ -167,7 +167,7 @@ describe("naming a Memory in the list (worst case)", () => {
     ...over,
   });
 
-  it.each([
+  it.each<[Partial<Heaviest>, string]>([
     [{ title: "  Lease  " }, "Lease"],
     [{ title: "   ", sourceUrl: "https://www.garden.test/a" }, "garden.test"],
     [{ sourceUrl: "not a url", kind: "pdf" }, "PDF"],
@@ -188,7 +188,7 @@ describe("naming a Memory in the list (worst case)", () => {
           used: FREE_ALLOWANCE.storageBytes,
           limit: FREE_ALLOWANCE.storageBytes,
         },
-        largest: [row({ title: "x".repeat(400), bytes: 1023 * MB }) as never],
+        largest: [row({ title: "x".repeat(400), bytes: 1023 * MB })],
       })
     );
     const title = host.querySelector("li span")!;

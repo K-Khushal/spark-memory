@@ -7,7 +7,7 @@ import {
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
-  type FileRefusal,
+  type CaptureRefusal,
   keptPage,
   PAGE_IMAGE,
   PDF_TYPE,
@@ -163,7 +163,7 @@ export type FileCheck = "stored" | "missing" | "mismatch";
 export type ImageCaptureResult =
   | { created: boolean; memory: Memory; uploads: FileUpload[] }
   | { conflict: true }
-  | { refused: FileRefusal | "captures_full" };
+  | { refused: CaptureRefusal };
 export type PdfCaptureResult = ImageCaptureResult;
 
 /** A PDF's page image, for the viewer. */

@@ -1,12 +1,17 @@
 import { useId, useState } from "react";
 import { Loader2Icon, Trash2Icon } from "lucide-react";
 import { Button, Dialog, DialogContent, DialogTitle } from "@spark/ui";
-import { formatSize, type AllowanceUsage, type Meter } from "@spark/core";
+import {
+  formatSize,
+  type AllowanceUsage,
+  type MemoryKind,
+  type Meter,
+} from "@spark/core";
 
 /** A Memory that takes storage, as `GET /api/usage` names it. */
 export type Heaviest = {
   id: string;
-  kind: string;
+  kind: MemoryKind;
   title: string | null;
   sourceUrl: string | null;
   bytes: number;

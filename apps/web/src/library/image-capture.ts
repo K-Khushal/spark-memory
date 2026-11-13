@@ -421,20 +421,18 @@ export function imageCapture({
   };
 }
 
-const size = formatSize;
-
 /** What differs for a PDF; the rest reads the same. */
 const PDF_REFUSALS: Partial<Record<ImageRefusal | ServerRefusal, string>> = {
   invalid: "PDF Can't Be Captured",
-  file_too_large: `PDFs Over ${size(FREE_ALLOWANCE.maxUploadBytes)} Can't Be Captured`,
+  file_too_large: `PDFs Over ${formatSize(FREE_ALLOWANCE.maxUploadBytes)} Can't Be Captured`,
   unreadable: "PDF Can't Be Read",
 };
 
 const REFUSALS: Record<ImageRefusal | ServerRefusal, string> = {
   // The server could not accept what the browser made of it: retrying won't help.
   invalid: "Image Can't Be Captured",
-  file_too_large: `Images Over ${size(FREE_ALLOWANCE.maxUploadBytes)} Can't Be Captured`,
-  storage_full: `Your ${size(FREE_ALLOWANCE.storageBytes)} Free Allowance Is Full`,
+  file_too_large: `Images Over ${formatSize(FREE_ALLOWANCE.maxUploadBytes)} Can't Be Captured`,
+  storage_full: `Your ${formatSize(FREE_ALLOWANCE.storageBytes)} Free Allowance Is Full`,
   captures_full: "Daily Capture Limit Reached",
   unsupported: "This File Type Can't Be Captured",
   unreadable: "Image Can't Be Read",

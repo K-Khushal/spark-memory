@@ -21,6 +21,3 @@ export function formatCost(micros: number): string {
     currency: "USD",
   });
 }
-
-/** Bytes the way the Free allowance is counted, short. */
-export { formatSize as formatBytes } from "@spark/core";

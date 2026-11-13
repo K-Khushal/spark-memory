@@ -5,6 +5,7 @@ import { validator } from "hono/validator";
 import {
   AiOptOut,
   allowanceUsage,
+  type CaptureRefusal,
   EMBEDDING,
   embeddingSpace,
   FREE_ALLOWANCE,
@@ -179,10 +180,7 @@ const filesOf = async (library: Library, id: string) =>
  * left (413, the person can act), or today's Captures used up (429, with
  * Retry-After to the next UTC day).
  */
-const refusal = <E extends Env>(
-  c: Context<E>,
-  reason: "file_too_large" | "storage_full" | "captures_full"
-) => {
+const refusal = <E extends Env>(c: Context<E>, reason: CaptureRefusal) => {
   if (reason !== "captures_full") {
     return c.json({ ok: false, error: reason } as const, 413);
   }
