@@ -10,6 +10,7 @@ import {
   lostCall,
   overInlineLimit,
   ProviderError,
+  type GeminiLike,
   type Provider,
 } from "./provider";
 
@@ -17,18 +18,7 @@ const MAX_OUTPUT_TOKENS = 4096;
 /** An image at Gemini 3's default (high) media resolution (docs/research/enrichment.md). */
 const IMAGE_TOKENS = 1120;
 
-export type GeminiOptions = {
-  apiKey: string;
-  /**
-   * Must be `true`: the key belongs to a Cloud project with active billing.
-   * Google uses free-tier content to train and lets reviewers read it, and
-   * the API cannot tell the tiers apart, so this is our only guard (ADR-0005).
-   */
-  paidTier: boolean;
-  model?: string;
-  fetch?: typeof fetch;
-  timeoutMs?: number;
-};
+export type GeminiOptions = GeminiLike;
 
 type Reply = {
   candidates?: { content?: { parts?: { text?: string }[] } }[];

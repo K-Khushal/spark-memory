@@ -7,6 +7,8 @@ export type PermissionCapture = {
   frameId: number;
   origin: string;
   expiresAt: number;
+  /** A site adapter's first use: declining still Captures, with the generic reader. */
+  adapter?: boolean;
 };
 /** Called directly by the permission page's button, before any await. */
 export async function grantCapture(job: PermissionCapture) {

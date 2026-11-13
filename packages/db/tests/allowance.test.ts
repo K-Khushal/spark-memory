@@ -4,6 +4,7 @@ import {
   FREE_ALLOWANCE,
   type ImageCapture,
   type PdfCapture,
+  type ReelCopy,
 } from "@spark/core";
 import {
   openDatabase,
@@ -214,5 +215,72 @@ describe.skipIf(!databaseUrl)("Captures in the Free allowance", () => {
     const largest = await library.largest(5);
     expect(largest.map((m) => m.id)).toEqual([big.memory.id, small.memory.id]);
     expect(largest[0]).toMatchObject({ kind: "image", bytes: 9300 });
+  });
+
+  describe("a reel's copy (#20)", () => {
+    const reel = async (library: ReturnType<typeof openLibrary>) => {
+      const result = await library.captureLink({
+        url: `https://www.instagram.com/reel/${crypto.randomUUID().slice(0, 8)}/`,
+      });
+      if (!("memory" in result)) throw new Error("conflict");
+      return result.memory;
+    };
+    const copyOf = (bytes: number): ReelCopy => ({
+      bytes,
+      duration: 30,
+      frames: [{ seconds: 1, bytes: 1000, width: 540, height: 960 }],
+    });
+
+    it("takes storage for the video and its frames, and never a Capture", async () => {
+      const { library } = await person();
+      const memory = await reel(library);
+      const before = await library.usage();
+      await library.attachCopy(memory.id, copyOf(5000));
+      expect(await library.usage()).toEqual({
+        ...before,
+        storageBytes: before.storageBytes + 5000 + 1000,
+      });
+    });
+
+    it("fits exactly into what storage has left, and not one byte more", async () => {
+      const { library } = await person();
+      const memory = await reel(library);
+      const used = FREE_ALLOWANCE.storageBytes - 6000;
+      const holder = await library.captureImage(image({ bytes: 100 }));
+      if (!("memory" in holder)) throw new Error("not created");
+      await db.execute(
+        sql`update memory_file set bytes = ${used - 300}
+            where memory_id = ${holder.memory.id} and role = 'original'`
+      );
+      expect(await library.attachCopy(memory.id, copyOf(5001))).toEqual({
+        refused: "storage_full",
+      });
+      expect(await library.attachCopy(memory.id, copyOf(5000))).toMatchObject({
+        uploads: expect.any(Array),
+      });
+      expect((await library.usage()).storageBytes).toBe(
+        FREE_ALLOWANCE.storageBytes
+      );
+    });
+
+    it("counts a replaced copy once, so a second attach is not refused for the first", async () => {
+      const { library } = await person();
+      const memory = await reel(library);
+      await library.attachCopy(memory.id, copyOf(5000));
+      await library.attachCopy(memory.id, copyOf(7000));
+      expect((await library.usage()).storageBytes).toBe(7000 + 1000);
+    });
+
+    it("refuses a video over the upload limit with its reason, taking nothing", async () => {
+      const { library } = await person();
+      const memory = await reel(library);
+      expect(
+        await library.attachCopy(
+          memory.id,
+          copyOf(FREE_ALLOWANCE.maxUploadBytes + 1)
+        )
+      ).toEqual({ refused: "file_too_large" });
+      expect((await library.usage()).storageBytes).toBe(0);
+    });
   });
 });

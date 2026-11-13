@@ -24,6 +24,20 @@ export type ExtractRequest = {
   correction?: { previous: string; errors: string };
 };
 
+/** What a Gemini adapter is built from (lib/gemini.ts, lib/gemini-transcribe.ts). */
+export type GeminiLike = {
+  apiKey: string;
+  /**
+   * Must be `true`: the key belongs to a Cloud project with active billing.
+   * Google uses free-tier content to train and lets reviewers read it, and
+   * the API cannot tell the tiers apart, so this is our only guard (ADR-0005).
+   */
+  paidTier: boolean;
+  model?: string;
+  fetch?: typeof fetch;
+  timeoutMs?: number;
+};
+
 export type Usage = { inputTokens: number; outputTokens: number };
 /**
  * What a call that may still be billed probably used. `imageTokens`, when

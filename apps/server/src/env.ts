@@ -94,6 +94,13 @@ export type Bindings = {
    * (docs/research/link-gathering.md). Never used for AI opt-out.
    */
   LINK_READER?: string;
+  /**
+   * Var: "true" lets gathering an Instagram link ask Meta's oEmbed (no token
+   * needed since May 2026). Meta's terms allow its content only as a
+   * front-end view, never persisted, and Spark keeps what it gathers, so
+   * this is an owner decision (docs/research/social-posts.md). Never used for AI opt-out.
+   */
+  INSTAGRAM_OEMBED?: string;
   /** Secret, optional: a Jina Reader key raises its rate limit. */
   JINA_API_KEY?: string;
   /**

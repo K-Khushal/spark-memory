@@ -22,6 +22,8 @@ export {
   PdfCapture,
   indexedPages,
   isPartlyIndexed,
+  REEL_COPY,
+  ReelCopy,
 } from "./lib/memory";
 export {
   FREE_ALLOWANCE,
@@ -92,6 +94,9 @@ export {
 
 export {
   youtubeId,
+  instagramReel,
+  socialPlatform,
+  type SocialPlatform,
   isVideoUrl,
   videoTimestamp,
   formatTimestamp,

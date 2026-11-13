@@ -28,8 +28,8 @@ export type Embedder = {
 /** Which part of a Memory a vector stands for (ADR-0004). */
 export type VectorPart =
   | { kind: "overview" }
-  /** An image's, or a PDF page's (`anchor.page`). */
-  | { kind: "visual"; anchor?: { page: number } }
+  /** An image's, a PDF page's (`anchor.page`) or a reel frame's (`anchor.seconds`). */
+  | { kind: "visual"; anchor?: { page: number } | { seconds: number } }
   | {
       kind: "passage";
       /** Character offsets into the Memory's text or the text in its image, and a PDF's page. */
@@ -46,6 +46,8 @@ export type VectorPart =
 export type Visual = {
   image: { bytes: Uint8Array; mime: string };
   page?: number;
+  /** A reel frame's moment. */
+  seconds?: number;
 };
 
 /** A Memory's vectors, as one model made them from one revision of its text. */
@@ -184,10 +186,14 @@ export function embeddingInputs(
     .join("\n");
   inputs.push({ text: document(title, overview) });
   parts.push({ kind: "overview" });
-  for (const { image, page } of visuals) {
+  for (const { image, page, seconds } of visuals) {
     inputs.push({ image });
     parts.push(
-      page ? { kind: "visual", anchor: { page } } : { kind: "visual" }
+      page
+        ? { kind: "visual", anchor: { page } }
+        : seconds !== undefined
+          ? { kind: "visual", anchor: { seconds } }
+          : { kind: "visual" }
     );
   }
   const pdf = source.pages ?? 0;

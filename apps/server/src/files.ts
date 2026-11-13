@@ -12,13 +12,16 @@ import type { Bindings } from "./env";
  */
 export type FileStore = {
   /** Where and how the browser PUTs `file`: the URL and the headers it must send. */
-  signUpload(file: FileUpload): Promise<SignedUpload>;
+  signUpload(file: StoredFile): Promise<SignedUpload>;
   /** A URL that GETs `key` for a while (the same URL within the hour, so browsers cache it). */
   signDownload(key: string): Promise<string>;
   /** Whether `file` arrived as described; a file that did not match is deleted. */
-  check(file: FileUpload): Promise<"stored" | "missing" | "mismatch">;
+  check(file: StoredFile): Promise<"stored" | "missing" | "mismatch">;
   remove(keys: string[]): Promise<void>;
 };
+
+/** What a presigned upload and its check need of a file: Memory files and a reel's copy alike. */
+export type StoredFile = Pick<FileUpload, "key" | "mime" | "bytes">;
 
 export type SignedUpload = { url: string; headers: Record<string, string> };
 
