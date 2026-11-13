@@ -4,7 +4,7 @@ Spark exposes a read-only remote MCP endpoint at `https://YOUR_SPARK_HOST/api/mc
 
 ## Connect with OAuth
 
-Use your deployed Spark HTTPS origin, replacing `YOUR_SPARK_HOST` below. The assistant discovers the authorization server, registers its redirect and opens Spark sign-in. The consent screen names the assistant. Approve only the assistant you meant to connect. Access expires after one hour; reconnect to renew it. No refresh tokens are issued.
+Use your deployed Spark HTTPS origin, replacing `YOUR_SPARK_HOST` below. The assistant discovers the authorization server, registers its redirect and opens Spark sign-in. The consent screen names the assistant. Approve only the assistant you meant to connect. Access expires after one hour. The client renews it with a rotating refresh token, which expires after 90 days without use. Reusing a spent refresh token revokes its whole token family and requires sign-in again.
 
 [Claude Code](https://code.claude.com/docs/en/mcp):
 
@@ -21,11 +21,11 @@ codex mcp add spark --url https://YOUR_SPARK_HOST/api/mcp
 codex mcp login spark
 ```
 
-Start a session and ask it to find a Memory you saved. Inspect the Source before relying on it. In Spark Settings → Connected Assistants, Revoke ends the token's access on its next request.
+Start a session and ask it to find a Memory you saved. Inspect the Source before relying on it. In Spark Settings → Connected Assistants, Revoke ends every access and refresh token held by that client on its next request. Settings and exports show one row per client, excluding expired grants.
 
 ## Connect with a personal access token
 
-In Settings → Connected Assistants, enter the assistant name and choose Create Token. Copy the token before choosing Done: Spark never shows it again. It expires after 90 days and can be revoked at any time. It can read your Library, including AI opt-out Memories; it cannot Capture, edit or delete.
+In Settings → Connected Assistants, enter the assistant name and choose Create Token. Copy the token before choosing Done: Spark never shows it again. It expires after 90 days and can be revoked at any time. Each person may hold up to 10 active personal access tokens and 20 active OAuth grant families; revoke an assistant to free a slot. It can read your Library, including AI opt-out Memories; it cannot Capture, edit or delete.
 
 For Codex, provide the token through an environment variable rather than putting it in configuration:
 
@@ -57,7 +57,7 @@ Real Claude Code and Codex checks need your own signed-in clients; the SDK hands
 1. Complete OAuth sign-in and check the assistant name and callback host on consent.
 2. Find a known Memory and verify its `match`, why-chip, original text and Source. Read it by id and try More Like This.
 3. Confirm Sample Memories are absent from searches. Read an AI opt-out Memory you intentionally chose to share.
-4. Revoke the assistant in Settings; confirm the next tool request asks for authorization. Confirm an expired token also needs reconnection.
+4. Revoke the assistant in Settings; confirm the next tool request asks for authorization. Confirm access renews without consent, then verify refresh reuse or 90 days of inactivity requires reconnection.
 5. Repeat with a personal access token where supported, and remove it afterward.
 
 Already returned data cannot be recalled. Original-file URLs already issued retain the existing download expiry (at most two hours). Activity records omit queries and Memory content; account deletion removes all credentials and activity. Library export includes `connected-assistants.json` with metadata only.

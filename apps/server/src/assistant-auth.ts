@@ -31,7 +31,9 @@ const registration = z.object({
   client_name: z.string().trim().min(1).max(80),
   redirect_uris: z.array(redirectUri).min(1).max(8),
   token_endpoint_auth_method: z.literal("none").default("none"),
-  grant_types: z.array(z.literal("authorization_code")).optional(),
+  grant_types: z
+    .array(z.enum(["authorization_code", "refresh_token"]))
+    .optional(),
   response_types: z.array(z.literal("code")).optional(),
 });
 const authorization = z.object({
@@ -51,6 +53,12 @@ const exchange = z.object({
   redirect_uri: redirectUri,
   resource: z.string().max(2048),
   code_verifier: z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/),
+});
+const renewal = z.object({
+  grant_type: z.literal("refresh_token"),
+  refresh_token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  client_id: z.string().max(128),
+  resource: z.string().max(2048).optional(),
 });
 const assistantName = z.object({ name: z.string().trim().min(1).max(80) });
 // RFC 8252 §7.3: native loopback IP callbacks choose an ephemeral port.
@@ -113,23 +121,63 @@ export const assistantAuth = new Hono<AppEnv>()
   })
   .post("/oauth/token", async (c) => {
     const form = await c.req.parseBody();
-    const parsed = exchange.safeParse(form);
-    if (!parsed.success || parsed.data.resource !== resourceFor(c.env))
-      return c.json({ error: "invalid_grant" }, 400);
     const token = opaque();
-    const p = parsed.data;
-    const ok = await assistantStore(c.var.db).exchange({
-      digest: await digest(p.code),
-      clientId: p.client_id,
-      redirect: p.redirect_uri,
-      challenge: await digest(p.code_verifier),
-      resource: p.resource,
+    const refresh = opaque();
+    const store = assistantStore(c.var.db);
+    const credentials = {
       tokenDigest: await digest(token),
+      refreshDigest: await digest(refresh),
       id: crypto.randomUUID(),
-    });
+    };
+    let ok: boolean | "limit" = false;
+    if (form.grant_type === "refresh_token") {
+      const parsed = renewal.safeParse(form);
+      if (parsed.success)
+        ok = await store.refresh({
+          ...credentials,
+          digest: await digest(parsed.data.refresh_token),
+          clientId: parsed.data.client_id,
+          resource: parsed.data.resource ?? resourceFor(c.env),
+        });
+    } else {
+      const parsed = exchange.safeParse(form);
+      if (parsed.success) {
+        const p = parsed.data;
+        ok = await store.exchange({
+          ...credentials,
+          digest: await digest(p.code),
+          clientId: p.client_id,
+          redirect: p.redirect_uri,
+          challenge: await digest(p.code_verifier),
+          resource: p.resource,
+        });
+      } else if (
+        typeof form.code === "string" &&
+        /^[A-Za-z0-9_-]{43}$/.test(form.code)
+      ) {
+        await store.exchange({
+          ...credentials,
+          digest: await digest(form.code),
+          clientId: "",
+          redirect: "",
+          challenge: "",
+          resource: "",
+        });
+      }
+    }
+    if (ok === "limit")
+      return c.json(
+        {
+          error: "invalid_grant",
+          error_description:
+            "You have 20 active OAuth grants. Revoke an assistant before connecting another.",
+        },
+        400
+      );
     return ok
       ? c.json({
           access_token: token,
+          refresh_token: refresh,
           token_type: "Bearer",
           expires_in: 3600,
           scope: "memories:read",
@@ -232,6 +280,15 @@ export const assistantAuth = new Hono<AppEnv>()
       p.data.name,
       await digest(token)
     );
+    if (assistant === "limit")
+      return c.json(
+        {
+          error: "assistant_limit",
+          error_description:
+            "You have 10 active personal access tokens. Revoke a token before creating another.",
+        },
+        409
+      );
     return assistant
       ? c.json({ ...assistant, token, scope: "memories:read" }, 201)
       : c.json({ error: "unauthorized" }, 401);

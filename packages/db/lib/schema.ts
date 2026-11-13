@@ -674,6 +674,33 @@ export const assistantCode = pgTable("assistant_code", {
     .default(sql`now() + interval '5 minutes'`)
     .notNull(),
 });
+export const assistantGrant = pgTable(
+  "assistant_grant",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => assistantClient.id, { onDelete: "cascade" }),
+    resource: text("resource").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true })
+      .default(sql`now() + interval '90 days'`)
+      .notNull(),
+  },
+  (t) => [index("assistant_grant_owner_client").on(t.userId, t.clientId)]
+);
+export const assistantRefresh = pgTable("assistant_refresh", {
+  digest: text("digest").primaryKey(),
+  grantId: text("grant_id")
+    .notNull()
+    .references(() => assistantGrant.id, { onDelete: "cascade" }),
+  used: boolean("used").default(false).notNull(),
+});
 export const assistantToken = pgTable(
   "assistant_token",
   {
@@ -681,6 +708,12 @@ export const assistantToken = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    clientId: text("client_id").references(() => assistantClient.id, {
+      onDelete: "cascade",
+    }),
+    grantId: text("grant_id").references(() => assistantGrant.id, {
+      onDelete: "cascade",
+    }),
     name: text("name").notNull(),
     digest: text("digest").notNull().unique(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -703,6 +736,9 @@ export const assistantActivity = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    clientId: text("client_id").references(() => assistantClient.id, {
+      onDelete: "set null",
+    }),
     assistant: text("assistant").notNull(),
     tool: text("tool").notNull(),
     occurredAt: timestamp("occurred_at", { withTimezone: true })
@@ -712,3 +748,12 @@ export const assistantActivity = pgTable(
   },
   (t) => [index("assistant_activity_owner").on(t.userId, t.occurredAt)]
 );
+
+/** A digest-only receipt survives code consumption so replay can revoke its credentials. */
+export const assistantCodeUse = pgTable("assistant_code_use", {
+  digest: text("digest").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  grantId: text("grant_id").notNull(),
+});

@@ -141,3 +141,29 @@ test("OAuth consent names the assistant and callback, with a working deny action
     });
   }
 });
+
+test("personal access token limit explains how to free a slot", async ({
+  page,
+}) => {
+  await signIn(page);
+  for (let i = 0; i < 10; i++) {
+    const issued = await page.request.post("/api/assistants", {
+      headers: { origin: new URL(page.url()).origin },
+      data: { name: `Limited Assistant ${i}` },
+    });
+    expect(issued.status()).toBe(201);
+  }
+  await page.goto("/settings");
+  await page.getByLabel("Assistant Name").fill("One More Assistant");
+  await page.getByRole("button", { name: "Create Token" }).click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "You Have 10 Active Tokens. Revoke One To Create Another."
+  );
+  await page
+    .getByRole("button", { name: "Revoke Limited Assistant 0", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Create Token" }).click();
+  await expect(page.getByLabel("Copy Token Now")).toHaveValue(
+    /^[A-Za-z0-9_-]{43}$/
+  );
+});

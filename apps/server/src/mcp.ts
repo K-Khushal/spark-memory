@@ -9,6 +9,7 @@ import { openDatabase, openLibrary } from "@spark/db";
 import { searchFor } from "./library-search";
 import { embedderFor } from "@spark/indexing";
 import { providers } from "./indexing";
+import { RATE_LIMIT_PERIOD_SECONDS } from "./rate-limit";
 import { fileStore, forClient } from "./files";
 import type { AppEnv, Bindings } from "./env";
 
@@ -72,8 +73,12 @@ export const mcp = new Hono<AppEnv>()
           : "unknown";
       let resultCount = 0;
       try {
-        if (!(await store.allow(access.id))) {
-          c.header("Retry-After", "60");
+        const perUser = c.env.SEARCH_LIMITER;
+        if (
+          (perUser && !(await perUser.limit({ key: access.userId })).success) ||
+          !(await store.allow(access.id))
+        ) {
+          c.header("Retry-After", String(RATE_LIMIT_PERIOD_SECONDS));
           return c.json({ error: "rate_limited" }, 429);
         }
         const embedder = embedderFor(providers(c.env));
@@ -191,7 +196,7 @@ export const discovery = new Hono<AppEnv>()
       token_endpoint: `${origin}/api/oauth/token`,
       registration_endpoint: `${origin}/api/oauth/register`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none"],
       code_challenge_methods_supported: ["S256"],
       scopes_supported: ["memories:read"],

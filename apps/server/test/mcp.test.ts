@@ -1,7 +1,70 @@
 import { describe, expect, it } from "vitest";
-import { databaseUrl, fakeTurnstile, newClient, signedIn } from "./worker";
+import { Client } from "pg";
+import { databaseUrl, env, fakeTurnstile, newClient, signedIn } from "./worker";
 
 fakeTurnstile();
+
+async function authorize(
+  call: ReturnType<typeof newClient>,
+  clientId?: string
+) {
+  if (!clientId) {
+    const registered = await newClient()("/api/oauth/register", {
+      method: "POST",
+      json: {
+        client_name: "Refresh Assistant",
+        redirect_uris: ["http://127.0.0.1:9000/callback"],
+      },
+    });
+    expect(registered.status).toBe(201);
+    clientId = ((await registered.json()) as { client_id: string }).client_id;
+  }
+  const verifier = "a".repeat(43);
+  const hash = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))
+  );
+  const challenge = btoa(String.fromCharCode(...hash))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: "http://127.0.0.1:9000/callback",
+    resource: "http://localhost:8787/api/mcp",
+    response_type: "code",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    scope: "memories:read",
+  });
+  const page = await call(`/api/oauth/authorize?${params}`);
+  const nonce = /name="nonce" value="([^"]+)"/.exec(await page.text())![1]!;
+  const approved = await call("/api/oauth/authorize", {
+    method: "POST",
+    form: { ...Object.fromEntries(params), nonce, decision: "allow" },
+  });
+  return {
+    grant_type: "authorization_code",
+    code: new URL(approved.headers.get("location")!).searchParams.get("code")!,
+    client_id: clientId,
+    redirect_uri: params.get("redirect_uri")!,
+    resource: params.get("resource")!,
+    code_verifier: verifier,
+  };
+}
+const tokenRequest = (
+  call: ReturnType<typeof newClient>,
+  form: Record<string, string>
+) => call("/api/oauth/token", { method: "POST", form });
+const tokenUse = (call: ReturnType<typeof newClient>, token: string) =>
+  call("/api/mcp", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+    },
+    json: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+  });
+
 describe.skipIf(!databaseUrl)("Connected assistants over HTTP", () => {
   it("discovers authorization and requires a bearer token", async () => {
     const call = newClient();
@@ -161,6 +224,8 @@ describe.skipIf(!databaseUrl)("OAuth authorization code flow", () => {
       resource: form.resource!,
       code_verifier: verifier,
     };
+    exchange.code = (await authorize(call, client.client_id)).code;
+    exchange.redirect_uri = "http://127.0.0.1:9000/callback";
     expect(
       (
         await anonymous("/api/oauth/token", {
@@ -169,6 +234,7 @@ describe.skipIf(!databaseUrl)("OAuth authorization code flow", () => {
         })
       ).status
     ).toBe(400);
+    exchange.code = (await authorize(call, client.client_id)).code;
     expect(
       (
         await anonymous("/api/oauth/token", {
@@ -177,14 +243,16 @@ describe.skipIf(!databaseUrl)("OAuth authorization code flow", () => {
         })
       ).status
     ).toBe(400);
+    exchange.code = (await authorize(call, client.client_id)).code;
     expect(
       (
         await anonymous("/api/oauth/token", {
           method: "POST",
-          form: { ...exchange, redirect_uri: "http://127.0.0.1:9000/callback" },
+          form: { ...exchange, redirect_uri: "http://127.0.0.1:9999/callback" },
         })
       ).status
     ).toBe(400);
+    exchange.code = (await authorize(call, client.client_id)).code;
     const responses = await Promise.all(
       [1, 2].map(() =>
         anonymous("/api/oauth/token", { method: "POST", form: exchange })
@@ -213,7 +281,7 @@ describe.skipIf(!databaseUrl)("OAuth authorization code flow", () => {
           },
         })
       ).status
-    ).toBe(200);
+    ).toBe(401);
   });
 });
 
@@ -293,6 +361,11 @@ describe.skipIf(!databaseUrl)("read-only Library boundary", () => {
   });
   it("revokes every token immediately when the owner requests deletion", async () => {
     const { call, address } = await signedIn();
+    const oauthCode = await authorize(call);
+    const oauth = (await (await tokenRequest(call, oauthCode)).json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
     const issued = (await (
       await call("/api/assistants", {
         method: "POST",
@@ -313,6 +386,17 @@ describe.skipIf(!databaseUrl)("read-only Library boundary", () => {
       json: { jsonrpc: "2.0", id: 1, method: "tools/list" },
     });
     expect(res.status).toBe(401);
+    expect((await tokenUse(newClient(), oauth.access_token)).status).toBe(401);
+    expect(
+      (
+        await tokenRequest(newClient(), {
+          grant_type: "refresh_token",
+          refresh_token: oauth.refresh_token,
+          client_id: oauthCode.client_id,
+          resource: oauthCode.resource,
+        })
+      ).status
+    ).toBe(400);
   });
   it("rate limits a token atomically and logs failed calls without their arguments", async () => {
     const { call } = await signedIn();
@@ -355,5 +439,355 @@ describe.skipIf(!databaseUrl)("read-only Library boundary", () => {
     expect(activity).toContain('"tool":"unknown"');
     expect(activity).not.toContain("NEVER_LOG_THIS_QUERY");
     expect(activity).not.toContain(issued.token);
+  });
+});
+
+describe.skipIf(!databaseUrl)("OAuth credential lifecycle", () => {
+  it("burns a code on the first attempt and revokes issued credentials when it is replayed", async () => {
+    const { call } = await signedIn();
+    const bad = await authorize(call);
+    expect(
+      (await tokenRequest(call, { ...bad, code_verifier: "b".repeat(43) }))
+        .status
+    ).toBe(400);
+    expect((await tokenRequest(call, bad)).status).toBe(400);
+    const valid = await authorize(call, bad.client_id);
+    const response = await tokenRequest(call, valid);
+    expect(response.status).toBe(200);
+    const token = (await response.json()) as { access_token: string };
+    expect((await tokenUse(call, token.access_token)).status).toBe(200);
+    expect((await tokenRequest(call, valid)).status).toBe(400);
+    expect((await tokenUse(call, token.access_token)).status).toBe(401);
+  });
+});
+
+describe.skipIf(!databaseUrl)("rotating OAuth refresh families", () => {
+  it("rotates client-bound refresh tokens, keeps one client row and revokes the family on reuse", async () => {
+    const { call } = await signedIn();
+    const code = await authorize(call);
+    const issued = await tokenRequest(call, code);
+    expect(issued.status).toBe(200);
+    const first = (await issued.json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
+    expect(first.refresh_token).toHaveLength(43);
+    const request = {
+      grant_type: "refresh_token",
+      refresh_token: first.refresh_token,
+      client_id: code.client_id,
+      resource: code.resource,
+    };
+    expect(
+      (await tokenRequest(call, { ...request, client_id: "wrong-client" }))
+        .status
+    ).toBe(400);
+    expect(
+      (
+        await tokenRequest(call, {
+          ...request,
+          resource: "https://other.example/mcp",
+        })
+      ).status
+    ).toBe(400);
+    const renewed = await tokenRequest(call, request);
+    expect(renewed.status).toBe(200);
+    const second = (await renewed.json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
+    expect(second.refresh_token).toHaveLength(43);
+    expect(second.refresh_token).not.toBe(first.refresh_token);
+    await call("/api/mcp", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${second.access_token}`,
+        accept: "application/json, text/event-stream",
+      },
+      json: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "get_memory", arguments: { id: crypto.randomUUID() } },
+      },
+    });
+    expect(await (await call("/api/assistants/activity")).json()).toMatchObject(
+      {
+        activity: [
+          {
+            clientId: code.client_id,
+            assistant: "Refresh Assistant",
+            tool: "get_memory",
+            resultCount: 0,
+          },
+        ],
+      }
+    );
+    expect((await tokenUse(call, second.access_token)).status).toBe(200);
+    const reconnect = await tokenRequest(
+      call,
+      await authorize(call, code.client_id)
+    );
+    const independent = (await reconnect.json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
+    const listed = (await (await call("/api/assistants")).json()) as {
+      assistants: { id: string; clientId: string | null }[];
+    };
+    expect(listed.assistants).toHaveLength(1);
+    expect(listed.assistants[0]!.clientId).toBe(code.client_id);
+    expect(JSON.stringify(listed)).not.toContain(first.refresh_token);
+    expect((await tokenRequest(call, request)).status).toBe(400);
+    expect((await tokenUse(call, first.access_token)).status).toBe(401);
+    expect((await tokenUse(call, second.access_token)).status).toBe(401);
+    expect(
+      (
+        await tokenRequest(call, {
+          ...request,
+          refresh_token: second.refresh_token,
+        })
+      ).status
+    ).toBe(400);
+    // Reuse affects the compromised family, not a separate consent grant.
+    expect((await tokenUse(call, independent.access_token)).status).toBe(200);
+    const third = (await (
+      await tokenRequest(call, await authorize(call, code.client_id))
+    ).json()) as { access_token: string; refresh_token: string };
+    expect(
+      (
+        await call(`/api/assistants/${listed.assistants[0]!.id}`, {
+          method: "DELETE",
+        })
+      ).status
+    ).toBe(204);
+    expect((await tokenUse(call, independent.access_token)).status).toBe(401);
+    expect((await tokenUse(call, third.access_token)).status).toBe(401);
+    expect(
+      (
+        await tokenRequest(call, {
+          ...request,
+          refresh_token: third.refresh_token,
+        })
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await tokenRequest(call, {
+          ...request,
+          refresh_token: independent.refresh_token,
+        })
+      ).status
+    ).toBe(400);
+  });
+});
+
+describe.skipIf(!databaseUrl)("Connected assistant limits", () => {
+  it("caps personal access tokens at ten under concurrent issuance and releases a slot on revoke", async () => {
+    const { call } = await signedIn();
+    const issue = () =>
+      call("/api/assistants", {
+        method: "POST",
+        json: { name: "Limited Assistant" },
+      });
+    const responses = await Promise.all(Array.from({ length: 12 }, issue));
+    expect(responses.filter((r) => r.status === 201)).toHaveLength(10);
+    const refused = responses.filter((r) => r.status === 409);
+    expect(refused).toHaveLength(2);
+    expect(await refused[0]!.json()).toMatchObject({
+      error: "assistant_limit",
+      error_description: expect.stringContaining("10"),
+    });
+    const first = (await responses.find((r) => r.status === 201)!.json()) as {
+      id: string;
+    };
+    await call(`/api/assistants/${first.id}`, { method: "DELETE" });
+    expect((await issue()).status).toBe(201);
+  });
+  it("caps OAuth grant families at twenty and frees them on client revocation", async () => {
+    const { call } = await signedIn();
+    const code = await authorize(call);
+    expect((await tokenRequest(call, code)).status).toBe(200);
+    for (let i = 1; i < 19; i++)
+      expect(
+        (await tokenRequest(call, await authorize(call, code.client_id))).status
+      ).toBe(200);
+    const lastCodes = [
+      await authorize(call, code.client_id),
+      await authorize(call, code.client_id),
+    ];
+    const responses = await Promise.all(
+      lastCodes.map((p) => tokenRequest(call, p))
+    );
+    expect(responses.map((r) => r.status).sort()).toEqual([200, 400]);
+    expect(await responses.find((r) => r.status === 400)!.json()).toMatchObject(
+      {
+        error: "invalid_grant",
+        error_description: expect.stringContaining("20"),
+      }
+    );
+    const listed = (await (await call("/api/assistants")).json()) as {
+      assistants: { id: string }[];
+    };
+    expect(listed.assistants).toHaveLength(1);
+    await call(`/api/assistants/${listed.assistants[0]!.id}`, {
+      method: "DELETE",
+    });
+    expect(
+      (await tokenRequest(call, await authorize(call, code.client_id))).status
+    ).toBe(200);
+  });
+  it("shares SEARCH_LIMITER with dashboard search across all of a person's tokens", async () => {
+    const { call } = await signedIn();
+    const credentials = [];
+    for (let i = 0; i < 2; i++)
+      credentials.push(
+        (await (
+          await call("/api/assistants", {
+            method: "POST",
+            json: { name: "Rate Assistant" },
+          })
+        ).json()) as { token: string }
+      );
+    const keys: string[] = [];
+    const bindings = env({
+      SEARCH_LIMITER: {
+        limit: async ({ key }) => {
+          keys.push(key);
+          return { success: keys.length === 1 };
+        },
+      },
+    });
+    for (let i = 0; i < 2; i++) {
+      const response = await call(
+        "/api/mcp",
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${credentials[i]!.token}`,
+            accept: "application/json, text/event-stream",
+          },
+          json: {
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: {
+              name: "search_memories",
+              arguments: { query: "cardamom" },
+            },
+          },
+        },
+        bindings
+      );
+      expect(response.status).toBe(i === 0 ? 200 : 429);
+      if (i === 1) expect(response.headers.get("retry-after")).toBe("60");
+    }
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+    const dashboardKeys: string[] = [];
+    await call(
+      "/api/search",
+      { method: "POST", json: { q: "cardamom", mode: "full" } },
+      env({
+        SEARCH_LIMITER: {
+          limit: async ({ key }) => {
+            dashboardKeys.push(key);
+            return { success: false };
+          },
+        },
+      })
+    );
+    expect(dashboardKeys).toEqual([keys[0]]);
+  });
+});
+
+describe.skipIf(!databaseUrl)("OAuth inactivity and concurrency", () => {
+  it("slides the ninety-day inactivity deadline, excludes expired grants and refuses their access and refresh tokens", async () => {
+    const { call } = await signedIn();
+    const code = await authorize(call);
+    const first = (await (await tokenRequest(call, code)).json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
+    const user = (await (await call("/api/me")).json()) as { id: string };
+    const fixture = new Client({ connectionString: databaseUrl });
+    await fixture.connect();
+    try {
+      await fixture.query(
+        "update assistant_grant set expires_at = now() + interval '1 day' where user_id = $1",
+        [user.id]
+      );
+      const form = {
+        grant_type: "refresh_token",
+        refresh_token: first.refresh_token,
+        client_id: code.client_id,
+      };
+      const response = await tokenRequest(call, form);
+      expect(response.status).toBe(200);
+      const renewed = (await response.json()) as {
+        access_token: string;
+        refresh_token: string;
+      };
+      const list = (await (await call("/api/assistants")).json()) as {
+        assistants: { expiresAt: string }[];
+      };
+      expect(new Date(list.assistants[0]!.expiresAt).getTime()).toBeGreaterThan(
+        Date.now() + 89 * 86400000
+      );
+      expect(new Date(list.assistants[0]!.expiresAt).getTime()).toBeLessThan(
+        Date.now() + 91 * 86400000
+      );
+      await fixture.query(
+        "update assistant_grant set expires_at = now() - interval '1 second' where user_id = $1",
+        [user.id]
+      );
+      expect(await (await call("/api/assistants")).json()).toMatchObject({
+        assistants: [],
+      });
+      expect((await tokenUse(call, renewed.access_token)).status).toBe(401);
+      expect(
+        (
+          await tokenRequest(call, {
+            ...form,
+            refresh_token: renewed.refresh_token,
+          })
+        ).status
+      ).toBe(400);
+    } finally {
+      await fixture.end();
+    }
+  });
+  it("treats a parallel refresh as reuse and revokes every credential in that family", async () => {
+    const { call } = await signedIn();
+    const code = await authorize(call);
+    const issued = (await (await tokenRequest(call, code)).json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
+    const form = {
+      grant_type: "refresh_token",
+      refresh_token: issued.refresh_token,
+      client_id: code.client_id,
+      resource: code.resource,
+    };
+    const responses = await Promise.all([
+      tokenRequest(call, form),
+      tokenRequest(call, form),
+    ]);
+    expect(responses.map((r) => r.status).sort()).toEqual([200, 400]);
+    const rotated = (await responses.find((r) => r.status === 200)!.json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
+    expect((await tokenUse(call, issued.access_token)).status).toBe(401);
+    expect((await tokenUse(call, rotated.access_token)).status).toBe(401);
+    expect(
+      (
+        await tokenRequest(call, {
+          ...form,
+          refresh_token: rotated.refresh_token,
+        })
+      ).status
+    ).toBe(400);
   });
 });

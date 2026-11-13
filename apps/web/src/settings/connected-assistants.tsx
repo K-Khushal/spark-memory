@@ -7,7 +7,9 @@ const requestTimeout = () => ({
 });
 type Assistant = { id: string; name: string };
 type AssistantState =
-  { phase: "idle" | "pending" | "failed" } | { phase: "issued"; token: string };
+  | { phase: "idle" | "pending" }
+  | { phase: "failed"; message?: string }
+  | { phase: "issued"; token: string };
 async function readAssistants() {
   const res = await api.api.assistants.$get({}, requestTimeout());
   if (!res.ok) throw new Error("assistants unavailable");
@@ -46,6 +48,13 @@ export function ConnectedAssistants() {
         { json: { name } },
         requestTimeout()
       );
+      if (res.status === 409) {
+        setState({
+          phase: "failed",
+          message: "You Have 10 Active Tokens. Revoke One To Create Another.",
+        });
+        return;
+      }
       if (!res.ok) throw new Error("assistant not created");
       const created = await res.json();
       setAssistants((all) => [...all, { id: created.id, name: created.name }]);
@@ -136,7 +145,9 @@ export function ConnectedAssistants() {
       )}
       {state.phase === "failed" && (
         <div className="flex flex-col gap-2">
-          <p role="alert">Could Not Update Connected Assistants</p>
+          <p role="alert">
+            {state.message ?? "Could Not Update Connected Assistants"}
+          </p>
           <Button variant="outline" onClick={() => void retry()}>
             Try Again
           </Button>
