@@ -62,7 +62,7 @@ No product decisions remain open. Final verification on the branch after merging
 
 - `pnpm check`: passed, including real Postgres, migration tests and production builds. Package and test workers ran serially with extended harness deadlines during VM contention; assertions were unchanged. The temporary runner configuration was restored afterward.
 - `pnpm --filter @spark/evals eval:check`: passed before and after. The final run has 36 cases; all three image cases rank first, with no regression against the unchanged existing expectations.
-- Playwright smoke: 49 passed, 7 existing configured skips. Both image-query tests are included, covering file pick/paste/drop, downscaling, no Capture side effects, Library-vector choice and worst-case controls.
+- Playwright smoke: the earlier clean full run passed 49 with 7 existing configured skips. The final full run passed 48, skipped 7, and hit a non-JSON local dev-outbox response in sign-in; that unchanged sign-in test passed on its targeted retry. Both image-query tests passed in the final full run, covering file pick/paste/drop, downscaling, no Capture side effects, Library-vector choice, keyboard controls and worst-case controls.
 - Screenshots: 1440 and 390, light and dark, at `/data/workspace/spark-memory/.git/factory/r/t14-search-*.png`. Inspected for wrapping, contrast and chip placement; finite transitions are disabled for stable screenshots.
 
 Verdict: the independent code reviews' actionable findings are fixed. Interface approval is limited to the available guidelines and project rules; the six owning-skill domains above remain Not reviewed. No unresolved HIGH interface finding is known.
