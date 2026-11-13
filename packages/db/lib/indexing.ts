@@ -16,7 +16,7 @@ import {
 } from "@spark/core";
 import { readDailyBudgetMicros } from "./admin";
 import type { Database } from "./client";
-import { ANONYMISED_USER, lockOwner } from "./owner";
+import { ANONYMISED_USER, lockCategories, lockOwner } from "./owner";
 import {
   accountDeletion,
   aiCall,
@@ -374,26 +374,30 @@ export function indexingStore(db: Database) {
       categoriesGeneration: number
     ) {
       const categories = Categories.parse(input);
-      const rows = await db
-        .update(memory)
-        .set({
-          categories,
-          categoriesRevision: revision,
-          categoriesVersion: CATEGORISING.version,
-          categoriesGeneration,
-        })
-        .where(
-          and(
-            claimed(claim),
-            eq(memory.revision, revision),
-            eq(memory.aiOptOut, false),
-            categoriesStale,
-            // Made from an older list than the owner has now: refused, and
-            // the Memory stays due for the next go.
-            sql`${ownerGeneration} = ${categoriesGeneration}`
+      // The Categories lock first, before the Memory row: see `lockCategories`.
+      const rows = await db.transaction(async (tx) => {
+        await lockCategories(tx, claim.userId);
+        return tx
+          .update(memory)
+          .set({
+            categories,
+            categoriesRevision: revision,
+            categoriesVersion: CATEGORISING.version,
+            categoriesGeneration,
+          })
+          .where(
+            and(
+              claimed(claim),
+              eq(memory.revision, revision),
+              eq(memory.aiOptOut, false),
+              categoriesStale,
+              // Made from an older list than the owner has now: refused, and
+              // the Memory stays due for the next go.
+              sql`${ownerGeneration} = ${categoriesGeneration}`
+            )
           )
-        )
-        .returning({ id: memory.id });
+          .returning({ id: memory.id });
+      });
       return rows.length > 0;
     },
     /**

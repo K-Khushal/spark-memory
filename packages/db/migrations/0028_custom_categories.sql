@@ -34,12 +34,15 @@ ALTER TABLE memory ADD CONSTRAINT memory_categories_valid CHECK (
   cardinality(categories) BETWEEN 1 AND 3 AND array_position(categories, NULL) IS NULL
 );
 --> statement-breakpoint
+-- The trigger only reads. Every change to a Memory's Categories (the
+-- categoriser, a person's edit, AI opt-out) and every create, rename and
+-- delete of a Category takes the person's Categories lock first
+-- (pg_advisory_xact_lock(7, hashtext(user_id)), see lockCategories in
+-- @spark/db), so a Category cannot change under a write and no two of them
+-- can wait on each other. A new path that sets `categories` must take it.
 CREATE FUNCTION memory_categories_known() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  -- Share-lock the rows relied on: a Category deleted or renamed at the same
-  -- moment is waited for, so the name written is one that still exists.
-  PERFORM 1 FROM category k WHERE k.user_id = NEW.user_id AND k.name = ANY (NEW.categories) FOR SHARE;
   IF EXISTS (
     SELECT 1 FROM unnest(NEW.categories) c
     WHERE c <> ALL (builtin_categories())
@@ -50,9 +53,16 @@ BEGIN
   RETURN NEW;
 END $$;
 --> statement-breakpoint
-CREATE TRIGGER memory_categories_known
-  BEFORE INSERT OR UPDATE OF categories, user_id ON memory
+CREATE TRIGGER memory_categories_known_insert
+  BEFORE INSERT ON memory
   FOR EACH ROW EXECUTE FUNCTION memory_categories_known();
+--> statement-breakpoint
+-- Only when the Categories (or the owner) change: other updates never reach it.
+CREATE TRIGGER memory_categories_known
+  BEFORE UPDATE ON memory
+  FOR EACH ROW
+  WHEN (OLD.categories IS DISTINCT FROM NEW.categories OR OLD.user_id IS DISTINCT FROM NEW.user_id)
+  EXECUTE FUNCTION memory_categories_known();
 --> statement-breakpoint
 -- Re-categorising after a Category is created. `generation` goes up whenever
 -- the person's Categories change (create, rename, delete): a worker that

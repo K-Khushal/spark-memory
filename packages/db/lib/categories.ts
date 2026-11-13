@@ -7,7 +7,7 @@ import {
 } from "@spark/core";
 import type { Database } from "./client";
 import { categoriesStale, embeddable } from "./indexing";
-import { lockOwner } from "./owner";
+import { lockCategories, lockOwner } from "./owner";
 import { category, categoryRun, memory } from "./schema";
 
 /** A person's own Category and how many of their Memories have it. */
@@ -33,20 +33,6 @@ export function openCategories(db: Database, userId: string) {
   /** Memories of theirs that have `name`. */
   const holds = (name: string) =>
     sql`${memory.categories} @> array[${name}]::text[]`;
-
-  /**
-   * Locks the Memories that have `name`, in id order. A write to a Memory
-   * takes the Memory and then (its trigger) the Category; this takes the
-   * same order, so a rename or delete never waits for a Category while
-   * holding what a write is waiting for. The owner lock keeps two of these apart.
-   */
-  const lockHolders = (tx: Pick<Database, "select">, name: string) =>
-    tx
-      .select({ id: memory.id })
-      .from(memory)
-      .where(and(eq(memory.userId, userId), holds(name)))
-      .orderBy(memory.id)
-      .for("update");
 
   /** A change to their Categories: a new generation, and for a new Category the one Memories are due at. */
   const bump = (tx: Pick<Database, "insert">, due: boolean) =>
@@ -130,6 +116,7 @@ export function openCategories(db: Database, userId: string) {
     > {
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
+        await lockCategories(tx, userId);
         const own = (
           await tx.select({ name: category.name }).from(category).where(mine)
         ).map((c) => c.name);
@@ -158,9 +145,8 @@ export function openCategories(db: Database, userId: string) {
 
     /**
      * A new name, on the Category and on every Memory that has it, locked or
-     * not. Undefined when it is not theirs. Locks in the order a write to a
-     * Memory does (the Memory, then the Category its trigger reads), so the
-     * two can never wait on each other.
+     * not. Undefined when it is not theirs. Under the Categories lock, like
+     * every other change to a Memory's Categories.
      */
     async rename(
       id: string,
@@ -170,6 +156,7 @@ export function openCategories(db: Database, userId: string) {
     > {
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
+        await lockCategories(tx, userId);
         const all = await tx
           .select({ id: category.id, name: category.name })
           .from(category)
@@ -182,7 +169,6 @@ export function openCategories(db: Database, userId: string) {
         );
         if ("problem" in checked) return checked;
         if (checked.name !== target.name) {
-          await lockHolders(tx, target.name);
           await tx
             .update(category)
             .set({ name: checked.name })
@@ -206,17 +192,17 @@ export function openCategories(db: Database, userId: string) {
     /**
      * Takes the Category off every Memory that has it, never deleting one;
      * a Memory left with none is Other. How many had it, or undefined when
-     * it is not theirs. Locks Memories first, like `rename`.
+     * it is not theirs.
      */
     async remove(id: string): Promise<{ memories: number } | undefined> {
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
+        await lockCategories(tx, userId);
         const [target] = await tx
           .select({ name: category.name })
           .from(category)
           .where(and(mine, eq(category.id, id)));
         if (!target) return undefined;
-        await lockHolders(tx, target.name);
         await tx.delete(category).where(and(mine, eq(category.id, id)));
         await bump(tx, false);
         const left = sql`array_remove(${memory.categories}, ${target.name})`;

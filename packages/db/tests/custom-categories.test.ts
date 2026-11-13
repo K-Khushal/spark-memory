@@ -573,6 +573,83 @@ describe.skipIf(!url)("Custom Categories", () => {
           "Recipe",
         ]);
       });
+
+      /**
+       * A Memory holds the edit up (the first); meanwhile two others get the
+       * Category, one is held by a writer of something else and one is being
+       * written. The edit's first look at who has the Category was before
+       * they did, so a design that locked "the Memories that have it" up
+       * front misses them.
+       */
+      it("a Memory that gets the Category after the edit began, and is being written, cannot deadlock it", async () => {
+        const a = await person();
+        const garden = await a.create("Gardening");
+        const first = await a.capture("one");
+        const held = await a.capture("two");
+        const written = await a.capture("three");
+        await a.library.edit(first.id, { categories: ["Gardening"] });
+        /** A transaction that holds one Memory's row until released. */
+        const hold = (id: string) => {
+          let release!: () => void;
+          const gate = new Promise<void>((resolve) => (release = resolve));
+          let ready!: () => void;
+          const locked = new Promise<void>((resolve) => (ready = resolve));
+          const done = db.transaction(async (tx) => {
+            await tx.execute(
+              sql`select 1 from memory where id = ${id} for update`
+            );
+            ready();
+            await gate;
+          });
+          return { locked, release, done };
+        };
+        const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+        const blocker = hold(first.id);
+        await blocker.locked;
+        const edit = outcome(a.categories.rename(garden.id, "Plant Care"));
+        await untilLockWait();
+        // They get the Category now (or, once edits are serialised, as soon as they can).
+        // One after the other, so the held Memory is the first the edit meets.
+        const giving = (async () => {
+          await a.library.edit(held.id, { categories: ["Gardening"] });
+          await a.library.edit(written.id, { categories: ["Gardening"] });
+        })();
+        const gave = outcome(giving);
+        await Promise.race([giving.catch(() => {}), wait(700)]);
+        // The edit meets Memories in the order they sit on disk: it is held up
+        // by the first, and the second is the one being written.
+        const { rows: order } = await db.execute<{ id: string }>(
+          sql`select id from memory where id in (${held.id}, ${written.id}) order by ctid`
+        );
+        const [stuck, busy] = order.map((r) => r.id) as [string, string];
+        const other = hold(stuck);
+        await other.locked;
+        blocker.release();
+        await blocker.done;
+        await wait(400);
+        const writing = outcome(
+          a.library.edit(busy, { categories: ["Gardening", "Recipe"] })
+        );
+        await wait(400);
+        other.release();
+        await other.done;
+        expect(await Promise.all([edit, gave, writing])).toEqual([
+          "ok",
+          "ok",
+          "ok",
+        ]);
+        // Whatever order they ran in, no Memory is left with a name that is not a Category.
+        const known = new Set<string>([
+          ...CATEGORY_NAMES,
+          ...(await a.categories.list()).categories.map((c) => c.name),
+        ]);
+        for (const m of [first, held, written]) {
+          expect(
+            (await a.row(m.id)).categories.every((c) => known.has(c))
+          ).toBe(true);
+        }
+      });
     });
 
     it("a delete racing a write: each ends cleanly, and no Category that does not exist is left", async () => {

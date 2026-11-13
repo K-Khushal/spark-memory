@@ -32,6 +32,7 @@ import type { Database } from "./client";
 import { isUnknownCategory } from "./category-errors";
 import {
   deletionRequested,
+  lockCategories,
   lockOwner,
   ownerPrefix,
   tryLockOwner,
@@ -429,6 +430,8 @@ export function openLibrary(
     // One transaction: new text and the end of the old text's vectors
     // (they would match it, and point into the new text) land together.
     const row = await db.transaction(async (tx) => {
+      // Choosing Categories goes through the Categories lock, before the Memory's row.
+      if (changes.categories) await lockCategories(tx, userId);
       const [edited] = await tx
         .update(memory)
         .set({
@@ -1581,6 +1584,8 @@ export function openLibrary(
      */
     async setAiOptOut(id: string, on: boolean): Promise<Memory | undefined> {
       await db.transaction(async (tx) => {
+        // Turning it on takes back what a model decided, Categories included.
+        if (on) await lockCategories(tx, userId);
         const [row] = await tx
           .update(memory)
           .set(
