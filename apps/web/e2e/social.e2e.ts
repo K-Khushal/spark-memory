@@ -99,7 +99,10 @@ test("saves an X post and an Instagram reel as the person sees them", async () =
       description: expect.stringContaining("Sourdough in sixty seconds"),
     });
     // The caption is findable at once, from the client's own words.
-    const found = await dashboard.request.get("/api/search?q=sourdough");
+    const found = await dashboard.request.post("/api/search", {
+      headers: { origin: new URL(dashboard.url()).origin },
+      data: { q: "sourdough" },
+    });
     expect(
       (
         (await found.json()) as { results: { sourceUrl: string }[] }

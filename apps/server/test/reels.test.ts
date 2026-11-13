@@ -138,7 +138,9 @@ describe.skipIf(!databaseUrl)("a reel's user-provided copy", () => {
     // The video and every frame are gone from storage.
     expect(objectsOf(id)).toEqual([]);
     // Found by what was said in it.
-    const found = (await (await call("/api/search?q=quillfeather")).json()) as {
+    const found = (await (
+      await call("/api/search", { method: "POST", json: { q: "quillfeather" } })
+    ).json()) as {
       results: { id: string }[];
     };
     expect(found.results.map((m) => m.id)).toContain(id);

@@ -292,7 +292,7 @@ export const memoryFile = pgTable(
 export const COPY_LIFETIME_HOURS = 6;
 
 /**
- * A reel's user-provided copy (ADR-0010, migrations/0022): the video and a
+ * A reel's user-provided copy (ADR-0010, migrations/0023): the video and a
  * few frames the person's own browser fetched, kept only for Indexing and
  * deleted when it ends. Not a `memory_file`: an unfinished copy never hides
  * its reel or counts as an abandoned upload. A trigger queues the object of
