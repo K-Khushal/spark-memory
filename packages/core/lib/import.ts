@@ -2,6 +2,9 @@ import { z } from "zod";
 import { FREE_ALLOWANCE } from "./allowance";
 import { normaliseUrl, LINK_MAX_CHARS } from "./link";
 
+/** Half the daily allowance stays available to fresh Captures. */
+export const IMPORT_RESERVE = Math.ceil(FREE_ALLOWANCE.capturesPerDay / 2);
+
 export const IMPORT_LIMITS = {
   bytes: 10 * 1024 * 1024,
   urls: 10_000,

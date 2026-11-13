@@ -208,4 +208,4 @@ type StoredObject = { size: number; httpMetadata?: HttpMetadata };
 
 export type AppEnv = { Bindings: Bindings };
 
-export type ImportMessage = { id: string; userId: string };
+export type ImportMessage = { id: string; userId: string; lease?: string };

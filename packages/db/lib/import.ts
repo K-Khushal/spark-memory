@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
   FREE_ALLOWANCE,
+  IMPORT_RESERVE,
   ImportBatch,
   ImportCreate,
   ImportEntry,
@@ -23,8 +24,7 @@ export function openImports(db: Database, userId: string) {
     get,
     async pendingImages(id: string) {
       const job = await get(id);
-      if (!job || job.state !== "running" || job.availableAt > new Date())
-        return [];
+      if (!job || job.state !== "running") return [];
       const [usage] = await db
         .select({ captures: usageDay.captures })
         .from(usageDay)
@@ -36,10 +36,10 @@ export function openImports(db: Database, userId: string) {
         );
       const remaining = Math.max(
         0,
-        FREE_ALLOWANCE.capturesPerDay - (usage?.captures ?? 0)
+        FREE_ALLOWANCE.capturesPerDay - IMPORT_RESERVE - (usage?.captures ?? 0)
       );
       const rows = await db
-        .select({ input: importItem.input })
+        .select({ input: importItem.input, existing: memory.id })
         .from(importItem)
         .leftJoin(
           memory,
@@ -64,19 +64,90 @@ export function openImports(db: Database, userId: string) {
         )
         .orderBy(importItem.position)
         .limit(FREE_ALLOWANCE.capturesPerDay);
-      return rows
-        .flatMap((r) => ("imageId" in r.input ? [r.input.imageId] : []))
-        .slice(0, remaining);
+      let left = remaining;
+      return rows.flatMap((r) =>
+        "imageId" in r.input && (r.existing || left-- > 0)
+          ? [r.input.imageId]
+          : []
+      );
+    },
+    async wakeImage(memoryId: string, now = new Date()) {
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        const [job] = await tx
+          .select({ id: importJob.id, availableAt: importJob.availableAt })
+          .from(importJob)
+          .innerJoin(
+            importItem,
+            and(
+              eq(importItem.jobId, importJob.id),
+              sql`${importItem.position} = ${importJob.done} + ${importJob.skipped}`
+            )
+          )
+          .innerJoin(
+            memory,
+            and(
+              eq(memory.id, memoryId),
+              eq(memory.userId, userId),
+              sql`${importItem.input}->>'imageId' = ${memory.id}::text`
+            )
+          )
+          .innerJoin(
+            memoryFile,
+            and(
+              eq(memoryFile.memoryId, memory.id),
+              eq(memoryFile.role, "original"),
+              sql`${memoryFile.storedAt} is not null`
+            )
+          )
+          .where(
+            and(
+              eq(importJob.userId, userId),
+              eq(importJob.state, "running"),
+              eq(importJob.waitingImageId, memoryId)
+            )
+          )
+          .for("update", { of: importJob });
+        if (!job) return undefined;
+        await tx
+          .update(importJob)
+          .set({ availableAt: now, waitingImageId: null })
+          .where(owned(job.id));
+        return job.id;
+      });
     },
     async latest() {
-      return (
-        await db
-          .select()
-          .from(importJob)
-          .where(eq(importJob.userId, userId))
-          .orderBy(desc(importJob.createdAt))
-          .limit(1)
-      )[0];
+      const [job] = await db
+        .select()
+        .from(importJob)
+        .where(eq(importJob.userId, userId))
+        .orderBy(desc(importJob.createdAt))
+        .limit(1);
+      if (!job) return undefined;
+      const [usage] = await db
+        .select({ captures: usageDay.captures })
+        .from(usageDay)
+        .where(
+          and(
+            eq(usageDay.userId, userId),
+            sql`${usageDay.day} = (now() at time zone 'utc')::date`
+          )
+        );
+      const [head] = await db
+        .select({ input: importItem.input })
+        .from(importItem)
+        .where(
+          and(
+            eq(importItem.jobId, job.id),
+            eq(importItem.position, job.done + job.skipped)
+          )
+        );
+      const waitingForAllowance =
+        job.state === "running" &&
+        (job.spread || (!!head && "imageId" in head.input)) &&
+        (usage?.captures ?? 0) >=
+          FREE_ALLOWANCE.capturesPerDay - IMPORT_RESERVE;
+      return { ...job, waitingForAllowance };
     },
     async create(input: { id: string; total: number; spread: boolean }) {
       const data = ImportCreate.parse(input);
@@ -169,13 +240,22 @@ export function openImports(db: Database, userId: string) {
               ? "paused"
               : "running";
         if (state === "running" && job.loaded !== job.total) return false;
-        await tx.update(importJob).set({ state }).where(owned(id));
+        await tx
+          .update(importJob)
+          .set({
+            state,
+            ...(state === "running" && {
+              availableAt: new Date(),
+              waitingImageId: null,
+            }),
+          })
+          .where(owned(id));
         if (state === "cancelled")
           await tx.delete(importItem).where(eq(importItem.jobId, id));
         return true;
       });
     },
-    async step(id: string, now = new Date()) {
+    async step(id: string, now = new Date(), lease?: string) {
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
         const [job] = await tx
@@ -186,11 +266,19 @@ export function openImports(db: Database, userId: string) {
         if (
           !job ||
           job.state !== "running" ||
-          job.availableAt > now ||
+          (lease
+            ? lease !== job.availableAt.toISOString()
+            : job.availableAt > now) ||
           (await deletionRequested(tx, userId))
         )
           return undefined;
-        await tx.update(importJob).set({ availableAt: now }).where(owned(id));
+        const nextLease = new Date(
+          Math.max(now.getTime() + 60_000, job.availableAt.getTime() + 1)
+        );
+        await tx
+          .update(importJob)
+          .set({ availableAt: nextLease, waitingImageId: null })
+          .where(owned(id));
         const position = job.done + job.skipped;
         const [item] = await tx
           .select()
@@ -223,7 +311,17 @@ export function openImports(db: Database, userId: string) {
                   sql`${usageDay.day} = (now() at time zone 'utc')::date`
                 )
               );
-            if ((usage?.captures ?? 0) >= FREE_ALLOWANCE.capturesPerDay) {
+            await tx
+              .update(importJob)
+              .set({
+                availableAt: new Date(now.getTime() + 15 * 60_000),
+                waitingImageId: input.imageId,
+              })
+              .where(owned(id));
+            if (
+              (usage?.captures ?? 0) >=
+              FREE_ALLOWANCE.capturesPerDay - IMPORT_RESERVE
+            ) {
               const next = new Date(now);
               next.setUTCHours(24, 0, 0, 0);
               await tx
@@ -246,7 +344,9 @@ export function openImports(db: Database, userId: string) {
             .where(
               and(eq(importItem.jobId, id), eq(importItem.position, position))
             );
-          return undefined;
+          return done + job.skipped < job.total
+            ? { lease: nextLease.toISOString(), target: undefined }
+            : undefined;
         }
         const normalised = normaliseUrl(input.url)!;
         const [duplicate] = await tx
@@ -283,7 +383,8 @@ export function openImports(db: Database, userId: string) {
             const allowed = await takeDailyCapture(
               tx,
               userId,
-              now.toISOString().slice(0, 10)
+              now.toISOString().slice(0, 10),
+              FREE_ALLOWANCE.capturesPerDay - IMPORT_RESERVE
             );
             if (!allowed && job.spread) {
               await tx.delete(memory).where(eq(memory.id, created.id));
@@ -318,20 +419,29 @@ export function openImports(db: Database, userId: string) {
           .where(
             and(eq(importItem.jobId, id), eq(importItem.position, position))
           );
-        return target;
+        const continuation =
+          done + skipCount < job.total ? nextLease.toISOString() : undefined;
+        return target || continuation
+          ? { target, lease: continuation }
+          : undefined;
       });
     },
   };
 }
 /** Recovery for lost queue deliveries; bounded so an hourly sweep stays small. */
-export async function pendingImports(db: Database, limit = 2) {
+export async function pendingImports(
+  db: Database,
+  limit = 1,
+  now = new Date()
+) {
   return db
     .select({ id: importJob.id, userId: importJob.userId })
     .from(importJob)
     .where(
       and(
         eq(importJob.state, "running"),
-        sql`${importJob.availableAt} <= now()`
+        sql`${importJob.waitingImageId} is null`,
+        sql`${importJob.availableAt} < ${new Date(now.getTime() - 10 * 60_000)}`
       )
     )
     .orderBy(importJob.availableAt)

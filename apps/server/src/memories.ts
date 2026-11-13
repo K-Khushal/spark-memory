@@ -1,3 +1,4 @@
+import { wakeImportImage } from "./import-queue";
 import { Hono, type Context, type Env } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
@@ -532,6 +533,7 @@ export const memories = new Hono<AppEnv>()
     if (memory.indexState === "indexing") {
       await enqueue(c.env, memory);
     }
+    await wakeImportImage(c.env, c.var.db, c.var.user.id, id);
     return c.json(await forClient(c.var.files, memory));
   })
   /** Retry on a Failed Memory: Indexing again, first in line once a day. */

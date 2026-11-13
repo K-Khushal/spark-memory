@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import {
   openDatabase,
   openImports,
+  pendingImports,
   openLibrary,
   type Database,
 } from "../index";
@@ -36,6 +37,12 @@ it.skipIf(!process.env.DATABASE_URL)(
     });
     await jobs.action(id, "start");
     await Promise.all([jobs.step(id), jobs.step(id), jobs.step(id)]);
+    expect(await jobs.get(id)).toMatchObject({ done: 0, skipped: 1 });
+    await jobs.step(
+      id,
+      new Date(),
+      (await jobs.get(id))!.availableAt.toISOString()
+    );
     expect(await jobs.get(id)).toMatchObject({
       state: "done",
       done: 1,
@@ -175,5 +182,131 @@ it.skipIf(!process.env.DATABASE_URL)(
     expect(await jobs.pendingImages(id)).toEqual([]);
     await Promise.all([jobs.step(id), jobs.step(id)]);
     expect(await jobs.get(id)).toMatchObject({ state: "done", done: 1 });
+  }
+);
+
+it.skipIf(!process.env.DATABASE_URL)(
+  "leases an active chain and lets the sweep recover only a stale lease",
+  async () => {
+    const jobs = openImports(db, owner),
+      id = crypto.randomUUID();
+    await jobs.create({ id, total: 3, spread: true });
+    await jobs.append(id, {
+      offset: 0,
+      items: [
+        { url: "https://lease.test/1" },
+        { url: "https://lease.test/2" },
+        { url: "https://lease.test/3" },
+      ],
+    });
+    await jobs.action(id, "start");
+    const now = new Date();
+    await jobs.step(id, now);
+    const lease = (await jobs.get(id))!.availableAt;
+    expect(lease.getTime()).toBeGreaterThanOrEqual(now.getTime() + 60_000);
+    expect(await pendingImports(db, 100, now)).not.toContainEqual({
+      id,
+      userId: owner,
+    });
+    await jobs.step(id, new Date(now.getTime() + 30_000), lease.toISOString());
+    expect(await jobs.get(id)).toMatchObject({ done: 2 });
+    expect(
+      await pendingImports(db, 100, new Date(now.getTime() + 5 * 60_000))
+    ).not.toContainEqual({ id, userId: owner });
+    expect(
+      await pendingImports(db, 100, new Date(now.getTime() + 12 * 60_000))
+    ).toContainEqual({ id, userId: owner });
+    await jobs.action(id, "cancel");
+  }
+);
+it.skipIf(!process.env.DATABASE_URL)(
+  "reserves half the daily Captures for fresh saves, including image imports",
+  async () => {
+    const userId = await newUser(db);
+    try {
+      const jobs = openImports(db, userId),
+        library = openLibrary(db, userId),
+        id = crypto.randomUUID();
+      await jobs.create({ id, total: 51, spread: true });
+      await jobs.append(id, {
+        offset: 0,
+        items: Array.from({ length: 51 }, (_, i) => ({
+          url: `https://reserve.test/${i}`,
+        })),
+      });
+      await jobs.action(id, "start");
+      let lease: string | undefined;
+      for (let i = 0; i < 51; i++)
+        lease = (await jobs.step(id, new Date(), lease))?.lease;
+      expect(await jobs.get(id)).toMatchObject({ done: 50, state: "running" });
+      expect((await library.usage()).captures).toBe(50);
+      await jobs.action(id, "cancel");
+      const images = crypto.randomUUID(),
+        imageId = crypto.randomUUID();
+      await jobs.create({ id: images, total: 1, spread: true });
+      await jobs.append(images, { offset: 0, items: [{ imageId }] });
+      await jobs.action(images, "start");
+      expect(await jobs.pendingImages(images)).toEqual([]);
+      expect(
+        await library.captureImage({
+          id: imageId,
+          importJobId: images,
+          mime: "image/png",
+          bytes: 2048,
+          width: 800,
+          height: 600,
+          contentHash: "ab".repeat(32),
+          thumbhash: "1QcSHQRnh493V4dIh4eXh1h4kJUI",
+          thumbnail: { mime: "image/webp", bytes: 300 },
+        })
+      ).toEqual({ refused: "captures_full" });
+      await Promise.all(
+        Array.from({ length: 50 }, (_, i) =>
+          library.capture({ id: crypto.randomUUID(), body: `Fresh ${i}` })
+        )
+      );
+      expect((await library.usage()).captures).toBe(100);
+    } finally {
+      await db.execute(sql`delete from "user" where id = ${userId}`);
+    }
+  }
+);
+it.skipIf(!process.env.DATABASE_URL)(
+  "never sweeps an image waiting for bytes and wakes it even after its wait deadline",
+  async () => {
+    const userId = await newUser(db);
+    try {
+      const jobs = openImports(db, userId),
+        library = openLibrary(db, userId),
+        id = crypto.randomUUID(),
+        imageId = crypto.randomUUID();
+      await jobs.create({ id, total: 1, spread: true });
+      await jobs.append(id, { offset: 0, items: [{ imageId }] });
+      await jobs.action(id, "start");
+      await jobs.step(id);
+      const late = new Date(Date.now() + 60 * 60_000);
+      expect(await pendingImports(db, 100, late)).not.toContainEqual({
+        id,
+        userId,
+      });
+      await library.captureImage({
+        id: imageId,
+        importJobId: id,
+        mime: "image/png",
+        bytes: 2048,
+        width: 800,
+        height: 600,
+        contentHash: "ab".repeat(32),
+        thumbhash: "1QcSHQRnh493V4dIh4eXh1h4kJUI",
+        thumbnail: { mime: "image/webp", bytes: 300 },
+      });
+      await library.markStored(imageId);
+      expect(await jobs.wakeImage(imageId, late)).toBe(id);
+      expect(await jobs.wakeImage(imageId, late)).toBeUndefined();
+      await jobs.step(id, late);
+      expect(await jobs.get(id)).toMatchObject({ state: "done", done: 1 });
+    } finally {
+      await db.execute(sql`delete from "user" where id = ${userId}`);
+    }
   }
 );

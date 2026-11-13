@@ -7,7 +7,8 @@ import { usageDay } from "./schema";
 export async function takeDailyCapture(
   tx: Pick<Database, "insert">,
   userId: string,
-  day: string | SQL
+  day: string | SQL,
+  limit: number = FREE_ALLOWANCE.capturesPerDay
 ): Promise<boolean> {
   const rows = await tx
     .insert(usageDay)
@@ -15,7 +16,7 @@ export async function takeDailyCapture(
     .onConflictDoUpdate({
       target: [usageDay.userId, usageDay.day],
       set: { captures: sql`${usageDay.captures} + 1` },
-      setWhere: sql`${usageDay.captures} < ${FREE_ALLOWANCE.capturesPerDay}`,
+      setWhere: sql`${usageDay.captures} < ${limit}`,
     })
     .returning({ n: usageDay.captures });
   return rows.length > 0;

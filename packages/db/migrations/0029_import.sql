@@ -1,4 +1,5 @@
 CREATE TABLE import_job (
+  waiting_image_id uuid,
   id uuid PRIMARY KEY, user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
   state text NOT NULL DEFAULT 'loading' CHECK (state IN ('loading','running','paused','cancelled','done')),
   total integer NOT NULL CHECK (total BETWEEN 1 AND 10000),

@@ -17,6 +17,7 @@ type Job = {
   done: number;
   skipped: number;
   spread: boolean;
+  waitingForAllowance?: boolean;
   availableAt: string;
 };
 type Endpoint = ReturnType<typeof createApiClient>["api"]["imports"];
@@ -93,9 +94,9 @@ export function ImportSection({ userId }: { userId: string }) {
     };
   });
   useEffect(() => captures.setJobId(job?.id), [captures, job?.id]);
-  const waiting = !!job && new Date(job.availableAt).getTime() > now;
+  const day = Math.floor(now / 86_400_000);
   useEffect(() => {
-    if (waiting || job?.state !== "running") return;
+    if (job?.state !== "running") return;
     let stopped = false;
     void (async () => {
       const { ids } = await read<{ ids: string[] }>(
@@ -124,7 +125,7 @@ export function ImportSection({ userId }: { userId: string }) {
     return () => {
       stopped = true;
     };
-  }, [job?.id, job?.state, waiting, userId, captures, endpoint]);
+  }, [job?.id, job?.state, day, userId, captures, endpoint]);
   const loadImages = async (files: File[]) => {
     if (!files.length || busy) return;
     setBusy(true);
@@ -354,21 +355,17 @@ export function ImportSection({ userId }: { userId: string }) {
           Import All Today
         </label>
       )}
-      <div
-        aria-live="polite"
-        className="flex flex-col gap-2 text-sm tabular-nums"
-      >
+      <div className="flex flex-col gap-2 text-sm tabular-nums">
         {job && (
           <>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <span>
+              <span aria-live="polite">
                 {
                   {
                     loading: "Uploading",
-                    running:
-                      new Date(job.availableAt).getTime() > now
-                        ? "Waiting For Daily Allowance"
-                        : "Importing",
+                    running: job.waitingForAllowance
+                      ? "Waiting For Daily Allowance"
+                      : "Importing",
                     paused: "Paused",
                     cancelled: "Cancelled",
                     done: "Complete",

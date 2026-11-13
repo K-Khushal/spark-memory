@@ -410,7 +410,8 @@ describe.skipIf(!databaseUrl)("account", () => {
         accountQueue.sent.filter((message) => message.body.kind === "export")
           .length;
       const before = sent();
-      await sweepAccounts(env(), cronCalls(4));
+      // Five total calls leave one for the reduced export recovery share.
+      await sweepAccounts(env(), cronCalls(5));
       expect(sent() - before).toBe(1);
     });
   });

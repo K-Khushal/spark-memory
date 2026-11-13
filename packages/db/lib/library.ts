@@ -6,6 +6,7 @@ import {
   DEEP_FETCH,
   EMBEDDING,
   FREE_ALLOWANCE,
+  IMPORT_RESERVE,
   ImageCapture,
   isFileWithinAllowance,
   type CaptureRefusal,
@@ -601,7 +602,17 @@ export function openLibrary(
       });
       if (!allowed.ok) return { refused: allowed.reason };
       // A file has no Source to fall back on: past today's Captures it is refused.
-      if (!(await takeCapture(tx))) return { refused: "captures_full" };
+      if (
+        !(await takeDailyCapture(
+          tx,
+          userId,
+          today,
+          capture.importJobId
+            ? FREE_ALLOWANCE.capturesPerDay - IMPORT_RESERVE
+            : FREE_ALLOWANCE.capturesPerDay
+        ))
+      )
+        return { refused: "captures_full" };
 
       await tx.insert(memory).values({
         id,

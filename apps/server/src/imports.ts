@@ -1,3 +1,4 @@
+import { sendImport } from "./import-queue";
 import type { CronCalls } from "./cron-budget";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -77,25 +78,12 @@ export const imports = new Hono<AppEnv>()
     }
   );
 
-async function sendImport(
-  env: Bindings,
-  body: ImportMessage,
-  delaySeconds = 2
-) {
-  // The database is authoritative; an hourly sweep recovers a lost send.
-  try {
-    await env.IMPORT_QUEUE.send(body, { delaySeconds });
-  } catch {
-    console.error("import: enqueue failed");
-  }
-}
-
 export async function requeueImports(env: Bindings, calls?: CronCalls) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
     for (const job of await pendingImports(
       db,
-      calls?.remaining("imports") ?? 2
+      calls?.remaining("imports") ?? 1
     )) {
       if (calls && !calls.take("imports")) break;
       await sendImport(env, job);
@@ -116,17 +104,10 @@ export async function consumeImports(batch: ImportQueueBatch, env: Bindings) {
       try {
         const { id, userId } = message.body;
         const jobs = openImports(db, userId);
-        const target = await jobs.step(id);
-        if (target) await enqueue(env, target);
-        const job = await jobs.get(id);
-        if (job?.state === "running") {
-          const delay = Math.max(
-            2,
-            Math.ceil((job.availableAt.getTime() - Date.now()) / 1000)
-          );
-          // Queue delays cap at 24h; the hourly sweep also recovers due jobs.
-          await sendImport(env, message.body, Math.min(86400, delay));
-        }
+        const result = await jobs.step(id, new Date(), message.body.lease);
+        if (result?.target) await enqueue(env, result.target);
+        if (result?.lease)
+          await sendImport(env, { ...message.body, lease: result.lease });
         message.ack();
       } catch {
         message.retry();

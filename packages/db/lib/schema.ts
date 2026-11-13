@@ -653,6 +653,7 @@ export const onboarding = pgTable("onboarding", {
 
 /** Server-owned import progress. Positions are immutable and commit with their Capture. */
 export const importJob = pgTable("import_job", {
+  waitingImageId: uuid("waiting_image_id"),
   id: uuid("id").primaryKey(),
   userId: text("user_id")
     .notNull()
