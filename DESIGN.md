@@ -104,7 +104,7 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 - **Get Started** is one band above the wall for a new Library: one step at a time (the AI-processing sentence, Install Extension, Capture ⌘V, Indexing, a vague search ⌘K). Its progress lives on the server, so it resumes on any device. Skip pauses it (not the first step, which carries the AI-processing sentence) and Resume continues; the band is gone once it is finished. Samples wear a **Sample** badge, and **Remove Samples** deletes them all in one action. The first search whose result is opened is recorded once, without the query.
 - **Arrow keys** move spatially on the wall (`neighbour` in `@spark/ui/layout`). Enter and Space open Quick preview. Escape closes the top layer.
 - One tab stop per wall (roving `tabindex`). Focus is always visible.
-- Results always show Direct Matches first and Related Matches apart. With no Direct match the heading says "No Direct Matches".
+- Results always show Direct Matches first and Related Matches apart: Direct under an ink heading with spark why-chips, Related below a hairline under a muted heading with plain ones. With no Direct match the heading says "No Direct Matches", and a row of filter chips under it (the kinds and Categories among the Related Matches) narrows what was found; there is no sentence. ↓ from the last Direct tile goes on to the Related wall and ↑ comes back; in ⌘K the arrows run on from one group into the next.
 - Touch targets at least 24px (aim 44px), inputs at 16px so iOS does not zoom.
 
 ## Components and libraries

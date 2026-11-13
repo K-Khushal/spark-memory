@@ -13,6 +13,7 @@ const outcome = (
   top: [],
   matchedBy: [],
   fellBack: false,
+  judged: [],
 });
 
 describe("score", () => {

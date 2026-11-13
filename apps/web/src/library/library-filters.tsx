@@ -42,7 +42,7 @@ export const sourceLabel = (source: string) =>
     : (SOURCE_NAMES[source] ?? source[0]!.toUpperCase() + source.slice(1));
 
 /** The filter a Memory's kind belongs to; none for files, which no chip covers. */
-const kindOf = (kind: Memory["kind"]) =>
+export const kindOf = (kind: Memory["kind"]) =>
   (Object.keys(SEARCH_KINDS) as SearchKind[]).find((k) =>
     (SEARCH_KINDS[k] as readonly string[]).includes(kind)
   );

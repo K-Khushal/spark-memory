@@ -30,6 +30,17 @@ With no words, filters browse, with no provider call. Each result says why (`par
 
 Pages are 40. The answer's `next` says where the following page begins and the client hands it back as `page`. Browsing newest first (no words, no colour) uses `c:<id of the last Memory>`, read off `memory_user_captured_idx`, so a deep page costs what the first does; anything ranked by a score (words, colour) uses `o:<how many came before>`, and a ranked search holds at most a few hundred results anyway.
 
+## Direct and Related Matches
+
+Every result carries `match: "direct" | "related"` (ADR-0008, PLAN.md §6.4); the list stays in rank order and a client shows Direct first (the web wall, ⌘K and the MCP server read the same shape). Only the first `JUDGING.window` (20) results of a search with words can be Direct; later ones and later pages are Related. A browse (no words) has no judging: a filter's results are all Direct.
+
+One interface, `MatchJudge` (`lib/judge.ts`), two implementations:
+
+- **`thresholdJudge`** decides from what the legs said (`thresholdMatch` in `@spark/core`, pure). Direct when a filter found it; its words did and it scores at least `keywordMinRelative` of the best; a vector came within `directDistance`; or it is the best result, two legs found it and the runner-up scores at most `leadRunnerUp` of it. It always runs first, so there is a verdict for every result. The numbers are tuned on the search test set (`pnpm --filter @spark/evals eval:tune`, evals/README.md).
+- **`jevMatchJudge`** asks Jev Noul "is saved item _n_ what the person described?" for the Memories it may read, in one request with one Noul question per Memory (`JUDGING.jevThreshold` of 0.5). Memories with AI opt-out and Samples are never sent: `Library.judgingTexts` leaves them out, and a Memory without text is not judged and keeps its threshold verdict. It checks the daily budget first and records an `ai_call` (an estimate when the call fails or is cut off, because it may still have been billed).
+
+Jev is off unless `JEV_API_KEY` and `JEV_ENABLED=true` are set (docs/research/jev.md). When on, it runs only in full mode, only with time left (`JUDGING.fullBudgetMs` less `reserveMs` less what has run, and at least `jevMinMs`), with a deadline of at most `jevTimeoutMs`, aborted when it passes. A slow, failing or invalid Jev answer changes nothing: the thresholds' verdicts stand, so full mode's p95 stays inside its 600 ms by construction. `evals --latency` shows how often Jev is dropped under assumed delays.
+
 ## Search data
 
 Only committed searches and clicks on their results are stored, never typing. Every row belongs to one person.
