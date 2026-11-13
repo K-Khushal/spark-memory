@@ -29,6 +29,15 @@ Spark sends one Choice question (`category`) whose options are the built-in Cate
 | Image input needs the `TypeSafe-Danger-Zone-Images` header, 280 to 1568 px sides, and the docs call it not yet production-ready. | Spark sends text only: an image's description and the text read from it come from Indexing.       |
 | The direct API had a waitlist at launch.                                                                          | The key is the owner's to obtain.                                                                 |
 
+## Judging Direct Matches (Noul)
+
+The same System One endpoint, with one **Noul** question per saved item over a shared state (docs: [Noul](https://docs.typesafe.ai/primitives/noul), [State](https://docs.typesafe.ai/concepts/state)). A Noul answer is `answers.<name>.noul`, a probability between 0 and 1 that the statement is true. Spark sends `state: { search, saved: { m0, m1, … } }` (the person's words, then up to 20 Memories as text cut to 700 characters) and `questions.m<n>` = `{ type: "noul", instructions: "Is saved item m<n> what the person described in the search? …", criteria: { true, false } }`. All questions in a request see the same state and are evaluated independently, so one round trip answers every candidate and a search costs one rate-limit hit, not twenty.
+
+- Cost: input tokens are billed once per request as `usage.input_tokens` (the docs do not say whether each question re-reads the state; Spark records what comes back and, when a call fails or is cut off, an estimate). About 4,000 input tokens a search is $0.0002.
+- Privacy: the person's query and the text of the Memories judged go to Jev, the same as Categories. AI opt-out Memories and Samples are never sent (`Library.judgingTexts`).
+- Direct at `JUDGING.jevThreshold` (0.5), a starting point that cannot be tuned without a key.
+- Latency is unpublished. Jev gets what is left of full search's 600 ms (at most 350 ms) and is dropped, never waited for, past that; see evals/README.md → `--latency`.
+
 ## Off by default
 
 Jev needs `JEV_API_KEY` and `JEV_ENABLED=true`. Neither is set in this repository or its deployments. Without them (or when a call fails or times out), Categories come from the Memory's embedding compared with each Category's prototype sentence (`CATEGORISING.prototypes`), up to three above a cosine threshold, else Other.

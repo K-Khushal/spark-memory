@@ -109,6 +109,7 @@ try {
       top: order.slice(0, 5),
       matchedBy: [],
       fellBack: false,
+      judged: [],
     });
   }
   console.log(

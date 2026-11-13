@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMBEDDING, INDEXING } from "@spark/core";
+import { EMBEDDING, INDEXING, JUDGING } from "@spark/core";
 import {
   createIndexer,
   embeddingInputs,
@@ -546,7 +546,9 @@ describe("the fake embedder", () => {
       { text: "title: none | text: Grocery list: eggs and milk" },
     ]);
     const [query, near, far] = vectors as [number[], number[], number[]];
-    expect(cosine(query, near)).toBeGreaterThan(1 - EMBEDDING.directDistance);
+    expect(cosine(query, near)).toBeGreaterThan(
+      1 - JUDGING.thresholds.directDistance
+    );
     expect(cosine(query, far)).toBeLessThan(1 - EMBEDDING.maxDistance);
     const again = await fakeEmbedder().embed([
       { text: "Sunset over the dock" },
