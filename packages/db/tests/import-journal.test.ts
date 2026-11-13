@@ -9,7 +9,7 @@ it("runs Import after every existing migration and the three pending 0028 migrat
     )
   ) as { entries: { tag: string; when: number }[] };
   const imported = journal.entries.find(
-    (entry) => entry.tag === "0029_import"
+    (entry) => entry.tag === "0030_import"
   )!;
   expect(imported.when).toBe(1794600000000);
   for (const when of [

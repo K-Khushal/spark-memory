@@ -146,14 +146,21 @@ export {
 } from "./lib/search-filters";
 export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";
 export {
+  CATEGORY_NAME_MAX_CHARS,
+  CategoryText,
   CATEGORY_NAMES,
   CATEGORISING,
   Categories,
   Category,
+  CategoryRequest,
+  checkCategoryName,
   chooseCategories,
   cosine,
   JevChoiceReply,
   MAX_CATEGORIES,
+  MAX_CUSTOM_CATEGORIES,
+  prototypeOf,
+  type CategoryNameProblem,
 } from "./lib/categories";
 export {
   IMPORT_LIMITS,

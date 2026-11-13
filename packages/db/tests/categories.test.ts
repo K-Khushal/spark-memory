@@ -325,11 +325,15 @@ describe.skipIf(!url)("Categories", () => {
       expect(
         (await indexingStore(db).staleVectors(space, 500)).map((s) => s.id)
       ).not.toContain(m.id);
-      for (const bad of [[], ["Nope"], ["Quote", "Quote"]]) {
+      for (const bad of [[], ["Quote", "Quote"]]) {
         await expect(
-          library().edit(m.id, { categories: bad as Category[] })
+          library().edit(m.id, { categories: bad })
         ).rejects.toThrow();
       }
+      // A name that is no one's Category is refused, not thrown.
+      expect(await library().edit(m.id, { categories: ["Nope"] })).toEqual({
+        unknownCategory: true,
+      });
     });
 
     it("survives a changed text, re-Indexing, the sweep and late writes", async () => {
@@ -360,9 +364,9 @@ describe.skipIf(!url)("Categories", () => {
         generation: m.indexGeneration,
         run,
       };
-      expect(await store.writeCategories(loaded, revision, ["Article"])).toBe(
-        false
-      );
+      expect(
+        await store.writeCategories(loaded, revision, ["Article"], 0)
+      ).toBe(false);
       await db
         .update(schema.memory)
         .set({ categoriesRevision: null })
@@ -385,7 +389,8 @@ describe.skipIf(!url)("Categories", () => {
         await store.writeCategories(
           { ...loaded, memoryId: m.id },
           loaded.revision,
-          ["Article"]
+          ["Article"],
+          0
         )
       ).toBe(false);
       expect((await row(m.id)).categories).toEqual(["Place"]);

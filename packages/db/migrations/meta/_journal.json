@@ -194,8 +194,15 @@
     {
       "idx": 27,
       "version": "7",
+      "when": 1794530000000,
+      "tag": "0028_custom_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
       "when": 1794600000000,
-      "tag": "0029_import",
+      "tag": "0030_import",
       "breakpoints": true
     }
   ]

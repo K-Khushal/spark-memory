@@ -21,7 +21,6 @@ import {
   DEFAULT_PLAN,
   type ImportEntry,
   type DeepFetchState,
-  type Category,
   type IndexFailure,
   type IndexState,
   type LinkMetadata,
@@ -144,15 +143,13 @@ export const memory = pgTable(
     /** The text of a text Memory. */
     body: text("body"),
     captureNote: text("capture_note"),
-    categories: text("categories")
-      .array()
-      .$type<Category[]>()
-      .default(["Other"])
-      .notNull(),
+    categories: text("categories").array().default(["Other"]).notNull(),
     categoriesLocked: boolean("categories_locked").default(false).notNull(),
     categoriesRevision: integer("categories_revision"),
     /** `CATEGORISING.version` of the categoriser that chose them; null before any did. */
     categoriesVersion: integer("categories_version"),
+    /** `category_run.generation` of the person's Categories it was categorised under; null before any. */
+    categoriesGeneration: integer("categories_generation"),
     /**
      * SHA-256 (hex) of the Preserved copy: a file Memory's file, a link's
      * readable text. Unique per person among links.
@@ -682,3 +679,38 @@ export const importItem = pgTable(
   },
   (t) => [primaryKey({ columns: [t.jobId, t.position] })]
 );
+
+/** A person's own Category (ADR-0008); the built-ins are not rows. A Memory names it by `name`. */
+export const category = pgTable(
+  "category",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("category_user_name_idx").on(t.userId, sql`lower(${t.name})`),
+  ]
+);
+/**
+ * Per person: `generation` goes up with every change to their Categories, so
+ * a worker holding an older list is refused; `dueGeneration` is where a
+ * Category was last created, and a Memory categorised under an older one is
+ * due again. `total` is how many Memories were due then.
+ */
+export const categoryRun = pgTable("category_run", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  generation: integer("generation").notNull().default(0),
+  dueGeneration: integer("due_generation").notNull().default(0),
+  total: integer("total").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
