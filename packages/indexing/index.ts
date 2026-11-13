@@ -68,3 +68,5 @@ export {
   type PublicResponse,
   type Resolve,
 } from "./lib/link/public-fetch";
+export { categorise, type CategoryClient } from "./lib/categories";
+export { jevCategories } from "./lib/jev";

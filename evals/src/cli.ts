@@ -7,6 +7,7 @@
 // No search change merges without this (CLAUDE.md).
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { loadCategoryLabels } from "./categories";
 import { EVALS_ROOT, loadSet } from "./manifest";
 import { runEvals } from "./run";
 import { compare, formatReport, toBaseline, worstOf, Baseline } from "./score";
@@ -35,6 +36,7 @@ try {
     db,
     memories: set.memories,
     searches: set.searches,
+    categoryLabels: await loadCategoryLabels(),
     ...setup,
     log: (line) => console.error(`evals: ${line}`),
   });

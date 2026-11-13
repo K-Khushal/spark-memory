@@ -166,8 +166,15 @@
     {
       "idx": 23,
       "version": "7",
+      "when": 1794489000000,
+      "tag": "0023_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
       "when": 1794500000000,
-      "tag": "0023_deep_fetch",
+      "tag": "0024_deep_fetch",
       "breakpoints": true
     }
   ]

@@ -4,5 +4,6 @@ Categorisation is a separate call to Jev, not part of the extraction call. Jev r
 
 ## Consequences
 
-- If Jev is unavailable, Categories fall back to comparing the Memory's embedding against Category name embeddings, and Direct matches fall back to score thresholds tuned on the search test set.
+- If Jev is unavailable, Categories fall back to comparing the Memory's embedding against Category prototype embeddings (a short sentence per Category), and Direct matches fall back to score thresholds tuned on the search test set.
 - Jev's latency isn't published. It sits on the search hot path only if the search test set shows it is fast enough.
+- Jev's image input is documented as not yet production-ready (docs/research/jev.md), so Spark sends only the Memory's text and what Indexing found in its image. Jev is off until the owner enables it.

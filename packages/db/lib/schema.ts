@@ -19,6 +19,7 @@ import {
 import {
   DEFAULT_PLAN,
   type DeepFetchState,
+  type Category,
   type IndexFailure,
   type IndexState,
   type LinkMetadata,
@@ -135,6 +136,15 @@ export const memory = pgTable(
     /** The text of a text Memory. */
     body: text("body"),
     captureNote: text("capture_note"),
+    categories: text("categories")
+      .array()
+      .$type<Category[]>()
+      .default(["Other"])
+      .notNull(),
+    categoriesLocked: boolean("categories_locked").default(false).notNull(),
+    categoriesRevision: integer("categories_revision"),
+    /** `CATEGORISING.version` of the categoriser that chose them; null before any did. */
+    categoriesVersion: integer("categories_version"),
     /**
      * SHA-256 (hex) of the Preserved copy: a file Memory's file, a link's
      * readable text. Unique per person among links.

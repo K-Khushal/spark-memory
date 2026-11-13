@@ -1,3 +1,4 @@
+import type { Category } from "@spark/core";
 import { useEffect, useState } from "react";
 import { toast } from "@spark/ui";
 import { api } from "../api";
@@ -244,6 +245,26 @@ export function useLibrary() {
 
   return {
     memories,
+    async setCategories(memory: Memory, categories: Category[]) {
+      try {
+        const saved = await transport.patch(
+          memory.id,
+          { categories, revision: memory.revision },
+          { keepalive: false }
+        );
+        if (saved === "stale") {
+          actions.refresh(memory.id);
+          return false;
+        }
+        setMemories((all) =>
+          all.map((m) => (m.id === saved.id ? { ...m, ...saved } : m))
+        );
+        setVersion((n) => n + 1);
+        return true;
+      } catch {
+        return false;
+      }
+    },
     state,
     version,
     retry: () => {

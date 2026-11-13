@@ -1,3 +1,4 @@
+import { CategoryEditor, type CategoryEdit } from "./categories";
 import { restoreLibraryFocus } from "./focus";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUpRightIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
@@ -52,6 +53,7 @@ export function MemoryDetail({
   onRetryIndexing,
   onRetryDeepFetch,
   onAiOptOut,
+  onCategories,
   onMoreLikeThis,
 }: {
   seconds?: number;
@@ -61,7 +63,7 @@ export function MemoryDetail({
   onDelete: (memory: Memory) => void;
   onRetryDeepFetch: (memory: Memory) => void;
   onMoreLikeThis: (memory: Memory) => void;
-} & IndexingProps) {
+} & IndexingProps & { onCategories?: CategoryEdit }) {
   return (
     <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
       {memory && (
@@ -74,6 +76,7 @@ export function MemoryDetail({
           onDelete={onDelete}
           onRetryIndexing={onRetryIndexing}
           onRetryDeepFetch={onRetryDeepFetch}
+          onCategories={onCategories}
           onAiOptOut={onAiOptOut}
           onMoreLikeThis={onMoreLikeThis}
         />
@@ -91,6 +94,7 @@ function Fields({
   onRetryIndexing,
   onRetryDeepFetch,
   onAiOptOut,
+  onCategories,
   onMoreLikeThis,
 }: {
   seconds?: number;
@@ -100,7 +104,7 @@ function Fields({
   onDelete: (memory: Memory) => void;
   onRetryDeepFetch: (memory: Memory) => void;
   onMoreLikeThis: (memory: Memory) => void;
-} & IndexingProps) {
+} & IndexingProps & { onCategories?: CategoryEdit }) {
   const id = memory.id;
   const [opening] = useState(memory);
   const [edit, setEdit] = useState(() => edits.previewEdit(memory));
@@ -188,6 +192,7 @@ function Fields({
         dir="auto"
         className="h-10 min-w-0 shrink-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
       />
+      <CategoryEditor key={memory.id} memory={memory} onSave={onCategories} />
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pt-1">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Button

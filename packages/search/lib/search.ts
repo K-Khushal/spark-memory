@@ -34,6 +34,8 @@ export type Scope = {
     before?: string;
     colour?: string;
     prefer?: string;
+    /** A Memory has at least one of these Categories. */
+    categories?: string[];
   };
 };
 
@@ -55,6 +57,7 @@ export function scopeOf(
     ...(dated && { after: chosen.after, before: chosen.before }),
   };
   const filters = {
+    ...(merged.categories && { categories: merged.categories }),
     ...(merged.source && { hosts: sourceHosts(merged.source) }),
     ...(merged.after && { after: merged.after }),
     ...(merged.before && { before: merged.before }),
@@ -270,6 +273,7 @@ export function createSearch<R extends Hit>({
         ...(chips.kind && { kinds: [...SEARCH_KINDS[chips.kind]] }),
         ...(chips.source && { source: chips.source }),
         ...(chips.colour && { colour: chips.colour }),
+        ...(chips.category && { categories: [chips.category] }),
         // A chip's time range is read by the parser, like a typed one.
         ...(chips.when && understandQuery(chips.when, when).filters),
       };

@@ -21,10 +21,10 @@ export type MatchedPart =
       page?: number;
       seconds?: number;
     }
-  /** Found by a filter chip alone: `value` is a palette colour, host, capture time or kind. */
+  /** Found by a filter chip alone: `value` is a palette colour, host, capture time, kind or Category. */
   | {
       kind: "filter";
-      field: "colour" | "source" | "kind" | "date";
+      field: "colour" | "source" | "kind" | "date" | "category";
       value: string;
     }
   | { kind: "overview" }
