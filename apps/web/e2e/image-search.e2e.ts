@@ -30,7 +30,7 @@ test("image search accepts files, paste and drop without Capturing the query", a
   const before = await (await page.request.get("/api/memories")).json();
   await expect(
     page
-      .getByRole("button", { name: "Search By Image", exact: true })
+      .getByRole("button", { name: "Image Query", exact: true })
       .filter({ visible: true })
   ).toHaveCount(0);
   await expect(
@@ -40,9 +40,14 @@ test("image search accepts files, paste and drop without Capturing the query", a
   await page.locator('[data-desk="search"]:visible').focus();
   await expect(
     page
-      .getByRole("button", { name: "Search By Image", exact: true })
+      .getByRole("button", { name: "Image Query", exact: true })
       .filter({ visible: true })
   ).toBeVisible();
+  const sidebarSearch = page
+    .getByRole("complementary")
+    .getByRole("button", { name: "Search" });
+  await expect(sidebarSearch).toHaveCount(1);
+  await expect(sidebarSearch).toBeFocused();
   const data = await page.evaluate(() => {
     const canvas = document.createElement("canvas");
     canvas.width = 2400;
@@ -197,7 +202,7 @@ test("image query controls fit worst-case Library titles and collections", async
   ]) {
     await page.getByRole("button", { name: state, exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Search By Image", exact: true }).first()
+      page.getByRole("button", { name: "Image Query", exact: true })
     ).toBeVisible();
     expect(
       await page.evaluate(
@@ -208,7 +213,7 @@ test("image query controls fit worst-case Library titles and collections", async
   await page.getByRole("button", { name: "Worst Case", exact: true }).click();
   await page
     .getByRole("button", { name: "Search By Image", exact: true })
-    .nth(2)
+    .nth(1)
     .click();
   await expect(
     page.getByRole("button", { name: "Remove Query Image" })

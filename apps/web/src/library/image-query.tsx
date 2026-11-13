@@ -146,7 +146,7 @@ export function ImageQueryControls({
         <Button
           variant="quiet"
           size="icon"
-          aria-label="Search By Image"
+          aria-label="Image Query"
           aria-busy={busy}
           onClick={() => input.current?.click()}
         >
