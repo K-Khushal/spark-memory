@@ -7,6 +7,7 @@ import {
   type ExportedMemory,
   type Library,
 } from "@spark/db";
+import { assistantStore } from "@spark/db/assistants";
 import { forgetQueryVectors } from "@spark/search";
 import type { CronCalls } from "./cron-budget";
 import type { AccountMessage, Bindings, FileBucket } from "./env";
@@ -128,7 +129,8 @@ const fileName = (memory: ExportedMemory) =>
 async function* exportEntries(
   library: Library,
   bucket: FileBucket,
-  at: Date
+  at: Date,
+  assistants: Awaited<ReturnType<ReturnType<typeof assistantStore>["list"]>>
 ): AsyncGenerator<ZipEntry> {
   const files: { name: string; key: string; modified: Date }[] = [];
   const encode = (text: string) => new TextEncoder().encode(text);
@@ -169,6 +171,14 @@ async function* exportEntries(
         yield encode(JSON.stringify(await library.searchData()));
       })(),
   };
+  yield {
+    name: "connected-assistants.json",
+    modified: at,
+    body: async () =>
+      (async function* () {
+        yield encode(JSON.stringify(assistants));
+      })(),
+  };
   for (const file of files) {
     yield {
       name: file.name,
@@ -202,7 +212,14 @@ export async function buildExport(
     const library = openLibrary(db, claim.userId);
     const parts = [];
     let bytes = 0;
-    const zip = zipStream(exportEntries(library, bucket, now));
+    const zip = zipStream(
+      exportEntries(
+        library,
+        bucket,
+        now,
+        await assistantStore(db).list(claim.userId)
+      )
+    );
     for await (const part of fixedParts(zip, PART_BYTES)) {
       parts.push(await upload.uploadPart(parts.length + 1, part));
       bytes += part.length;
@@ -250,6 +267,7 @@ export async function sweepAccounts(env: Bindings, calls?: CronCalls) {
       sent += 1;
     }
     await jobs.sweepSearchHistory();
+    await assistantStore(db).sweep();
     // Bounded per run: what is left goes on the next hourly run.
     const expired = await jobs.sweepExports((keys) => env.FILES.delete(keys), {
       allowCall: calls ? () => calls.take("cleanup") : undefined,

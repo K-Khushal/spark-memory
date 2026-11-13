@@ -231,6 +231,26 @@ describe.skipIf(!databaseUrl)("account", () => {
       const stranger = await signInAs(email());
       await captureText(stranger.call, "Not yours");
       const text = await captureText(call, "Lemon tart, short crust");
+      const assistant = (await (
+        await call("/api/assistants", {
+          method: "POST",
+          json: { name: "Export Assistant" },
+        })
+      ).json()) as { id: string; token: string };
+      const expired = (await (
+        await call("/api/assistants", {
+          method: "POST",
+          json: { name: "Expired Assistant" },
+        })
+      ).json()) as { id: string };
+      await db.query(
+        "update assistant_token set expires_at = now() - interval '1 second' where id = $1",
+        [expired.id]
+      );
+      await stranger.call("/api/assistants", {
+        method: "POST",
+        json: { name: "Other Person's Assistant" },
+      });
       // Larger than one 8 MiB part, so the ZIP is uploaded in several.
       const big = new Uint8Array(9 * 1024 * 1024).map((_, i) => (i * 31) % 251);
       big.set(png);
@@ -263,8 +283,25 @@ describe.skipIf(!databaseUrl)("account", () => {
       );
       const zip = unzip(new Uint8Array(await res.arrayBuffer()));
       expect([...zip.keys()].sort()).toEqual(
-        ["memories.json", "searches.json", `files/${image}.png`].sort()
+        [
+          "memories.json",
+          "searches.json",
+          "connected-assistants.json",
+          `files/${image}.png`,
+        ].sort()
       );
+      const assistants = JSON.parse(
+        new TextDecoder().decode(zip.get("connected-assistants.json"))
+      ) as { id: string; name: string; clientId: string | null }[];
+      expect(assistants).toEqual([
+        expect.objectContaining({
+          id: assistant.id,
+          name: "Export Assistant",
+          clientId: null,
+        }),
+      ]);
+      expect(JSON.stringify(assistants)).not.toContain(assistant.token);
+      expect(JSON.stringify(assistants)).not.toContain("digest");
       // Compared as one hash: a byte-by-byte diff of 9 MiB is unreadable.
       const sha = async (b: Uint8Array | undefined) =>
         b &&

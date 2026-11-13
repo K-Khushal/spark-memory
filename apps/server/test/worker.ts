@@ -236,7 +236,12 @@ export function newClient(origin = ORIGIN) {
   let cookie = "";
   async function call(
     path: string,
-    init: { method?: string; headers?: HeadersInit; json?: unknown } = {},
+    init: {
+      method?: string;
+      headers?: HeadersInit;
+      json?: unknown;
+      form?: Record<string, string>;
+    } = {},
     bindings = env()
   ) {
     const headers = new Headers(init.headers);
@@ -245,17 +250,35 @@ export function newClient(origin = ORIGIN) {
     if (cookie) headers.set("cookie", cookie);
     if (init.json !== undefined)
       headers.set("content-type", "application/json");
+    if (init.form)
+      headers.set("content-type", "application/x-www-form-urlencoded");
     const res = await worker.fetch(
       new Request<unknown, IncomingRequestCfProperties>(`${origin}${path}`, {
         method: init.method,
         headers,
-        body: init.json === undefined ? undefined : JSON.stringify(init.json),
+        body: init.form
+          ? new URLSearchParams(init.form).toString()
+          : init.json === undefined
+            ? undefined
+            : JSON.stringify(init.json),
       }),
       bindings,
       ctx
     );
     const set = res.headers.getSetCookie?.() ?? [];
-    if (set.length) cookie = set.map((c) => c.split(";")[0]).join("; ");
+    if (set.length) {
+      const jar = new Map(
+        cookie
+          .split("; ")
+          .filter(Boolean)
+          .map((v) => [v.slice(0, v.indexOf("=")), v])
+      );
+      for (const entry of set) {
+        const pair = entry.split(";")[0]!;
+        jar.set(pair.slice(0, pair.indexOf("=")), pair);
+      }
+      cookie = [...jar.values()].join("; ");
+    }
     return res;
   }
   return Object.assign(call, { cookie: () => cookie });

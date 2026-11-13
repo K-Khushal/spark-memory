@@ -6,9 +6,10 @@ async function swReady(page: Page) {
     .poll(async () =>
       page.evaluate(async () => {
         const reg = await navigator.serviceWorker.getRegistration();
-        return Boolean(
-          reg?.active || (await navigator.serviceWorker.ready).active
-        );
+        const ready = reg?.active ? reg : await navigator.serviceWorker.ready;
+        // Activation precedes clients.claim(); offline navigation and share
+        // interception need this page to be controlled, not merely an active worker.
+        return Boolean(ready.active && navigator.serviceWorker.controller);
       })
     )
     .toBe(true);
