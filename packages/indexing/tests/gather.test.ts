@@ -474,7 +474,7 @@ describe("gather", () => {
 
   it("uses a post's text from oEmbed as its description", async () => {
     const page = "https://x.com/someone/status/1";
-    const oembed = `https://publish.twitter.com/oembed?omit_script=1&dnt=1&url=${encodeURIComponent(page)}`;
+    const oembed = `https://publish.x.com/oembed?omit_script=1&dnt=1&url=${encodeURIComponent(page)}`;
     const site = web({
       [oembed]: () =>
         Response.json({
@@ -491,6 +491,109 @@ describe("gather", () => {
     expect(found.metadata).toMatchObject({
       author: "Someone",
       description: expect.stringContaining("Ship small & often."),
+    });
+  });
+
+  describe("social posts", () => {
+    const meta = (title: string, description: string) =>
+      html(
+        "<div id=root></div>",
+        `<meta property="og:title" content="${title}"><meta property="og:description" content="${description}">`
+      );
+    const json = (body: object) => () => Response.json(body);
+
+    it("follows a TikTok short link to the video before asking oEmbed", async () => {
+      const full = "https://www.tiktok.com/@cook/video/7123";
+      const site = web({
+        "https://vm.tiktok.com/ZMabc/": () =>
+          new Response(null, { status: 302, headers: { location: full } }),
+        [full]: html("<div></div>"),
+        [`https://www.tiktok.com/oembed?url=${encodeURIComponent(full)}`]: json(
+          {
+            title: "Five minute noodles",
+            author_name: "cook",
+            thumbnail_url: "https://p16.tiktokcdn.com/a.jpg",
+          }
+        ),
+      });
+      const found = await createGatherer({
+        fetch: site.fetch,
+        resolve: resolve(),
+      }).gather("https://vm.tiktok.com/ZMabc/");
+      expect(found.metadata).toMatchObject({
+        title: "Five minute noodles",
+        author: "cook",
+      });
+    });
+
+    it("keeps Instagram's own public metadata and asks Meta nothing unless switched on", async () => {
+      const reel = "https://www.instagram.com/reel/C1a/";
+      const site = web({
+        [reel]: meta("Ana on Instagram", "Sourdough in 60s"),
+      });
+      const found = await createGatherer({
+        fetch: site.fetch,
+        resolve: resolve(),
+      }).gather(reel);
+      expect(found.metadata).toMatchObject({
+        title: "Ana on Instagram",
+        description: "Sourdough in 60s",
+      });
+      expect(site.requests.map((r) => r.url)).toEqual([reel]);
+    });
+
+    it("asks Instagram oEmbed without a token or credentials once the owner switches it on", async () => {
+      const reel = "https://www.instagram.com/reel/C1a/";
+      const endpoint = `https://graph.facebook.com/v27.0/instagram_oembed?url=${encodeURIComponent(reel)}`;
+      const site = web({
+        [reel]: meta("Ana on Instagram", "Sourdough in 60s"),
+        [endpoint]: json({
+          html: '<blockquote class="instagram-media"><p>Sourdough in 60s</p></blockquote>',
+        }),
+      });
+      await createGatherer({
+        fetch: site.fetch,
+        resolve: resolve(),
+        instagramOembed: true,
+      }).gather(reel);
+      const asked = site.requests.find((r) => r.url === endpoint);
+      expect(asked).toBeDefined();
+      expect(asked!.headers.get("authorization")).toBeNull();
+      expect(asked!.credentials).not.toBe("include");
+    });
+
+    it("falls back to the page's metadata when oEmbed refuses, and sends nothing for AI opt-out", async () => {
+      const reel = "https://www.instagram.com/reel/C1a/";
+      const site = web({
+        [reel]: meta("Ana on Instagram", "Sourdough in 60s"),
+      });
+      const gatherer = createGatherer({
+        fetch: site.fetch,
+        resolve: resolve(),
+        instagramOembed: true,
+      });
+      const refused = await gatherer.gather(reel);
+      expect(refused.metadata.title).toBe("Ana on Instagram");
+      const before = site.requests.length;
+      await gatherer.gather(reel, { thirdParty: async () => false });
+      // Only the Source itself was asked again.
+      expect(site.requests.length - before).toBe(1);
+    });
+
+    it("gives a reel an empty, honest transcript rather than a page's text", async () => {
+      const reel = "https://www.instagram.com/reel/C1a/";
+      const site = web({
+        [reel]: html(`<p>${"A long login wall sentence. ".repeat(30)}</p>`),
+      });
+      const found = await createGatherer({
+        fetch: site.fetch,
+        resolve: resolve(),
+      }).gather(reel);
+      expect(found.text).toBeNull();
+      expect(found.metadata.video).toEqual({
+        transcript: [],
+        transcriptState: "unavailable",
+      });
     });
   });
 
@@ -565,7 +668,7 @@ describe("gather", () => {
 
   it.each([
     ["Jina Reader", "https://spa.test/", "r.jina.ai"],
-    ["oEmbed", "https://x.com/someone/status/1", "publish.twitter.com"],
+    ["oEmbed", "https://x.com/someone/status/1", "publish.x.com"],
   ])(
     "sends nothing to %s when opt-out is switched on while its name resolves",
     async (_, url, thirdHost) => {

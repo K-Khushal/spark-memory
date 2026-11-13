@@ -6,7 +6,16 @@ import { selectionCapture, videoSource } from "../lib/capture";
 import type { PermissionCapture } from "../lib/permission";
 import { imageStore } from "../lib/image-store";
 import { fetchImage, prepareCapture } from "../lib/image";
-import { LinkCapture, PageExtract, SCREENSHOT_MAX_BYTES } from "@spark/core";
+import {
+  FREE_ALLOWANCE,
+  instagramReel,
+  LinkCapture,
+  PageExtract,
+  REEL_COPY,
+  SCREENSHOT_MAX_BYTES,
+} from "@spark/core";
+import { adapterFor } from "../lib/sites";
+import { readReel, REEL_READ } from "../lib/sites/reel";
 import { captureClient, ApiError, type SavedMemory } from "../lib/client";
 import { API_ORIGIN } from "../lib/config";
 import {
@@ -255,12 +264,50 @@ export default defineBackground(() => {
       });
     }
   });
+  /**
+   * A reel's copy for Indexing (ADR-0010), read by the person's own browser
+   * session in the tab and uploaded to storage. Never awaited by a Capture
+   * and never fatal: anything that goes wrong leaves the reel saved as
+   * Reference only. The bytes pass through memory here, never storage.
+   */
+  async function copyReel(
+    owner: string,
+    memoryId: string,
+    tabId: number,
+    code: string
+  ) {
+    try {
+      // Before downloading up to 25 MB: would Spark use it?
+      if (!(await api.copyWanted(owner, memoryId))) return;
+      const [run] = await browser.scripting.executeScript({
+        target: { tabId },
+        func: readReel,
+        args: [
+          code,
+          {
+            appId: REEL_READ.appId,
+            maxBytes: FREE_ALLOWANCE.maxUploadBytes,
+            maxFrames: REEL_COPY.maxFrames,
+            frameMaxBytes: REEL_COPY.frameMaxBytes,
+            maxSeconds: FREE_ALLOWANCE.videoTranscriptMaxMinutes * 60,
+          },
+        ],
+      });
+      const read = run?.result;
+      if (read?.ok) await api.copy(owner, memoryId, read);
+    } catch {
+      /* Reference only: the Memory is already saved. */
+    }
+  }
   async function capture(
     mode = "page",
     imageUrl?: string,
     targetTab?: number,
     frameId = 0
   ): Promise<Result> {
+    // "page-plain": the person declined a site's host access; the generic reader.
+    const plain = mode === "page-plain";
+    if (plain) mode = "page";
     let owner: string | undefined;
     try {
       owner = await identity();
@@ -393,6 +440,29 @@ export default defineBackground(() => {
       return complete({ owner, ...prepared, addedAt: Date.now() });
     }
     playback.delete(tabId);
+    const adapter = plain ? undefined : adapterFor(url);
+    if (
+      adapter &&
+      !(await browser.permissions.contains({
+        origins: [adapter.origin + "/*"],
+      }))
+    ) {
+      // First use of this site: its host, only on a click, never in the background.
+      const job: PermissionCapture = {
+        id: crypto.randomUUID(),
+        mode: "page",
+        adapter: true,
+        tabId,
+        frameId: 0,
+        origin: adapter.origin,
+        expiresAt: Date.now() + 5 * 60_000,
+      };
+      await browser.storage.session.set({ permissionCapture: job });
+      await browser.tabs.create({
+        url: browser.runtime.getURL("/permission.html") + "#" + job.id,
+      });
+      return { state: "error", label: "Grant Access" };
+    }
     const page = await new Promise<PageExtract | undefined>((resolve) => {
       const timer = setTimeout(() => {
         pending.delete(tabId);
@@ -407,7 +477,10 @@ export default defineBackground(() => {
         },
       });
       browser.scripting
-        .executeScript({ target: { tabId }, files: ["/extract.js"] })
+        .executeScript({
+          target: { tabId },
+          files: [adapter ? "/extract-site.js" : "/extract.js"],
+        })
         .catch(() => {
           clearTimeout(timer);
           pending.delete(tabId);
@@ -446,6 +519,11 @@ export default defineBackground(() => {
       screenshot,
       addedAt: Date.now(),
     });
+    const reel = instagramReel(url);
+    // Only the Capture that made the Memory: saving a reel again must not
+    // download, upload and transcribe it again.
+    if (sent && sent.id === id && adapter && reel)
+      void copyReel(owner, sent.id, tabId, reel);
     return sent
       ? {
           state: sent.id === id ? "saved" : "duplicate",
@@ -493,6 +571,11 @@ export default defineBackground(() => {
           job.expiresAt < Date.now()
         ) {
           await browser.storage.session.remove("permissionCapture");
+          // Declining a site's host access is not declining the Capture.
+          if (job.adapter && message.type === "permission-cancel") {
+            await browser.tabs.update(job.tabId, { active: true });
+            return dispatch("page-plain", undefined, job.tabId, 0);
+          }
           await clearFeedback();
           return { state: "error", label: "Cancelled" };
         }

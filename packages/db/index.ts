@@ -13,6 +13,8 @@ export {
   UPLOAD_URL_MINUTES,
   UPLOAD_WINDOW_HOURS,
   type CaptureResult,
+  type CopyResult,
+  type CopyUpload,
   type EditResult,
   type ExportedMemory,
   type FileCheck,

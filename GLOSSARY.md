@@ -34,6 +34,10 @@ _Avoid_: archive, backup, snapshot
 Whether Spark holds a Preserved copy of a Memory: either **Preserved** or **Reference only** (just the Source and whatever metadata was allowed).
 _Avoid_: status, sync state
 
+**User-provided copy**:
+A file the user's own browser fetched with their own session and gave to Spark only so Indexing can read it, such as a reel's video. It is deleted when Indexing ends and is never a Preserved copy.
+_Avoid_: download, scrape, archive
+
 **Capture note**:
 An optional line the user writes at Capture time about why they saved a Memory.
 _Avoid_: description, comment, annotation

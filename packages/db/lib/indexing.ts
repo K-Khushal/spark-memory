@@ -4,6 +4,7 @@ import {
   EMBEDDING,
   Categories,
   embeddingSpace,
+  instagramReel,
   isThin,
   type IndexFailure,
   type IndexingOutput,
@@ -11,6 +12,7 @@ import {
   type MemoryKind,
   type ProviderName,
   type TranscriptSegment,
+  type VideoMetadata,
 } from "@spark/core";
 import { readDailyBudgetMicros } from "./admin";
 import type { Database } from "./client";
@@ -19,6 +21,7 @@ import {
   accountDeletion,
   aiCall,
   memory,
+  memoryCopy,
   memoryFile,
   memoryIndex,
   memoryVector,
@@ -217,8 +220,53 @@ export function indexingStore(db: Database) {
     };
   }
 
+  /** A reel's copy once every file of it is stored: the video and its frames in order. */
+  async function copyOf(id: string) {
+    const files = await db
+      .select({
+        role: memoryCopy.role,
+        key: memoryCopy.key,
+        mime: memoryCopy.mime,
+        bytes: memoryCopy.bytes,
+        seconds: memoryCopy.seconds,
+        generation: memoryCopy.generation,
+        stored: sql<boolean>`${memoryCopy.storedAt} is not null`,
+      })
+      .from(memoryCopy)
+      .where(eq(memoryCopy.memoryId, id))
+      .orderBy(memoryCopy.seq);
+    const video = files.find((f) => f.role === "video");
+    if (!video || files.some((f) => !f.stored)) return undefined;
+    return {
+      generation: video.generation,
+      video: {
+        key: video.key,
+        mime: video.mime,
+        bytes: video.bytes,
+        duration: video.seconds ?? 0,
+      },
+      frames: files
+        .filter((f) => f.role === "frame")
+        .map((f) => ({ key: f.key, mime: f.mime, seconds: f.seconds ?? 0 })),
+    };
+  }
+
   /** A file Memory's files, as Indexing reads them. */
-  async function filesOf(id: string, kind: MemoryKind) {
+  async function filesOf(
+    id: string,
+    kind: MemoryKind
+  ): Promise<
+    | {
+        image?: Awaited<ReturnType<typeof imageOf>>;
+        pdf?: Awaited<ReturnType<typeof pdfOf>>;
+        copy?: Awaited<ReturnType<typeof copyOf>>;
+      }
+    | undefined
+  > {
+    if (kind === "video") {
+      const copy = await copyOf(id);
+      return copy && { copy };
+    }
     if (kind === "image") {
       const image = await imageOf(id);
       return image && { image };
@@ -231,6 +279,53 @@ export function indexingStore(db: Database) {
   }
 
   return {
+    /** A reel's user-provided copy (ADR-0010), which Indexing reads once and then drops. */
+    copy: {
+      /**
+       * The transcript read from the copy, kept as the reel's video
+       * metadata and text for the Claim's run (like a public video's captions).
+       * Undefined when the run moved on.
+       */
+      async saveTranscript(claim: Claim, video: VideoMetadata) {
+        const [row] = await db
+          .update(memory)
+          .set({
+            metadata: sql`jsonb_set(coalesce(${memory.metadata}, '{}'::jsonb), '{video}', ${JSON.stringify(video)}::jsonb)`,
+            // As for a public video: the transcript's lines are its text, so
+            // keyword search and Passage anchors read the same words.
+            body: video.transcript.map((s) => s.text).join("\n"),
+          })
+          .where(and(claimed(claim), indexing, eq(memory.kind, "video")))
+          .returning({
+            transcript: linkColumns.transcript,
+            body: memory.body,
+          });
+        return row;
+      },
+
+      /**
+       * The copy's rows of that `generation` (the one loaded) are deleted
+       * whatever the run, for the Memory and owner the Claim names; a copy
+       * attached since, which a newer run will read, stays. A trigger queues
+       * the objects for removal. Returns the keys, for the caller to delete
+       * from storage at once.
+       */
+      async drop(claim: Claim, generation: string) {
+        const rows = await db
+          .delete(memoryCopy)
+          .where(
+            and(
+              eq(memoryCopy.memoryId, claim.memoryId),
+              eq(memoryCopy.generation, generation),
+              sql`exists (select 1 from ${memory} m where m.id = ${memoryCopy.memoryId}
+                and m.user_id = ${claim.userId} and m.index_generation = ${claim.generation})`
+            )
+          )
+          .returning({ key: memoryCopy.key });
+        return rows.map((r) => r.key);
+      },
+    },
+
     /**
      * Automatic Categories for the Memory at `revision`, once: never over a
      * user's edit (Locked categories), AI opt-out, a newer revision or run.
@@ -334,7 +429,13 @@ export function indexingStore(db: Database) {
         const [row] = await db
           .update(memory)
           .set({
-            metadata: sql`coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(gathered.metadata)}::jsonb`,
+            // What a site adapter read in the person's own browser (X, TikTok,
+            // Instagram) wins over what the web says of a login wall. For any
+            // other page the gathered metadata wins: an OG tag the page has
+            // just served is fresher than text read before in-app navigation.
+            metadata: sql`case when ${memory.metadata}->>'siteRead' = 'true'
+              then ${JSON.stringify(gathered.metadata)}::jsonb || ${memory.metadata}
+              else coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(gathered.metadata)}::jsonb end`,
             body: gathered.text,
             preservation: sql`case when ${memory.kind} = 'video' then 'reference_only' when ${gathered.text}::text is not null then 'preserved' else 'reference_only' end`,
             contentHash: sql`case when exists (
@@ -375,8 +476,12 @@ export function indexingStore(db: Database) {
       const { kind, aiOptOut, metadata, ...saved } = row;
       // Came back thin (ADR-0010): a Deep fetch is wanted, once per Memory.
       // The video engine sends audio to an AI provider, so never for opt-out.
+      // Never for a reel either: it is behind a login wall, which the server
+      // never crosses; its own browser provides a copy instead (#20), so a
+      // reel that gets one cannot also be queued to fetch the video.
       if (
         !gathered.refused &&
+        !(row.sourceUrl && instagramReel(row.sourceUrl)) &&
         isThin({ kind, text: row.body, metadata: metadata ?? {} }) &&
         !(kind === "video" && aiOptOut)
       ) {
