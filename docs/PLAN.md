@@ -111,7 +111,7 @@ Each package exposes only its entry point; dependency-cruiser enforces this (`se
    - embed the query, or the image for search by image;
    - one SQL function fuses keyword rank, trigram, best-matching vector per Memory (Overview, Visual, Passage), colour proximity and filters with Reciprocal Rank Fusion;
    - it returns the top ~40 with the part that matched.
-4. **Direct / Related**: Jev judges the top ~20 ("is this what the user described?"). Fallback: thresholds tuned on the test set. When nothing is a Direct match we say so honestly, then show Related matches.
+4. **Direct / Related**: Jev judges the top ~20 ("is this what the user described?"). Fallback: thresholds tuned on the test set (`eval:tune`). Jev has a hard deadline inside the 600 ms and is dropped when late. When nothing is a Direct match we say so honestly, then show Related matches.
 5. **Why chips** on every result: "text in image: purple", "looks like: dashboard", "passage at 12:40", "colour: orange", "Category: Design reference".
 6. **Browse without words**: filter chips for kind, Source, Category, date and **colour**, which work with an empty query. This is for the design-reference case: you saved something but can't think what to type.
 7. **More like this** on every Memory. Inside long Memories the matching passage is highlighted, and "open" jumps to the text fragment, page or timestamp.

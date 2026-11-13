@@ -1,14 +1,21 @@
 import type { SearchChips } from "@spark/core";
 import { isWordless } from "./search-session";
-import { LibraryFilters, useFilterOptions } from "./library-filters";
+import {
+  KIND_LABELS,
+  LibraryFilters,
+  useFilterOptions,
+} from "./library-filters";
+import { narrowing } from "./narrowing";
 import { recordSearch } from "./search-history";
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   type ReactNode,
+  type Ref,
 } from "react";
 import {
   Link,
@@ -16,7 +23,16 @@ import {
   useSearch as useRouteSearch,
 } from "@tanstack/react-router";
 import { PlusIcon, SearchIcon } from "lucide-react";
-import { Button, Kbd, Masonry, Toaster, cn, toast } from "@spark/ui";
+import {
+  Button,
+  FilterChip,
+  Kbd,
+  Masonry,
+  Toaster,
+  cn,
+  toast,
+  type MasonryHandle,
+} from "@spark/ui";
 import { startAnalytics, track } from "../analytics";
 import { authClient, endSession, type AppSession } from "../auth";
 import { ShareTarget } from "../pwa/share-target";
@@ -418,6 +434,8 @@ export function LibraryPage({
               <SearchResults
                 results={results}
                 query={query}
+                chips={chips}
+                onChips={changeChips}
                 onOpen={openMemory}
                 tiles={tiles}
               />
@@ -568,9 +586,14 @@ function ResultWall({
   query,
   onOpen,
   tiles,
+  handle,
+  onEdge,
 }: {
   label: string;
   found: Found[];
+  /** Focus moves between the Direct and Related walls through these. */
+  handle?: Ref<MasonryHandle>;
+  onEdge?: (key: "ArrowUp" | "ArrowDown") => boolean;
   /** The search these answer: reordering within it glides (Masonry). */
   glideKey: string;
   /** Direct or Related; undefined for More Like This, which needs no why-chip. */
@@ -595,6 +618,8 @@ function ResultWall({
       onOpen={open}
       onPreview={open}
       glideKey={glideKey}
+      handle={handle}
+      onEdge={onEdge}
       renderItem={(m, tile) => (
         <div className="flex h-full flex-col items-start">
           <div className="w-full" style={{ height: tile.height }}>
@@ -616,14 +641,21 @@ function ResultWall({
 function SearchResults({
   results,
   query,
+  chips,
+  onChips,
   onOpen,
   tiles,
 }: {
   results: Results | "failed" | undefined;
   query: string;
+  chips: SearchChips;
+  onChips: (chips: SearchChips) => void;
   onOpen: (memory: Memory) => void;
   tiles: TileActions;
 }) {
+  const direct = useRef<MasonryHandle>(null);
+  const related = useRef<MasonryHandle>(null);
+  const headings = useId();
   if (!results) return null;
   if (results === "failed") {
     return (
@@ -686,11 +718,15 @@ function SearchResults({
   }
   return (
     <div data-search={results.mode}>
-      <section>
-        <h2 className="mb-3 text-sm font-medium text-ink-muted">
+      <section aria-labelledby={`${headings}-direct`}>
+        <h2
+          id={`${headings}-direct`}
+          tabIndex={-1}
+          className="mb-3 text-sm font-medium text-ink outline-none"
+        >
           {results.direct.length ? "Direct Matches" : "No Direct Matches"}
         </h2>
-        {results.direct.length > 0 && (
+        {results.direct.length > 0 ? (
           <ResultWall
             label="Direct Matches"
             found={results.direct}
@@ -699,12 +735,35 @@ function SearchResults({
             query={query}
             onOpen={onOpen}
             tiles={tiles}
+            handle={direct}
+            // Down from the bottom tile goes on to the Related Matches.
+            onEdge={(key) => {
+              if (key !== "ArrowDown" || !results.related.length) return false;
+              related.current?.focus("first");
+              return true;
+            }}
+          />
+        ) : (
+          <Narrow
+            found={results.related}
+            chips={chips}
+            // The chip that was pressed goes, so focus waits on the heading.
+            onChips={(next) => {
+              document.getElementById(`${headings}-direct`)?.focus();
+              onChips(next);
+            }}
           />
         )}
       </section>
       {results.related.length > 0 && (
-        <section className="mt-10">
-          <h2 className="mb-3 text-sm font-medium text-ink-muted">
+        <section
+          aria-labelledby={`${headings}-related`}
+          className="mt-8 border-t border-line pt-6"
+        >
+          <h2
+            id={`${headings}-related`}
+            className="mb-3 text-sm font-medium text-ink-muted"
+          >
             Related Matches
           </h2>
           <ResultWall
@@ -715,9 +774,54 @@ function SearchResults({
             query={query}
             onOpen={onOpen}
             tiles={tiles}
+            handle={related}
+            onEdge={(key) => {
+              if (key !== "ArrowUp" || !results.direct.length) return false;
+              direct.current?.focus("last");
+              return true;
+            }}
           />
         </section>
       )}
+    </div>
+  );
+}
+
+/**
+ * With no Direct Match, the ways to narrow what was found: the kinds and
+ * Categories among the Related Matches, as the same filter chips the
+ * sidebar has (`narrowing`: nothing that narrows nothing).
+ */
+function Narrow({
+  found,
+  chips,
+  onChips,
+}: {
+  found: Found[];
+  chips: SearchChips;
+  onChips: (chips: SearchChips) => void;
+}) {
+  const options = narrowing(found, chips);
+  if (!options.kinds.length && !options.categories.length) return null;
+  return (
+    <div
+      role="group"
+      aria-label="Narrow Related Matches"
+      className="flex flex-wrap gap-2"
+    >
+      {options.kinds.map((kind) => (
+        <FilterChip key={kind} onClick={() => onChips({ ...chips, kind })}>
+          {KIND_LABELS[kind]}
+        </FilterChip>
+      ))}
+      {options.categories.map((category) => (
+        <FilterChip
+          key={category}
+          onClick={() => onChips({ ...chips, category })}
+        >
+          {category}
+        </FilterChip>
+      ))}
     </div>
   );
 }

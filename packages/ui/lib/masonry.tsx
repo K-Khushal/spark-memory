@@ -1,10 +1,12 @@
 import {
   useEffect,
+  useImperativeHandle,
   useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type Ref,
 } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { columnCount, neighbour, tabStop } from "./layout";
@@ -17,6 +19,9 @@ type MasonryTile = {
   height: number;
   active: boolean;
 };
+
+/** What a parent can ask of a wall: put focus on its first or last tile. */
+export type MasonryHandle = { focus: (which: "first" | "last") => void };
 
 type MasonryProps<T> = {
   items: readonly T[];
@@ -42,6 +47,13 @@ type MasonryProps<T> = {
   glideKey?: string;
   onOpen?: (index: number) => void;
   onPreview?: (index: number) => void;
+  /**
+   * ↑ or ↓ pressed on the top or bottom tile of its column: there is no
+   * tile further that way here, so a neighbouring wall can take focus.
+   * Return true when it did; otherwise the key keeps its default (scrolling).
+   */
+  onEdge?: (key: "ArrowUp" | "ArrowDown") => boolean;
+  handle?: Ref<MasonryHandle>;
   renderItem: (item: T, tile: MasonryTile) => ReactNode;
 };
 
@@ -65,6 +77,8 @@ export function Masonry<T>({
   glideKey,
   onOpen,
   onPreview,
+  onEdge,
+  handle,
   renderItem,
 }: MasonryProps<T>) {
   const ref = useRef<HTMLDivElement>(null);
@@ -122,6 +136,10 @@ export function Masonry<T>({
     );
   };
 
+  useImperativeHandle(handle, () => ({
+    focus: (which) => focusIndex(which === "first" ? 0 : items.length - 1),
+  }));
+
   const rendered = colWidth > 0 ? virtualizer.getVirtualItems() : [];
   const current = tabStop(
     active,
@@ -172,6 +190,11 @@ export function Masonry<T>({
     if (target !== undefined) {
       event.preventDefault();
       focusIndex(target);
+    } else if (
+      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+      onEdge?.(event.key)
+    ) {
+      event.preventDefault();
     } else if (event.key === "Enter") {
       onOpen?.(current);
     } else if (event.key === " ") {

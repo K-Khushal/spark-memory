@@ -3,6 +3,8 @@
 //   --check            fake providers, fail when top-1 or top-5 fell below baseline.json
 //   --update-baseline  fake providers, write baseline.json (do it on purpose, in the PR)
 //   --detail           also write evals/local/detail.json (queries and titles: git-ignored, local only)
+//   --tune             also print the thresholds that best split Direct from Related Matches (JUDGING.thresholds)
+//   --latency          also time full search under assumed Jev and embedding delays (latency.ts)
 //   --real             real providers (GEMINI_API_KEY, GEMINI_PAID_TIER=true); spends money
 // No search change merges without this (CLAUDE.md).
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -10,6 +12,8 @@ import { join } from "node:path";
 import { loadCategoryLabels } from "./categories";
 import { EVALS_ROOT, loadSet } from "./manifest";
 import { runEvals } from "./run";
+import { formatTuning } from "./judging";
+import { formatLatency, SCENARIOS } from "./latency";
 import { compare, formatReport, toBaseline, worstOf, Baseline } from "./score";
 import { fakeSetup, openLocalDatabase, realSetup } from "./setup";
 
@@ -38,9 +42,13 @@ try {
     searches: set.searches,
     categoryLabels: await loadCategoryLabels(),
     ...setup,
+    ...(has("--latency") && { latency: { scenarios: SCENARIOS, repeat: 3 } }),
     log: (line) => console.error(`evals: ${line}`),
   });
   console.log(formatReport(report));
+  if (report.latency) console.log(`\n${formatLatency(report.latency)}`);
+  if (has("--tune"))
+    console.log(`\n${formatTuning(report.searches, has("--real"))}`);
   if (jsonPath) await writeFile(jsonPath, JSON.stringify(report, null, 1));
   if (has("--detail")) {
     // The only place a search's words or a Memory's title are written, for

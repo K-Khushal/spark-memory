@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { directScore, formatDirectScore } from "./judging";
 import type { Report, SearchOutcome } from "./run";
 
 export type Tally = { total: number; top1: number; top5: number };
@@ -120,6 +121,7 @@ export function formatReport(report: Report) {
     `Searches  ${s.total}`,
     `top-1  ${s.top1}/${s.total}  ${pct(s.top1, s.total)}`,
     `top-5  ${s.top5}/${s.total}  ${pct(s.top5, s.total)}`,
+    formatDirectScore(directScore(report.searches)),
     "",
     "By kind",
     ...Object.entries(s.byKind).map(

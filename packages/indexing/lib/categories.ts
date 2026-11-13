@@ -29,7 +29,7 @@ const prototypes = new Map<string, number[][]>();
 export const jevTokenEstimate = (text: string) =>
   Math.ceil(Math.min(text.length, INDEXING.maxInputChars) / 3) + 800;
 
-const jevCostMicros = (model: string, inputTokens: number) =>
+export const jevCostMicros = (model: string, inputTokens: number) =>
   Math.ceil(
     (inputTokens * (INDEXING.pricesMicrosPerMTokens[model]?.[0] ?? 0)) /
       1_000_000
