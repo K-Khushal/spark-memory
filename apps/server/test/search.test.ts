@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { EMBEDDING } from "@spark/core";
+import type * as Core from "@spark/core";
 import { queryVectorsCached } from "@spark/search";
+import * as Search from "@spark/search";
+import * as Sentry from "@sentry/cloudflare";
+import { ProviderError } from "@spark/indexing";
 import { requeueStalled } from "../src/indexing";
 import {
   newClient,
@@ -13,6 +17,24 @@ import {
   queues,
   signedIn,
 } from "./worker";
+
+vi.mock("@sentry/cloudflare", { spy: true });
+
+// Real Postgres and fake-provider policy assertions must not depend on the
+// shared VM completing database cost writes inside the production 350ms SLA.
+// Search's deadline/fallback behavior is covered with controlled clocks in
+// @spark/search; keep the integration deadline generous without changing it.
+vi.mock("@spark/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof Core>();
+  return {
+    ...actual,
+    JUDGING: {
+      ...actual.JUDGING,
+      fullBudgetMs: 60_000,
+      jevTimeoutMs: 30_000,
+    },
+  };
+});
 
 // Hybrid search through the Worker, with the fake provider and embedder
 // (INDEXING_PROVIDER=fake): words the fake embedder reads as one meaning
@@ -43,6 +65,75 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
   const sql = new Client({ connectionString: databaseUrl });
   beforeAll(() => sql.connect());
   afterAll(() => sql.end());
+
+  it("validates transient image bodies, keeps them out of storage, and scopes Library probes", async () => {
+    const { call } = await signedIn();
+    const other = (await signedIn()).call;
+    const id = await capture(call, "A blue dashboard");
+    const before = await (await call("/api/memories")).json();
+    const image = { mime: "image/png", data: "iVBORw0KGgo=" };
+    const response = await postSearch(call, {
+      mode: "full",
+      image,
+      q: "dashboard",
+      chips: { kind: "note" },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toMatchObject({
+      mode: "full",
+      results: [{ id, match: "related" }],
+    });
+    expect(await (await call("/api/memories")).json()).toEqual(before);
+    expect(
+      await (await postSearch(other, { mode: "full", memory: id })).json()
+    ).toMatchObject({ results: [] });
+    for (const bad of [
+      { ...image, mime: "image/svg+xml" },
+      { ...image, data: "AAAA" },
+    ])
+      expect(
+        (await postSearch(call, { mode: "full", image: bad })).status
+      ).toBe(400);
+    expect(
+      (
+        await postSearch(call, {
+          mode: "full",
+          image: { ...image, data: "A".repeat(1_420_001) },
+        })
+      ).status
+    ).toBe(413);
+  });
+
+  it.each([
+    { failure: new Error("image_search_budget"), status: 503 },
+    { failure: new ProviderError("failed"), status: 503 },
+    { failure: new Error("database failed"), status: 500 },
+  ])(
+    "reports image-search failure with status $status through the appropriate error path",
+    async ({ failure, status }) => {
+      const { call } = await signedIn();
+      const reported = vi.mocked(Sentry.captureException);
+      reported.mockClear();
+      vi.spyOn(Search, "createSearch").mockReturnValueOnce({
+        search: async () => {
+          throw failure;
+        },
+        similar: async () => [],
+      });
+      const response = await postSearch(call, {
+        mode: "full",
+        memory: "00000000-0000-4000-8000-000000000001",
+      });
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual({
+        ok: false,
+        error: status === 503 ? "image_search_unavailable" : "internal_error",
+      });
+      if (status === 500) expect(reported).toHaveBeenCalledWith(failure);
+      else expect(reported).not.toHaveBeenCalled();
+    }
+  );
 
   it("records committed searches behind authentication and isolates their history", async () => {
     expect((await newClient()("/api/search/recent")).status).toBe(401);
@@ -152,7 +243,8 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       ).toBe(400);
     // A body too large for any search.
     expect(
-      (await postSearch(call, { q: "x", timezone: "y".repeat(20_000) })).status
+      (await postSearch(call, { q: "x", timezone: "y".repeat(1_420_001) }))
+        .status
     ).toBe(413);
   });
 

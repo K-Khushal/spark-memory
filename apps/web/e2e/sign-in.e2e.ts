@@ -17,6 +17,9 @@ test("sign in with an email code and land in the empty Library", async ({
 
   // ⌘K opens the command menu; signing out returns to sign-in.
   await page.keyboard.press("ControlOrMeta+k");
-  await page.getByRole("option", { name: "Sign Out" }).click();
+  await page
+    .getByRole("listbox")
+    .getByRole("option", { name: "Sign Out" })
+    .click();
   await expect(page).toHaveURL(/\/sign-in$/);
 });

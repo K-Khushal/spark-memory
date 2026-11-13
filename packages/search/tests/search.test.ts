@@ -503,3 +503,106 @@ describe("search", () => {
     });
   });
 });
+
+it("searches a transient image with words and filters, accounting image tokens", async () => {
+  const { search, lib, budget, model } = setup();
+  model!.embed.mockResolvedValue({
+    vectors: [[0, 1, 0]],
+    usage: { textTokens: 2, imageTokens: 258 },
+  });
+  const image = { mime: "image/png", data: "iVBORw0KGgo=" };
+  await search.search("dashboard", "full", { image, chips: { kind: "image" } });
+  expect(model!.embed.mock.calls[0]![0][0]).toEqual({
+    image: {
+      mime: "image/png",
+      bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    },
+  });
+  expect(lib.calls[0]!.probe).toEqual({
+    model: "gemini-embedding-2",
+    dimensions: 3,
+    vector: [0, 1, 0],
+    imageQuery: true,
+  });
+  expect(lib.calls[0]!.query).toBe("dashboard");
+  expect(budget.calls[0]!.usage.inputTokens).toBe(260);
+});
+
+it("shares an in-flight image embedding and caches only its vector per owner", async () => {
+  const { search, model, budget } = setup();
+  const image = { mime: "image/png", data: "iVBORw0KGgo=" };
+  await Promise.all([
+    search.search("", "full", { image }),
+    search.search("blue", "full", { image }),
+  ]);
+  expect(model!.embed).toHaveBeenCalledTimes(1);
+  expect(budget.calls).toHaveLength(1);
+  await search.search("red", "full", { image });
+  expect(model!.embed).toHaveBeenCalledTimes(1);
+});
+
+it("image queries refuse exhausted budgets and missing providers, without a text fallback", async () => {
+  const image = { mime: "image/png", data: "iVBORw0KGgo=" };
+  for (const s of [
+    setup({ spent: INDEXING.dailyBudgetMicros }),
+    setup({ model: null }),
+  ]) {
+    await expect(s.search.search("blue", "full", { image })).rejects.toThrow();
+    expect(s.lib.calls).toEqual([]);
+  }
+});
+
+it("image Direct Matches require vector confidence even when keywords match", async () => {
+  const { search } = setup({
+    hits: [
+      { id: "keyword", matched: ["keyword"], distance: 0.5, score: 0.02 },
+      { id: "visual", matched: ["vector"], distance: 0.01, score: 0.01 },
+    ],
+  });
+  const { results } = await search.search("blue", "full", {
+    image: { mime: "image/png", data: "iVBORw0KGgo=" },
+  });
+  expect(results.map((r) => r.match)).toEqual(["related", "direct"]);
+});
+
+it("image queries use the threshold MatchJudge window and never send a text-only question to Jev", async () => {
+  const lib = library(
+    Array.from({ length: 21 }, (_, i) => ({
+      id: String(i),
+      matched: ["vector"],
+      distance: 0.01,
+      score: 1 / (i + 1),
+    }))
+  );
+  const judge = { judge: vi.fn(async () => new Map()) };
+  const search = createSearch({
+    userId: `u${++user}`,
+    find: lib.find,
+    embedder: embedder(),
+    spend: spend(),
+    judge,
+  });
+  const { results } = await search.search("blue", "full", {
+    image: { mime: "image/png", data: "iVBORw0KGgo=" },
+  });
+  expect(judge.judge).not.toHaveBeenCalled();
+  expect(results.filter((r) => r.match === "direct")).toHaveLength(20);
+  expect(results[20]!.match).toBe("related");
+});
+
+it("does not retain an image vector when the owner is forgotten while its digest is in flight", async () => {
+  const userId = `image-deletion-${++user}`;
+  const search = createSearch({
+    userId,
+    find: library().find,
+    embedder: embedder(),
+    spend: spend(),
+  });
+  const pending = search.search("", "full", {
+    image: { mime: "image/png", data: "iVBORw0KGgo=" },
+  });
+  forgetQueryVectors(userId);
+  await pending;
+  expect(queryVectorsCached(userId)).toBe(0);
+  expect(searchesTracked()).toBe(0);
+});

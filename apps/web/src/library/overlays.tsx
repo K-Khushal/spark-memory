@@ -1,3 +1,4 @@
+import type { ImageQueryProps } from "./image-query";
 import type { CategoryEdit } from "./categories";
 import { ImageViewer } from "./image-viewer";
 import { MemoryDetail, type Edits } from "./memory-detail";
@@ -11,6 +12,7 @@ import type { Results } from "./use-search";
 export type LibraryOverlaysProps = {
   onCategories?: CategoryEdit;
   searchOpen: boolean;
+  imageQuery: ImageQueryProps;
   draft: string;
   instant: Results | "failed" | undefined;
   onSearchOpenChange: (open: boolean) => void;
@@ -42,6 +44,7 @@ export type LibraryOverlaysProps = {
   onRetryDeepFetch: (memory: WallMemory) => void;
   onAiOptOut: (memory: Memory, on: boolean) => void;
   onMoreLikeThis: (memory: Memory) => void;
+  onSearchByImage: (memory: Memory) => void;
 };
 
 /**
@@ -51,6 +54,7 @@ export type LibraryOverlaysProps = {
  */
 export function LibraryOverlays({
   searchOpen,
+  imageQuery,
   draft,
   instant,
   onSearchOpenChange,
@@ -83,11 +87,13 @@ export function LibraryOverlays({
   onAiOptOut,
   onCategories,
   onMoreLikeThis,
+  onSearchByImage,
 }: LibraryOverlaysProps) {
   return (
     <>
       <SearchCommand
         open={searchOpen}
+        imageQuery={imageQuery}
         draft={draft}
         instant={instant}
         onOpenChange={onSearchOpenChange}
@@ -116,6 +122,7 @@ export function LibraryOverlays({
         onCategories={onCategories}
         onAiOptOut={onAiOptOut}
         onMoreLikeThis={onMoreLikeThis}
+        onSearchByImage={onSearchByImage}
       />
       <PdfViewer
         memory={pdf}
@@ -139,6 +146,7 @@ export function LibraryOverlays({
         onCategories={onCategories}
         onAiOptOut={onAiOptOut}
         onMoreLikeThis={onMoreLikeThis}
+        onSearchByImage={onSearchByImage}
       />
     </>
   );

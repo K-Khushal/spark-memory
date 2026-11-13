@@ -41,6 +41,10 @@ const searchBody = (
   page?: string
 ) => ({
   q: request.query,
+  ...(request.visual &&
+    ("image" in request.visual
+      ? { image: request.visual.image }
+      : { memory: request.visual.memory })),
   mode,
   timezone: timezone(),
   ...(request.chips && { chips: request.chips }),
@@ -111,14 +115,16 @@ export function useSearch(
     request && "chips" in request && request.chips
       ? JSON.stringify(request.chips)
       : "";
+  const visual = request && "query" in request ? request.visual : undefined;
   const wanted = useMemo((): SearchRequest | undefined => {
     if (like) return { like };
-    if (!query && !chipsJson) return undefined;
+    if (!query && !chipsJson && !visual) return undefined;
     return {
       query,
+      ...(visual && { visual }),
       ...(chipsJson && { chips: JSON.parse(chipsJson) as SearchChips }),
     };
-  }, [like, query, chipsJson]);
+  }, [like, query, chipsJson, visual]);
   useEffect(() => {
     session.set(wanted, version);
   }, [session, wanted, version]);
@@ -182,7 +188,7 @@ export function useMoreResults(
       const res = await api.api.search.$post({
         json: searchBody(
           request,
-          request.query.trim() ? "full" : "instant",
+          request.query.trim() || request.visual ? "full" : "instant",
           next
         ),
       });

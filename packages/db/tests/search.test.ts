@@ -91,6 +91,69 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       }),
     });
 
+  it("image queries use Visual and Overview, exclude Passages and other owners, and keep filters", async () => {
+    const vector = mix({ 180: 1 });
+    const visual = await save(
+      { body: "Picture" },
+      { vectors: [{ kind: "visual", embedding: vector }] }
+    );
+    const passage = await save(
+      { body: "Passage only" },
+      {
+        vectors: [
+          {
+            kind: "passage",
+            anchor: { field: "body", start: 0, end: 12 },
+            embedding: vector,
+          },
+        ],
+      }
+    );
+    const overview = await save(
+      { body: "Overview" },
+      { vectors: [{ kind: "overview", embedding: vector }] }
+    );
+    const foreign = await save(
+      { body: "Other Library" },
+      { userId: ben, vectors: [{ kind: "visual", embedding: vector }] }
+    );
+    const results = await library().search("", {
+      probe: { ...space, vector, imageQuery: true },
+      maxDistance: 0.1,
+      kinds: ["text"],
+    });
+    expect(results.map((m) => m.id).sort()).toEqual([visual, overview].sort());
+    expect(results.map((m) => m.id)).not.toContain(passage);
+    expect(results.map((m) => m.id)).not.toContain(foreign);
+    expect(
+      await library().search("", {
+        probe: { ...space, vector, imageQuery: true },
+        kinds: ["pdf"],
+      })
+    ).toEqual([]);
+    expect(
+      await library().search("", {
+        probe: { ...space, like: foreign, imageQuery: true },
+      })
+    ).toEqual([]);
+    expect(
+      (
+        await library().search("", {
+          probe: { ...space, like: overview, imageQuery: true },
+          maxDistance: 0.1,
+        })
+      ).map((m) => m.id)
+    ).toEqual([visual]);
+    expect(
+      (
+        await library().search("Overview", {
+          probe: { ...space, like: overview, imageQuery: true },
+          maxDistance: 0.1,
+        })
+      ).map((m) => m.id)
+    ).toEqual([visual]);
+  });
+
   describe("the vector leg", () => {
     let console_: string;
     let pier: string;

@@ -56,7 +56,8 @@ export type SampleMemory = z.infer<typeof Sample>;
  */
 const Search = z.object({
   id: z.string(),
-  query: z.string().min(1),
+  query: z.string(),
+  imageMemory: z.string().optional(),
   expect: z.array(z.string()).min(1),
   /**
    * Other Memories a person would also accept as a match. They are not
@@ -90,6 +91,13 @@ export async function loadSet(root = EVALS_ROOT) {
   if (searchIds.size !== searches.length)
     throw new Error("two searches share an id");
   for (const s of searches) {
+    if (
+      s.imageMemory &&
+      !memories.some((m) => m.id === s.imageMemory && m.kind === "image")
+    )
+      throw new Error(`search ${s.id} has no image Memory`);
+    if (!s.query && !s.imageMemory)
+      throw new Error(`search ${s.id} has no query`);
     for (const id of [...s.expect, ...(s.also ?? [])]) {
       if (!ids.has(id))
         throw new Error(`search ${s.id} expects unknown Memory ${id}`);

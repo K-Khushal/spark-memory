@@ -1,3 +1,10 @@
+import {
+  ImageQueryControls,
+  memoryImageQuery,
+  QueryImageChip,
+  useImageQuery,
+  type ImageQueryProps,
+} from "./image-query";
 import type { SearchChips } from "@spark/core";
 import { isWordless } from "./search-session";
 import {
@@ -79,6 +86,12 @@ export function LibraryPage({
   const [overlaysDown, setOverlaysDown] = useState(false);
   const previousSearch = useRef("");
   const [draft, setDraft] = useState("");
+  const {
+    value: visual,
+    change: setVisual,
+    choose: decodeImage,
+    busy: imageBusy,
+  } = useImageQuery();
   const [query, setQuery] = useState("");
   /** The filter chips, one choice per group; they work with no words. */
   const [chips, setChips] = useState<SearchChips>({});
@@ -93,9 +106,22 @@ export function LibraryPage({
   const [pdf, setPdf] = useState<{ id: string; match: PdfMatch }>();
   /** The Memory the wall shows More Like This of, instead of a query. */
   const [like, setLike] = useState<Memory>();
+  const chooseImage = (file?: File) => {
+    setLike(undefined);
+    return decodeImage(file);
+  };
+  const queryImage: ImageQueryProps = {
+    value: visual,
+    busy: imageBusy,
+    onFile: chooseImage,
+    onChange: (value) => {
+      setLike(undefined);
+      setVisual(value);
+    },
+  };
   // ⌘K: instant per keystroke, full once typing pauses.
   const instant = useSearch(
-    { query: draft },
+    searchOpen ? { query: draft, ...(visual && { visual, chips }) } : undefined,
     library.memories,
     library.version,
     {
@@ -107,7 +133,7 @@ export function LibraryPage({
   const filtering = Object.keys(chips).length > 0;
   const request = like
     ? { like: like.id }
-    : { query, ...(filtering && { chips }) };
+    : { query, ...(visual && { visual }), ...(filtering && { chips }) };
   const first = useSearch(request, library.memories, library.version, {
     userId: session.user.id,
     pauseMs: 0,
@@ -125,7 +151,7 @@ export function LibraryPage({
         : first,
     [first, more.direct, more.related]
   );
-  const searching = !!like || !!query || filtering;
+  const searching = !!visual || !!like || !!query || filtering;
   const categories = useOwnCategories({
     onRenamed: (from, to) => {
       library.categoryRenamed(from, to);
@@ -284,6 +310,7 @@ export function LibraryPage({
     window.scrollTo({ top: 0 });
   };
   const moreLikeThis = (memory: Memory) => {
+    setVisual(undefined);
     setOpenId(undefined);
     setImageId(undefined);
     setPdf(undefined);
@@ -291,11 +318,23 @@ export function LibraryPage({
     setLike(memory);
     window.scrollTo({ top: 0 });
   };
+  const searchByImage = (memory: Memory) => {
+    setOpenId(undefined);
+    setImageId(undefined);
+    setPdf(undefined);
+    setSearchOpen(false);
+    setQuery("");
+    setDraft("");
+    setLike(undefined);
+    setVisual(memoryImageQuery(memory));
+    window.scrollTo({ top: 0 });
+  };
   const changeChips = (next: SearchChips) => {
     setChips(next);
     setLike(undefined);
   };
   const clearSearch = () => {
+    setVisual(undefined);
     setChips({});
     setQuery("");
     setLike(undefined);
@@ -344,7 +383,11 @@ export function LibraryPage({
     await navigate({ to: "/sign-in" });
   };
 
-  const searchLabel = like ? "More Like This" : query || "Search";
+  const searchLabel = like
+    ? "More Like This"
+    : visual
+      ? "Image"
+      : query || "Search";
   const clearSearchClick = searching
     ? () => {
         metrics.cleared();
@@ -353,7 +396,29 @@ export function LibraryPage({
     : undefined;
 
   return (
-    <div className="flex min-h-dvh bg-canvas">
+    <div
+      className="flex min-h-dvh bg-canvas"
+      onPasteCapture={(event) => {
+        if (
+          (event.target as HTMLElement).closest('[data-desk="search"]') &&
+          event.clipboardData.files[0]
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          void chooseImage(event.clipboardData.files[0]);
+        }
+      }}
+      onDropCapture={(event) => {
+        if (
+          (event.target as HTMLElement).closest('[data-desk="search"]') &&
+          event.dataTransfer.files[0]
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          void chooseImage(event.dataTransfer.files[0]);
+        }
+      }}
+    >
       <DeskSidebar
         filtered={filtering}
         email={session.user.email}
@@ -370,11 +435,15 @@ export function LibraryPage({
         onPaste={pasteOntoWall}
         searchLabel={searchLabel}
         searchActive={searching}
+        searchImageControl={
+          <ImageQueryControls {...queryImage} showChip={false} compact />
+        }
         onClearSearch={clearSearchClick}
         filters={
-          library.memories.length > 0 && (
+          (library.memories.length > 0 || visual || imageBusy) && (
             <LibraryFilters
               layout="sidebar"
+              leading={<QueryImageChip {...queryImage} />}
               options={filterOptions}
               chips={chips}
               onChange={changeChips}
@@ -397,6 +466,13 @@ export function LibraryPage({
               <DeskSearchField
                 label={searchLabel}
                 active={searching}
+                imageControl={
+                  <ImageQueryControls
+                    {...queryImage}
+                    showChip={false}
+                    compact
+                  />
+                }
                 onSearch={openSearch}
                 onClear={clearSearchClick}
               />
@@ -411,9 +487,10 @@ export function LibraryPage({
               <PlusIcon aria-hidden />
             </Button>
           </div>
-          {library.memories.length > 0 && (
+          {(library.memories.length > 0 || visual || imageBusy) && (
             <LibraryFilters
               layout="row"
+              leading={<QueryImageChip {...queryImage} />}
               options={filterOptions}
               chips={chips}
               onChange={changeChips}
@@ -499,6 +576,7 @@ export function LibraryPage({
           key={overlaysEpoch}
           onCatch={() => setOverlaysDown(true)}
           searchOpen={searchOpen}
+          imageQuery={queryImage}
           draft={draft}
           instant={instant}
           onSearchOpenChange={(open) => {
@@ -534,6 +612,7 @@ export function LibraryPage({
           onCategories={library.setCategories}
           onAiOptOut={library.setAiOptOut}
           onMoreLikeThis={moreLikeThis}
+          onSearchByImage={searchByImage}
         />
       </OwnCategoryNames.Provider>
       {dropping && (

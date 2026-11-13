@@ -91,6 +91,8 @@ try {
 
   const outcomes: SearchOutcome[] = [];
   for (const c of set.searches) {
+    // This comparison adapter is text-only; never score an image as an empty query.
+    if (c.imageMemory) continue;
     const { results } = (await call(
       "/search",
       json({ query: c.query, searchMode: "hybrid", limit: 40, threshold: 0 })
