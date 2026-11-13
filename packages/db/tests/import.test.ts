@@ -100,7 +100,9 @@ it.skipIf(!process.env.DATABASE_URL)(
     });
     await jobs.action(id, "start");
     const now = new Date();
-    expect(await jobs.step(id, now)).toBeUndefined();
+    expect(await jobs.step(id, now)).toMatchObject({
+      dueAt: expect.any(String),
+    });
     expect(await jobs.get(id)).toMatchObject({ state: "running", done: 0 });
     const tomorrow = new Date(now);
     tomorrow.setUTCHours(24, 0, 0, 0);
@@ -312,6 +314,92 @@ it.skipIf(!process.env.DATABASE_URL)(
       expect(await jobs.get(id)).toMatchObject({ state: "done", done: 1 });
     } finally {
       await db.execute(sql`delete from "user" where id = ${userId}`);
+    }
+  }
+);
+
+it.skipIf(!process.env.DATABASE_URL)(
+  "returns a fenced allowance continuation and never Captures before midnight",
+  async () => {
+    const userId = await newUser(db);
+    try {
+      const jobs = openImports(db, userId),
+        id = crypto.randomUUID();
+      const now = new Date();
+      now.setUTCDate(now.getUTCDate() + 1);
+      now.setUTCHours(0, 1, 0, 0);
+      await db.execute(
+        sql`insert into usage_day (user_id,day,captures) values (${userId},${now.toISOString().slice(0, 10)},50)`
+      );
+      await jobs.create({ id, total: 1, spread: true });
+      await jobs.append(id, {
+        offset: 0,
+        items: [{ url: "https://midnight.test/one" }],
+      });
+      await jobs.action(id, "start");
+      const due = new Date(now);
+      due.setUTCHours(24, 0, 0, 0);
+      const waiting = await jobs.step(id, now);
+      expect(waiting).toMatchObject({ dueAt: due.toISOString() });
+      const early = new Date(now.getTime() + 12 * 60 * 60_000);
+      const again = await jobs.step(id, early, waiting!.lease);
+      expect(again).toMatchObject({ dueAt: due.toISOString() });
+      expect(again!.lease).not.toBe(waiting!.lease);
+      expect(await jobs.step(id, early, waiting!.lease)).toBeUndefined();
+      expect(await jobs.get(id)).toMatchObject({ done: 0 });
+      await jobs.step(id, due, again!.lease);
+      expect(await jobs.get(id)).toMatchObject({ done: 1, state: "done" });
+    } finally {
+      await db.execute(sql`delete from "user" where id=${userId}`);
+    }
+  }
+);
+
+it.skipIf(!process.env.DATABASE_URL)(
+  "continues an image allowance wait, then ends the chain while bytes are missing",
+  async () => {
+    const userId = await newUser(db);
+    try {
+      const jobs = openImports(db, userId),
+        id = crypto.randomUUID();
+      const now = new Date();
+      now.setUTCDate(now.getUTCDate() + 1);
+      now.setUTCHours(0, 1, 0, 0);
+      await db.execute(
+        sql`insert into usage_day (user_id,day,captures) values (${userId},${now.toISOString().slice(0, 10)},50)`
+      );
+      await jobs.create({ id, total: 1, spread: true });
+      await jobs.append(id, {
+        offset: 0,
+        items: [{ imageId: crypto.randomUUID() }],
+      });
+      await jobs.action(id, "start");
+      const due = new Date(now);
+      due.setUTCHours(24, 0, 0, 0);
+      const waiting = await jobs.step(id, now);
+      expect(waiting).toMatchObject({ dueAt: due.toISOString() });
+      const again = await jobs.step(
+        id,
+        new Date(now.getTime() + 12 * 60 * 60_000),
+        waiting!.lease
+      );
+      expect(again).toMatchObject({ dueAt: due.toISOString() });
+      expect(await pendingImports(db, 100, now)).not.toContainEqual({
+        id,
+        userId,
+      });
+      expect(await pendingImports(db, 100, due)).toContainEqual({ id, userId });
+      expect(await jobs.step(id, due, again!.lease)).toBeUndefined();
+      expect(await jobs.get(id)).toMatchObject({ done: 0, state: "running" });
+      expect(
+        await pendingImports(
+          db,
+          100,
+          new Date(due.getTime() + 24 * 60 * 60_000)
+        )
+      ).not.toContainEqual({ id, userId });
+    } finally {
+      await db.execute(sql`delete from "user" where id=${userId}`);
     }
   }
 );

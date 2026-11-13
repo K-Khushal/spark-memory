@@ -58,6 +58,9 @@ export type Bindings = {
   /** Queue (wrangler.jsonc): Library exports and account deletion (src/account-jobs.ts). */
   ACCOUNT_QUEUE: AccountQueue;
   IMPORT_QUEUE: {
+    sendBatch(
+      messages: { body: ImportMessage; delaySeconds?: number }[]
+    ): Promise<void>;
     send(
       body: ImportMessage,
       options?: { delaySeconds?: number }
@@ -212,4 +215,6 @@ type StoredObject = { size: number; httpMetadata?: HttpMetadata };
 
 export type AppEnv = { Bindings: Bindings };
 
-export type ImportMessage = { id: string; userId: string; lease?: string };
+export type ImportJobMessage = { id: string; userId: string; lease?: string };
+export type ImportMessage =
+  ImportJobMessage | { recovery: { at: string; after?: string } };

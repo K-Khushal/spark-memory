@@ -111,7 +111,7 @@ export function openImports(db: Database, userId: string) {
         if (!job) return undefined;
         await tx
           .update(importJob)
-          .set({ availableAt: now, waitingImageId: null })
+          .set({ availableAt: now, waitingImageId: null, allowanceAt: null })
           .where(owned(job.id));
         return job.id;
       });
@@ -247,6 +247,7 @@ export function openImports(db: Database, userId: string) {
             ...(state === "running" && {
               availableAt: new Date(),
               waitingImageId: null,
+              allowanceAt: null,
             }),
           })
           .where(owned(id));
@@ -268,16 +269,32 @@ export function openImports(db: Database, userId: string) {
           job.state !== "running" ||
           (lease
             ? lease !== job.availableAt.toISOString()
-            : job.availableAt > now) ||
+            : job.availableAt > now &&
+              !(job.allowanceAt && job.allowanceAt <= now)) ||
           (await deletionRequested(tx, userId))
         )
           return undefined;
         const nextLease = new Date(
           Math.max(now.getTime() + 60_000, job.availableAt.getTime() + 1)
         );
+        if (job.allowanceAt && job.allowanceAt > now) {
+          await tx
+            .update(importJob)
+            .set({ availableAt: nextLease })
+            .where(owned(id));
+          return {
+            target: undefined,
+            lease: nextLease.toISOString(),
+            dueAt: job.allowanceAt.toISOString(),
+          };
+        }
         await tx
           .update(importJob)
-          .set({ availableAt: nextLease, waitingImageId: null })
+          .set({
+            availableAt: nextLease,
+            waitingImageId: null,
+            allowanceAt: null,
+          })
           .where(owned(id));
         const position = job.done + job.skipped;
         const [item] = await tx
@@ -308,7 +325,7 @@ export function openImports(db: Database, userId: string) {
               .where(
                 and(
                   eq(usageDay.userId, userId),
-                  sql`${usageDay.day} = (now() at time zone 'utc')::date`
+                  eq(usageDay.day, now.toISOString().slice(0, 10))
                 )
               );
             await tx
@@ -326,8 +343,13 @@ export function openImports(db: Database, userId: string) {
               next.setUTCHours(24, 0, 0, 0);
               await tx
                 .update(importJob)
-                .set({ availableAt: next })
+                .set({ availableAt: next, allowanceAt: next })
                 .where(owned(id));
+              return {
+                target: undefined,
+                lease: next.toISOString(),
+                dueAt: next.toISOString(),
+              };
             }
             return undefined;
           }
@@ -392,9 +414,13 @@ export function openImports(db: Database, userId: string) {
               next.setUTCHours(24, 0, 0, 0);
               await tx
                 .update(importJob)
-                .set({ availableAt: next })
+                .set({ availableAt: next, allowanceAt: next })
                 .where(owned(id));
-              return undefined;
+              return {
+                target: undefined,
+                lease: next.toISOString(),
+                dueAt: next.toISOString(),
+              };
             }
             if (!allowed)
               await tx
@@ -428,11 +454,12 @@ export function openImports(db: Database, userId: string) {
     },
   };
 }
-/** Recovery for lost queue deliveries; bounded so an hourly sweep stays small. */
+/** Recovery pages for lost queue deliveries, ordered by stable IDs. */
 export async function pendingImports(
   db: Database,
-  limit = 1,
-  now = new Date()
+  limit = 100,
+  now = new Date(),
+  after?: string
 ) {
   return db
     .select({ id: importJob.id, userId: importJob.userId })
@@ -440,14 +467,15 @@ export async function pendingImports(
     .where(
       and(
         eq(importJob.state, "running"),
-        sql`(${importJob.waitingImageId} is null or exists (
+        after ? sql`${importJob.id} > ${after}::uuid` : undefined,
+        sql`(${importJob.allowanceAt} <= ${now} or (${importJob.allowanceAt} is null and
+          (${importJob.waitingImageId} is null or exists (
           select 1 from memory_file f join memory m on m.id = f.memory_id
           where m.id = ${importJob.waitingImageId} and m.user_id = ${importJob.userId}
           and f.role = 'original' and f.stored_at is not null
-        ))`,
-        sql`${importJob.availableAt} < ${new Date(now.getTime() - 10 * 60_000)}`
+        )) and ${importJob.availableAt} < ${new Date(now.getTime() - 10 * 60_000)}))`
       )
     )
-    .orderBy(importJob.availableAt)
-    .limit(Math.max(0, Math.min(100, limit)));
+    .orderBy(importJob.id)
+    .limit(Math.max(0, Math.min(101, limit)));
 }

@@ -78,16 +78,33 @@ export const imports = new Hono<AppEnv>()
     }
   );
 
-export async function requeueImports(env: Bindings, calls?: CronCalls) {
+/** One cron subrequest; queue recovery pages respect Cloudflare's 100-message batch cap. */
+async function recoverImports(
+  env: Bindings,
+  db: Parameters<typeof pendingImports>[0],
+  at: Date,
+  after?: string
+) {
+  const jobs = await pendingImports(db, 101, at, after);
+  const messages: { body: ImportMessage }[] = (
+    jobs.length > 100 ? jobs.slice(0, 99) : jobs
+  ).map((body) => ({ body }));
+  if (jobs.length > 100)
+    messages.push({
+      body: { recovery: { at: at.toISOString(), after: jobs[98]!.id } },
+    });
+  if (messages.length) await env.IMPORT_QUEUE.sendBatch(messages);
+}
+
+export async function requeueImports(
+  env: Bindings,
+  calls?: CronCalls,
+  now = new Date()
+) {
+  if (calls && !calls.take("imports")) return;
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
-    for (const job of await pendingImports(
-      db,
-      calls?.remaining("imports") ?? 1
-    )) {
-      if (calls && !calls.take("imports")) break;
-      await sendImport(env, job);
-    }
+    await recoverImports(env, db, now);
   } finally {
     await close();
   }
@@ -97,17 +114,41 @@ export type ImportQueueBatch = {
   messages: readonly { body: ImportMessage; ack(): void; retry(): void }[];
 };
 /** One bounded Capture per delivery; AI uses the existing background Indexing/budget path. */
-export async function consumeImports(batch: ImportQueueBatch, env: Bindings) {
+export async function consumeImports(
+  batch: ImportQueueBatch,
+  env: Bindings,
+  now = new Date()
+) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
     for (const message of batch.messages) {
       try {
+        if ("recovery" in message.body) {
+          const { at, after } = message.body.recovery;
+          await recoverImports(env, db, new Date(at), after);
+          message.ack();
+          continue;
+        }
         const { id, userId } = message.body;
         const jobs = openImports(db, userId);
-        const result = await jobs.step(id, new Date(), message.body.lease);
+        const result = await jobs.step(id, now, message.body.lease);
         if (result?.target) await enqueue(env, result.target);
         if (result?.lease)
-          await sendImport(env, { ...message.body, lease: result.lease });
+          await sendImport(
+            env,
+            { ...message.body, lease: result.lease },
+            result.dueAt
+              ? Math.min(
+                  43_200,
+                  Math.max(
+                    0,
+                    Math.ceil(
+                      (new Date(result.dueAt).getTime() - now.getTime()) / 1000
+                    )
+                  )
+                )
+              : 2
+          );
         message.ack();
       } catch {
         message.retry();
