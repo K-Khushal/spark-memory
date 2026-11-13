@@ -95,8 +95,7 @@ const baseColumns = {
   deepFetch: sql<DeepFetchView | null>`case ${memory.deepFetchState}
     when 'running' then 'fetching'
     when 'queued' then case when ${memory.deepFetchDueAt} <= now() + make_interval(secs => ${DEEP_FETCH.soonSeconds}) then 'fetching' else 'waiting' end
-    when 'failed' then 'failed'
-    when 'unavailable' then 'unavailable' end`,
+    when 'failed' then 'failed' end`,
   aiOptOut: memory.aiOptOut,
   indexError: memory.indexError,
   indexTitle,
@@ -1170,8 +1169,9 @@ export function openLibrary(
     },
 
     /**
-     * Try Again on a Memory whose Deep fetch Failed or was Unavailable: a
-     * new run, with all its automatic attempts, due now. The caller sends
+     * Try Again on a Memory whose Deep fetch Failed: a new run, with all its
+     * automatic attempts, due now (Unavailable is an operator state: no engine
+     * is set up, and Try Again cannot fix that). The caller sends
      * it (`deepFetchRun` is in the answer, for the message). Any other
      * Memory comes back as it is. A video with AI opt-out is never fetched.
      */
@@ -1189,7 +1189,7 @@ export function openLibrary(
         .where(
           and(
             owned(id),
-            inArray(memory.deepFetchState, ["failed", "unavailable"]),
+            eq(memory.deepFetchState, "failed"),
             sql`not (${memory.kind} = 'video' and ${memory.aiOptOut})`
           )
         );

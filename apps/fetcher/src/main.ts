@@ -1,13 +1,17 @@
 import { lookup } from "node:dns/promises";
 import { createServer } from "node:http";
-import { createFetcher } from "@spark/deep-fetch/fetcher";
+import { createFetcher, MIN_TOKEN_CHARS } from "@spark/deep-fetch/fetcher";
 import { createMediaTools } from "./tools";
 
 // The Deep fetch container (ADR-0010). Cloud Run sets PORT; the secrets come
 // from Secret Manager (docs/deploy.md). Nothing about a job is ever logged.
+// The token is the only thing between the internet and a job that spends
+// money: refuse to start with a weak one (never printed, never logged).
 const token = process.env.FETCHER_TOKEN ?? "";
-if (!token) {
-  console.error("fetcher: FETCHER_TOKEN is not set");
+if (token.length < MIN_TOKEN_CHARS) {
+  console.error(
+    `fetcher: FETCHER_TOKEN must be ${MIN_TOKEN_CHARS}+ characters`
+  );
   process.exit(1);
 }
 

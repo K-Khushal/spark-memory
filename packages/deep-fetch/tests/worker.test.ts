@@ -179,6 +179,31 @@ describe.skipIf(!databaseUrl)("Deep fetch job", () => {
     expect(spend!.costMicros).toBeGreaterThan(0);
   });
 
+  it("records the cost of a model call a failed job still made, at the audio price", async () => {
+    const m = await thin(`${VIDEO}hhhhhhhhhhh`, ana, true);
+    const { run, recorded } = setup(() => ({
+      ok: false,
+      reason: "error",
+      seconds: 20,
+      usage: [
+        {
+          model: "gemini-3.5-flash-lite",
+          inputTokens: 1_000_000,
+          outputTokens: 0,
+          audio: true,
+        },
+      ],
+    }));
+    expect(await run(job(m))).toEqual({ result: "later", delaySeconds: 3600 });
+    expect(recorded).toHaveLength(1);
+    const [spend] = await db
+      .select()
+      .from(schema.aiCall)
+      .where(eq(schema.aiCall.memoryId, m.id));
+    // $0.30 a million audio tokens, in micro-dollars.
+    expect(spend).toMatchObject({ provider: "gemini", costMicros: 300_000 });
+  });
+
   it("retries after one hour, then 24 hours, then fails for good", async () => {
     const m = await thin("https://nothing1.test/");
     const { run, calls } = setup(() => ({
@@ -236,10 +261,11 @@ describe.skipIf(!databaseUrl)("Deep fetch job", () => {
       deepFetchAttempts: 0,
     });
     expect(calls).toEqual([]);
-    // Once configured, Try Again works.
-    await openLibrary(db, ana).retryDeepFetch(page.id);
-    const next = setup(() => found);
-    expect(await next.run(job(page, 1))).toMatchObject({ result: "done" });
+    // An operator state: nothing shows and Try Again cannot start it again.
+    expect((await openLibrary(db, ana).get(page.id))!.deepFetch).toBeNull();
+    expect(
+      (await openLibrary(db, ana).retryDeepFetch(page.id))!.deepFetchRun
+    ).toBe(0);
   });
 
   it("is Unavailable, giving the slot back, when the container is not set up to transcribe", async () => {
@@ -264,34 +290,6 @@ describe.skipIf(!databaseUrl)("Deep fetch job", () => {
       deepFetchAttempts: 0,
     });
     expect(await used()).toBe(before);
-  });
-
-  it("fetches a link that already has text only for what it lacks: its text stays, Indexing does not run again", async () => {
-    const m = await thin("https://hastext2.test/");
-    await db
-      .update(schema.memory)
-      .set({ body: "Words the page already gave us. ".repeat(12) })
-      .where(eq(schema.memory.id, m.id));
-    const shot = { bytes: new Uint8Array([1]), width: 1280, height: 800 };
-    const a = setup(() => ({ ...found, screenshot: shot }), {
-      keepScreenshot: async () => true,
-    });
-    expect(await a.run(job(m))).toEqual({ result: "done" });
-    expect(await row(m.id)).toMatchObject({
-      deepFetchState: "done",
-      body: "Words the page already gave us. ".repeat(12),
-      indexState: "searchable",
-    });
-    // Nothing it lacks was found: that is an attempt that found nothing.
-    const n = await thin("https://hastext3.test/");
-    await db
-      .update(schema.memory)
-      .set({ body: "Words the page already gave us. ".repeat(12) })
-      .where(eq(schema.memory.id, n.id));
-    expect(await setup(() => found).run(job(n))).toEqual({
-      result: "later",
-      delaySeconds: 3600,
-    });
   });
 
   it("stops for a video whose AI opt-out was switched on while it waited", async () => {

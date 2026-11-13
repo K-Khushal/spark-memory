@@ -32,6 +32,7 @@ export {
 } from "./lib/allowance";
 export {
   INDEXING,
+  modelCostMicros,
   EMBEDDING,
   embeddingSpace,
   INDEX_FAILURES,

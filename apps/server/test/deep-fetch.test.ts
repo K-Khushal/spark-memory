@@ -142,29 +142,54 @@ describe.skipIf(!databaseUrl)("Deep fetch", () => {
     for (const m of list.memories) expect(m).not.toHaveProperty("deepFetchRun");
   });
 
-  it("shows Unavailable with no engine configured, and Try Again fetches once one is", async () => {
+  it("shows nothing with no engine configured, and Try Again cannot change that", async () => {
     const { call } = await signedIn();
     stubThinWeb();
     const id = await capture(call, "https://app.test/later");
     await drain(id, env());
     await drainDeepFetch(id, env());
-    expect(await read(call, id)).toMatchObject({ deepFetch: "unavailable" });
-
-    // Try Again without an engine is Unavailable again, not a crash.
+    // Unavailable is stored, never shown: it is the operator's to fix.
+    expect(await read(call, id)).toMatchObject({
+      deepFetch: null,
+      preservation: "reference_only",
+    });
+    const before = deepFetchQueue.sent.length;
     const again = await call(`/api/memories/${id}/deep-fetch`, {
       method: "POST",
     });
     expect(again.status).toBe(200);
-    expect(await again.json()).toMatchObject({ deepFetch: "fetching" });
-    await drainDeepFetch(id, env());
-    expect(await read(call, id)).toMatchObject({ deepFetch: "unavailable" });
+    expect(await again.json()).toMatchObject({ deepFetch: null });
+    expect(deepFetchQueue.sent.length).toBe(before);
+  });
 
-    await call(`/api/memories/${id}/deep-fetch`, { method: "POST" });
-    await drainDeepFetch(id, env(FAKE));
-    expect(await read(call, id)).toMatchObject({
-      preservation: "preserved",
-      deepFetch: null,
-    });
+  it("leaves out a fetcher it would not trust: plain http, or a weak token", async () => {
+    const strong = "a-strong-shared-token-0123456789-abcdef";
+    const trusted = {
+      FETCHER_URL: "https://fetcher.example.test",
+      FETCHER_TOKEN: strong,
+    };
+    const cases = [
+      { FETCHER_URL: "http://fetcher.example.test", FETCHER_TOKEN: strong },
+      { FETCHER_URL: trusted.FETCHER_URL, FETCHER_TOKEN: "short" },
+    ];
+    // Signed in before the web is stubbed: the stub answers every fetch.
+    const people = await Promise.all([signedIn(), signedIn(), signedIn()]);
+    stubThinWeb();
+    const video = "https://www.youtube.com/watch?v=abcdefghijk";
+    for (const [i, over] of cases.entries()) {
+      const { call } = people[i]!;
+      const id = await capture(call, video);
+      await drain(id, env(over));
+      await drainDeepFetch(id, env(over));
+      // Nothing was asked of it: Unavailable, which shows nothing.
+      expect(await read(call, id)).toMatchObject({ deepFetch: null });
+    }
+    // A fetcher it does trust is asked, and its failure waits for the next attempt.
+    const { call } = people[2]!;
+    const id = await capture(call, video);
+    await drain(id, env(trusted));
+    await drainDeepFetch(id, env(trusted));
+    expect(await read(call, id)).toMatchObject({ deepFetch: "waiting" });
   });
 
   it("answers Try Again only for the owner, and does nothing for a Memory that is not Failed", async () => {

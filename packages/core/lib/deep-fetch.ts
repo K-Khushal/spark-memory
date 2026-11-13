@@ -9,6 +9,11 @@ import type { MemoryKind } from "./memory";
 export const DEEP_FETCH = {
   /** Waits after the first and second attempt; a third failure is final. */
   retryDelaysSeconds: [3600, 86400],
+  /**
+   * Attempts in all (now, after 1 hour, after 24 hours). One is counted
+   * when it is taken, so a job that dies mid-fetch still uses it up.
+   */
+  maxAttempts: 3,
   /** A job running longer than this has died; its row may be taken again. */
   leaseMinutes: 10,
   /** Queued this soon counts as Fetching, so the wall keeps asking. */
@@ -42,9 +47,11 @@ export type DeepFetchState =
 /**
  * What the Memory shows (null when there is nothing to say). Worked out by
  * the database (`baseColumns.deepFetch`): running, or queued to run within
- * `soonSeconds`, is Fetching; queued for later is Waiting.
+ * `soonSeconds`, is Fetching; queued for later is Waiting. `unavailable` is
+ * an operator state (no engine is set up) that Try Again cannot fix, so it
+ * stays in the database and shows nothing.
  */
-export type DeepFetchView = "fetching" | "waiting" | "failed" | "unavailable";
+export type DeepFetchView = "fetching" | "waiting" | "failed";
 
 /**
  * Why an attempt found nothing. `error` and `nothing` are tried again;
@@ -63,9 +70,9 @@ export function engineFor(kind: MemoryKind): DeepFetchEngine | undefined {
 
 /**
  * Whether gathering a link or video came back thin (ADR-0010): no readable
- * text (a login wall or an app shell), no image, or a video without a
- * transcript. A video over the transcript allowance is not thin: no engine
- * would be asked for it.
+ * text (a login wall or an app shell), or a video without a transcript. A
+ * missing image alone is not thin, and a video over the transcript
+ * allowance is not either: no engine would be asked for it.
  */
 export function isThin(found: {
   kind: MemoryKind;
@@ -75,7 +82,7 @@ export function isThin(found: {
   if (found.kind === "video") {
     return found.metadata.video?.transcriptState === "unavailable";
   }
-  if (found.kind === "link") return !found.text || !found.metadata.imageUrl;
+  if (found.kind === "link") return !found.text;
   return false;
 }
 

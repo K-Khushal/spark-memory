@@ -26,6 +26,10 @@ const COMMON = [
 ];
 export const MAX_AUDIO_BYTES = 14_000_000;
 
+/** Gemini counts audio at 32 tokens a second, plus a little for the prompt. */
+export const estimateAudioTokens = (seconds: number) =>
+  Math.ceil(seconds * 32) + 200;
+
 export const probeArgs = (url: string) => [
   ...COMMON,
   "--skip-download",
@@ -160,41 +164,59 @@ export function createMediaTools({
     async transcribe(file, durationSeconds, signal) {
       if (!apiKey || !paidTier) throw new ToolError("unavailable");
       const model = INDEXING.models.gemini;
-      const res = await send(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      // A call that may have been billed but gave no answer (it timed out,
+      // the connection dropped, the server failed) is counted at what the
+      // audio would have cost, so the budget never misses it.
+      const lost = () => [
         {
-          method: "POST",
-          signal,
-          headers: {
-            "content-type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  { text: PROMPT },
-                  {
-                    inlineData: {
-                      mimeType: "audio/mpeg",
-                      data: (await readFile(file)).toString("base64"),
-                    },
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              responseMimeType: "application/json",
-              responseJsonSchema: SCHEMA,
-              maxOutputTokens: 32_768,
-              thinkingConfig: { thinkingLevel: "MINIMAL" },
+          model,
+          inputTokens: estimateAudioTokens(durationSeconds),
+          outputTokens: 0,
+          audio: true,
+        },
+      ];
+      let res: Response;
+      try {
+        res = await send(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          {
+            method: "POST",
+            signal,
+            headers: {
+              "content-type": "application/json",
+              "x-goog-api-key": apiKey,
             },
-          }),
-        }
-      );
-      if (!res.ok) throw new Error(`gemini ${res.status}`);
-      const reply = (await res.json()) as {
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    { text: PROMPT },
+                    {
+                      inlineData: {
+                        mimeType: "audio/mpeg",
+                        data: (await readFile(file)).toString("base64"),
+                      },
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                responseMimeType: "application/json",
+                responseJsonSchema: SCHEMA,
+                maxOutputTokens: 32_768,
+                thinkingConfig: { thinkingLevel: "MINIMAL" },
+              },
+            }),
+          }
+        );
+      } catch {
+        throw new ToolError("error", lost());
+      }
+      // A 4xx is an answer (nothing was generated or billed); a 5xx may have run.
+      if (!res.ok)
+        throw new ToolError("error", res.status >= 500 ? lost() : []);
+      let reply: {
         candidates?: { content?: { parts?: { text?: string }[] } }[];
         usageMetadata?: {
           promptTokenCount?: number;
@@ -202,22 +224,31 @@ export function createMediaTools({
           thoughtsTokenCount?: number;
         };
       };
+      try {
+        reply = await res.json();
+      } catch {
+        throw new ToolError("error", lost());
+      }
+      const meta = reply.usageMetadata;
+      const usage = [
+        {
+          model,
+          inputTokens:
+            meta?.promptTokenCount ?? estimateAudioTokens(durationSeconds),
+          outputTokens:
+            (meta?.candidatesTokenCount ?? 0) + (meta?.thoughtsTokenCount ?? 0),
+          audio: true,
+        },
+      ];
       const text = (reply.candidates?.[0]?.content?.parts ?? [])
         .map((p) => p.text ?? "")
         .join("");
-      const usage = reply.usageMetadata;
-      return {
-        transcript: parseTranscript(text, durationSeconds),
-        usage: [
-          {
-            model,
-            inputTokens: usage?.promptTokenCount ?? 0,
-            outputTokens:
-              (usage?.candidatesTokenCount ?? 0) +
-              (usage?.thoughtsTokenCount ?? 0),
-          },
-        ],
-      };
+      try {
+        return { transcript: parseTranscript(text, durationSeconds), usage };
+      } catch {
+        // The model answered and was paid for, whatever it said.
+        throw new ToolError("error", usage);
+      }
     },
   };
 }

@@ -21,7 +21,7 @@ import { FILE_CACHE_CONTROL } from "./files";
 import { enqueueDeepFetch } from "./deep-fetch-queue";
 import { enqueue } from "./indexing";
 
-/** Deep fetch's engines for this environment; a kind without one is Unavailable. */
+/** Deep fetch's engines for this environment; a kind without one is Unavailable (stored, never shown). */
 export function deepFetchFor(env: Bindings) {
   const web: typeof fetch = (input, init) => fetch(input, init);
   if (env.SPARK_ENV === "local" && env.DEEP_FETCH_PROVIDER === "fake") {
@@ -42,6 +42,22 @@ export function deepFetchFor(env: Bindings) {
     );
     return createDeepFetch({ page: engine, media: engine });
   }
+  // A fetcher the Worker would not trust (plain http, a weak token) is left
+  // out, so its kind shows nothing and nothing is sent: the same as unset.
+  const media = () => {
+    if (!env.FETCHER_URL || !env.FETCHER_TOKEN) return undefined;
+    try {
+      return cloudRunFetcher({
+        url: env.FETCHER_URL,
+        token: env.FETCHER_TOKEN,
+        fetch: web,
+      });
+    } catch {
+      console.error("deep fetch: the fetcher's URL or token is not accepted");
+      return undefined;
+    }
+  };
+  const fetcher = media();
   return createDeepFetch({
     ...(env.CLOUDFLARE_ACCOUNT_ID &&
       env.BROWSER_RENDERING_TOKEN && {
@@ -52,14 +68,7 @@ export function deepFetchFor(env: Bindings) {
           resolve: dohResolver(web),
         }),
       }),
-    ...(env.FETCHER_URL &&
-      env.FETCHER_TOKEN && {
-        media: cloudRunFetcher({
-          url: env.FETCHER_URL,
-          token: env.FETCHER_TOKEN,
-          fetch: web,
-        }),
-      }),
+    ...(fetcher && { media: fetcher }),
   });
 }
 

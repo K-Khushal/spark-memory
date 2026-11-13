@@ -91,7 +91,7 @@ export type Bindings = {
   JINA_API_KEY?: string;
   /**
    * Deep fetch engines (ADR-0010, docs/deploy.md). A kind with no engine
-   * configured shows Deep fetch as Unavailable and never tries.
+   * configured is stored as Unavailable (shown to no one) and never tries.
    * Pages: Browser Rendering's REST API, with the account's id (var) and a
    * token that may only use Browser Rendering (secret).
    */

@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ToolError } from "@spark/deep-fetch/fetcher";
 import {
   audioArgs,
@@ -81,6 +84,100 @@ describe("without a paid-tier key", () => {
           AbortSignal.timeout(1000)
         )
       ).rejects.toEqual(new ToolError("unavailable"));
+    }
+  });
+});
+
+describe("transcribe keeps what the model call cost, whatever happened", () => {
+  const AUDIO_SECONDS = 600;
+  const make = (reply: () => Promise<Response>) =>
+    createMediaTools({ apiKey: "key", paidTier: true, fetch: reply });
+  const run = async (reply: () => Promise<Response>) => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-test-"));
+    const file = join(dir, "audio.mp3");
+    await writeFile(file, "audio");
+    try {
+      return await make(reply).transcribe(
+        file,
+        AUDIO_SECONDS,
+        AbortSignal.timeout(2000)
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  };
+  const failure = async (reply: () => Promise<Response>) => {
+    try {
+      await run(reply);
+    } catch (error) {
+      return error as ToolError;
+    }
+    throw new Error("it did not fail");
+  };
+  const answer = (text: string, promptTokens = 19_300) =>
+    new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text }] } }],
+        usageMetadata: {
+          promptTokenCount: promptTokens,
+          candidatesTokenCount: 40,
+        },
+      })
+    );
+
+  it("returns the transcript with usage marked as audio", async () => {
+    const { transcript, usage } = await run(async () =>
+      answer('{"segments":[{"seconds":2,"text":"Hello."}]}')
+    );
+    expect(transcript).toEqual([{ seconds: 2, text: "Hello." }]);
+    expect(usage).toEqual([
+      {
+        model: "gemini-3.5-flash-lite",
+        inputTokens: 19_300,
+        outputTokens: 40,
+        audio: true,
+      },
+    ]);
+  });
+
+  it("counts a reply that is not a transcript: the model answered and was paid for", async () => {
+    const error = await failure(async () => answer("not json"));
+    expect(error).toBeInstanceOf(ToolError);
+    expect(error.reason).toBe("error");
+    expect(error.usage).toEqual([
+      {
+        model: "gemini-3.5-flash-lite",
+        inputTokens: 19_300,
+        outputTokens: 40,
+        audio: true,
+      },
+    ]);
+  });
+
+  it("counts a server error, a dropped connection and an unreadable reply at what the audio costs", async () => {
+    const estimate = [
+      {
+        model: "gemini-3.5-flash-lite",
+        inputTokens: AUDIO_SECONDS * 32 + 200,
+        outputTokens: 0,
+        audio: true,
+      },
+    ];
+    for (const reply of [
+      async () => new Response("no", { status: 503 }),
+      async () => Promise.reject(new Error("socket hang up")),
+      async () => new Response("{ not json", { status: 200 }),
+    ]) {
+      const error = await failure(reply);
+      expect(error.reason).toBe("error");
+      expect(error.usage).toEqual(estimate);
+    }
+  });
+
+  it("counts nothing for an answer that says no: a 4xx generated and billed nothing", async () => {
+    for (const status of [400, 403, 429]) {
+      const error = await failure(async () => new Response("no", { status }));
+      expect(error.usage).toEqual([]);
     }
   });
 });

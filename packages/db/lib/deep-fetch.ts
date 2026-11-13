@@ -14,7 +14,8 @@ import { accountDeletion, deepFetchUsage, memory, usageDay } from "./schema";
 /**
  * The row a Deep fetch attempt took (structurally @spark/deep-fetch's
  * Claim). Every write names all of it and does nothing once Try Again has
- * started a new run, the Memory was deleted, or another saved with its id.
+ * started a new run, the Memory was deleted, another saved with its id, or
+ * the lease ran out and a later worker took the row.
  */
 export type DeepFetchClaim = {
   memoryId: string;
@@ -23,6 +24,8 @@ export type DeepFetchClaim = {
   generation: string;
   /** `deepFetchRun`: Try Again starts another. */
   run: number;
+  /** The lease this attempt holds: a later lease has another, and wins. */
+  token: string;
 };
 
 /** A queue message's worth: which Memory, at which run, and how long until it is due. */
@@ -45,13 +48,20 @@ export type DeepFetched = {
 
 const today = sql`(now() at time zone 'utc')::date`;
 
-const claimed = ({ memoryId, userId, generation, run }: DeepFetchClaim) =>
+const claimed = ({
+  memoryId,
+  userId,
+  generation,
+  run,
+  token,
+}: DeepFetchClaim) =>
   and(
     eq(memory.id, memoryId),
     eq(memory.userId, userId),
     eq(memory.indexGeneration, generation),
     eq(memory.deepFetchRun, run),
-    eq(memory.deepFetchState, "running")
+    eq(memory.deepFetchState, "running"),
+    eq(memory.deepFetchToken, token)
   );
 
 /** Queued and past its due time, or running on a lease that ran out. */
@@ -73,7 +83,7 @@ export function deepFetchStore(db: Database) {
   ) => {
     const rows = await db
       .update(memory)
-      .set({ deepFetchLeaseUntil: null, ...set })
+      .set({ deepFetchLeaseUntil: null, deepFetchToken: null, ...set })
       .where(claimed(claim))
       .returning({ id: memory.id });
     return rows.length > 0;
@@ -82,23 +92,50 @@ export function deepFetchStore(db: Database) {
   return {
     /**
      * Takes a Memory whose Deep fetch is due (queued and past its due time,
-     * or running with a lease that ran out) at this run and generation.
+     * or running with a lease that ran out) at this run and generation,
+     * under a new lease token, and counts the attempt: a worker that dies
+     * mid-fetch has still used one. A Memory whose lease ran out with every
+     * attempt used is Failed instead of taken, so a job that always crashes
+     * does not run for ever. `attempts` is this attempt's number.
      */
     async claim(memoryId: string, generation: string, run: number) {
+      const whose = and(
+        eq(memory.id, memoryId),
+        eq(memory.indexGeneration, generation),
+        eq(memory.deepFetchRun, run)
+      );
+      await db
+        .update(memory)
+        .set({
+          deepFetchState: "failed",
+          deepFetchError: "error",
+          deepFetchDueAt: null,
+          deepFetchLeaseUntil: null,
+          deepFetchToken: null,
+        })
+        .where(
+          and(
+            whose,
+            eq(memory.deepFetchState, "running"),
+            sql`${memory.deepFetchLeaseUntil} < now()`,
+            sql`${memory.deepFetchAttempts} >= ${DEEP_FETCH.maxAttempts}`
+          )
+        );
       const [row] = await db
         .update(memory)
         .set({
           deepFetchState: "running",
           deepFetchLeaseUntil: sql`now() + make_interval(mins => ${DEEP_FETCH.leaseMinutes})`,
+          deepFetchToken: sql`gen_random_uuid()`,
+          deepFetchAttempts: sql`${memory.deepFetchAttempts} + 1`,
         })
         .where(
           and(
-            eq(memory.id, memoryId),
-            eq(memory.indexGeneration, generation),
-            eq(memory.deepFetchRun, run),
+            whose,
             inArray(memory.kind, ["link", "video"]),
             isNotNull(memory.sourceUrlNormalised),
             isDue,
+            sql`${memory.deepFetchAttempts} < ${DEEP_FETCH.maxAttempts}`,
             sql`not exists (select 1 from ${accountDeletion} d where d.user_id = ${memory.userId})`
           )
         )
@@ -108,14 +145,15 @@ export function deepFetchStore(db: Database) {
           url: memory.sourceUrlNormalised,
           aiOptOut: memory.aiOptOut,
           attempts: memory.deepFetchAttempts,
-          hasText: sql<boolean>`${memory.body} is not null`,
+          token: memory.deepFetchToken,
         });
-      if (!row?.url) return undefined;
+      if (!row?.url || !row.token) return undefined;
       const claim: DeepFetchClaim = {
         memoryId,
         userId: row.userId,
         generation,
         run,
+        token: row.token,
       };
       return {
         claim,
@@ -123,8 +161,6 @@ export function deepFetchStore(db: Database) {
         url: row.url,
         aiOptOut: row.aiOptOut,
         attempts: row.attempts,
-        /** The Memory already has text: Deep fetch is for what is missing. */
-        hasText: row.hasText,
       };
     },
 
@@ -220,7 +256,10 @@ export function deepFetchStore(db: Database) {
       return row && { ...row, reindex: !!found };
     },
 
-    /** Try again after `delaySeconds`; `attempt` counts it as one of the automatic attempts. */
+    /**
+     * Try again after `delaySeconds`. `attempt` false gives back the attempt
+     * the claim counted: it waited for a limit and never asked an engine.
+     */
     retry: (
       claim: DeepFetchClaim,
       { delaySeconds, attempt }: { delaySeconds: number; attempt: boolean }
@@ -228,8 +267,8 @@ export function deepFetchStore(db: Database) {
       settle(claim, {
         deepFetchState: "queued",
         deepFetchDueAt: sql`now() + make_interval(secs => ${delaySeconds})`,
-        ...(attempt && {
-          deepFetchAttempts: sql`${memory.deepFetchAttempts} + 1`,
+        ...(!attempt && {
+          deepFetchAttempts: sql`greatest(0, ${memory.deepFetchAttempts} - 1)`,
         }),
       }),
 
@@ -239,15 +278,15 @@ export function deepFetchStore(db: Database) {
         deepFetchState: "failed",
         deepFetchError: error,
         deepFetchDueAt: null,
-        deepFetchAttempts: sql`${memory.deepFetchAttempts} + 1`,
       }),
 
-    /** No engine is configured for this kind: nothing was tried. */
+    /** No engine is set up for this kind: nothing was tried, so the attempt is given back. */
     unavailable: (claim: DeepFetchClaim) =>
       settle(claim, {
         deepFetchState: "unavailable",
         deepFetchError: null,
         deepFetchDueAt: null,
+        deepFetchAttempts: sql`greatest(0, ${memory.deepFetchAttempts} - 1)`,
       }),
 
     /** Deep fetch no longer applies (AI opt-out was switched on): nothing to show. */

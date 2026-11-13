@@ -5,19 +5,25 @@
 # directory that is removed when the job ends (src/tools.ts).
 FROM node:22-slim
 
-# yt-dlp breaks whenever a site changes, so the build takes the current
-# release unless a version is pinned (--build-arg YT_DLP_VERSION=2026.11.12).
-ARG YT_DLP_VERSION=latest
+# yt-dlp is pinned to a release and checked twice: against the SHA-256 written
+# here (so a swapped asset cannot pass) and against that release's own
+# SHA2-256SUMS (so a typo in this file cannot). It breaks whenever a site
+# changes: to update, take the new tag and its yt-dlp_linux line from
+# https://github.com/yt-dlp/yt-dlp/releases/download/<tag>/SHA2-256SUMS and
+# change both values below.
+ARG YT_DLP_VERSION=2026.10.26
+ARG YT_DLP_SHA256=767ba9dce7052aa196f8b12652f433d76de128ba168966fa84b6394d5e6c6795
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg \
  && rm -rf /var/lib/apt/lists/* \
- && if [ "$YT_DLP_VERSION" = "latest" ]; then \
-      url=https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux; \
-    else \
-      url=https://github.com/yt-dlp/yt-dlp/releases/download/$YT_DLP_VERSION/yt-dlp_linux; \
-    fi \
- && curl -fsSL "$url" -o /usr/local/bin/yt-dlp \
- && chmod 0755 /usr/local/bin/yt-dlp \
+ && base=https://github.com/yt-dlp/yt-dlp/releases/download/$YT_DLP_VERSION \
+ && cd /tmp \
+ && curl -fsSL "$base/yt-dlp_linux" -o yt-dlp_linux \
+ && curl -fsSL "$base/SHA2-256SUMS" -o SHA2-256SUMS \
+ && echo "$YT_DLP_SHA256  yt-dlp_linux" | sha256sum -c - \
+ && grep " yt-dlp_linux\$" SHA2-256SUMS | sha256sum -c - \
+ && install -m 0755 yt-dlp_linux /usr/local/bin/yt-dlp \
+ && rm -f yt-dlp_linux SHA2-256SUMS \
  && apt-get purge -y curl && apt-get autoremove -y
 
 RUN corepack enable

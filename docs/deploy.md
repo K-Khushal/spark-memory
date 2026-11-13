@@ -163,7 +163,7 @@ After Capture (text on create, an image once its files are stored) the Worker se
 
 ## Deep fetch
 
-Optional (ADR-0010): without it, a link or video that came back thin shows Deep Fetch as Unavailable and nothing is tried. Free tiers and why each limit is what it is: [docs/research/deep-fetch.md](research/deep-fetch.md). Nothing here is created for you.
+Optional (ADR-0010): without it, a link or video that came back thin is stored as Unavailable (the person sees nothing) and nothing is tried. Free tiers and why each limit is what it is: [docs/research/deep-fetch.md](research/deep-fetch.md). Nothing here is created for you.
 
 **Pages (Cloudflare Browser Rendering).** Set `CLOUDFLARE_ACCOUNT_ID` (var in `apps/server/wrangler.jsonc`, per environment) and a Worker secret `BROWSER_RENDERING_TOKEN`: an API token that may use only Browser Rendering (`wrangler secret put BROWSER_RENDERING_TOKEN --env dev`). Free plan: 10 browser minutes a day, which the Worker counts itself.
 
@@ -171,9 +171,23 @@ Optional (ADR-0010): without it, a link or video that came back thin shows Deep 
 
 1. In a Google Cloud project, enable Cloud Run, Artifact Registry and Secret Manager. Create a Docker repository named `spark` in the region (default `us-central1`, a free-tier region).
 2. Create two secrets in Secret Manager: `spark-fetcher-token` (a random 32+ character string) and `spark-gemini-api-key` (a key from a project with billing on, ADR-0005).
-3. Set up Workload Identity Federation for this repository, and a service account that may push to Artifact Registry, deploy Cloud Run and read those two secrets.
-4. Add GitHub repository secrets `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`; optionally variables `GCP_REGION` and `GEMINI_PAID_TIER` (`true` once billing is confirmed; without it the container writes no transcripts). `.github/workflows/deploy-fetcher.yml` then deploys on every push to `main`; until all three secrets exist it skips with a notice.
-5. After the first deploy, set the Worker's `FETCHER_URL` var to the service's URL, and the secret `FETCHER_TOKEN` to the same value as `spark-fetcher-token`.
+3. Create two service accounts and set up Workload Identity Federation for this repository:
+   - **A runtime account** the service runs as, with nothing but access to its two secrets (never the default compute account, which can do far more):
+
+     ```sh
+     gcloud iam service-accounts create spark-fetcher-run --project "$PROJECT"
+     RUN_SA="spark-fetcher-run@$PROJECT.iam.gserviceaccount.com"
+     for secret in spark-fetcher-token spark-gemini-api-key; do
+       gcloud secrets add-iam-policy-binding "$secret" --project "$PROJECT" \
+         --member "serviceAccount:$RUN_SA" --role roles/secretmanager.secretAccessor
+     done
+     ```
+
+     Grant it no project-level role. (The two secret bindings are all it needs to start; Cloud Run's own logging uses the platform's service agent.)
+
+   - **A deployer account** that GitHub's Workload Identity Federation provider may impersonate, with `roles/artifactregistry.writer` on the `spark` repository, `roles/run.developer` on the project, and `roles/iam.serviceAccountUser` on the runtime account only (so it can deploy as it, and as nothing else).
+4. Add GitHub repository secrets `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` (the deployer) and `GCP_RUN_SERVICE_ACCOUNT` (the runtime account's address); optionally variables `GCP_REGION` and `GEMINI_PAID_TIER` (`true` once billing is confirmed; without it the container writes no transcripts). `.github/workflows/deploy-fetcher.yml` then deploys on every push to `main`, passing `--service-account`; until all four secrets exist it skips with a notice.
+5. After the first deploy, set the Worker's `FETCHER_URL` var to the service's https URL, and the secret `FETCHER_TOKEN` to the same value as `spark-fetcher-token`. The token is the only thing between the internet and a job that spends money: use 32 or more random characters (the container refuses to start with fewer, and the Worker will not send to a plain-http URL or with a short token), keep it only in Secret Manager and Worker secrets, and rotate both together by adding a new secret version and `wrangler secret put`.
 
 The Deep fetch queue (`spark-deepfetch-<env>`) is in `wrangler.jsonc`; create it with the others. Locally, `DEEP_FETCH_PROVIDER` is `fake` and answers from a script.
 

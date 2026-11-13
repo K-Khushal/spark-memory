@@ -1,5 +1,5 @@
 # Deploys the Deep fetch container (apps/fetcher, ADR-0010) to Cloud Run's
-# free tier. Runs only when the owner has added the GCP secrets in
+# free tier. Runs only when the owner has added the four GCP secrets in
 # docs/deploy.md → Deep fetch; without them it skips with a notice and
 # changes nothing. Nothing here creates a project, a secret or a billing
 # account: the service account needs only what the steps below use.
@@ -24,6 +24,9 @@ jobs:
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      # What the service runs as: its own least-privilege account (access to
+      # its two secrets and nothing else), never the default compute account.
+      GCP_RUN_SERVICE_ACCOUNT: ${{ secrets.GCP_RUN_SERVICE_ACCOUNT }}
       # A free-tier region (docs/research/deep-fetch.md); override with a repository variable.
       REGION: ${{ vars.GCP_REGION || 'us-central1' }}
       GEMINI_PAID_TIER: ${{ vars.GEMINI_PAID_TIER || 'false' }}
@@ -31,8 +34,8 @@ jobs:
       - name: Check deploy configuration
         id: config
         run: |
-          if [ -z "$GCP_PROJECT_ID" ] || [ -z "$GCP_WORKLOAD_IDENTITY_PROVIDER" ] || [ -z "$GCP_SERVICE_ACCOUNT" ]; then
-            echo "::notice title=Fetcher deploy skipped::GCP_PROJECT_ID, GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT are not all set. Deep fetch of video stays Unavailable until they are (docs/deploy.md)."
+          if [ -z "$GCP_PROJECT_ID" ] || [ -z "$GCP_WORKLOAD_IDENTITY_PROVIDER" ] || [ -z "$GCP_SERVICE_ACCOUNT" ] || [ -z "$GCP_RUN_SERVICE_ACCOUNT" ]; then
+            echo "::notice title=Fetcher deploy skipped::GCP_PROJECT_ID, GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT and GCP_RUN_SERVICE_ACCOUNT are not all set. Deep fetch of video stays Unavailable until they are (docs/deploy.md)."
             echo "ready=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -68,6 +71,7 @@ jobs:
             --project "$GCP_PROJECT_ID" \
             --region "$REGION" \
             --platform managed \
+            --service-account "$GCP_RUN_SERVICE_ACCOUNT" \
             --allow-unauthenticated \
             --cpu 1 --memory 1Gi --concurrency 1 \
             --min-instances 0 --max-instances 2 \

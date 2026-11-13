@@ -134,13 +134,13 @@ const DEEP_FETCH_LABEL = {
   fetching: "Fetching",
   waiting: "Fetching Later",
   failed: "Deep Fetch Failed",
-  unavailable: "Deep Fetch Unavailable",
 } as const;
 
 /**
  * Memory detail's line for Deep fetch, only while there is something to say:
- * Fetching, Fetching Later (a retry or a limit is waiting), or Failed or
- * Unavailable with Try Again. Quiet text, because the Failed and Indexing
+ * Fetching, Fetching Later (a retry or a limit is waiting), or Failed with
+ * Try Again. An engine that is not set up shows nothing: that is the
+ * operator's to fix, not the person's. Quiet text, because the Failed and Indexing
  * colours belong to Index state. Always mounted when shown, so screen
  * readers hear each change.
  */
@@ -152,8 +152,7 @@ export function DeepFetchStatus({
   onTryAgain: (memory: Memory) => void;
 }) {
   if (!memory.deepFetch) return null;
-  const stopped =
-    memory.deepFetch === "failed" || memory.deepFetch === "unavailable";
+  const stopped = memory.deepFetch === "failed";
   return (
     <>
       <span role="status" className="text-sm text-ink-muted">

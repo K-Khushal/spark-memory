@@ -16,4 +16,4 @@ FETCHER_TOKEN=local pnpm --filter @spark/fetcher start   # needs yt-dlp and ffmp
 docker build -f apps/fetcher/Dockerfile .                # from the repository root
 ```
 
-Deploying is `.github/workflows/deploy-fetcher.yml`, which skips until the secrets in `docs/deploy.md` exist. Not built here: keyframes for Visual vectors and a headless browser (see the Deep fetch PR).
+The token must be 32 or more characters (the container refuses to start otherwise), is compared in constant time and is never logged. yt-dlp is pinned in the Dockerfile and verified against its release's `SHA2-256SUMS`. Deploying is `.github/workflows/deploy-fetcher.yml`, which runs as its own least-privilege service account and skips until the secrets in `docs/deploy.md` exist. Not built here: keyframes for Visual vectors and a headless browser (see the Deep fetch PR).

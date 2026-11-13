@@ -112,6 +112,28 @@ describe("fetcher container", () => {
     ).toMatchObject({ ok: false, reason: "error" });
   });
 
+  it("answers with the model calls a failed job made, and still removes the media", async () => {
+    const usage = [
+      {
+        model: "gemini-3.5-flash-lite",
+        inputTokens: 4000,
+        outputTokens: 0,
+        audio: true,
+      },
+    ];
+    const { t, log } = tools({
+      transcribe: async () => {
+        throw new ToolError("error", usage);
+      },
+    });
+    expect(await ask(handler(t))).toMatchObject({
+      ok: false,
+      reason: "error",
+      usage,
+    });
+    expect(log.at(-1)).toBe("remove /job");
+  });
+
   it("passes on that it is not set up to transcribe, after removing the media", async () => {
     const { t, log } = tools({
       probe: async () => {

@@ -214,8 +214,9 @@ describe("Browser Rendering engine", () => {
 
 describe("Cloud Run fetcher engine", () => {
   const ENDPOINT = "https://fetcher-abc.a.run.app";
+  const TOKEN = "a-strong-shared-token-0123456789-abcdef";
   const engine = (fetch: typeof globalThis.fetch) =>
-    cloudRunFetcher({ url: `${ENDPOINT}/`, token: "secret", fetch });
+    cloudRunFetcher({ url: `${ENDPOINT}/`, token: TOKEN, fetch });
   const ask = (e: ReturnType<typeof engine>) =>
     e.fetch({
       url: "https://www.youtube.com/watch?v=abcdefghijk",
@@ -252,7 +253,7 @@ describe("Cloud Run fetcher engine", () => {
     });
     expect(seen[0]!.url).toBe(`${ENDPOINT}/fetch`);
     expect(seen[0]!.init!.headers).toEqual({
-      authorization: "Bearer secret",
+      authorization: `Bearer ${TOKEN}`,
       "content-type": "application/json",
     });
     expect(JSON.parse(String(seen[0]!.init!.body))).toEqual({
@@ -277,7 +278,7 @@ describe("Cloud Run fetcher engine", () => {
     ).toMatchObject({ ok: false, reason: "error" });
   });
 
-  it("passes a reason through, and treats no free instance as a limit", async () => {
+  it("passes a reason through, and treats no free instance as an ordinary error", async () => {
     expect(
       await ask(
         engine(async () =>
@@ -290,11 +291,44 @@ describe("Cloud Run fetcher engine", () => {
         engine(async () => Response.json({ ok: false, reason: "weird" }))
       )
     ).toMatchObject({ reason: "error" });
-    expect(
-      await ask(engine(async () => new Response(null, { status: 429 })))
-    ).toMatchObject({ reason: "limit" });
+    // Cloud Run has no instance to give right now: retried on the usual
+    // schedule. `limit` is only for the budgets the Worker counts itself.
+    for (const status of [429, 503]) {
+      expect(
+        await ask(engine(async () => new Response(null, { status })))
+      ).toMatchObject({ ok: false, reason: "error" });
+    }
     expect(
       await ask(engine(async () => Promise.reject(new Error("down"))))
     ).toMatchObject({ reason: "error" });
+  });
+
+  it("keeps the model calls a failed job still made, so their cost is recorded", async () => {
+    const usage = [
+      {
+        model: "gemini-3.5-flash-lite",
+        inputTokens: 5000,
+        outputTokens: 0,
+        audio: true,
+      },
+    ];
+    expect(
+      await ask(
+        engine(async () =>
+          Response.json({ ok: false, reason: "error", seconds: 9, usage })
+        )
+      )
+    ).toEqual({ ok: false, reason: "error", seconds: 9, usage });
+  });
+
+  it("refuses a plain-http address and a weak token when it is made", () => {
+    const make = (url: string, token: string) =>
+      cloudRunFetcher({ url, token, fetch: async () => new Response() });
+    expect(() => make("http://fetcher.example.test", TOKEN)).toThrow(/https/);
+    expect(() => make("ftp://fetcher.example.test", TOKEN)).toThrow();
+    expect(() => make("not a url", TOKEN)).toThrow();
+    expect(() => make(ENDPOINT, "short")).toThrow(/32/);
+    expect(() => make(ENDPOINT, "x".repeat(31))).toThrow();
+    expect(() => make(ENDPOINT, "x".repeat(32))).not.toThrow();
   });
 });

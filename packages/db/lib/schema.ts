@@ -214,6 +214,8 @@ export const memory = pgTable(
     deepFetchLeaseUntil: timestamp("deep_fetch_lease_until", {
       withTimezone: true,
     }),
+    /** Who holds the lease: every Deep fetch write names it. */
+    deepFetchToken: uuid("deep_fetch_token"),
     deepFetchError: text("deep_fetch_error"),
     /** AI opt-out (GLOSSARY.md, ADR-0011): never sent to any AI provider. */
     aiOptOut: boolean("ai_opt_out").default(false).notNull(),

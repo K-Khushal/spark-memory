@@ -5,6 +5,9 @@ import type {
   TranscriptSegment,
 } from "@spark/core";
 
+/** A bearer token shorter than this is not a secret worth sending or accepting. */
+export const MIN_TOKEN_CHARS = 32;
+
 /** What Deep fetch is asked for. Never carries a login, a cookie or a header (ADR-0010). */
 export type DeepFetchRequest = {
   url: string;
@@ -18,6 +21,8 @@ export type EngineUsage = {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /** The input was mostly audio, which may be priced apart from text. */
+  audio?: boolean;
 };
 
 /** What an engine brought back. */

@@ -8,7 +8,7 @@ export type IndexingTransport = {
   poll: (ids: string[]) => Promise<Memory[]>;
   retryIndexing: (id: string) => Promise<Memory>;
   setAiOptOut: (id: string, on: boolean) => Promise<Memory>;
-  /** Try Again on a Deep fetch that Failed or was Unavailable. */
+  /** Try Again on a Deep fetch that Failed. */
   retryDeepFetch: (id: string) => Promise<Memory>;
 };
 

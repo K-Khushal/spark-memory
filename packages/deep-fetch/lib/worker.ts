@@ -3,8 +3,8 @@ import {
   DEEP_FETCH,
   engineFor,
   FREE_ALLOWANCE,
-  INDEXING,
   MIN_PRESERVED_CHARS,
+  modelCostMicros,
   retryDelaySeconds,
   secondsToNextUtcDay,
   type DeepFetchEngine,
@@ -13,7 +13,7 @@ import {
   type MemoryKind,
   type TranscriptSegment,
 } from "@spark/core";
-import type { DeepFetch, EngineUsage, Fetched } from "./engine";
+import type { DeepFetch, Fetched } from "./engine";
 
 /** The attempt a store handed out: every write names it. */
 export type Claim = {
@@ -21,6 +21,8 @@ export type Claim = {
   userId: string;
   generation: string;
   run: number;
+  /** The lease this attempt holds; a worker whose lease ran out holds a stale one. */
+  token: string;
 };
 
 /** What an attempt found, as the store keeps it. */
@@ -50,8 +52,8 @@ export type DeepFetchJobStore = {
         kind: MemoryKind;
         url: string;
         aiOptOut: boolean;
+        /** This attempt's number: one is counted when it is taken. */
         attempts: number;
-        hasText: boolean;
       }
     | undefined
   >;
@@ -99,13 +101,6 @@ export type DeepFetchOutcome =
   /** Queued again, due in `delaySeconds`: the adapter sends a delayed message. */
   | { result: "later"; delaySeconds: number };
 
-const costMicros = (model: string, usage: EngineUsage) => {
-  const [input, output] = INDEXING.pricesMicrosPerMTokens[model] ?? [0, 0];
-  return Math.ceil(
-    (usage.inputTokens * input + usage.outputTokens * output) / 1_000_000
-  );
-};
-
 /**
  * One Deep fetch job (ADR-0010) behind one call: take the Memory if it is
  * due, then choose the engine for its kind, honour the person's 20 a day,
@@ -139,7 +134,7 @@ export function createDeepFetchWorker({
   }): Promise<DeepFetchOutcome> {
     const taken = await store.claim(job.memoryId, job.generation, job.run);
     if (!taken) return { result: "skipped" };
-    const { claim, kind, url, aiOptOut, attempts, hasText } = taken;
+    const { claim, kind, url, aiOptOut, attempts } = taken;
     const engine = engineFor(kind);
     // Video goes to a model: never for AI opt-out (switched on since queued).
     if (
@@ -195,7 +190,7 @@ export function createDeepFetchWorker({
           provider: "gemini",
           model: usage.model,
           usage,
-          costMicros: costMicros(usage.model, usage),
+          costMicros: modelCostMicros(usage.model, usage),
         })
         .catch(() => console.error("deep fetch: AI call cost not recorded"));
     }
@@ -220,21 +215,16 @@ export function createDeepFetchWorker({
       return nextAttempt(claim, attempts, result.reason);
     }
 
-    // A link that already has text is fetched again for what it lacks (its
-    // screenshot): its text is never replaced, so Indexing is not run again.
-    const wantsText = !(kind === "link" && hasText);
-    const text = !wantsText
-      ? undefined
-      : (result.text ??
-        (result.transcript?.length
-          ? result.transcript.map((s) => s.text).join("\n")
-          : undefined));
+    const text =
+      result.text ??
+      (result.transcript?.length
+        ? result.transcript.map((s) => s.text).join("\n")
+        : undefined);
     const readable =
       !!text &&
       (result.transcript?.length || text.length >= MIN_PRESERVED_CHARS);
     const found =
-      wantsText &&
-      (readable || result.metadata?.title || result.metadata?.description)
+      readable || result.metadata?.title || result.metadata?.description
         ? {
             ...(readable && {
               text: text.slice(0, FREE_ALLOWANCE.textMaxChars),
@@ -262,13 +252,13 @@ export function createDeepFetchWorker({
     };
   }
 
-  /** Attempt `attempts + 1` found nothing: wait for the next, or Fail after the last. */
+  /** Attempt `attempts` found nothing: wait for the next, or Fail after the last. */
   async function nextAttempt(
     claim: Claim,
     attempts: number,
     reason: DeepFetchFailure
   ): Promise<DeepFetchOutcome> {
-    const delaySeconds = retryDelaySeconds(attempts + 1);
+    const delaySeconds = retryDelaySeconds(attempts);
     if (delaySeconds === undefined) {
       await store.fail(claim, reason);
       return { result: "failed" };

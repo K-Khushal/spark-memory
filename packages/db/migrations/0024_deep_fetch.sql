@@ -7,6 +7,9 @@ ALTER TABLE memory
   ADD COLUMN deep_fetch_attempts integer NOT NULL DEFAULT 0,
   ADD COLUMN deep_fetch_due_at timestamptz,
   ADD COLUMN deep_fetch_lease_until timestamptz,
+  -- Who holds the lease: every write names it, so a worker whose lease ran
+  -- out cannot settle the row a later one took.
+  ADD COLUMN deep_fetch_token uuid,
   ADD COLUMN deep_fetch_error text;
 --> statement-breakpoint
 CREATE INDEX memory_deep_fetch_due_idx ON memory (deep_fetch_due_at)

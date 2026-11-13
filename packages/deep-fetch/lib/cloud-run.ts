@@ -1,5 +1,10 @@
 import type { DeepFetchFailure, TranscriptSegment } from "@spark/core";
-import type { Engine, EngineResult, EngineUsage } from "./engine";
+import {
+  MIN_TOKEN_CHARS,
+  type Engine,
+  type EngineResult,
+  type EngineUsage,
+} from "./engine";
 
 /**
  * A job takes minutes (download, transcode, one model call); the Worker
@@ -33,7 +38,9 @@ const isUsage = (v: unknown): v is EngineUsage[] =>
       !!u &&
       typeof (u as EngineUsage).model === "string" &&
       Number.isFinite((u as EngineUsage).inputTokens) &&
-      Number.isFinite((u as EngineUsage).outputTokens)
+      Number.isFinite((u as EngineUsage).outputTokens) &&
+      ((u as EngineUsage).audio === undefined ||
+        typeof (u as EngineUsage).audio === "boolean")
   );
 
 /**
@@ -42,7 +49,9 @@ const isUsage = (v: unknown): v is EngineUsage[] =>
  * transcript and deletes the file when the job ends; this side only asks
  * and reads the answer, which it validates because it comes over the
  * network. The shared token is the only credential sent, and only to the
- * fetcher. Cloud Run's free tier is counted in the container's seconds.
+ * fetcher, over https: a plain-http address or a token under 32 characters
+ * is refused when the engine is made. Cloud Run's free tier is counted in
+ * the container's seconds.
  */
 export function cloudRunFetcher({
   url,
@@ -53,6 +62,14 @@ export function cloudRunFetcher({
   token: string;
   fetch?: typeof fetch;
 }): Engine {
+  if (!url.startsWith("https://") || !URL.canParse(url)) {
+    throw new Error("the fetcher's URL must be https");
+  }
+  if (token.length < MIN_TOKEN_CHARS) {
+    throw new Error(
+      `the fetcher's token must be ${MIN_TOKEN_CHARS}+ characters`
+    );
+  }
   const endpoint = `${url.replace(/\/+$/, "")}/fetch`;
   return {
     async fetch({ url: source, maxMinutes }): Promise<EngineResult> {
@@ -76,10 +93,12 @@ export function cloudRunFetcher({
           seconds: Math.ceil((Date.now() - started) / 1000),
         };
       }
-      // Cloud Run answers 429 when it has no instance to give: try later.
+      // Cloud Run answers 429 or 503 when it has no instance to give right
+      // now: an ordinary failure, tried again on the usual schedule. Only
+      // the budgets the Worker counts itself are a `limit`.
       if (res.status === 429 || res.status === 503) {
         await res.body?.cancel().catch(() => {});
-        return { ok: false, reason: "limit", seconds: 0 };
+        return { ok: false, reason: "error", seconds: 0 };
       }
       let body: Record<string, unknown>;
       try {

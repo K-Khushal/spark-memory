@@ -29,8 +29,15 @@ export type MediaTools = {
   ): Promise<{ transcript: TranscriptSegment[]; usage: EngineUsage[] }>;
 };
 
+/**
+ * Why a tool failed. `usage` is any model call that already happened (and
+ * may be billed) before it did, so the Worker can still record its cost.
+ */
 export class ToolError extends Error {
-  constructor(readonly reason: DeepFetchFailure) {
+  constructor(
+    readonly reason: DeepFetchFailure,
+    readonly usage: EngineUsage[] = []
+  ) {
     super(reason);
   }
 }
@@ -150,7 +157,13 @@ export function createFetcher({
           : { ok: false, reason: "nothing", usage, seconds: seconds() }
       );
     } catch (error) {
-      return json({ ok: false, reason: reasonOf(error), seconds: seconds() });
+      const usage = error instanceof ToolError ? error.usage : [];
+      return json({
+        ok: false,
+        reason: reasonOf(error),
+        ...(usage.length && { usage }),
+        seconds: seconds(),
+      });
     }
   };
 }

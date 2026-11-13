@@ -28,7 +28,7 @@ const saved = async (page: Page) =>
     }
   ).memories;
 
-// example.com says too little to keep (a short page, no image), so Gathering
+// example.com says too little to keep (a short page, no readable text), so Gathering
 // it comes back thin and a Deep fetch runs. The local Worker answers it from
 // a script (DEEP_FETCH_PROVIDER in wrangler.jsonc), so nothing leaves the
 // machine but the gather itself, which needs the network.
