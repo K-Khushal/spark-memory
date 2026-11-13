@@ -12,6 +12,31 @@ test("see this device, export the Library, delete the account", async ({
   await expect(page).toHaveURL(/\/settings$/);
   // The heading arrives with Settings, after the Library has gone.
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  // Usage: each counted limit is a meter with its value in words. Nothing is
+  // counted yet (Samples never count); one Capture counts as one today.
+  const meter = (name: string) => page.getByRole("meter", { name });
+  await expect(meter("Storage")).toHaveAttribute(
+    "aria-valuetext",
+    "0 B of 1 GB"
+  );
+  await expect(meter("Captures Today")).toHaveAttribute("aria-valuenow", "0");
+  await expect(meter("Deep Fetches Today")).toHaveAttribute(
+    "aria-valuetext",
+    /^0 of 20\. Resets at /
+  );
+  await page.evaluate(() =>
+    fetch("/api/memories", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "Counted once" }),
+    })
+  );
+  await page.reload();
+  await expect(meter("Captures Today")).toHaveAttribute("aria-valuenow", "1");
+  await expect(meter("Captures Today")).toHaveAttribute(
+    "aria-valuetext",
+    /^1 of 100\./
+  );
   const memories = page.getByRole("link", { name: "All Memories" });
   await expect(memories).toBeVisible();
   // Capture and Search stay in the shared head, so All Memories does not jump.
