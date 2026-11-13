@@ -1,16 +1,11 @@
-import {
-  CATEGORY_NAMES,
-  type Category,
-  type SearchChips,
-  type SearchKind,
-} from "@spark/core";
+import type { SearchChips } from "@spark/core";
 import { isWordless } from "./search-session";
 import {
   KIND_LABELS,
   LibraryFilters,
-  kindOf,
   useFilterOptions,
 } from "./library-filters";
+import { narrowing } from "./narrowing";
 import { recordSearch } from "./search-history";
 import {
   useCallback,
@@ -795,7 +790,7 @@ function SearchResults({
 /**
  * With no Direct Match, the ways to narrow what was found: the kinds and
  * Categories among the Related Matches, as the same filter chips the
- * sidebar has. Nothing is offered that is already chosen or leads nowhere.
+ * sidebar has (`narrowing`: nothing that narrows nothing).
  */
 function Narrow({
   found,
@@ -806,21 +801,7 @@ function Narrow({
   chips: SearchChips;
   onChips: (chips: SearchChips) => void;
 }) {
-  const kinds = new Set<SearchKind>();
-  const categories = new Set<Category>();
-  for (const memory of found) {
-    const kind = kindOf(memory.kind);
-    if (kind) kinds.add(kind);
-    for (const category of memory.categories) categories.add(category);
-  }
-  const options = {
-    kinds: (Object.keys(KIND_LABELS) as SearchKind[]).filter(
-      (k) => kinds.has(k) && chips.kind !== k
-    ),
-    categories: CATEGORY_NAMES.filter(
-      (c) => c !== "Other" && categories.has(c) && chips.category !== c
-    ),
-  };
+  const options = narrowing(found, chips);
   if (!options.kinds.length && !options.categories.length) return null;
   return (
     <div

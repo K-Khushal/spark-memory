@@ -129,9 +129,39 @@ export function tune(
   );
 }
 
+/**
+ * What tuning would score on searches it did not see: for each search, tune
+ * on all the others, rule on that one with the winner, and add the scores up.
+ * The in-sample numbers (tuned and scored on the same searches) are the
+ * optimistic ones; this is the honest one, and the gap between them says how
+ * far to trust the tuned values.
+ */
+export function leaveOneOut(
+  outcomes: SearchOutcome[],
+  options: Parameters<typeof tune>[1] = {}
+): DirectScore {
+  const total: DirectScore = {
+    searches: 0,
+    direct: 0,
+    directRight: 0,
+    judged: 0,
+    judgedDirect: 0,
+    none: 0,
+  };
+  outcomes.forEach((held, i) => {
+    const others = outcomes.filter((_, j) => j !== i);
+    const best = tune(others, options)[0]!.thresholds;
+    const score = directScore(rejudge([held], best));
+    for (const key of Object.keys(total) as (keyof DirectScore)[])
+      total[key] += score[key];
+  });
+  return total;
+}
+
 export function formatTuning(outcomes: SearchOutcome[], real: boolean) {
-  const ranked = tune(outcomes, { freeze: real ? [] : ["directDistance"] });
-  const best = ranked[0]!;
+  const options = { freeze: real ? [] : (["directDistance"] as const) };
+  const best = tune(outcomes, { freeze: [...options.freeze] })[0]!;
+  const held = leaveOneOut(outcomes, { freeze: [...options.freeze] });
   const current = directScore(outcomes);
   const show = (t: MatchThresholds) =>
     `directDistance ${t.directDistance}, keywordMinRelative ${t.keywordMinRelative}, leadRunnerUp ${t.leadRunnerUp}`;
@@ -139,7 +169,8 @@ export function formatTuning(outcomes: SearchOutcome[], real: boolean) {
     `Current   ${show(JUDGING.thresholds)}`,
     `          ${formatDirectScore(current)}`,
     `Best      ${show(best.thresholds)}`,
-    `          ${formatDirectScore(best.score)}`,
+    `          ${formatDirectScore(best.score)}  (in-sample: tuned on these searches)`,
+    `Held out  ${formatDirectScore(held)}  (leave-one-out: each search ruled on by values tuned without it)`,
     "",
     `Put these in JUDGING.thresholds (packages/core/lib/judging.ts) and bump JUDGING.version.`,
     real

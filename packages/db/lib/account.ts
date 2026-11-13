@@ -15,8 +15,10 @@ import {
   accountDeletion,
   aiCall,
   appSetting,
+  COPY_LIFETIME_HOURS,
   libraryExport,
   memory,
+  memoryCopy,
   objectRemoval,
   session,
   settingChange,
@@ -524,6 +526,12 @@ export function accountJobs(db: Database) {
         allowCall?: () => boolean;
       } = {}
     ): Promise<number> {
+      // A reel's copy Indexing never got to: its trigger queues the objects.
+      await db
+        .delete(memoryCopy)
+        .where(
+          sql`${memoryCopy.createdAt} < now() - make_interval(hours => ${COPY_LIFETIME_HOURS})`
+        );
       await db.execute(sql`
         with expired as (
           delete from ${libraryExport} where ${exportExpired}

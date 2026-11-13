@@ -196,3 +196,43 @@ export const PdfCapture = z
     path: ["pageImages"],
   });
 export type PdfCapture = z.input<typeof PdfCapture>;
+
+/**
+ * A reel's user-provided copy (ADR-0010): the video the person's own browser
+ * fetched with their own session, and a few frames drawn from it there
+ * (Workers cannot decode video). Both exist only for Indexing, which makes
+ * the transcript and the Visual vectors, and are deleted when it ends.
+ */
+export const REEL_COPY = {
+  videoType: "video/mp4",
+  frameType: "image/jpeg",
+  maxFrames: 8,
+  /** Six frames of a reel at 540 px wide are about 40 KB each. */
+  frameMaxBytes: 200 * 1024,
+} as const;
+
+export const ReelCopy = z
+  .object({
+    /** Not capped here: the Free allowance check refuses it with its reason. */
+    bytes: z.number().int().positive(),
+    duration: z
+      .number()
+      .positive()
+      .max(24 * 3600),
+    frames: z
+      .array(
+        z.object({
+          seconds: z.number().min(0),
+          bytes: z.number().int().positive().max(REEL_COPY.frameMaxBytes),
+          width: side,
+          height: side,
+        })
+      )
+      .min(1)
+      .max(REEL_COPY.maxFrames),
+  })
+  .refine((c) => c.frames.every((f) => f.seconds <= c.duration), {
+    message: "every frame is inside the video",
+    path: ["frames"],
+  });
+export type ReelCopy = z.input<typeof ReelCopy>;

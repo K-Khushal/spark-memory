@@ -6,6 +6,7 @@ import {
   boolean,
   customType,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -318,6 +319,42 @@ export const memoryFile = pgTable(
 );
 
 /**
+ * A copy Indexing never got to is deleted after this long (the hourly
+ * sweep): longer than a run held back by the daily budget can wait (12 hours).
+ */
+export const COPY_LIFETIME_HOURS = 24;
+
+/**
+ * A reel's user-provided copy (ADR-0010, migrations/0025): the video and a
+ * few frames the person's own browser fetched, kept only for Indexing and
+ * deleted when it ends. Not a `memory_file`: an unfinished copy never hides
+ * its reel or counts as an abandoned upload. A trigger queues the object of
+ * every row that goes for removal.
+ */
+export const memoryCopy = pgTable(
+  "memory_copy",
+  {
+    memoryId: uuid("memory_id")
+      .notNull()
+      .references(() => memory.id, { onDelete: "cascade" }),
+    role: text("role").$type<"video" | "frame">().notNull(),
+    seq: integer("seq").default(0).notNull(),
+    generation: uuid("generation").notNull().defaultRandom(),
+    key: text("r2_key").notNull().unique(),
+    mime: text("mime").notNull(),
+    bytes: integer("bytes").notNull(),
+    /** The video's length, or a frame's moment. */
+    seconds: doublePrecision("seconds"),
+    createdAt: instant("created_at"),
+    storedAt: timestamp("stored_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.memoryId, t.role, t.seq] }),
+    index("memory_copy_created_idx").on(t.createdAt),
+  ]
+);
+
+/**
  * Every distinct word of a Memory's title, Capture note and body, for typo
  * matching (ADR-0004): search corrects each query word against these with
  * pg_trgm, then looks the corrections up in the keyword index. Short words
@@ -378,8 +415,9 @@ export type PassageAnchor = {
   page?: number;
   seconds?: number;
 };
-/** Where a vector sits: a Passage's text, or the PDF page a Visual is of. */
-export type VectorAnchor = PassageAnchor | { page: number };
+/** Where a vector sits: a Passage's text, the PDF page a Visual is of, or a reel frame's moment. */
+export type VectorAnchor =
+  PassageAnchor | { page: number } | { seconds: number };
 
 /**
  * A Memory's vectors (ADR-0004): one Overview, a Visual for an image, and a

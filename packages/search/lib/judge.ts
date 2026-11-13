@@ -93,6 +93,9 @@ export function jevMatchJudge({
       const sendable = candidates.filter((c) => texts.get(c.id));
       if (!sendable.length) return new Map();
       const sent = sendable.map((c) => texts.get(c.id)!);
+      // The deadline passed while the texts and budget were read: no call
+      // was made, so nothing may be recorded as spent.
+      signal.throwIfAborted();
       let reply;
       try {
         reply = await client.judge(query, sent, signal);

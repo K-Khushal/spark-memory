@@ -347,6 +347,26 @@ describe("the Jev judge", () => {
     expect(jev.judge).not.toHaveBeenCalled();
   });
 
+  it("makes no call and records nothing when the deadline passed while it read the texts", async () => {
+    const spend = budget();
+    const jev = client([0.9]);
+    const deadline = new AbortController();
+    await expect(
+      jevMatchJudge({
+        client: jev,
+        // The deadline hits during `describe`.
+        describe: async (ids) => {
+          deadline.abort(new Error("judging timed out"));
+          return new Map(ids.map((id) => [id, "x"]));
+        },
+        userId: "u",
+        spend,
+      }).judge("q", candidates("a"), deadline.signal)
+    ).rejects.toThrow("judging timed out");
+    expect(jev.judge).not.toHaveBeenCalled();
+    expect(spend.calls).toEqual([]);
+  });
+
   it("records the most a failed call could have cost, and rejects", async () => {
     const spend = budget();
     const jev: JudgeClient = {

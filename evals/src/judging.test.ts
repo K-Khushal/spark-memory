@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { JUDGING } from "@spark/core";
-import { directScore, formatDirectScore, rejudge, tune } from "./judging";
+import {
+  directScore,
+  formatDirectScore,
+  leaveOneOut,
+  rejudge,
+  tune,
+} from "./judging";
 import { delays, percentile } from "./latency";
 import type { JudgedResult, SearchOutcome } from "./run";
 
@@ -85,6 +91,48 @@ describe("rejudge and tune", () => {
     expect(best!.thresholds.directDistance).toBe(
       JUDGING.thresholds.directDistance
     );
+  });
+});
+
+describe("leaveOneOut", () => {
+  const winner = (id: string) =>
+    outcome(id, [
+      result({
+        id: "1",
+        relevant: true,
+        matched: ["typo", "vector"],
+        distance: 0.55,
+        score: 1,
+      }),
+      result({ id: "2", score: 0.3 }),
+    ]);
+
+  it("rules on each search with values tuned on the others, and adds the scores up", () => {
+    const searches = ["a", "b", "c", "d"].map(winner);
+    const held = leaveOneOut(searches, { freeze: ["directDistance"] });
+    // Four alike searches: what is learnt from three holds for the fourth.
+    expect(held).toEqual({
+      searches: 4,
+      direct: 4,
+      directRight: 4,
+      judged: 4,
+      judgedDirect: 4,
+      none: 0,
+    });
+  });
+
+  it("scores worse than tuning on the same searches when a search is unlike the rest", () => {
+    // The odd search is a weaker keyword hit that no value learnt from the
+    // others makes Direct, so held out it can only do as well as in sample.
+    const odd = outcome("odd", [
+      result({ id: "1", relevant: true, matched: ["keyword"], score: 0.5 }),
+      result({ id: "2", score: 1 }),
+    ]);
+    const searches = [winner("a"), winner("b"), odd];
+    const inSample = tune(searches, { freeze: ["directDistance"] })[0]!.score;
+    const held = leaveOneOut(searches, { freeze: ["directDistance"] });
+    expect(held.searches).toBe(3);
+    expect(held.judgedDirect).toBeLessThanOrEqual(inSample.judgedDirect);
   });
 });
 

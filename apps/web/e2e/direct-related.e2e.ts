@@ -41,7 +41,7 @@ const shot = (
       : testInfo.outputPath(`t13-${name}.png`),
   });
 
-test("says there is no Direct Match, offers ways to narrow, and splits Direct from Related once there is one", async ({
+test("says there is no Direct Match, offers no chip that narrows nothing, and splits Direct from Related once there is one", async ({
   page,
 }, testInfo) => {
   await signIn(page);
@@ -62,21 +62,11 @@ test("says there is no Direct Match, offers ways to narrow, and splits Direct fr
   await expect(page.getByRole("list", { name: "Direct Matches" })).toHaveCount(
     0
   );
-  const narrow = page.getByRole("group", { name: "Narrow Related Matches" });
-  await expect(narrow.getByRole("button")).toHaveText(["Notes"]);
-  await shot(page, "zero-direct-1440", testInfo);
-
-  // A chip narrows the same search, and a chosen chip is not offered again.
-  await narrow.getByRole("button", { name: "Notes" }).click();
+  // One kind, one Category: a chip would narrow nothing, so there is none.
   await expect(
-    page.getByRole("complementary").getByRole("button", {
-      name: "Notes",
-      exact: true,
-      pressed: true,
-    })
-  ).toBeVisible();
-  await expect(related.getByRole("listitem", { name: RELATED })).toBeVisible();
-  await expect(narrow).toHaveCount(0);
+    page.getByRole("group", { name: "Narrow Related Matches" })
+  ).toHaveCount(0);
+  await shot(page, "zero-direct-1440", testInfo);
   await page.getByRole("button", { name: "Clear Search" }).first().click();
 
   // A Memory that does match joins the results: Direct above Related.

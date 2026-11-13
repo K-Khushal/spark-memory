@@ -1,4 +1,5 @@
 import type { Embedder } from "./embedder";
+import type { Transcriber } from "./gemini-transcribe";
 import type { Provider } from "./provider";
 
 /** A word only the fake provider writes, so a test can find a Memory by it. */
@@ -111,6 +112,20 @@ export function fakeEmbedder(dimensions = 768): Embedder {
         return normalise(total);
       });
       return { vectors, usage: { textTokens: 0, imageTokens: 0 } };
+    },
+  };
+}
+
+/** The fake provider's listener: every video "says" one line, so a test can find a reel by it. */
+export function fakeTranscriber(): Transcriber {
+  return {
+    name: "gemini",
+    model: "fake",
+    async transcribe() {
+      return {
+        segments: [{ seconds: 0, text: `Said aloud in a reel: ${FAKE_WORD}` }],
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
     },
   };
 }
