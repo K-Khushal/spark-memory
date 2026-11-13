@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { motion } from "motion/react";
+import { motion, MotionConfig } from "motion/react";
 import { DURATION, EASING } from "@spark/ui/tokens";
 import { Button, Kbd, toast } from "@spark/ui";
 import { api } from "../api";
 import { track } from "../analytics";
+import type { Activation } from "./activation";
 import { MOD } from "./shortcuts";
 import type { Memory } from "./use-library";
 
@@ -24,6 +25,7 @@ const headings: Record<Step, string> = {
 /** One server state, one pending mutation. Failures leave the last state intact. */
 export function Onboarding({
   activationVersion,
+  onActivated,
   memories,
   refresh,
   onCapture,
@@ -31,6 +33,8 @@ export function Onboarding({
   onOpen,
 }: {
   activationVersion: number;
+  /** The first successful search is already recorded. */
+  onActivated: () => void;
   memories: Memory[];
   refresh: () => void;
   onCapture: () => void;
@@ -98,6 +102,10 @@ export function Onboarding({
   }
   const update = (step: Step, paused = false) =>
     mutate(() => endpoint.$put({ json: { step, paused } }));
+  const activated = !!state?.firstSuccessfulSearchAt;
+  useEffect(() => {
+    if (activated) onActivated();
+  }, [activated, onActivated]);
   useEffect(() => {
     if (state?.step === "capture" && !state.paused && first && !pending.current)
       void update("indexing");
@@ -115,185 +123,184 @@ export function Onboarding({
       aria-label="Get Started"
       className="border-b border-line px-4 py-5 md:px-6"
     >
-      {failed && !state ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="font-medium">Get Started Is Unreachable</h2>
-          <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>
-            Try Again
-          </Button>
-        </div>
-      ) : (
-        state && (
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2
-                className={
-                  finished ? "sr-only" : "font-display text-lg font-semibold"
-                }
-              >
-                {state.paused ? "Get Started" : headings[state.step]}
-              </h2>
-              <div className="flex flex-wrap items-center gap-2">
-                {sampleCount > 0 && (
-                  <Button
-                    variant="quiet"
-                    disabled={busy}
-                    onClick={() =>
-                      void mutate(() => endpoint.samples.$delete(), true)
-                    }
-                  >
-                    Remove Samples
-                  </Button>
-                )}
-                {finished ? null : state.paused ? (
-                  <Button
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => void update(state.step)}
-                  >
-                    Resume
-                  </Button>
-                ) : (
-                  // The AI disclosure is the one step that is not skippable.
-                  state.step !== "done" &&
-                  state.step !== "disclosure" && (
+      <MotionConfig reducedMotion="user">
+        {failed && !state ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="font-medium">Get Started Is Unreachable</h2>
+            <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+              Try Again
+            </Button>
+          </div>
+        ) : (
+          state && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2
+                  className={
+                    finished ? "sr-only" : "font-display text-lg font-semibold"
+                  }
+                >
+                  {state.paused ? "Get Started" : headings[state.step]}
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  {sampleCount > 0 && (
                     <Button
                       variant="quiet"
                       disabled={busy}
-                      onClick={() => void update(state.step, true)}
-                    >
-                      Skip
-                    </Button>
-                  )
-                )}
-              </div>
-            </div>
-            {!state.paused && (
-              <motion.div
-                key={state.step}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{
-                  duration: DURATION.small / 1000,
-                  ease: EASING.out,
-                }}
-                className="mt-4 flex min-w-0 flex-wrap items-center gap-3"
-                aria-busy={busy}
-              >
-                {state.step === "disclosure" && (
-                  <>
-                    <p className="max-w-prose text-sm">
-                      AI reads your Memories to Index them. Turn on AI Opt-Out
-                      for a Memory to keep it from AI.
-                    </p>
-                    <Button
-                      variant="primary"
-                      disabled={busy}
                       onClick={() =>
-                        void mutate(() => endpoint.start.$post(), true)
+                        void mutate(() => endpoint.samples.$delete(), true)
                       }
                     >
-                      Continue
+                      Remove Samples
                     </Button>
-                  </>
-                )}
-                {state.step === "extension" && (
-                  <>
-                    <a
-                      className="rounded-control border border-line-strong px-3 py-2 text-sm font-medium underline-offset-4 hover:underline"
-                      href="https://github.com/K-Khushal/spark-memory/blob/main/docs/extension.md"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Install Extension
-                    </a>
+                  )}
+                  {finished ? null : state.paused ? (
                     <Button
-                      variant="primary"
+                      variant="outline"
                       disabled={busy}
-                      onClick={() => void update("capture")}
+                      onClick={() => void update(state.step)}
                     >
-                      Next
+                      Resume
                     </Button>
-                  </>
-                )}
-                {state.step === "capture" && (
-                  <Button variant="primary" onClick={onCapture}>
-                    Capture <Kbd>{MOD}V</Kbd>
-                  </Button>
-                )}
-                {state.step === "indexing" && (
-                  <>
-                    <span role="status" className="text-sm">
-                      {first?.indexState === "searchable"
-                        ? "Searchable"
-                        : first?.indexState === "failed"
-                          ? "Failed"
-                          : "Indexing"}
-                    </span>
-                    {first ? (
-                      <Button variant="outline" onClick={() => onOpen(first)}>
-                        Open Memory
-                      </Button>
-                    ) : (
+                  ) : (
+                    // The AI disclosure is the one step that is not skippable.
+                    state.step !== "done" &&
+                    state.step !== "disclosure" && (
                       <Button
-                        variant="outline"
+                        variant="quiet"
+                        disabled={busy}
+                        onClick={() => void update(state.step, true)}
+                      >
+                        Skip
+                      </Button>
+                    )
+                  )}
+                </div>
+              </div>
+              {!state.paused && (
+                <motion.div
+                  key={state.step}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{
+                    duration: DURATION.small / 1000,
+                    ease: EASING.out,
+                  }}
+                  className="mt-4 flex min-w-0 flex-wrap items-center gap-3"
+                  aria-busy={busy}
+                >
+                  {state.step === "disclosure" && (
+                    <>
+                      <p className="max-w-prose text-sm">
+                        AI reads your Memories to Index them, unless you turn on
+                        AI Opt-Out for a Memory.
+                      </p>
+                      <Button
+                        variant="primary"
+                        disabled={busy}
+                        onClick={() =>
+                          void mutate(() => endpoint.start.$post(), true)
+                        }
+                      >
+                        Continue
+                      </Button>
+                    </>
+                  )}
+                  {state.step === "extension" && (
+                    <>
+                      <a
+                        className="rounded-control border border-line-strong px-3 py-2 text-sm font-medium underline-offset-4 hover:underline"
+                        href="https://github.com/K-Khushal/spark-memory/blob/main/docs/extension.md"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Install Extension
+                      </a>
+                      <Button
+                        variant="primary"
+                        disabled={busy}
                         onClick={() => void update("capture")}
                       >
-                        Capture Again
+                        Next
                       </Button>
-                    )}
+                    </>
+                  )}
+                  {state.step === "capture" && (
+                    <Button variant="primary" onClick={onCapture}>
+                      Capture <Kbd>{MOD}V</Kbd>
+                    </Button>
+                  )}
+                  {state.step === "indexing" && (
+                    <>
+                      <span role="status" className="text-sm">
+                        {first?.indexState === "searchable"
+                          ? "Searchable"
+                          : first?.indexState === "failed"
+                            ? "Failed"
+                            : "Indexing"}
+                      </span>
+                      {first ? (
+                        <Button variant="outline" onClick={() => onOpen(first)}>
+                          Open Memory
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          onClick={() => void update("capture")}
+                        >
+                          Capture Again
+                        </Button>
+                      )}
+                      <Button
+                        variant="primary"
+                        disabled={
+                          busy || !first || first.indexState === "indexing"
+                        }
+                        onClick={() => void update("search")}
+                      >
+                        Try Search
+                      </Button>
+                    </>
+                  )}
+                  {state.step === "search" && (
                     <Button
                       variant="primary"
-                      disabled={
-                        busy || !first || first.indexState === "indexing"
+                      onClick={() =>
+                        onSearch(sampleCount ? "bookshop with a cat" : "")
                       }
-                      onClick={() => void update("search")}
                     >
-                      Try Search
+                      Try a Vague Search <Kbd>{MOD}K</Kbd>
                     </Button>
-                  </>
-                )}
-                {state.step === "search" && (
-                  <Button
-                    variant="primary"
-                    onClick={() =>
-                      onSearch(
-                        sampleCount
-                          ? "that little place with books and a cat"
-                          : ""
-                      )
-                    }
-                  >
-                    Try a Vague Search <Kbd>{MOD}K</Kbd>
-                  </Button>
-                )}
-                {state.step === "done" && (
-                  <Button
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => void update("done", true)}
-                  >
-                    Finish
-                  </Button>
-                )}
-              </motion.div>
-            )}
-          </>
-        )
-      )}
+                  )}
+                  {state.step === "done" && (
+                    <Button
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void update("done", true)}
+                    >
+                      Finish
+                    </Button>
+                  )}
+                </motion.div>
+              )}
+            </>
+          )
+        )}
+      </MotionConfig>
     </section>
   );
 }
 
 /** The server wins concurrent tabs; event properties contain no query. */
-export async function recordActivation(memoryId: string) {
+export async function recordActivation(memoryId: string): Promise<Activation> {
   try {
     const res = await endpoint.activation.$post({ json: { memoryId } });
-    if (!res.ok) return false;
+    if (!res.ok) return "failed";
     const { recorded } = await res.json();
-    if (recorded) track({ event: "first_successful_search", properties: {} });
-    return true;
+    if (!recorded) return "unchanged";
+    track({ event: "first_successful_search", properties: {} });
+    return "recorded";
   } catch {
-    return false;
+    return "failed";
   }
 }
