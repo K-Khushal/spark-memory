@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { EMBEDDING } from "@spark/core";
+import type * as Core from "@spark/core";
 import { queryVectorsCached } from "@spark/search";
 import { requeueStalled } from "../src/indexing";
 import {
@@ -13,6 +14,22 @@ import {
   queues,
   signedIn,
 } from "./worker";
+
+// Real Postgres and fake-provider policy assertions must not depend on the
+// shared VM completing database cost writes inside the production 350ms SLA.
+// Search's deadline/fallback behavior is covered with controlled clocks in
+// @spark/search; keep the integration deadline generous without changing it.
+vi.mock("@spark/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof Core>();
+  return {
+    ...actual,
+    JUDGING: {
+      ...actual.JUDGING,
+      fullBudgetMs: 60_000,
+      jevTimeoutMs: 30_000,
+    },
+  };
+});
 
 // Hybrid search through the Worker, with the fake provider and embedder
 // (INDEXING_PROVIDER=fake): words the fake embedder reads as one meaning

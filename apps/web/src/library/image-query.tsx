@@ -118,7 +118,15 @@ export function ImageQueryControls({
       }}
     >
       {children}
-      <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2">
+      <div
+        className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2"
+        onKeyDown={(event) => {
+          if (
+            ["Enter", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)
+          )
+            event.stopPropagation();
+        }}
+      >
         <input
           ref={input}
           type="file"
@@ -144,7 +152,6 @@ export function ImageQueryControls({
           aria-label="Choose From Library"
           value=""
           className="min-w-0 max-w-full min-h-9 rounded-control bg-surface text-[1rem] text-ink md:text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          onKeyDown={(event) => event.stopPropagation()}
           onChange={(event) => {
             if (event.target.value) {
               onChange({ id: crypto.randomUUID(), memory: event.target.value });

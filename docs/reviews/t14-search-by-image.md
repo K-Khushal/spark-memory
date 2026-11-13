@@ -52,9 +52,13 @@ A further self-audit reproduced an account-deletion race during asynchronous ima
 
 Browser verification also caught a synthetic query drop bubbling into Capture; nested query drops now stop propagation and the page drag indicator resets in the capture phase. The HTTP Library count stays unchanged after file pick, paste and drop. A mixed Library-vector query could also reintroduce its query Memory through keyword/typo legs; both now exclude it, with a red/green real-Postgres test.
 
+A keyboard probe reproduced CmdK intercepting Enter on query controls. The control row now keeps native activation and navigation keys local while preserving Tab, Escape and the global Search shortcut; the browser test verifies Enter removes the chip without closing Search.
+
 Existing smoke locators are scoped to Search's listbox so they cannot select options from the new native Library picker. Their assertions are unchanged.
 
-No product decisions remain open. Final verification on the branch after merging `9d07710`:
+The merged allowance API test exposed a harness timing dependency: recording a mocked Jev call sometimes exceeded its production 350ms deadline under VM contention. This real-Postgres policy test now uses a generous test-only judging deadline; production limits and the controlled-clock deadline/fallback tests are unchanged. All 16 search API tests passed after the adjustment.
+
+No product decisions remain open. Final verification on the branch after merging `f9c69d4` (#27 allowance and rate limits):
 
 - `pnpm check`: passed, including real Postgres, migration tests and production builds. Package and test workers ran serially with extended harness deadlines during VM contention; assertions were unchanged. The temporary runner configuration was restored afterward.
 - `pnpm --filter @spark/evals eval:check`: passed before and after. The final run has 36 cases; all three image cases rank first, with no regression against the unchanged existing expectations.

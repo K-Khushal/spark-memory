@@ -70,7 +70,10 @@ test("image search accepts files, paste and drop without Capturing the query", a
         });
       }
   }
-  await dialog.getByRole("button", { name: "Remove Query Image" }).click();
+  await dialog
+    .getByRole("button", { name: "Remove Query Image" })
+    .press("Enter");
+  await expect(dialog).toBeVisible();
   await expect(
     dialog.getByRole("button", { name: "Remove Query Image" })
   ).toHaveCount(0);
@@ -118,6 +121,9 @@ test("image search accepts files, paste and drop without Capturing the query", a
   await expect(
     dialog.getByRole("button", { name: "Remove Query Image" })
   ).toBeVisible();
+  await dialog.getByRole("combobox", { name: "Choose From Library" }).focus();
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(dialog).toBeHidden();
   const after = await (await page.request.get("/api/memories")).json();
   expect(after.memories.length).toBe(before.memories.length);
 });
