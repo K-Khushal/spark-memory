@@ -16,7 +16,9 @@ export default defineConfig({
         ? "admin.screenshots.ts"
         : process.env.CATEGORY_SCREENSHOTS === "1"
           ? "categories.screenshots.ts"
-          : "*.e2e.ts",
+          : process.env.CUSTOM_CATEGORY_SCREENSHOTS === "1"
+            ? "custom-categories.screenshots.ts"
+            : "*.e2e.ts",
   timeout: 30_000,
   expect: { timeout: Number(process.env.SPARK_EXPECT_TIMEOUT ?? 5000) },
   retries: process.env.CI ? 1 : 0,
