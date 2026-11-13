@@ -266,7 +266,10 @@ describe("the Jev judge", () => {
         ids.filter((id) => id in known).map((id) => [id, known[id]!])
       );
     });
-  const client = (probabilities: number[], inputTokens = 1_000_000) => {
+  const client = (
+    probabilities: (number | undefined)[],
+    inputTokens = 1_000_000
+  ) => {
     const judge = vi.fn<JudgeClient["judge"]>(async () => ({
       probabilities,
       inputTokens,
@@ -299,6 +302,17 @@ describe("the Jev judge", () => {
         costMicros: 42_000,
       }),
     ]);
+  });
+
+  it("leaves a Memory Jev did not answer for to the thresholds", async () => {
+    const jev = client([undefined, 0.9]);
+    const verdicts = await jevMatchJudge({
+      client: jev,
+      describe: texts({ a: "x", b: "y" }),
+      userId: "u",
+      spend: budget(),
+    }).judge("q", candidates("a", "b"), signal());
+    expect([...verdicts]).toEqual([["b", "direct"]]);
   });
 
   it("sends only the Memories it may read: the others are left for the thresholds", async () => {

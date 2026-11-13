@@ -46,14 +46,15 @@ describe("jevJudge", () => {
     expect(String(init.body)).not.toContain("secret-key");
   });
 
-  it("treats an unanswered question as no, and refuses what is not a Noul answer", async () => {
+  it("leaves an unanswered question unanswered, and refuses what is not a Noul answer", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => Response.json(reply([0.9])))
     );
     const jev = jevJudge({ apiKey: "k", enabled: true })!;
     expect((await jev.judge("q", ["a", "b"], signal())).probabilities).toEqual([
-      0.9, 0,
+      0.9,
+      undefined,
     ]);
     vi.stubGlobal(
       "fetch",

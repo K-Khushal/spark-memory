@@ -51,6 +51,9 @@ export type MatchThresholds = {
   leadRunnerUp: number;
 };
 
+/** How a result is judged. */
+export type Verdict = "direct" | "related";
+
 /** What a search leg tells about one result: all the thresholds look at. */
 export type MatchSignals = {
   matched: readonly string[];
@@ -74,7 +77,7 @@ export type MatchSignals = {
 export function thresholdMatch(
   { matched, distance, score, topScore, rank, nextScore }: MatchSignals,
   t: MatchThresholds = JUDGING.thresholds
-): "direct" | "related" {
+): Verdict {
   // Scores are sums of fractions: 1.5/2.5 (words and typos, against a best
   // that vectors also found) must count as 0.6, not 0.5999999999999999.
   const relative = topScore > 0 ? score / topScore + 1e-9 : 1;
@@ -90,6 +93,22 @@ export function thresholdMatch(
   )
     return "direct";
   return "related";
+}
+
+/**
+ * The signals of each of `hits` (best first) as the thresholds read them;
+ * `from` is the rank of the first, for a later page.
+ */
+export function signalsOf<
+  H extends Pick<MatchSignals, "matched" | "distance" | "score">,
+>(hits: readonly H[], from = 0): (H & MatchSignals)[] {
+  const topScore = hits.reduce((best, hit) => Math.max(best, hit.score), 0);
+  return hits.map((hit, i) => ({
+    ...hit,
+    topScore,
+    rank: from + i,
+    nextScore: hits[i + 1]?.score ?? 0,
+  }));
 }
 
 /** Jev's answer to one Noul question per candidate, checked before any probability is trusted. */

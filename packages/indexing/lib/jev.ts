@@ -1,4 +1,4 @@
-import { INDEXING, JevChoiceReply, JevNoulReply } from "@spark/core";
+import { INDEXING, JUDGING, JevChoiceReply, JevNoulReply } from "@spark/core";
 import type { CategoryClient } from "./categories";
 
 const ENDPOINT = "https://api.typesafe.ai/v1/systemone";
@@ -86,7 +86,11 @@ export type JudgeClient = {
     query: string,
     memories: readonly string[],
     signal: AbortSignal
-  ): Promise<{ probabilities: number[]; inputTokens: number }>;
+  ): Promise<{
+    /** Undefined where Jev left a question unanswered. */
+    probabilities: (number | undefined)[];
+    inputTokens: number;
+  }>;
 };
 
 /**
@@ -126,13 +130,15 @@ export function jevJudge(config: JevConfig): JudgeClient | undefined {
               ])
             ),
           },
-          signal
+          // The caller's deadline, with a backstop if it forgets one.
+          AbortSignal.any([
+            signal,
+            AbortSignal.timeout(JUDGING.jevTimeoutMs * 3),
+          ])
         )
       );
       return {
-        probabilities: memories.map(
-          (_, i) => reply.answers[`m${i}`]?.noul ?? 0
-        ),
+        probabilities: memories.map((_, i) => reply.answers[`m${i}`]?.noul),
         inputTokens: reply.usage.input_tokens,
       };
     },

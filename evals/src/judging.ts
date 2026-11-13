@@ -1,4 +1,9 @@
-import { JUDGING, thresholdMatch, type MatchThresholds } from "@spark/core";
+import {
+  JUDGING,
+  signalsOf,
+  thresholdMatch,
+  type MatchThresholds,
+} from "@spark/core";
 import type { JudgedResult, SearchOutcome } from "./run";
 
 /**
@@ -58,22 +63,13 @@ export function rejudge(
   outcomes: SearchOutcome[],
   thresholds: MatchThresholds
 ): SearchOutcome[] {
-  return outcomes.map((outcome) => {
-    const topScore = outcome.judged[0]?.score ?? 0;
-    const judged: JudgedResult[] = outcome.judged.map((r, rank) => ({
+  return outcomes.map((outcome) => ({
+    ...outcome,
+    judged: signalsOf(outcome.judged).map((r): JudgedResult => ({
       ...r,
-      match: thresholdMatch(
-        {
-          ...r,
-          topScore,
-          rank,
-          nextScore: outcome.judged[rank + 1]?.score ?? 0,
-        },
-        thresholds
-      ),
-    }));
-    return { ...outcome, judged };
-  });
+      match: thresholdMatch(r, thresholds),
+    })),
+  }));
 }
 
 /** Precision counts twice as much as recall: a loose match shown as exact is the worse mistake. */

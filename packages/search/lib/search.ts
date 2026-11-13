@@ -2,6 +2,7 @@ import {
   EMBEDDING,
   JUDGING,
   SEARCH_COLOURS,
+  signalsOf,
   SEARCH_KINDS,
   SEARCH_PAGE_SIZE,
   sourceHosts,
@@ -156,15 +157,10 @@ async function split<R extends Hit>(
     budgetMs?: number;
   }
 ): Promise<Ranked<R>[]> {
-  const topScore = hits.reduce((best, hit) => Math.max(best, hit.score), 0);
-  const candidates: Candidate[] = hits
-    .slice(0, query ? Math.max(0, JUDGING.window - from) : hits.length)
-    .map((hit, rank) => ({
-      ...hit,
-      topScore,
-      rank: from + rank,
-      nextScore: hits[rank + 1]?.score ?? 0,
-    }));
+  const candidates: Candidate[] = signalsOf(
+    hits.slice(0, query ? Math.max(0, JUDGING.window - from) : hits.length),
+    from
+  );
   const controller = new AbortController();
   const verdicts = await thresholds.judge(query, candidates, controller.signal);
   if (judge && query && candidates.length && budgetMs >= JUDGING.jevMinMs) {

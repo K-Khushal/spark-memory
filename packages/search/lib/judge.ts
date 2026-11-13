@@ -3,6 +3,7 @@ import {
   thresholdMatch,
   type MatchSignals,
   type MatchThresholds,
+  type Verdict,
 } from "@spark/core";
 import {
   jevCostMicros,
@@ -11,10 +12,9 @@ import {
   type JudgeClient,
 } from "@spark/indexing";
 
-export type Verdict = "direct" | "related";
-
 /** A result as a judge sees it: its id and what the search legs said of it. */
 export type Candidate = MatchSignals & { id: string };
+export type { Verdict };
 
 /**
  * Decides which of a search's best results are Direct Matches (ADR-0008).
@@ -102,13 +102,19 @@ export function jevMatchJudge({
         throw error;
       }
       await record(reply.inputTokens);
+      // A question Jev left unanswered is not ruled on: the thresholds stand.
       return new Map(
-        sendable.map((c, i) => [
-          c.id,
-          (reply.probabilities[i] ?? 0) >= JUDGING.jevThreshold
-            ? "direct"
-            : "related",
-        ])
+        sendable.flatMap((c, i): [string, Verdict][] => {
+          const probability = reply.probabilities[i];
+          return probability === undefined
+            ? []
+            : [
+                [
+                  c.id,
+                  probability >= JUDGING.jevThreshold ? "direct" : "related",
+                ],
+              ];
+        })
       );
     },
   };

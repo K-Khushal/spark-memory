@@ -46,8 +46,10 @@ export {
 export {
   JUDGING,
   JevNoulReply,
+  signalsOf,
   thresholdMatch,
   type MatchSignals,
+  type Verdict,
   type MatchThresholds,
 } from "./lib/judging";
 export {
