@@ -125,7 +125,7 @@ test("video transcript timestamps open the privacy-enhanced player", async ({
     "sandbox",
     "allow-scripts allow-same-origin allow-presentation"
   );
-  await expect(page.getByRole("link", { name: /Open Source/ })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: /youtu\.be/ })).toHaveAttribute(
     "href",
     /t=760s$/
   );
@@ -140,7 +140,7 @@ test("transcript worst cases stay reachable at narrow widths and zoom", async ({
     for (const state of ["Worst Case", "Empty", "One", "1,000 Rows", "Demo"]) {
       await page.getByRole("button", { name: state, exact: true }).click();
       await expect(
-        page.getByRole("link", { name: /Open Source/ })
+        page.getByRole("link", { name: /youtube\.com/ })
       ).toBeVisible();
       expect(
         await page.evaluate(

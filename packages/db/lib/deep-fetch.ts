@@ -233,6 +233,7 @@ export function deepFetchStore(db: Database) {
           deepFetchState: "done",
           deepFetchError: null,
           deepFetchLeaseUntil: null,
+          deepFetchToken: null,
           ...(found && {
             // Metadata the page already had stays; the patch (a video's
             // transcript) replaces what was empty.

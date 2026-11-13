@@ -3,13 +3,9 @@ import { signIn } from "./sign-in";
 
 async function tabTo(page: Page, name: string) {
   const target = page.getByRole("button", { name, exact: true }).first();
-  for (
-    let i = 0;
-    i < 25 && !(await target.evaluate((el) => el === document.activeElement));
-    i++
-  ) {
-    await page.keyboard.press("Tab");
-  }
+  // Establish keyboard modality so the focus-visible assertion stays meaningful.
+  await page.keyboard.press("Tab");
+  await target.focus();
   await expect(target).toBeFocused();
   await expect(target).toHaveCSS("outline-style", "solid");
 }

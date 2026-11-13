@@ -1,7 +1,7 @@
 import { CategoryEditor, type CategoryEdit } from "./categories";
 import { restoreLibraryFocus } from "./focus";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { ArrowUpRightIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
+import { RotateCwIcon, Trash2Icon } from "lucide-react";
 import { FREE_ALLOWANCE } from "@spark/core";
 import {
   Button,
@@ -18,7 +18,13 @@ import {
   type IndexingProps,
 } from "./index-state";
 import { textOf, type libraryActions } from "./library-actions";
-import { hostOf, isReferenceOnly, ReferenceOnlyBadge } from "./memory-tile";
+import {
+  hostOf,
+  isReferenceOnly,
+  memoryName,
+  ReferenceOnlyBadge,
+} from "./memory-tile";
+import { SourceLink } from "./source-link";
 import type { Memory } from "./use-library";
 import { VideoReader } from "./video-reader";
 import { MoreLikeThis } from "./why";
@@ -156,7 +162,7 @@ function Fields({
         (e.currentTarget as HTMLElement | null)?.focus();
       }}
       onKeyDown={onKeyDown}
-      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col gap-3 overflow-y-auto p-4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:p-6 [&_label]:whitespace-normal"
+      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col gap-3 overflow-y-auto p-4 sm:p-6 [&_label]:whitespace-normal"
     >
       <DialogTitle className="sr-only">Memory</DialogTitle>
       <input
@@ -164,7 +170,12 @@ function Fields({
         value={shown.title}
         onChange={(e) => change({ ...shown, title: e.target.value })}
         maxLength={FREE_ALLOWANCE.titleMaxChars}
-        placeholder="Title"
+        // A link with no title of its own goes by its host, as on the wall.
+        placeholder={
+          memory.kind === "link" || memory.kind === "video"
+            ? memoryName(memory) || "Title"
+            : "Title"
+        }
         aria-label="Title"
         dir="auto"
         className="mr-8 min-h-11 min-w-0 shrink-0 rounded-chip bg-transparent text-ellipsis font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
@@ -190,7 +201,7 @@ function Fields({
         placeholder="Capture Note"
         aria-label="Capture Note"
         dir="auto"
-        className="h-10 min-w-0 shrink-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
+        className="h-10 min-w-0 shrink-0 rounded-control bg-sunken px-3 text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
       />
       <CategoryEditor key={memory.id} memory={memory} onSave={onCategories} />
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pt-1">
@@ -262,22 +273,7 @@ function Reader({ memory }: { memory: Memory }) {
   const href = webLink(memory.sourceUrl);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {href && (
-        <a
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer nofollow"
-          referrerPolicy="no-referrer"
-          dir="ltr"
-          className="inline-flex min-h-6 max-w-full items-center gap-1 self-start rounded-chip text-sm text-ink-muted transition-colors duration-(--duration-press) hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-        >
-          <span className="truncate" translate="no">
-            {hostOf(memory)}
-          </span>
-          <span className="sr-only">, Opens in New Tab</span>
-          <ArrowUpRightIcon className="size-4 shrink-0" aria-hidden />
-        </a>
-      )}
+      {href && <SourceLink href={href} host={hostOf(memory)} />}
       {text && (
         <article
           // Scrolls on its own, so the keyboard needs to reach it.

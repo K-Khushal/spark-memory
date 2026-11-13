@@ -349,7 +349,11 @@ export const memories = new Hono<AppEnv>()
       height: dimension(c.req.header("x-spark-height")),
     });
     if (!recorded) {
-      await screenshotStorage(c.env.FILES.delete(slot.key));
+      try {
+        await screenshotStorage(c.env.FILES.delete(slot.key));
+      } catch {
+        // The pending object_removal row covers cleanup if storage is unavailable.
+      }
       return c.json({ ok: false, error: "unavailable" } as const, 503);
     }
     return c.json({ ok: true } as const);
@@ -560,7 +564,10 @@ export const memories = new Hono<AppEnv>()
     }
     return c.json(await forClient(c.var.files, result));
   })
-  /** Permanent: the files go from storage first, then the Memory. */
+  /**
+   * Remove storage immediately before deleting the Memory. remove() also
+   * queues every key durably, covering pending PUTs that land afterwards.
+   */
   .delete("/memories/:id", async (c) => {
     const id = c.req.param("id");
     const files = await filesOf(c.var.library, id);
