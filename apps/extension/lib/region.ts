@@ -19,12 +19,16 @@ export async function selectRegion(themes: typeof THEMES) {
   );
   layer.style.cssText = `position:fixed;inset:0;cursor:crosshair;touch-action:none;outline:2px solid ${theme.ring};outline-offset:-2px`;
   const box = document.createElement("div");
-  box.style.cssText = `position:absolute;pointer-events:none;background:${theme.spark};opacity:.25;transform-origin:top left;width:1px;height:1px;display:none`;
+  // Sized directly (not scaled), so its edge stays a crisp 2px line on any page.
+  box.style.cssText = `position:absolute;pointer-events:none;background:${theme.spark}40;outline:2px solid ${theme.ring};outline-offset:-1px;display:none`;
   const cancel = document.createElement("button");
   cancel.textContent = "Cancel";
   cancel.style.cssText = `position:absolute;right:16px;top:16px;min-width:80px;min-height:44px;border:2px solid ${theme["line-strong"]};border-radius:8px;background:${theme.surface};color:${theme.ink};font:500 15px system-ui;cursor:pointer`;
+  // The page's own focus styles never reach a closed shadow root.
+  const focus = document.createElement("style");
+  focus.textContent = `button:focus-visible{outline:2px solid ${theme.ring};outline-offset:2px}`;
   layer.append(box, cancel);
-  root.append(layer);
+  root.append(focus, layer);
   document.documentElement.append(host);
   layer.focus();
   return new Promise<
@@ -92,7 +96,8 @@ export async function selectRegion(themes: typeof THEMES) {
       box.style.display = "block";
       box.style.left = Math.min(a.x, b.x) + "px";
       box.style.top = Math.min(a.y, b.y) + "px";
-      box.style.transform = `scale(${Math.abs(b.x - a.x)},${Math.abs(b.y - a.y)})`;
+      box.style.width = Math.abs(b.x - a.x) + "px";
+      box.style.height = Math.abs(b.y - a.y) + "px";
     };
     layer.onkeydown = (event) => {
       if (event.key.startsWith("Arrow") && event.target !== cancel) {

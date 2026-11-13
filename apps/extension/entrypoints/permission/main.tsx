@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { browser } from "wxt/browser";
 import { grantCapture, type PermissionCapture } from "../../lib/permission";
@@ -10,6 +10,11 @@ function Permission() {
   const [job, setJob] = useState<PermissionCapture>();
   const [label, setLabel] = useState("Grant Access");
   const [busy, setBusy] = useState(false);
+  const grant = useRef<HTMLButtonElement>(null);
+  // The one thing this page is for: Enter grants, with the focus ring showing.
+  useEffect(() => {
+    if (job) grant.current?.focus();
+  }, [job]);
   useEffect(() => {
     void browser.storage.session
       .get<{ permissionCapture?: PermissionCapture }>("permissionCapture")
@@ -27,6 +32,7 @@ function Permission() {
     <main>
       <header>Spark</header>
       <button
+        ref={grant}
         disabled={!job || busy}
         onClick={() => {
           if (!job) return;
@@ -45,6 +51,7 @@ function Permission() {
       </button>
       {label !== "Grant Access" && <p role="status">{label}</p>}
       <button
+        className="quiet"
         onClick={() => {
           void browser.runtime
             .sendMessage({
