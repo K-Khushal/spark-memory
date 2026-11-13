@@ -269,6 +269,72 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     });
   });
 
+  it("lets Jev rule on Direct Matches when it is on, never reads AI opt-out or Sample Memories, and records the cost", async () => {
+    const { call, address } = await signedIn();
+    const read = await capture(call, "Sunset over the dock");
+    const optedOut = await capture(call, "Sunset over the dock");
+    const sample = await capture(call, "Sunset over the dock");
+    await call(`/api/memories/${optedOut}/ai-opt-out`, {
+      method: "PUT",
+      json: { aiOptOut: true },
+    });
+    await sql.query("update memory set sample = true where id = $1", [sample]);
+    const sent: { state: { search: string; saved: Record<string, string> } }[] =
+      [];
+    const before = vi.mocked(globalThis.fetch).getMockImplementation()!;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.includes("api.typesafe.ai")) return before(input, init);
+      sent.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        answers: { m0: { type: "noul", noul: 0.1 } },
+        usage: { input_tokens: 500, output_tokens: 0 },
+      });
+    });
+    const on = env({ JEV_API_KEY: "k", JEV_ENABLED: "true" });
+    const ask = async (bindings: ReturnType<typeof env>) =>
+      (
+        (await (
+          await postSearch(call, { q: "sunset", mode: "full" }, bindings)
+        ).json()) as { results: Result[] }
+      ).results;
+    const matches = (results: Result[]) =>
+      Object.fromEntries(results.map((r) => [r.id, r.match]));
+
+    // Off by default: the thresholds decide, and nothing goes to Jev.
+    const thresholds = matches(await ask(env()));
+    expect(thresholds[read]).toBe("direct");
+    expect(sent).toEqual([]);
+
+    // On: Jev rules on the one Memory it may read; the others keep the thresholds.
+    expect(matches(await ask(on))).toEqual({
+      ...thresholds,
+      [read]: "related",
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.state.search).toBe("sunset");
+    expect(Object.values(sent[0]!.state.saved)).toEqual([
+      expect.stringContaining("Sunset over the dock"),
+    ]);
+    const { rows } = await sql.query(
+      `select provider, input_tokens, cost_micros from ai_call
+       where user_id = (select id from "user" where email = $1) and provider = 'jev'`,
+      [address]
+    );
+    expect(rows).toEqual([
+      { provider: "jev", input_tokens: 500, cost_micros: "21" },
+    ]);
+
+    // Unavailable: the thresholds decide again, and the search still answers.
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      return url.includes("api.typesafe.ai")
+        ? new Response("overloaded", { status: 529 })
+        : before(input, init);
+    });
+    expect(matches(await ask(on))[read]).toBe("direct");
+  });
+
   it("says a Memory has vectors only where this environment can search with them", async () => {
     const { call } = await signedIn();
     const id = await capture(call, "Sunset over the dock");

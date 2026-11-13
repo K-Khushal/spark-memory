@@ -30,6 +30,18 @@ Add `--json file` to keep the full report. Reports (stdout, `--json`, the CI art
 
 The fake run is repeatable except for a few ties: `search_memories` breaks some typo-leg ties by physical row order, so three searches (`colour-red-car`, `typo-photosynthesis`, `hinglish-dal-nani`) move a place or two between runs, and `colour-red-car` between #1 and #3. The scorer fixes what it can (Memory ids come from the sample ids, one Memory is Indexed at a time, tables are analysed before searching), and `eval:update-baseline` records each search's worst rank over four runs, so a lucky run cannot set the bar. If the gate ever fails on a search you did not touch, rerun it before suspecting your change. Making the SQL tie-break deterministic is a follow-up (see the PR).
 
+## Direct Matches
+
+Each search also records how the Direct / Related split judged its first 20 results (`SearchOutcome.judged`: sample ids, legs, distance and rank score, never text). The report adds a `Direct Matches` line:
+
+- **precision**: of the results called Direct, the share a person would accept: the search's `expect`, or its optional `also` (other Memories that are just as right; they do not count for top-1 or top-5). A loose match shown as exact is the worse mistake, so this is the number to protect.
+- **right one Direct**: of the searches whose right Memory is in the first 20, how many show it as Direct.
+- **none Direct**: searches the UI answers with "No Direct Matches".
+
+`eval:tune` (add `--real` for real providers) sweeps `JUDGING.thresholds` over a grid on the recorded signals and prints the best by F0.5 (precision counts twice as much as recall; ties go to the fewest searches with no Direct Match, then to the values nearest today's). Its `Best` line is **in-sample**: the values are tuned on the same 33 searches they are scored on, so the precision there is optimistic. The `Held out` line is leave-one-out: each search is ruled on by values tuned on all the others, which is the number to quote. The `Direct Matches` line in every report is in-sample for the same reason, and it is a regression check rather than a forecast. Copy the best numbers into `packages/core/lib/judging.ts` and bump `JUDGING.version`. In fake mode `directDistance` is left alone: the fake embedder's distances carry no meaning, so only `eval:tune --real` may move it. The thresholds ranked by score (`keywordMinRelative`, `leadRunnerUp`) follow the fusion's structure, which fake and real runs share, so they transfer better, but re-tune all three once the real run is in.
+
+`eval --latency` times full search three times per search under assumed provider speeds (`src/latency.ts`: query embedding p50 150 ms, p95 350 ms; Jev fast, assumed and slow), with the Jev judge replaced by a stand-in that waits a log-normal delay. Jev publishes no latency and there is no key, so the delays are assumptions; the run shows how the deadline behaves around them (full-mode p95 and how often Jev's answer arrives in time). With a key, point the same harness at the real judge before enabling Jev: it should answer in time for nearly every search, or its spend buys nothing.
+
 ## Category accuracy
 
 `categories.json` lists, for 98 sample Memories (articles, notes, book excerpts and screenshots), the Categories a person would accept. After Indexing, the report adds a `Categories` line: how often the first Category assigned is accepted, and how often every one is. Counts only. In fake mode the embedder has no meaning, so the number is nearly all Other and means nothing; `eval:real` is where it is read, and where `CATEGORISING.embeddingThreshold` is tuned (`packages/core/lib/categories.ts`). The photographs are not labelled.

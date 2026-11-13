@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
-import { embeddingSpace } from "@spark/core";
+import { embeddingSpace, JUDGING } from "@spark/core";
 import {
   indexingStore,
   openLibrary,
@@ -15,7 +15,14 @@ import {
   type IndexOutcome,
   type Provider,
 } from "@spark/indexing";
-import { createSearch } from "@spark/search";
+import { createSearch, forgetQueryVectors } from "@spark/search";
+import {
+  percentile,
+  slowEmbedder,
+  slowJudge,
+  type LatencyRow,
+  type Scenario,
+} from "./latency";
 import {
   scoreCategories,
   type CategoryLabels,
@@ -38,6 +45,22 @@ export type SearchOutcome = {
   matchedBy: string[];
   /** Full search fell back to keywords (no vector leg). */
   fellBack: boolean;
+  /**
+   * The judged results (the first JUDGING.window), best first: what each leg
+   * said and how the judge ruled, for Direct-match precision and threshold
+   * tuning. Sample Library ids and numbers only.
+   */
+  judged: JudgedResult[];
+};
+
+export type JudgedResult = {
+  id: string;
+  /** The right Memory, or one the person would also accept (`also`). */
+  relevant: boolean;
+  match: "direct" | "related";
+  matched: string[];
+  distance: number | null;
+  score: number;
 };
 
 export type Report = {
@@ -46,6 +69,8 @@ export type Report = {
   costMicros: number;
   /** Category accuracy on the labelled Memories (evals/categories.json), when asked for. */
   categories?: CategoryScore;
+  /** Full-mode latency under each assumed provider speed, when asked for (`--latency`). */
+  latency?: LatencyRow[];
 };
 
 /**
@@ -71,6 +96,8 @@ export type RunOptions = {
   rerank?: Reranker;
   /** Score the Categories Indexing assigns against these (evals/categories.json). */
   categoryLabels?: CategoryLabels;
+  /** Time every search `repeat` times under each scenario's assumed delays (latency.ts). */
+  latency?: { scenarios: Scenario[]; repeat: number };
   log?: (line: string) => void;
 };
 
@@ -169,6 +196,58 @@ async function persistedDocuments(
 }
 
 /**
+ * How long full search takes under each scenario's assumed provider speeds
+ * (latency.ts): every search `repeat` times, several at once (the delays are
+ * waits, not work), query vectors forgotten between runs so each one embeds.
+ */
+async function timeSearches(
+  { scenarios, repeat }: NonNullable<RunOptions["latency"]>,
+  searches: SearchCase[],
+  make: (
+    embedder: Embedder,
+    judge?: ReturnType<typeof slowJudge>["judge"]
+  ) => ReturnType<typeof createSearch>,
+  embedder: Embedder,
+  userId: string,
+  log: (line: string) => void
+): Promise<LatencyRow[]> {
+  const rows: LatencyRow[] = [];
+  // One untimed pass, so the first scenario does not pay for cold caches.
+  const warm = make(embedder);
+  for (const c of searches) await warm.search(c.query, "instant");
+  for (const scenario of scenarios) {
+    const jev = scenario.jev && slowJudge(scenario.jev);
+    const search = make(slowEmbedder(embedder, scenario.embed), jev?.judge);
+    const ms: number[] = [];
+    const jobs = searches.flatMap((c) =>
+      Array.from({ length: repeat }, () => c)
+    );
+    // Falling back is the point of the run: do not print it a hundred times.
+    const error = console.error;
+    console.error = () => {};
+    await pool(jobs, 3, async (c) => {
+      forgetQueryVectors(userId);
+      const from = performance.now();
+      await search.search(c.query, "full");
+      ms.push(performance.now() - from);
+    }).finally(() => {
+      console.error = error;
+    });
+    rows.push({
+      name: scenario.name,
+      samples: ms.length,
+      p50: percentile(ms, 0.5),
+      p95: percentile(ms, 0.95),
+      max: Math.max(...ms),
+      asked: jev?.stats.asked ?? 0,
+      answered: jev?.stats.answered ?? 0,
+    });
+    log(`timed ${scenario.name}`);
+  }
+  return rows;
+}
+
+/**
  * Loads the sample Library into a throwaway person's Library through the
  * real Capture (text and image), Indexing and search code, runs every
  * search in full mode and reports where the right Memory landed. The
@@ -184,6 +263,7 @@ export async function runEvals({
   concurrency = 4,
   categoryLabels,
   rerank,
+  latency,
   log = () => {},
 }: RunOptions): Promise<Report> {
   // Memory ids are fixed per sample id, so a run stopped before its `finally`
@@ -316,10 +396,14 @@ export async function runEvals({
         "full",
         image ? { image } : {}
       );
+      const accepted = new Set([...c.expect, ...(c.also ?? [])]);
       const found = results.map((r) => ({
         id: sampleOf.get(r.id) ?? r.id,
         matched: r.matched,
         part: r.part,
+        match: r.match,
+        distance: r.distance,
+        score: r.score,
       }));
       let ids = found.map((r) => r.id);
       if (rerank && documents && !c.imageMemory) {
@@ -343,8 +427,38 @@ export async function runEvals({
         matchedBy:
           at < 0 ? [] : (found.find((r) => r.id === ids[at])?.matched ?? []),
         fellBack: embedder !== undefined && mode !== "full",
+        judged: found.slice(0, JUDGING.window).map((r) => ({
+          id: r.id,
+          relevant: accepted.has(r.id),
+          match: r.match,
+          matched: r.matched,
+          distance: r.distance,
+          score: r.score,
+        })),
       });
     }
+
+    const timings = latency
+      ? await timeSearches(
+          latency,
+          searches,
+          (embedderToUse, judge) =>
+            createSearch({
+              userId,
+              find: (query, options) =>
+                library.search(query, { ...options, excludeSamples: true }),
+              embedder: embedderToUse,
+              spend: {
+                ...store,
+                dailyBudgetMicros: async () => Number.MAX_SAFE_INTEGER,
+              },
+              ...(judge && { judge }),
+            }),
+          embedder!,
+          userId,
+          log
+        )
+      : undefined;
 
     const [spent] = await db
       .select({
@@ -371,6 +485,7 @@ export async function runEvals({
       searches: outcomes,
       costMicros: Number(spent?.micros ?? 0),
       ...(categories && { categories }),
+      ...(timings && { latency: timings }),
     };
   } finally {
     await db.delete(schema.user).where(eq(schema.user.id, userId));

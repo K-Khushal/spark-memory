@@ -59,6 +59,11 @@ const Search = z.object({
   query: z.string(),
   imageMemory: z.string().optional(),
   expect: z.array(z.string()).min(1),
+  /**
+   * Other Memories a person would also accept as a match. They are not
+   * needed to score top-1 or top-5; Direct-match precision counts them as right.
+   */
+  also: z.array(z.string()).optional(),
   kind: z.string(),
   note: z.string().optional(),
 });
@@ -93,7 +98,7 @@ export async function loadSet(root = EVALS_ROOT) {
       throw new Error(`search ${s.id} has no image Memory`);
     if (!s.query && !s.imageMemory)
       throw new Error(`search ${s.id} has no query`);
-    for (const id of s.expect) {
+    for (const id of [...s.expect, ...(s.also ?? [])]) {
       if (!ids.has(id))
         throw new Error(`search ${s.id} expects unknown Memory ${id}`);
     }

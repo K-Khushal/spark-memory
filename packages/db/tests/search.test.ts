@@ -535,6 +535,55 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       expect(await store().loadForEmbedding(id, spaceName)).toBeUndefined();
     });
   });
+
+  describe("what an outside judge may read", () => {
+    it("is each Memory's title, note, Indexing's findings and the start of its text, cut to size", async () => {
+      const id = await save(
+        {
+          title: "Harbour at dusk",
+          captureNote: "for the trip",
+          body: "x".repeat(2000),
+        },
+        {
+          extraction: found({
+            title: "Boats at sunset",
+            description: "Sailboats in a harbour",
+            tags: ["boats", "dusk"],
+            ocrText: "PIER 9",
+          }),
+        }
+      );
+      const [text] = [...(await library().judgingTexts([id], 700)).entries()];
+      expect(text![0]).toBe(id);
+      expect(text![1]).toContain("Harbour at dusk");
+      expect(text![1]).toContain("Boats at sunset");
+      expect(text![1]).toContain("Note: for the trip");
+      expect(text![1]).toContain("Sailboats in a harbour");
+      expect(text![1]).toContain("Tags: boats, dusk");
+      expect(text![1]).toContain("Text in image: PIER 9");
+      expect(text![1].length).toBeLessThanOrEqual(700);
+    });
+
+    it("never includes a Memory with AI opt-out, a Sample, or another person's", async () => {
+      const read = await save({ title: "Readable", body: "words" });
+      const optedOut = await save({ title: "Private", body: "words" });
+      const sample = await save({ title: "Sample", body: "words" });
+      const theirs = await save(
+        { title: "Theirs", body: "words" },
+        { userId: ben }
+      );
+      await library().setAiOptOut(optedOut, true);
+      await db
+        .update(schema.memory)
+        .set({ sample: true })
+        .where(eq(schema.memory.id, sample));
+      const texts = await library().judgingTexts(
+        [read, optedOut, sample, theirs, "not-a-uuid"],
+        700
+      );
+      expect([...texts.keys()]).toEqual([read]);
+    });
+  });
 });
 
 /**
