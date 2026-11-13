@@ -5,6 +5,8 @@ export type SelectionAction =
   | { type: "toggle" | "range" | "only"; id: string }
   | { type: "all" }
   | { type: "clear" }
+  /** Drops ids that are no longer on the wall. */
+  | { type: "prune" }
   | { type: "marquee"; ids: string[]; additive?: string[] };
 export function select(
   state: Selection,
@@ -12,6 +14,17 @@ export function select(
   action: SelectionAction
 ): Selection {
   if (action.type === "clear") return emptySelection;
+  if (action.type === "prune") {
+    const onWall = new Set(order);
+    const ids = state.ids.filter((id) => onWall.has(id));
+    return ids.length === state.ids.length
+      ? state
+      : {
+          ids,
+          anchor:
+            state.anchor && onWall.has(state.anchor) ? state.anchor : undefined,
+        };
+  }
   if (action.type === "all") return { ids: [...order], anchor: order[0] };
   if (action.type === "marquee") {
     const ids = new Set([...action.ids, ...(action.additive ?? [])]);

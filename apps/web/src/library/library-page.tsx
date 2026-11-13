@@ -288,18 +288,24 @@ export function LibraryPage({
   };
   const dropping = useFileDrop(captureFiles);
   const [selected, setSelected] = useState(emptySelection);
-  const wallOrder =
-    searching && results && results !== "failed"
+  // Only what the wall shows can be selected: nothing while results are pending or failed.
+  const wallOrder = searching
+    ? results && results !== "failed"
       ? [...results.direct, ...results.related].map((m) => m.id)
-      : library.memories.map((m) => m.id);
+      : []
+    : library.memories.map((m) => m.id);
   const selectable = new Set(
     library.memories
       .filter((m) => !m.upload && !library.isPending(m.id))
       .map((m) => m.id)
   );
   const order = wallOrder.filter((id) => selectable.has(id));
+  // A search or filter can take Memories off the wall; a bulk action never reaches them.
+  const pruned = select(selected, order, { type: "prune" });
+  if (pruned !== selected) setSelected(pruned);
+  const visible = pruned.ids;
   const selection: MasonrySelection = {
-    ids: selected.ids,
+    ids: visible,
     choose: (id, mode) =>
       setSelected((s) => select(s, order, { type: mode, id })),
     all: () => setSelected((s) => select(s, order, { type: "all" })),
@@ -313,8 +319,8 @@ export function LibraryPage({
         })
       ),
   };
-  const selectedIds = new Set(selected.ids);
-  const bulkRows = library.memories.filter((m) => selectedIds.has(m.id));
+  const visibleIds = new Set(visible);
+  const bulkRows = library.memories.filter((m) => visibleIds.has(m.id));
   const tiles: TileActions = {
     selection,
     onRetry: library.retryUpload,

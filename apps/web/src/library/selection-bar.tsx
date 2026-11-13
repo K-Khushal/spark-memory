@@ -8,7 +8,7 @@ import {
   FilterChip,
 } from "@spark/ui";
 
-/** One static bar: count and actions arrive together, with no keyboard entrance motion. */
+/** One bar: count and actions arrive together in one short rise (none under reduced motion) and leave at once. */
 export function SelectionBar({
   count,
   ownNames,
@@ -36,6 +36,14 @@ export function SelectionBar({
     );
     return () => clearTimeout(timer);
   }, [count]);
+  // Escape clears from anywhere, unless a layer above (the Categories dialog, Search) took it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented && !open) onClear();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClear]);
   const finish = (action: () => void) => {
     if (lastTile.current instanceof HTMLElement && lastTile.current.isConnected)
       lastTile.current.focus();
@@ -55,15 +63,9 @@ export function SelectionBar({
         {announcement}
       </div>
       <div
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            finish(onClear);
-          }
-        }}
         role="region"
         aria-label="Selection"
-        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-1 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay md:left-60"
+        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-1 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay motion-safe:animate-in motion-safe:duration-180 motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 md:left-60"
       >
         <span className="px-2 tabular-nums">
           {count.toLocaleString()} Selected
@@ -93,7 +95,13 @@ export function SelectionBar({
           Clear
         </Button>
       </div>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setCategories([]);
+        }}
+      >
         <DialogContent
           aria-describedby={undefined}
           className="max-h-[80dvh] overflow-y-auto p-6"
@@ -132,6 +140,7 @@ export function SelectionBar({
             onClick={() => {
               setOpen(false);
               finish(() => onCategories(categories));
+              setCategories([]);
             }}
           >
             Set Categories

@@ -211,7 +211,16 @@ export function Masonry<T>({
   });
 
   const onKeyDown = (event: KeyboardEvent) => {
-    if (selection && event.key === "Escape") {
+    // Only the wall and its tiles; never an input a tile might hold.
+    if (
+      event.target !== event.currentTarget &&
+      !(
+        event.target instanceof HTMLElement &&
+        event.target.hasAttribute("data-index")
+      )
+    )
+      return;
+    if (selection?.ids.length && event.key === "Escape") {
       event.preventDefault();
       clearTimeout(gesture.current?.timer);
       gesture.current = undefined;
@@ -228,14 +237,6 @@ export function Masonry<T>({
       selection.all();
       return;
     }
-    if (
-      event.target !== event.currentTarget &&
-      !(
-        event.target instanceof HTMLElement &&
-        event.target.hasAttribute("data-index")
-      )
-    )
-      return;
     if (current === undefined) return;
     const target = neighbour(virtualizer.measurementsCache, current, event.key);
     if (target !== undefined) {
@@ -262,6 +263,7 @@ export function Masonry<T>({
   };
 
   const pointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    suppressClick.current = false;
     if (
       !selection ||
       e.button !== 0 ||
@@ -269,7 +271,6 @@ export function Masonry<T>({
       e.target.closest("button, a, input, summary")
     )
       return;
-    suppressClick.current = false;
     const tile = e.target.closest<HTMLElement>("[data-index]");
     const index = tile ? Number(tile.dataset.index) : undefined;
     const touch = e.pointerType === "touch";

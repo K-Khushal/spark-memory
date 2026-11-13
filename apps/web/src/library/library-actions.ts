@@ -182,10 +182,13 @@ export function libraryActions({
   /** Where to free storage, offered when a file does not fit (see imageCapture). */
   freeUpSpace?: () => void;
 }) {
-  /** Deletes waiting out their Undo window: id → send it now. */
+  /** Memories in a bulk change, from its Undo window to its answer. */
   const bulkIds = new Set<string>();
+  /** The bulk-deleted ones, kept off the wall until the server has answered. */
   const bulkRemoved = new Set<string>();
+  /** Bulk changes waiting out their Undo window: send it now. */
   const pendingBulks = new Set<(closing?: boolean) => void>();
+  /** Deletes waiting out their Undo window: id → send it now. */
   const pendingDeletes = new Map<string, () => void>();
   /** The tail of each Memory's queue of requests. */
   const queues = new Map<string, Promise<unknown>>();

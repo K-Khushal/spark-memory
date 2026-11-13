@@ -120,7 +120,7 @@ describe.skipIf(!url)("Bulk removal durability", () => {
       });
     expect(await openLibrary(db, owner).exportPage()).toEqual([]);
   });
-  it("accepts the owner's Categories and bumps their generation only on a new choice", async () => {
+  it("accepts the owner's Categories, locks the Memories and leaves the generation alone", async () => {
     const library = openLibrary(db, owner);
     const capture = async () => {
       const saved = await library.capture({ body: "Generation probe" });
@@ -131,25 +131,27 @@ describe.skipIf(!url)("Bulk removal durability", () => {
       (await indexingStore(db).load((await capture()).id))!
         .categoriesGeneration;
     const chosen = await capture();
-    const change = {
+    const before = await generation();
+    await library.bulk({
       ids: [chosen.id],
-      operation: "categories" as const,
+      operation: "categories",
       categories: ["Recipe"],
-    };
-    expect(await generation()).toBe(0);
-    await library.bulk(change);
-    expect(await generation()).toBe(1);
-    await library.bulk(change);
-    expect(await generation()).toBe(1);
+    });
     await openCategories(db, owner).create("Gardening");
+    const created = await generation();
     expect(
-      await library.bulk({ ...change, categories: ["Gardening"] })
+      await library.bulk({
+        ids: [chosen.id],
+        operation: "categories",
+        categories: ["Gardening"],
+      })
     ).toEqual({ ids: [chosen.id] });
     expect(await library.get(chosen.id)).toMatchObject({
       categories: ["Gardening"],
       categoriesLocked: true,
     });
-    expect(await generation()).toBe(3);
+    expect(before).toBeLessThan(created);
+    expect(await generation()).toBe(created);
   });
   const libraryBulk = (ids: string[]) =>
     openLibrary(db, owner).bulk({ ids, operation: "delete" });

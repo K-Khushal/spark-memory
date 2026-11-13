@@ -49,6 +49,9 @@ import { enqueueDeepFetch } from "./deep-fetch-queue";
 import { enqueue, enqueueEmbed, providers } from "./indexing";
 import { rateLimited } from "./rate-limit";
 
+/** Keys per storage delete call. */
+const STORAGE_BATCH = 1000;
+
 /** Bound storage calls; cleanup stays durable if a PUT finishes late. */
 async function boundedStorage<T>(work: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -608,8 +611,10 @@ export const memories = new Hono<AppEnv>()
     const keys = result.removals ?? [];
     if (keys.length) {
       const removals: Promise<void>[] = [];
-      for (let offset = 0; offset < keys.length; offset += 1000)
-        removals.push(c.var.files.remove(keys.slice(offset, offset + 1000)));
+      for (let offset = 0; offset < keys.length; offset += STORAGE_BATCH)
+        removals.push(
+          c.var.files.remove(keys.slice(offset, offset + STORAGE_BATCH))
+        );
       await boundedStorage(Promise.all(removals)).catch(() => {});
     }
     return c.json({ ids: result.ids });

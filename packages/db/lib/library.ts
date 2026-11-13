@@ -41,7 +41,6 @@ import {
 } from "./owner";
 import {
   category,
-  categoryRun,
   memory,
   memoryFile,
   memoryCopy,
@@ -394,6 +393,29 @@ function parseCursor(cursor: string) {
   if (!MICROS.test(at) || !UUID.test(id)) return undefined;
   const micros = Number(at);
   return Number.isSafeInteger(micros) ? { micros, id } : undefined;
+}
+
+/**
+ * Queues storage removal for Memory files, under the owner's lock. A pending
+ * PUT can still land after deletion, so an unstored file's cleanup waits out
+ * the upload window.
+ */
+async function queueRemovals(
+  tx: Pick<Database, "insert">,
+  files: { key: string; stored: Date | null }[]
+) {
+  if (!files.length) return;
+  await tx
+    .insert(objectRemoval)
+    .values(
+      files.map((file) => ({
+        key: file.key,
+        dueAt: file.stored
+          ? sql`now()`
+          : sql`clock_timestamp() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
+      }))
+    )
+    .onConflictDoNothing();
 }
 
 /**
@@ -1535,29 +1557,14 @@ export function openLibrary(
               .where(scope)
               .orderBy(memory.id)
               .for("update");
-            // The trigger validates built-ins and this owner's names under the lock.
-            // Bump only when values/locking change, so a repeated batch is a no-op.
-            const changed = await tx
+            // The trigger validates built-ins and this owner's names under the
+            // lock. Choosing Categories never changes the owner's list, so, like
+            // a single edit, it leaves the generation alone: Indexing already skips
+            // locked Memories, and in-flight work on others stays valid.
+            await tx
               .update(memory)
               .set({ categories: change.categories, categoriesLocked: true })
-              .where(
-                and(
-                  scope,
-                  sql`(not ${memory.categoriesLocked} or ${memory.categories} is distinct from array[${sql.join(
-                    change.categories.map((name) => sql`${name}`),
-                    sql`, `
-                  )}]::text[])`
-                )
-              )
-              .returning({ id: memory.id });
-            if (changed.length)
-              await tx
-                .insert(categoryRun)
-                .values({ userId, generation: 1, dueGeneration: 0 })
-                .onConflictDoUpdate({
-                  target: categoryRun.userId,
-                  set: { generation: sql`${categoryRun.generation} + 1` },
-                });
+              .where(scope);
             return {
               ids: (
                 await tx.select({ id: memory.id }).from(memory).where(scope)
@@ -1576,18 +1583,7 @@ export function openLibrary(
             .select({ key: memoryFile.key, stored: memoryFile.storedAt })
             .from(memoryFile)
             .where(inArray(memoryFile.memoryId, ids));
-          if (files.length)
-            await tx
-              .insert(objectRemoval)
-              .values(
-                files.map((file) => ({
-                  key: file.key,
-                  dueAt: file.stored
-                    ? sql`now()`
-                    : sql`clock_timestamp() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
-                }))
-              )
-              .onConflictDoNothing();
+          await queueRemovals(tx, files);
           const copies = await tx
             .select({ key: memoryCopy.key })
             .from(memoryCopy)
@@ -1618,20 +1614,7 @@ export function openLibrary(
           .select({ key: memoryFile.key, stored: memoryFile.storedAt })
           .from(memoryFile)
           .where(eq(memoryFile.memoryId, id));
-        if (files.length)
-          await tx
-            .insert(objectRemoval)
-            .values(
-              files.map((file) => ({
-                key: file.key,
-                // Pending PUTs can still land after deletion. Keep their cleanup
-                // until the upload window closes, even if storage is empty now.
-                dueAt: file.stored
-                  ? sql`now()`
-                  : sql`clock_timestamp() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
-              }))
-            )
-            .onConflictDoNothing();
+        await queueRemovals(tx, files);
         const rows = await tx
           .delete(memory)
           .where(owned(id))

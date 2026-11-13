@@ -33,3 +33,12 @@ it("uses the clicked id when an anchor disappeared", () => {
     }).ids
   ).toEqual(["b"]);
 });
+
+it("prunes ids that left the wall so a bulk action never reaches hidden Memories", () => {
+  const state = { ids: ["a", "c", "d"], anchor: "d" };
+  expect(select(state, ["a", "b", "c"], { type: "prune" })).toEqual({
+    ids: ["a", "c"],
+    anchor: undefined,
+  });
+  expect(select(state, ["a", "c", "d"], { type: "prune" })).toBe(state);
+});
