@@ -465,10 +465,10 @@ export const memories = new Hono<AppEnv>()
       if ("already" in result)
         return c.json({ ok: true, already: true } as const);
       if ("refused" in result) {
-        return c.json(
-          { ok: false, error: result.refused } as const,
-          result.refused === "ai_opt_out" ? 409 : 413
-        );
+        if (result.refused === "ai_opt_out") {
+          return c.json({ ok: false, error: result.refused } as const, 409);
+        }
+        return refusal(c, result.refused);
       }
       const uploads = await Promise.all(
         result.uploads.map(async (u) => ({

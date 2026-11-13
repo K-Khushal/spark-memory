@@ -164,7 +164,7 @@ export type CopyUpload = Omit<FileUpload, "role"> & { role: "video" | "frame" };
 export type CopyResult =
   | { memory: Memory; uploads: CopyUpload[] }
   | { already: true }
-  | { refused: "file_too_large" | "storage_full" | "ai_opt_out" };
+  | { refused: CaptureRefusal | "ai_opt_out" };
 
 export type MemoryFileInfo = FileUpload & { stored: boolean };
 
@@ -467,7 +467,10 @@ export function openLibrary(
   }
 
   /** Past today's Captures a link or text is kept, keyword-findable only: no AI work follows. */
-  const partlyIndexed = { indexState: "searchable" } as const;
+  const partlyIndexed = {
+    indexState: "searchable",
+    overAllowance: true,
+  } as const;
 
   /**
    * A file Memory (image or PDF) created before its files are uploaded,
@@ -624,6 +627,7 @@ export function openLibrary(
           kind: memory.kind,
           url: memory.sourceUrlNormalised,
           aiOptOut: memory.aiOptOut,
+          over: memory.overAllowance,
           kept: sql<
             string | null
           >`${memory.metadata}->'video'->>'transcriptState'`,
@@ -636,6 +640,7 @@ export function openLibrary(
         !!row.url &&
         !!instagramReel(row.url) &&
         !row.aiOptOut &&
+        !row.over &&
         row.kept !== "available"
       );
     },
@@ -659,6 +664,7 @@ export function openLibrary(
             kind: memory.kind,
             url: memory.sourceUrlNormalised,
             aiOptOut: memory.aiOptOut,
+            over: memory.overAllowance,
             kept: sql<
               string | null
             >`${memory.metadata}->'video'->>'transcriptState'`,
@@ -675,6 +681,8 @@ export function openLibrary(
         }
         // Never sent to a provider, so never uploaded for one.
         if (row.aiOptOut) return { refused: "ai_opt_out" };
+        // Captured over the limit: no AI work, so nothing to read a copy for.
+        if (row.over) return { refused: "captures_full" };
         if (row.kept === "available") return { already: true };
         // The video is the file (`maxUploadBytes`); its frames take storage
         // too. An earlier copy is replaced below, so it does not count.
@@ -778,6 +786,16 @@ export function openLibrary(
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
         if (await deletionRequested(tx, userId)) return undefined;
+        // Captured over the limit: no AI work. The copy goes (its objects are
+        // queued for removal) and nothing restarts Indexing.
+        const [flag] = await tx
+          .select({ over: memory.overAllowance })
+          .from(memory)
+          .where(owned(id));
+        if (flag?.over) {
+          await tx.delete(memoryCopy).where(eq(memoryCopy.memoryId, id));
+          return undefined;
+        }
         // Only the generation just checked is stored: a replaced copy has new keys.
         const stored = await tx
           .update(memoryCopy)
@@ -936,24 +954,31 @@ export function openLibrary(
         const filled = await db.transaction(async (tx) => {
           await lockOwner(tx, userId);
           if (await deletionRequested(tx, userId)) return undefined;
+          // Captured over the limit: the text is free to keep (and findable),
+          // but it never starts the AI work that Capture did not pay for.
+          const [flag] = await tx
+            .select({ over: memory.overAllowance })
+            .from(memory)
+            .where(owned(existing.id));
+          const over = flag?.over === true;
           const [row] = await tx
             .update(memory)
             .set({
               body: kept.text,
               metadata: sql`coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(kept.metadata)}::jsonb`,
               preservation: "preserved",
-              ...restartIndexing,
+              ...(over ? {} : restartIndexing),
             })
             .where(and(owned(existing.id), sql`${memory.body} is null`))
             .returning(columns);
-          return row;
+          return row && { row, over };
         });
         if (filled)
           return {
             created: false,
             duplicate: true,
-            indexAgain: true,
-            memory: filled,
+            ...(!filled.over && { indexAgain: true as const }),
+            memory: filled.row,
           };
       }
       return existing
@@ -1291,30 +1316,41 @@ export function openLibrary(
     /**
      * The Memories that take the most storage, largest first, for the
      * person to delete when the Library is full. Counts as `usedStorage`
-     * does (uploads still in their window too).
+     * does: files and reel copies, uploads still in their window too.
      */
     async largest(limit: number) {
-      const bytes = sql<string>`sum(${memoryFile.bytes})`;
-      const rows = await db
-        .select({
-          id: memory.id,
-          kind: memory.kind,
-          title: memory.title,
-          sourceUrl: memory.sourceUrl,
-          bytes,
-        })
-        .from(memoryFile)
-        .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
-        .where(
-          and(
-            eq(memory.userId, userId),
-            sql`(${memoryFile.storedAt} is not null or ${memoryFile.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
-          )
-        )
-        .groupBy(memory.id)
-        .orderBy(desc(bytes), asc(memory.id))
-        .limit(limit);
-      return rows.map((row) => ({ ...row, bytes: Number(row.bytes) }));
+      // Files and a reel's copy (#20) are summed per Memory, with the same
+      // expiry rule as `usedStorage`, before ranking.
+      const { rows } = await db.execute<{
+        id: string;
+        kind: MemoryKind;
+        title: string | null;
+        source_url: string | null;
+        bytes: string;
+      }>(sql`
+        select m.id, m.kind, m.title, m.source_url, sum(t.bytes) as bytes
+        from (
+          select memory_id, bytes from memory_file
+            where stored_at is not null
+              or created_at > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})
+          union all
+          select memory_id, bytes from memory_copy
+            where stored_at is not null
+              or created_at > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})
+        ) t
+        join memory m on m.id = t.memory_id
+        where m.user_id = ${userId}
+        group by m.id
+        order by sum(t.bytes) desc, m.id asc
+        limit ${limit}
+      `);
+      return rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        sourceUrl: row.source_url,
+        bytes: Number(row.bytes),
+      }));
     },
 
     /**
@@ -1394,7 +1430,7 @@ export function openLibrary(
       const reindex =
         changes.body === undefined
           ? sql`false`
-          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut} and not ${memory.sample}`;
+          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut} and not ${memory.sample} and not ${memory.overAllowance}`;
       // One transaction: new text and the end of the old text's vectors
       // (they would match it, and point into the new text) land together.
       const row = await db.transaction(async (tx) => {
@@ -1480,7 +1516,13 @@ export function openLibrary(
       await db
         .update(memory)
         .set(restartIndexing)
-        .where(and(owned(id), eq(memory.indexState, "failed")));
+        .where(
+          and(
+            owned(id),
+            eq(memory.indexState, "failed"),
+            eq(memory.overAllowance, false)
+          )
+        );
       return get(id);
     },
 
@@ -1545,7 +1587,7 @@ export function openLibrary(
               : {
                   aiOptOut: false,
                   ...restartIndexing,
-                  indexState: sql`case when ${memory.sample} then 'searchable' else 'indexing' end`,
+                  indexState: sql`case when ${memory.sample} or ${memory.overAllowance} then 'searchable' else 'indexing' end`,
                 }
           )
           .where(and(owned(id), eq(memory.aiOptOut, !on)))

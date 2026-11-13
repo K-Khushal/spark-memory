@@ -94,7 +94,7 @@ async function replaceVectors(
 }
 
 /** Searchable, AI allowed, and Indexing found something to embed. */
-const embeddable = sql`${memory.indexState} = 'searchable' and not ${memory.sample} and not ${memory.aiOptOut} and exists (select 1 from memory_index i where i.memory_id = ${memory.id})`;
+const embeddable = sql`${memory.indexState} = 'searchable' and not ${memory.sample} and not ${memory.overAllowance} and not ${memory.aiOptOut} and exists (select 1 from memory_index i where i.memory_id = ${memory.id})`;
 /** Vectors missing, from another model or size, or from an older revision. */
 const vectorsStaleIn = (space: string) =>
   sql`(${memory.vectorsSpace} is distinct from ${space} or ${memory.vectorsRevision} is distinct from ${memory.revision})`;
@@ -119,6 +119,7 @@ const lease = () => ({
 const named = ({ memoryId, run, generation }: IndexMessageTarget) =>
   and(
     eq(memory.sample, false),
+    eq(memory.overAllowance, false),
     eq(memory.id, memoryId),
     run === undefined ? undefined : eq(memory.indexRun, run),
     generation === undefined
@@ -132,6 +133,7 @@ const named = ({ memoryId, run, generation }: IndexMessageTarget) =>
 const claimed = ({ memoryId, userId, generation, run }: Claim) =>
   and(
     eq(memory.sample, false),
+    eq(memory.overAllowance, false),
     eq(memory.id, memoryId),
     eq(memory.userId, userId),
     eq(memory.indexGeneration, generation),

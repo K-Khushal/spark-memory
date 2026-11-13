@@ -7,6 +7,7 @@ import {
   type ReelCopy,
 } from "@spark/core";
 import {
+  indexingStore,
   openDatabase,
   openLibrary,
   openOnboarding,
@@ -280,6 +281,210 @@ describe.skipIf(!databaseUrl)("Captures in the Free allowance", () => {
           copyOf(FREE_ALLOWANCE.maxUploadBytes + 1)
         )
       ).toEqual({ refused: "file_too_large" });
+      expect((await library.usage()).storageBytes).toBe(0);
+    });
+  });
+
+  describe("captured over the limit: no AI work, ever (Codex S1)", () => {
+    const REEL = () =>
+      `https://www.instagram.com/reel/${crypto.randomUUID().slice(0, 8)}/`;
+    const readable = {
+      title: "Basil",
+      text: "Basil grows best in warm light and regular water. ".repeat(8),
+    };
+    const stateOf = async (id: string) => {
+      const { rows } = await db.execute<{
+        index_state: string;
+        index_run: number;
+        over_allowance: boolean;
+      }>(
+        sql`select index_state, index_run, over_allowance from memory where id = ${id}`
+      );
+      return rows[0]!;
+    };
+    const over = async () => {
+      const who = await person();
+      await takenToday(who.id, LIMIT);
+      return who;
+    };
+
+    it("keeps a bare link out of Indexing when it is saved again with readable text, and keeps the text", async () => {
+      const { library } = await over();
+      const url = "https://garden.test/bare";
+      const first = await library.captureLink({ url });
+      if (!("memory" in first)) throw new Error("conflict");
+      const before = await stateOf(first.memory.id);
+      expect(before).toMatchObject({
+        index_state: "searchable",
+        over_allowance: true,
+      });
+
+      const again = await library.captureLink({ url, page: readable });
+      expect(again).toMatchObject({
+        created: false,
+        duplicate: true,
+        memory: { id: first.memory.id, indexState: "searchable" },
+      });
+      expect(again).not.toHaveProperty("indexAgain");
+      expect(await stateOf(first.memory.id)).toEqual(before);
+      // Free to keep, so it is findable by its words; still no Capture taken.
+      expect((await library.get(first.memory.id))!.body).toContain(
+        "Basil grows"
+      );
+      expect((await library.usage()).captures).toBe(LIMIT);
+    });
+
+    it("still restarts Indexing for a duplicate fill of a link captured within the limit", async () => {
+      const { library } = await person();
+      const url = "https://garden.test/within";
+      await library.captureLink({ url });
+      const again = await library.captureLink({ url, page: readable });
+      expect(again).toMatchObject({ indexAgain: true });
+    });
+
+    it("never wants, takes or confirms a reel's copy", async () => {
+      const { library } = await over();
+      const reel = await library.captureLink({ url: REEL() });
+      if (!("memory" in reel)) throw new Error("conflict");
+      expect(await library.wantsCopy(reel.memory.id)).toBe(false);
+      expect(
+        await library.attachCopy(reel.memory.id, {
+          bytes: 5000,
+          duration: 30,
+          frames: [{ seconds: 1, bytes: 1000, width: 540, height: 960 }],
+        })
+      ).toEqual({ refused: "captures_full" });
+      expect((await library.usage()).storageBytes).toBe(0);
+      expect(await stateOf(reel.memory.id)).toMatchObject({
+        index_state: "searchable",
+      });
+    });
+
+    it("does not confirm a copy stored for a Memory that is over the limit", async () => {
+      const { library } = await person();
+      const reel = await library.captureLink({ url: REEL() });
+      if (!("memory" in reel)) throw new Error("conflict");
+      await library.attachCopy(reel.memory.id, {
+        bytes: 5000,
+        duration: 30,
+        frames: [{ seconds: 1, bytes: 1000, width: 540, height: 960 }],
+      });
+      // It went over the limit after the copy was taken (a flag set by the Capture).
+      await db.execute(
+        sql`update memory set over_allowance = true, index_state = 'searchable' where id = ${reel.memory.id}`
+      );
+      const stored = await library.markCopyStored(
+        reel.memory.id,
+        async () => "stored"
+      );
+      expect(stored).toBeUndefined();
+      expect(await stateOf(reel.memory.id)).toMatchObject({
+        index_state: "searchable",
+      });
+    });
+
+    it("does not retry, re-embed or take Indexing work for it", async () => {
+      const { library } = await over();
+      const made = await library.capture({ body: "late note" });
+      if (!("memory" in made)) throw new Error("conflict");
+      const id = made.memory.id;
+      await db.execute(
+        sql`update memory set index_state = 'failed' where id = ${id}`
+      );
+      await library.retryIndexing(id);
+      expect(await stateOf(id)).toMatchObject({ index_state: "failed" });
+      await db.execute(
+        sql`update memory set index_state = 'searchable' where id = ${id}`
+      );
+
+      const store = indexingStore(db);
+      expect(await store.load(id)).toBeUndefined();
+      expect(await store.loadForEmbedding(id, "m@3")).toBeUndefined();
+      expect(
+        (await store.staleVectors("m@3", 1000)).map((m) => m.id)
+      ).not.toContain(id);
+    });
+
+    it("keeps a text edit and an AI opt-out round trip from Indexing it", async () => {
+      const { library } = await over();
+      const made = await library.capture({ body: "late note" });
+      if (!("memory" in made)) throw new Error("conflict");
+      const id = made.memory.id;
+      const edited = await library.edit(
+        id,
+        { body: "late note, edited" },
+        made.memory.revision
+      );
+      expect(edited).toMatchObject({ indexState: "searchable" });
+      await library.setAiOptOut(id, true);
+      await library.setAiOptOut(id, false);
+      expect(await stateOf(id)).toMatchObject({ index_state: "searchable" });
+    });
+
+    it("still Indexes a Capture within the limit", async () => {
+      const { library } = await person();
+      const made = await library.capture({ body: "within the limit" });
+      expect(made).toMatchObject({ memory: { indexState: "indexing" } });
+    });
+  });
+
+  describe("what takes storage, files and reel copies together (Codex S2)", () => {
+    const reel = async (library: ReturnType<typeof openLibrary>) => {
+      const result = await library.captureLink({
+        url: `https://www.instagram.com/reel/${crypto.randomUUID().slice(0, 8)}/`,
+      });
+      if (!("memory" in result)) throw new Error("conflict");
+      return result.memory;
+    };
+    const copyOf = (bytes: number): ReelCopy => ({
+      bytes,
+      duration: 30,
+      frames: [{ seconds: 1, bytes: 1000, width: 540, height: 960 }],
+    });
+
+    it("lists a Library filled only by reel copies", async () => {
+      const { library } = await person();
+      const small = await reel(library);
+      const big = await reel(library);
+      await library.attachCopy(small.id, copyOf(2000));
+      await library.attachCopy(big.id, copyOf(9000));
+      const largest = await library.largest(5);
+      expect(largest.map((m) => [m.id, m.bytes])).toEqual([
+        [big.id, 10_000],
+        [small.id, 3000],
+      ]);
+      expect(largest[0]).toMatchObject({ kind: "video" });
+      expect(largest.reduce((n, m) => n + m.bytes, 0)).toBe(
+        (await library.usage()).storageBytes
+      );
+    });
+
+    it("adds a Memory's files and its copy before ranking, across mixed Memories", async () => {
+      const { library } = await person();
+      const picture = await library.captureImage(image({ bytes: 9000 }));
+      if (!("memory" in picture)) throw new Error("not created");
+      const withBoth = await reel(library);
+      await db.execute(
+        sql`insert into memory_file (memory_id, role, r2_key, mime, bytes, stored_at)
+            values (${withBoth.id}, 'screenshot', ${`k/${crypto.randomUUID()}`}, 'image/jpeg', 4000, now())`
+      );
+      await library.attachCopy(withBoth.id, copyOf(5000));
+      const largest = await library.largest(5);
+      // 4000 + 5000 + 1000 = 10000 beats the picture's 9000 + 300.
+      expect(largest.map((m) => [m.id, m.bytes])).toEqual([
+        [withBoth.id, 10_000],
+        [picture.memory.id, 9300],
+      ]);
+    });
+
+    it("leaves out a copy whose upload window ran out, as usedStorage does", async () => {
+      const { library } = await person();
+      const stale = await reel(library);
+      await library.attachCopy(stale.id, copyOf(5000));
+      await db.execute(
+        sql`update memory_copy set created_at = now() - interval '3 days' where memory_id = ${stale.id}`
+      );
+      expect(await library.largest(5)).toEqual([]);
       expect((await library.usage()).storageBytes).toBe(0);
     });
   });

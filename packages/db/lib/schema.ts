@@ -132,6 +132,12 @@ export const memory = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     sample: boolean("sample").default(false).notNull(),
+    /**
+     * Captured past the Free allowance's Captures a day (migrations/0027): kept
+     * and keyword-findable, with no AI work for good. Every path that would
+     * restart Indexing, and the indexer itself, leaves it alone.
+     */
+    overAllowance: boolean("over_allowance").default(false).notNull(),
     kind: text("kind").$type<MemoryKind>().notNull(),
     title: text("title"),
     /** The text of a text Memory. */

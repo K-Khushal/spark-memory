@@ -202,4 +202,32 @@ describe.skipIf(!databaseUrl)("the Free allowance API", () => {
     const res = await newClient()("/api/usage");
     expect(res.status).toBe(401);
   });
+
+  it("takes no reel copy for a link captured over the limit: not wanted, and 429 if sent", async () => {
+    const { call } = await signedIn();
+    await setCaptures(await userId(call), FREE_ALLOWANCE.capturesPerDay);
+    const id = crypto.randomUUID();
+    const saved = await call("/api/memories/links", {
+      method: "POST",
+      json: {
+        id,
+        url: `https://www.instagram.com/reel/${id.slice(0, 8)}/`,
+      },
+    });
+    expect(saved.status).toBe(201);
+    expect(await (await call(`/api/memories/${id}/copy`)).json()).toEqual({
+      wanted: false,
+    });
+    const res = await call(`/api/memories/${id}/copy`, {
+      method: "POST",
+      json: {
+        bytes: 8,
+        duration: 30,
+        frames: [{ seconds: 1, bytes: 6, width: 540, height: 960 }],
+      },
+    });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ ok: false, error: "captures_full" });
+    expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+  });
 });
