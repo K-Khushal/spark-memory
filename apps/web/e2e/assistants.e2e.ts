@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { createServer } from "node:http";
 import { signIn } from "./sign-in";
 
 test("connect an assistant, complete MCP handshake, then revoke", async ({
@@ -77,46 +78,66 @@ test("OAuth consent names the assistant and callback, with a working deny action
 }) => {
   if (!baseURL) throw new Error("baseURL is required");
   const origin = new URL(baseURL).origin;
-  const callback = "http://127.0.0.1:9001/callback";
-  await page.route(callback + "**", (route) =>
-    route.fulfill({ body: "Authorization Denied", contentType: "text/plain" })
-  );
-  const registration = await page.request.post("/api/oauth/register", {
-    data: {
-      client_name: "Research Assistant / हिंदी",
-      redirect_uris: [callback],
-    },
+  // Redirects from an intercepted sign-in request bypass page.route in Chromium.
+  // A real native-client listener also exercises the loopback callback boundary.
+  const listener = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("Authorization Denied");
   });
-  expect(registration.status()).toBe(201);
-  const { client_id } = (await registration.json()) as { client_id: string };
-  const params = new URLSearchParams({
-    client_id,
-    redirect_uri: callback,
-    resource: `${origin}/api/mcp`,
-    response_type: "code",
-    code_challenge: "a".repeat(43),
-    code_challenge_method: "S256",
-    scope: "memories:read",
-    state: "test-state",
+  await new Promise<void>((resolve, reject) => {
+    listener.once("error", reject);
+    listener.listen(0, "127.0.0.1", resolve);
   });
-  await signIn(page, undefined, `/api/oauth/authorize?${params}`);
-  await expect(
-    page.getByRole("heading", { name: "Research Assistant / हिंदी" })
-  ).toBeVisible();
-  await expect(
-    page.getByText(new URL(callback).host, { exact: true })
-  ).toBeVisible();
-  if (process.env.MCP_SCREENSHOTS === "1") {
-    for (const width of [1440, 390])
-      for (const colorScheme of ["light", "dark"] as const) {
-        await page.setViewportSize({ width, height: 900 });
-        await page.emulateMedia({ colorScheme });
-        await page.screenshot({
-          path: `/data/workspace/spark-memory/.git/factory/r/t34-consent-${width}-${colorScheme}.png`,
-          fullPage: true,
-        });
-      }
+  const address = listener.address();
+  if (!address || typeof address === "string")
+    throw new Error("No callback port");
+  const callback = `http://127.0.0.1:${address.port}/callback`;
+  try {
+    const registration = await page.request.post("/api/oauth/register", {
+      data: {
+        client_name: "Research Assistant / हिंदी",
+        redirect_uris: [callback],
+      },
+    });
+    expect(registration.status()).toBe(201);
+    const { client_id } = (await registration.json()) as { client_id: string };
+    const params = new URLSearchParams({
+      client_id,
+      redirect_uri: callback,
+      resource: `${origin}/api/mcp`,
+      response_type: "code",
+      code_challenge: "a".repeat(43),
+      code_challenge_method: "S256",
+      scope: "memories:read",
+      state: "test-state",
+    });
+    await signIn(page, undefined, `/api/oauth/authorize?${params}`);
+    await expect(
+      page.getByRole("heading", { name: "Research Assistant / हिंदी" })
+    ).toBeVisible();
+    await expect(
+      page.getByText(new URL(callback).host, { exact: true })
+    ).toBeVisible();
+    if (process.env.MCP_SCREENSHOTS === "1") {
+      for (const width of [1440, 390])
+        for (const colorScheme of ["light", "dark"] as const) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.emulateMedia({ colorScheme });
+          await page.screenshot({
+            path: `/data/workspace/spark-memory/.git/factory/r/t34-consent-${width}-${colorScheme}.png`,
+            fullPage: true,
+          });
+        }
+    }
+    await page.getByRole("button", { name: "Deny" }).click();
+    await expect(page).toHaveURL(/callback\?.*error=access_denied/);
+    await expect(
+      page.getByText("Authorization Denied", { exact: true })
+    ).toBeVisible();
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      listener.close((error) => (error ? reject(error) : resolve()));
+      listener.closeAllConnections();
+    });
   }
-  await page.getByRole("button", { name: "Deny" }).click();
-  await expect(page).toHaveURL(/callback\?.*error=access_denied/);
 });
