@@ -169,8 +169,7 @@ export const assistantAuth = new Hono<AppEnv>()
       return c.json(
         {
           error: "invalid_grant",
-          error_description:
-            "You have 20 active OAuth grants. Revoke an assistant before connecting another.",
+          error_description: "Assistant Limit Reached",
         },
         400
       );
@@ -284,8 +283,7 @@ export const assistantAuth = new Hono<AppEnv>()
       return c.json(
         {
           error: "assistant_limit",
-          error_description:
-            "You have 10 active personal access tokens. Revoke a token before creating another.",
+          error_description: "Token Limit Reached",
         },
         409
       );

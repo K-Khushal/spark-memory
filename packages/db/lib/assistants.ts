@@ -43,6 +43,15 @@ export function assistantStore(db: Database) {
     );
   };
   return {
+    /** Hourly retention: keep a short replay-detection grace, never current credentials. */
+    async sweep() {
+      await db.execute(
+        sql`delete from assistant_refresh where used and (used_at is null or used_at <= now() - interval '1 minute')`
+      );
+      await db.execute(
+        sql`delete from assistant_code_use where expires_at <= now()`
+      );
+    },
     async allowRegistration(key: string) {
       return (
         (
@@ -94,7 +103,7 @@ export function assistantStore(db: Database) {
         const owner = (
           await tx.execute<{ userId: string }>(sql`
           select user_id as "userId" from assistant_code where digest = ${input.digest}
-          union all select user_id from assistant_code_use where digest = ${input.digest} limit 1`)
+          union all select user_id from assistant_code_use where digest = ${input.digest} and expires_at > now() limit 1`)
         ).rows[0];
         if (!owner) return false;
         await lockOwner(tx, owner.userId);
@@ -113,10 +122,10 @@ export function assistantStore(db: Database) {
         ).rows[0];
         if (!row) {
           await tx.execute(
-            sql`delete from assistant_grant where id in (select grant_id from assistant_code_use where digest = ${input.digest})`
+            sql`delete from assistant_grant where id in (select grant_id from assistant_code_use where digest = ${input.digest} and expires_at > now())`
           );
           await tx.execute(
-            sql`delete from assistant_token where id in (select grant_id from assistant_code_use where digest = ${input.digest})`
+            sql`delete from assistant_token where id in (select grant_id from assistant_code_use where digest = ${input.digest} and expires_at > now())`
           );
           return false;
         }
@@ -132,11 +141,11 @@ export function assistantStore(db: Database) {
         )
           return false;
         await tx.execute(
-          sql`delete from assistant_grant where user_id = ${row.userId} and expires_at <= now()`
+          sql`delete from assistant_grant where user_id = ${row.userId} and (expires_at <= now() or client_id = ${row.clientId})`
         );
         const count = (
           await tx.execute<{ count: number }>(
-            sql`select count(*)::int as count from assistant_grant where user_id = ${row.userId} and expires_at > now()`
+            sql`select count(distinct client_id)::int as count from assistant_grant where user_id = ${row.userId} and expires_at > now()`
           )
         ).rows[0]!.count;
         if (count >= 20) return "limit" as const;
@@ -187,7 +196,7 @@ export function assistantStore(db: Database) {
           return false;
         }
         await tx.execute(
-          sql`update assistant_refresh set used = true where digest = ${input.digest}`
+          sql`update assistant_refresh set used = true, used_at = now() where digest = ${input.digest}`
         );
         await tx.execute(
           sql`update assistant_grant set expires_at = now() + interval '90 days' where id = ${row.grantId}`

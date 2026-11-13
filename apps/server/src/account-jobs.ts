@@ -267,6 +267,7 @@ export async function sweepAccounts(env: Bindings, calls?: CronCalls) {
       sent += 1;
     }
     await jobs.sweepSearchHistory();
+    await assistantStore(db).sweep();
     // Bounded per run: what is left goes on the next hourly run.
     const expired = await jobs.sweepExports((keys) => env.FILES.delete(keys), {
       allowCall: calls ? () => calls.take("cleanup") : undefined,

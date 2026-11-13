@@ -4,7 +4,7 @@ Spark exposes a read-only remote MCP endpoint at `https://YOUR_SPARK_HOST/api/mc
 
 ## Connect with OAuth
 
-Use your deployed Spark HTTPS origin, replacing `YOUR_SPARK_HOST` below. The assistant discovers the authorization server, registers its redirect and opens Spark sign-in. The consent screen names the assistant. Approve only the assistant you meant to connect. Access expires after one hour. The client renews it with a rotating refresh token, which expires after 90 days without use. Reusing a spent refresh token revokes its whole token family and requires sign-in again.
+Use your deployed Spark HTTPS origin, replacing `YOUR_SPARK_HOST` below. The assistant discovers the authorization server, registers its redirect and opens Spark sign-in. The consent screen names the assistant. Approve only the assistant you meant to connect. Access expires after one hour. The client renews it with a rotating refresh token, which expires after 90 days without use. Reusing a spent refresh token during the retention grace period revokes its whole token family and requires sign-in again.
 
 [Claude Code](https://code.claude.com/docs/en/mcp):
 
@@ -25,7 +25,7 @@ Start a session and ask it to find a Memory you saved. Inspect the Source before
 
 ## Connect with a personal access token
 
-In Settings → Connected Assistants, enter the assistant name and choose Create Token. Copy the token before choosing Done: Spark never shows it again. It expires after 90 days and can be revoked at any time. Each person may hold up to 10 active personal access tokens and 20 active OAuth grant families; revoke an assistant to free a slot. It can read your Library, including AI opt-out Memories; it cannot Capture, edit or delete.
+In Settings → Connected Assistants, enter the assistant name and choose Create Token. Copy the token before choosing Done: Spark never shows it again. It expires after 90 days and can be revoked at any time. Each person may hold up to 10 active personal access tokens and 20 connected OAuth clients; revoke an assistant to free a slot. Reauthorizing a client replaces its earlier grant and credentials without consuming another slot. It can read your Library, including AI opt-out Memories; it cannot Capture, edit or delete.
 
 For Codex, provide the token through an environment variable rather than putting it in configuration:
 

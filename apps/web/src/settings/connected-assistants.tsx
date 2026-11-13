@@ -51,7 +51,7 @@ export function ConnectedAssistants() {
       if (res.status === 409) {
         setState({
           phase: "failed",
-          message: "You Have 10 Active Tokens. Revoke One To Create Another.",
+          message: "Token Limit Reached",
         });
         return;
       }

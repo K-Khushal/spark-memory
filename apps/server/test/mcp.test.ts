@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Client } from "pg";
+import { sweepAccounts } from "../src/account-jobs";
 import { databaseUrl, env, fakeTurnstile, newClient, signedIn } from "./worker";
 
 fakeTurnstile();
@@ -524,14 +525,6 @@ describe.skipIf(!databaseUrl)("rotating OAuth refresh families", () => {
       }
     );
     expect((await tokenUse(call, second.access_token)).status).toBe(200);
-    const reconnect = await tokenRequest(
-      call,
-      await authorize(call, code.client_id)
-    );
-    const independent = (await reconnect.json()) as {
-      access_token: string;
-      refresh_token: string;
-    };
     const listed = (await (await call("/api/assistants")).json()) as {
       assistants: { id: string; clientId: string | null }[];
     };
@@ -549,7 +542,16 @@ describe.skipIf(!databaseUrl)("rotating OAuth refresh families", () => {
         })
       ).status
     ).toBe(400);
-    // Reuse affects the compromised family, not a separate consent grant.
+    const reconnect = await tokenRequest(
+      call,
+      await authorize(call, code.client_id)
+    );
+    const independent = (await reconnect.json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
+    // An old receipt cannot revoke a replacement grant for the same client.
+    expect((await tokenRequest(call, request)).status).toBe(400);
     expect((await tokenUse(call, independent.access_token)).status).toBe(200);
     const third = (await (
       await tokenRequest(call, await authorize(call, code.client_id))
@@ -596,7 +598,7 @@ describe.skipIf(!databaseUrl)("Connected assistant limits", () => {
     expect(refused).toHaveLength(2);
     expect(await refused[0]!.json()).toMatchObject({
       error: "assistant_limit",
-      error_description: expect.stringContaining("10"),
+      error_description: "Token Limit Reached",
     });
     const first = (await responses.find((r) => r.status === 201)!.json()) as {
       id: string;
@@ -604,38 +606,67 @@ describe.skipIf(!databaseUrl)("Connected assistant limits", () => {
     await call(`/api/assistants/${first.id}`, { method: "DELETE" });
     expect((await issue()).status).toBe(201);
   });
-  it("caps OAuth grant families at twenty and frees them on client revocation", async () => {
+  it("allows twenty-five reauthorizations of one client and revokes earlier credentials", async () => {
+    const { call } = await signedIn();
+    const code = await authorize(call);
+    let prior = (await (await tokenRequest(call, code)).json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
+    for (let i = 0; i < 25; i++) {
+      const response = await tokenRequest(
+        call,
+        await authorize(call, code.client_id)
+      );
+      expect(response.status).toBe(200);
+      const current = (await response.json()) as typeof prior;
+      expect((await tokenUse(call, prior.access_token)).status).toBe(401);
+      expect(
+        (
+          await tokenRequest(call, {
+            grant_type: "refresh_token",
+            client_id: code.client_id,
+            refresh_token: prior.refresh_token,
+          })
+        ).status
+      ).toBe(400);
+      expect((await tokenUse(call, current.access_token)).status).toBe(200);
+      prior = current;
+    }
+    const listed = (await (await call("/api/assistants")).json()) as {
+      assistants: { clientId: string }[];
+    };
+    expect(listed.assistants).toEqual([
+      expect.objectContaining({ clientId: code.client_id }),
+    ]);
+  });
+  it("caps distinct OAuth clients at twenty under a race and permits reconnecting at the cap", async () => {
     const { call } = await signedIn();
     const code = await authorize(call);
     expect((await tokenRequest(call, code)).status).toBe(200);
     for (let i = 1; i < 19; i++)
-      expect(
-        (await tokenRequest(call, await authorize(call, code.client_id))).status
-      ).toBe(200);
-    const lastCodes = [
-      await authorize(call, code.client_id),
-      await authorize(call, code.client_id),
-    ];
+      expect((await tokenRequest(call, await authorize(call))).status).toBe(
+        200
+      );
+    const lastCodes = [await authorize(call), await authorize(call)];
     const responses = await Promise.all(
       lastCodes.map((p) => tokenRequest(call, p))
     );
     expect(responses.map((r) => r.status).sort()).toEqual([200, 400]);
     expect(await responses.find((r) => r.status === 400)!.json()).toMatchObject(
-      {
-        error: "invalid_grant",
-        error_description: expect.stringContaining("20"),
-      }
+      { error: "invalid_grant", error_description: "Assistant Limit Reached" }
     );
-    const listed = (await (await call("/api/assistants")).json()) as {
-      assistants: { id: string }[];
-    };
-    expect(listed.assistants).toHaveLength(1);
-    await call(`/api/assistants/${listed.assistants[0]!.id}`, {
-      method: "DELETE",
-    });
     expect(
       (await tokenRequest(call, await authorize(call, code.client_id))).status
     ).toBe(200);
+    const listed = (await (await call("/api/assistants")).json()) as {
+      assistants: { id: string }[];
+    };
+    expect(listed.assistants).toHaveLength(20);
+    await call(`/api/assistants/${listed.assistants[0]!.id}`, {
+      method: "DELETE",
+    });
+    expect((await tokenRequest(call, await authorize(call))).status).toBe(200);
   });
   it("shares SEARCH_LIMITER with dashboard search across all of a person's tokens", async () => {
     const { call } = await signedIn();
@@ -789,5 +820,56 @@ describe.skipIf(!databaseUrl)("OAuth inactivity and concurrency", () => {
         })
       ).status
     ).toBe(400);
+  });
+});
+
+describe.skipIf(!databaseUrl)("credential replay receipt retention", () => {
+  it("sweeps spent refresh tokens after a minute and code receipts after a day while preserving grace-period reuse detection", async () => {
+    const { call } = await signedIn();
+    const code = await authorize(call);
+    const first = (await (await tokenRequest(call, code)).json()) as {
+      access_token: string;
+      refresh_token: string;
+    };
+    const renewal = {
+      grant_type: "refresh_token",
+      client_id: code.client_id,
+      refresh_token: first.refresh_token,
+    };
+    const second = (await (
+      await tokenRequest(call, renewal)
+    ).json()) as typeof first;
+    const user = (await (await call("/api/me")).json()) as { id: string };
+    const fixture = new Client({ connectionString: databaseUrl });
+    await fixture.connect();
+    try {
+      await fixture.query(
+        "update assistant_refresh r set used_at = now() - interval '2 minutes' from assistant_grant g where r.grant_id = g.id and g.user_id = $1 and r.used",
+        [user.id]
+      );
+      await fixture.query(
+        "update assistant_code_use set expires_at = now() - interval '1 second' where user_id = $1",
+        [user.id]
+      );
+      await sweepAccounts(env());
+      expect((await tokenRequest(call, renewal)).status).toBe(400);
+      expect((await tokenUse(call, second.access_token)).status).toBe(200);
+      expect((await tokenRequest(call, code)).status).toBe(400);
+      expect((await tokenUse(call, second.access_token)).status).toBe(200);
+      const recent = { ...renewal, refresh_token: second.refresh_token };
+      const third = (await (
+        await tokenRequest(call, recent)
+      ).json()) as typeof first;
+      await fixture.query(
+        "update assistant_refresh r set used_at = now() - interval '30 seconds' from assistant_grant g where r.grant_id = g.id and g.user_id = $1 and r.used",
+        [user.id]
+      );
+      await sweepAccounts(env());
+      expect((await tokenUse(call, third.access_token)).status).toBe(200);
+      expect((await tokenRequest(call, recent)).status).toBe(400);
+      expect((await tokenUse(call, third.access_token)).status).toBe(401);
+    } finally {
+      await fixture.end();
+    }
   });
 });

@@ -1,7 +1,8 @@
 CREATE TABLE "assistant_code_use" (
 	"digest" text PRIMARY KEY NOT NULL,
 	"user_id" text NOT NULL,
-	"grant_id" text NOT NULL
+	"grant_id" text NOT NULL,
+	"expires_at" timestamp with time zone DEFAULT now() + interval '1 day' NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "assistant_grant" (
@@ -16,7 +17,8 @@ CREATE TABLE "assistant_grant" (
 CREATE TABLE "assistant_refresh" (
 	"digest" text PRIMARY KEY NOT NULL,
 	"grant_id" text NOT NULL,
-	"used" boolean DEFAULT false NOT NULL
+	"used" boolean DEFAULT false NOT NULL,
+	"used_at" timestamp with time zone
 );
 --> statement-breakpoint
 ALTER TABLE "assistant_activity" ADD COLUMN "client_id" text;--> statement-breakpoint
@@ -41,3 +43,8 @@ BEGIN
  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+--> statement-breakpoint
+CREATE INDEX "assistant_refresh_used_at" ON "assistant_refresh" USING btree ("used_at");
+--> statement-breakpoint
+CREATE INDEX "assistant_code_use_expiry" ON "assistant_code_use" USING btree ("expires_at");

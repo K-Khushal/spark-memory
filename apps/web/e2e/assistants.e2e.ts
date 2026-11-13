@@ -142,7 +142,7 @@ test("OAuth consent names the assistant and callback, with a working deny action
   }
 });
 
-test("personal access token limit explains how to free a slot", async ({
+test("personal access token limit is labeled and revoking frees a slot", async ({
   page,
 }) => {
   await signIn(page);
@@ -156,9 +156,7 @@ test("personal access token limit explains how to free a slot", async ({
   await page.goto("/settings");
   await page.getByLabel("Assistant Name").fill("One More Assistant");
   await page.getByRole("button", { name: "Create Token" }).click();
-  await expect(page.getByRole("alert")).toHaveText(
-    "You Have 10 Active Tokens. Revoke One To Create Another."
-  );
+  await expect(page.getByRole("alert")).toHaveText("Token Limit Reached");
   await page
     .getByRole("button", { name: "Revoke Limited Assistant 0", exact: true })
     .click();

@@ -564,9 +564,32 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now() + interval '1 day'"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "assistant_code_use_expiry": {
+          "name": "assistant_code_use_expiry",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "assistant_code_use_user_id_user_id_fk": {
           "name": "assistant_code_use_user_id_user_id_fk",
@@ -698,9 +721,31 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "assistant_refresh_used_at": {
+          "name": "assistant_refresh_used_at",
+          "columns": [
+            {
+              "expression": "used_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "assistant_refresh_grant_id_assistant_grant_id_fk": {
           "name": "assistant_refresh_grant_id_assistant_grant_id_fk",
