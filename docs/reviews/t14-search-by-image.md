@@ -40,7 +40,7 @@ Web Interface Guidelines were fetched from their primary source on 2026-11-13. C
 
 ## Break UI
 
-Development fixture: `/prototypes?imageSearch=1`, with Demo Data, Worst Case, Empty, One, and 1,000 Memories controls. It uses the production image-query component and typed Memory props. Values include a long filename, an unbroken compound title within the 300-character title limit, CJK/RTL/emoji, an empty title and a one-letter title. The picker uses the existing Memory-name helper, so note bodies do not become unbounded option labels. Native options retain their full label; missing titles have a Memory-name fallback.
+Development fixture: `/prototypes?imageSearch=1`, with Demo Data, Worst Case, Empty, One, and 1,000 Memories controls. It uses the production image-query component and typed Memory props. Values include a long filename, a long URL title within the 300-character title limit, CJK/RTL/emoji, an empty title and a one-letter title. The picker uses the existing Memory-name helper, so note bodies do not become unbounded option labels. Native options retain their full label; missing titles have a Memory-name fallback.
 
 | Severity | Field                    | Failure Found                                                   | Fix                                                    |
 | -------- | ------------------------ | --------------------------------------------------------------- | ------------------------------------------------------ |
@@ -54,6 +54,11 @@ Browser verification also caught a synthetic query drop bubbling into Capture; n
 
 Existing smoke locators are scoped to Search's listbox so they cannot select options from the new native Library picker. Their assertions are unchanged.
 
-No product decisions remain open. Runtime results and screenshots are recorded in the PR after the final checks.
+No product decisions remain open. Final verification on the branch after merging `9d07710`:
+
+- `pnpm check`: passed, including real Postgres, migration tests and production builds. Package and test workers ran serially with extended harness deadlines during VM contention; assertions were unchanged. The temporary runner configuration was restored afterward.
+- `pnpm --filter @spark/evals eval:check`: passed before and after. The final run has 36 cases; all three image cases rank first, with no regression against the unchanged existing expectations.
+- Playwright smoke: 49 passed, 7 existing configured skips. Both image-query tests are included, covering file pick/paste/drop, downscaling, no Capture side effects, Library-vector choice and worst-case controls.
+- Screenshots: 1440 and 390, light and dark, at `/data/workspace/spark-memory/.git/factory/r/t14-search-*.png`. Inspected for wrapping, contrast and chip placement; finite transitions are disabled for stable screenshots.
 
 Verdict: the independent code reviews' actionable findings are fixed. Interface approval is limited to the available guidelines and project rules; the six owning-skill domains above remain Not reviewed. No unresolved HIGH interface finding is known.
