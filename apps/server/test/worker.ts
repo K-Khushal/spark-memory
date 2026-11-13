@@ -211,6 +211,7 @@ export function env(overrides: Partial<Bindings> = {}): Bindings {
     INDEX_QUEUE: queues.fresh,
     REINDEX_QUEUE: queues.background,
     ACCOUNT_QUEUE: accountQueue,
+    IMPORT_QUEUE: { send: async () => {} },
     DEEP_FETCH_QUEUE: deepFetchQueue,
     INDEXING_PROVIDER: "fake",
     SPARK_ENV: "local",

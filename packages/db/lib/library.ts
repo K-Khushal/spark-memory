@@ -1,3 +1,4 @@
+import { takeDailyCapture } from "./capture-allowance";
 import { searchHistory } from "./search-history";
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -37,6 +38,8 @@ import {
 } from "./owner";
 import {
   memory,
+  importJob,
+  importItem,
   memoryFile,
   memoryCopy,
   memoryIndex,
@@ -453,18 +456,8 @@ export function openLibrary(
    * One atomic upsert on the person's `usage_day` row, so parallel Captures
    * cannot pass the limit; it commits or rolls back with the Memory it pays for.
    */
-  async function takeCapture(tx: Pick<Database, "insert">): Promise<boolean> {
-    const rows = await tx
-      .insert(usageDay)
-      .values({ userId, day: today, captures: 1 })
-      .onConflictDoUpdate({
-        target: [usageDay.userId, usageDay.day],
-        set: { captures: sql`${usageDay.captures} + 1` },
-        setWhere: sql`${usageDay.captures} < ${FREE_ALLOWANCE.capturesPerDay}`,
-      })
-      .returning({ n: usageDay.captures });
-    return rows.length > 0;
-  }
+  const takeCapture = (tx: Pick<Database, "insert">) =>
+    takeDailyCapture(tx, userId, today);
 
   /** Past today's Captures a link or text is kept, keyword-findable only: no AI work follows. */
   const partlyIndexed = {
@@ -486,6 +479,8 @@ export function openLibrary(
     contentHash: string;
     title: string | null;
     productAnalytics?: boolean;
+    background?: boolean;
+    importJobId?: string;
     upload: number;
     files: NewFile[];
   }): Promise<ImageCaptureResult> {
@@ -576,6 +571,29 @@ export function openLibrary(
         return { created: false, memory: row, uploads };
       }
 
+      if (capture.importJobId) {
+        const [job] = await tx
+          .select({ state: importJob.state })
+          .from(importJob)
+          .where(
+            and(
+              eq(importJob.id, capture.importJobId),
+              eq(importJob.userId, userId)
+            )
+          )
+          .for("update");
+        const [entry] = await tx
+          .select({ position: importItem.position })
+          .from(importItem)
+          .where(
+            and(
+              eq(importItem.jobId, capture.importJobId),
+              sql`${importItem.input}->>'imageId' = ${id}`
+            )
+          );
+        if (job?.state !== "running" || !entry) return { conflict: true };
+      }
+
       const others = capture.files.reduce((n, f) => n + f.bytes, 0);
       const allowed = isFileWithinAllowance({
         fileBytes: capture.upload,
@@ -593,7 +611,8 @@ export function openLibrary(
         title: capture.title,
         contentHash: capture.contentHash,
         indexState: "indexing",
-        indexPriority: "fresh",
+        indexPriority:
+          capture.background || capture.importJobId ? "background" : "fresh",
         productAnalytics: capture.productAnalytics === true,
       });
       const generation = crypto.randomUUID();
@@ -1115,6 +1134,8 @@ export function openLibrary(
       return captureFiles({
         id: capture.id,
         kind: "image",
+        background: capture.background,
+        importJobId: capture.importJobId,
         sourceUrl: capture.sourceUrl,
         contentHash: capture.contentHash,
         title: null,

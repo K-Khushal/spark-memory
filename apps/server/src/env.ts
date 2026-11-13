@@ -57,6 +57,12 @@ export type Bindings = {
   DEEP_FETCH_QUEUE: DeepFetchQueue;
   /** Queue (wrangler.jsonc): Library exports and account deletion (src/account-jobs.ts). */
   ACCOUNT_QUEUE: AccountQueue;
+  IMPORT_QUEUE: {
+    send(
+      body: ImportMessage,
+      options?: { delaySeconds?: number }
+    ): Promise<void>;
+  };
   /** Workers AI (Gemma 4), first in the Indexing chain. Absent locally. */
   AI?: {
     run(model: string, input: Record<string, unknown>): Promise<unknown>;
@@ -201,3 +207,5 @@ export type MultipartUpload = {
 type StoredObject = { size: number; httpMetadata?: HttpMetadata };
 
 export type AppEnv = { Bindings: Bindings };
+
+export type ImportMessage = { id: string; userId: string };

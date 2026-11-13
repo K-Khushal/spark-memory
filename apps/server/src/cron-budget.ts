@@ -14,7 +14,8 @@ export const CRON_SHARES = {
   accounts: 6,
   cleanup: 4,
   exports: 10,
-  indexing: 10,
+  indexing: 8,
+  imports: 2,
   deepFetch: 4,
 } as const;
 
@@ -24,6 +25,7 @@ export const CRON_JOBS = [
   "cleanup",
   "exports",
   "indexing",
+  "imports",
   "deepFetch",
 ] as const;
 

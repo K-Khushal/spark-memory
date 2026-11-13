@@ -1,3 +1,4 @@
+import { ImportSection } from "./import-section";
 import {
   useEffect,
   useId,
@@ -91,6 +92,9 @@ export function SettingsPage({
               </Section>
               <Section title="Sessions">
                 <Sessions account={account} />
+              </Section>
+              <Section title="Import">
+                <ImportSection userId={session.user.id} />
               </Section>
               <Section title="Export" live>
                 <Export account={account} />

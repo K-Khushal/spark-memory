@@ -1,3 +1,4 @@
+import { imports } from "./imports";
 import { extensionCors, sameOrigin } from "./origin";
 import { Hono } from "hono";
 import { isVerifiedAdmin, publicAnalytics } from "@spark/core";
@@ -101,4 +102,5 @@ export const routes = new Hono<AppEnv>()
   })
   .route("/", memories)
   .route("/", account)
-  .route("/", onboarding);
+  .route("/", onboarding)
+  .route("/", imports);

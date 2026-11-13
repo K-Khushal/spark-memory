@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm/pg-core";
 import {
   DEFAULT_PLAN,
+  type ImportEntry,
   type DeepFetchState,
   type Category,
   type IndexFailure,
@@ -649,3 +650,34 @@ export const onboarding = pgTable("onboarding", {
     withTimezone: true,
   }),
 });
+
+/** Server-owned import progress. Positions are immutable and commit with their Capture. */
+export const importJob = pgTable("import_job", {
+  id: uuid("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  state: text("state", {
+    enum: ["loading", "running", "paused", "cancelled", "done"],
+  })
+    .notNull()
+    .default("loading"),
+  total: integer("total").notNull(),
+  loaded: integer("loaded").notNull().default(0),
+  done: integer("done").notNull().default(0),
+  skipped: integer("skipped").notNull().default(0),
+  spread: boolean("spread").notNull().default(true),
+  availableAt: timestamp("available_at").notNull().defaultNow(),
+  createdAt: createdAt(),
+});
+export const importItem = pgTable(
+  "import_item",
+  {
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => importJob.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    input: jsonb("input").$type<ImportEntry>().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.jobId, t.position] })]
+);
