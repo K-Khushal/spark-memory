@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@sentry/cloudflare": "11.11.0",
     "@spark/auth": "workspace:*",
     "@spark/core": "workspace:*",
@@ -20,9 +21,11 @@
     "@spark/deep-fetch": "workspace:*",
     "@spark/indexing": "workspace:*",
     "@spark/search": "workspace:*",
+    "@spark/ui": "workspace:*",
     "aws4fetch": "1.0.20",
     "better-auth": "1.7.19",
-    "hono": "^4.13.17"
+    "hono": "^4.13.17",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261101.0",

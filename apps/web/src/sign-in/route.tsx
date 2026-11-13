@@ -6,7 +6,9 @@ import { SignInPage } from "./sign-in-page";
 export const Route = createLazyRoute("/sign-in")({
   component: function SignIn() {
     const options = Route.useLoaderData();
-    const { failed } = Route.useSearch();
-    return <SignInPage options={options} failed={failed === 1} />;
+    const { failed, returnTo } = Route.useSearch();
+    return (
+      <SignInPage options={options} failed={failed === 1} returnTo={returnTo} />
+    );
   },
 });

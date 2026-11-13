@@ -642,3 +642,66 @@ export const onboarding = pgTable("onboarding", {
     withTimezone: true,
   }),
 });
+
+/** Connected assistants hold read-only, owner-bound opaque credentials. */
+export const assistantClient = pgTable("assistant_client", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  redirects: jsonb("redirects").$type<string[]>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export const assistantCode = pgTable("assistant_code", {
+  digest: text("digest").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => assistantClient.id, { onDelete: "cascade" }),
+  redirect: text("redirect").notNull(),
+  challenge: text("challenge").notNull(),
+  resource: text("resource").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true })
+    .default(sql`now() + interval '5 minutes'`)
+    .notNull(),
+});
+export const assistantToken = pgTable(
+  "assistant_token",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    digest: text("digest").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    calls: integer("calls").default(0).notNull(),
+    windowAt: timestamp("window_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("assistant_token_owner").on(t.userId)]
+);
+export const assistantActivity = pgTable(
+  "assistant_activity",
+  {
+    id: bigint("id", { mode: "number" })
+      .primaryKey()
+      .generatedAlwaysAsIdentity(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    assistant: text("assistant").notNull(),
+    tool: text("tool").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    resultCount: integer("result_count").notNull(),
+  },
+  (t) => [index("assistant_activity_owner").on(t.userId, t.occurredAt)]
+);

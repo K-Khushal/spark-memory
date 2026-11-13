@@ -183,6 +183,13 @@
       "when": 1794501000000,
       "tag": "0025_reel_copy",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794564825698,
+      "tag": "0026_connected_assistants",
+      "breakpoints": true
     }
   ]
 }

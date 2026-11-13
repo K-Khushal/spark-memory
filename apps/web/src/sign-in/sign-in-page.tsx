@@ -36,9 +36,11 @@ const RESEND_AFTER_MS = 30_000;
 export function SignInPage({
   options,
   failed,
+  returnTo,
 }: {
   options: SignInOptions;
   failed?: boolean;
+  returnTo?: string;
 }) {
   const navigate = useNavigate();
   const turnstile = useRef<TurnstileInstance>(null);
@@ -103,7 +105,7 @@ export function SignInPage({
     guarded(provider, (token) =>
       authClient.signIn.social({
         provider,
-        callbackURL: "/",
+        callbackURL: returnTo ?? "/",
         errorCallbackURL: "/sign-in?failed=1",
         fetchOptions: { headers: { "x-captcha-response": token } },
       })
@@ -126,7 +128,8 @@ export function SignInPage({
       requestAnimationFrame(() => otpInput.current?.focus());
       return;
     }
-    await navigate({ to: "/" });
+    if (returnTo) window.location.assign(returnTo);
+    else await navigate({ to: "/" });
   }
 
   const onEmail = (event: FormEvent) => {

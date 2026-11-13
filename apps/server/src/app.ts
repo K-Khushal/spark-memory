@@ -3,15 +3,23 @@ import { captureException } from "@sentry/cloudflare";
 import { redact } from "@spark/auth";
 import type { AppEnv } from "./env";
 import { withAuth } from "./auth";
+import { discovery, mcp } from "./mcp";
+import { assistantAuth } from "./assistant-auth";
 import { routes } from "./routes";
 
-export const app = new Hono<AppEnv>()
+const api = new Hono<AppEnv>()
   .basePath("/api")
   // Better Auth owns /api/auth/* (sessions, email codes, social sign-in).
   .on(["GET", "POST"], "/auth/*", withAuth, (c) =>
     c.var.auth.handler(c.req.raw)
   )
   .route("/", routes)
+  .route("/", mcp)
+  .route("/", assistantAuth);
+
+export const app = new Hono<AppEnv>()
+  .route("/", discovery)
+  .route("/", api)
   .onError((error, c) => {
     // Hono turns thrown errors into responses, so report them here.
     // A no-op when Sentry is off.

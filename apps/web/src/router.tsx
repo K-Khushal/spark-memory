@@ -1,3 +1,4 @@
+import { signInReturnTo } from "./sign-in/return-to";
 import {
   createRootRoute,
   createRoute,
@@ -9,7 +10,7 @@ import {
 import type { ReactNode } from "react";
 import { Button } from "@spark/ui";
 import { api } from "./api";
-import { redirectIfSignedIn, requireSession } from "./auth";
+import { currentSession, requireSession } from "./auth";
 import { LibraryPage } from "./library/library-page";
 import { isShareRefusal } from "./pwa/refusal";
 import { ShareRefused } from "./pwa/share-refused";
@@ -69,9 +70,18 @@ const settingsRoute = createRoute({
 const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sign-in",
-  validateSearch: (search: Record<string, unknown>): { failed?: 1 } =>
-    search.failed ? { failed: 1 } : {},
-  beforeLoad: redirectIfSignedIn,
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { failed?: 1; returnTo?: string } => ({
+    ...(search.failed ? { failed: 1 as const } : {}),
+    ...(signInReturnTo(search.returnTo) && {
+      returnTo: signInReturnTo(search.returnTo),
+    }),
+  }),
+  beforeLoad: async ({ search }) => {
+    if (await currentSession())
+      throw redirect({ href: search.returnTo ?? "/" });
+  },
   loader: async () => {
     const res = await api.api["sign-in-options"].$get();
     if (!res.ok) throw new Error(`sign-in options: ${res.status}`);
