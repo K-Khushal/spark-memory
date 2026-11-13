@@ -364,6 +364,8 @@ export function imageCapture({
       sample: false,
       aiOptOut: false,
       hasVectors: false,
+      categories: ["Other"],
+      categoriesLocked: false,
       revision: 1,
       capturedAt: now,
       lastSavedAt: now,

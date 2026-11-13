@@ -1,10 +1,10 @@
 import { z } from "zod";
+import { CATEGORY_NAMES, type Category } from "./categories";
 import type { MemoryKind } from "./memory";
 
 /**
  * The words a search filter is made of, shared by the query parser, the
- * server and the filter chips so they cannot drift apart. A Category joins
- * `SearchFilters` as one more optional field (#24).
+ * server and the filter chips so they cannot drift apart.
  */
 
 /** Colours people search by, with the pure shade a palette is compared to. */
@@ -93,6 +93,8 @@ export type SearchFilters = {
   /** Captured before this ISO instant. */
   before?: string;
   colour?: SearchColour;
+  /** A Memory has at least one of these. */
+  categories?: Category[];
 };
 
 /** Time ranges a chip offers, in the words the query parser already reads. */
@@ -106,8 +108,7 @@ export const SEARCH_WHEN = [
 export type SearchWhen = (typeof SEARCH_WHEN)[number];
 
 /**
- * One choice per filter chip group, as the dashboard sends it. A Category
- * chip adds `category` here when #24 lands. Dates are worked out on the
+ * One choice per filter chip group, as the dashboard sends it. Dates are worked out on the
  * server, in the person's timezone, by the same parser as typed ones.
  */
 export const SearchChips = z
@@ -116,6 +117,7 @@ export const SearchChips = z
     source: host,
     when: z.enum(SEARCH_WHEN),
     colour: z.enum(SEARCH_COLOUR_NAMES),
+    category: z.enum(CATEGORY_NAMES),
   })
   .partial()
   .strict();

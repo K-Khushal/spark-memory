@@ -81,6 +81,8 @@ const baseColumns = {
   preservation: memory.preservation,
   indexState: memory.indexState,
   revision: memory.revision,
+  categories: memory.categories,
+  categoriesLocked: memory.categoriesLocked,
   /** For queue messages only; routes leave these out of answers. */
   indexRun: memory.indexRun,
   indexGeneration: memory.indexGeneration,
@@ -272,6 +274,8 @@ export type SearchFilters = {
   before?: string;
   colour?: string;
   prefer?: string;
+  /** A Memory has at least one of these Categories. */
+  categories?: string[];
 };
 
 export type SearchOptions = {
@@ -1050,6 +1054,11 @@ export function openLibrary(
     ): Promise<EditResult> {
       const changes = MemoryEdit.parse(input);
       if (Object.keys(changes).length === 0) return get(id);
+      // Categories are not text: choosing them leaves the revision, and so
+      // the vectors, alone. A choice locks them (GLOSSARY.md).
+      const textChanged = Object.entries(changes).some(
+        ([key, value]) => key !== "categories" && value !== undefined
+      );
       const reindex =
         changes.body === undefined
           ? sql`false`
@@ -1061,7 +1070,8 @@ export function openLibrary(
           .update(memory)
           .set({
             ...changes,
-            revision: sql`${memory.revision} + 1`,
+            ...(changes.categories && { categoriesLocked: true }),
+            ...(textChanged && { revision: sql`${memory.revision} + 1` }),
             indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
             indexRun: sql`${memory.indexRun} + (${reindex})::int`,
             indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
@@ -1162,6 +1172,11 @@ export function openLibrary(
                   indexRun: sql`${memory.indexRun} + 1`,
                   language: null,
                   body: sql`case when ${memory.kind} = 'pdf' then null else ${memory.body} end`,
+                  // What a model decided goes with the rest of what it found
+                  // (ADR-0011); a user's own choice stays.
+                  categories: sql`case when ${memory.categoriesLocked} then ${memory.categories} else '{Other}'::text[] end`,
+                  categoriesRevision: sql`case when ${memory.categoriesLocked} then ${memory.categoriesRevision} else null end`,
+                  categoriesVersion: sql`case when ${memory.categoriesLocked} then ${memory.categoriesVersion} else null end`,
                 }
               : {
                   aiOptOut: false,

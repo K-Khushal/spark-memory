@@ -326,6 +326,8 @@ export function libraryActions({
         sample: false,
         aiOptOut: false,
         hasVectors: false,
+        categories: ["Other"],
+        categoriesLocked: false,
         revision: 1,
         capturedAt: now,
         lastSavedAt: now,

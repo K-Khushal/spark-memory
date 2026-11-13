@@ -30,6 +30,10 @@ Add `--json file` to keep the full report. Reports (stdout, `--json`, the CI art
 
 The fake run is repeatable except for a few ties: `search_memories` breaks some typo-leg ties by physical row order, so three searches (`colour-red-car`, `typo-photosynthesis`, `hinglish-dal-nani`) move a place or two between runs, and `colour-red-car` between #1 and #3. The scorer fixes what it can (Memory ids come from the sample ids, one Memory is Indexed at a time, tables are analysed before searching), and `eval:update-baseline` records each search's worst rank over four runs, so a lucky run cannot set the bar. If the gate ever fails on a search you did not touch, rerun it before suspecting your change. Making the SQL tie-break deterministic is a follow-up (see the PR).
 
+## Category accuracy
+
+`categories.json` lists, for 98 sample Memories (articles, notes, book excerpts and screenshots), the Categories a person would accept. After Indexing, the report adds a `Categories` line: how often the first Category assigned is accepted, and how often every one is. Counts only. In fake mode the embedder has no meaning, so the number is nearly all Other and means nothing; `eval:real` is where it is read, and where `CATEGORISING.embeddingThreshold` is tuned (`packages/core/lib/categories.ts`). The photographs are not labelled.
+
 ## Adding the owner's 20 searches (#10)
 
 No code changes. Commit a file of the same shape next to the others:

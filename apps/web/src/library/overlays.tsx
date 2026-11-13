@@ -1,3 +1,4 @@
+import type { CategoryEdit } from "./categories";
 import { ImageViewer } from "./image-viewer";
 import { MemoryDetail, type Edits } from "./memory-detail";
 import { PasteBox } from "./paste-box";
@@ -8,6 +9,7 @@ import type { Memory, WallMemory } from "./use-library";
 import type { Results } from "./use-search";
 
 export type LibraryOverlaysProps = {
+  onCategories?: CategoryEdit;
   searchOpen: boolean;
   draft: string;
   instant: Results | "failed" | undefined;
@@ -77,6 +79,7 @@ export function LibraryOverlays({
   onBroken,
   onRetryIndexing,
   onAiOptOut,
+  onCategories,
   onMoreLikeThis,
 }: LibraryOverlaysProps) {
   return (
@@ -108,6 +111,7 @@ export function LibraryOverlays({
         onRetry={onRetry}
         onBroken={onBroken}
         onRetryIndexing={onRetryIndexing}
+        onCategories={onCategories}
         onAiOptOut={onAiOptOut}
         onMoreLikeThis={onMoreLikeThis}
       />
@@ -118,6 +122,7 @@ export function LibraryOverlays({
         onDelete={onDelete}
         onRetry={onRetry}
         onRetryIndexing={onRetryIndexing}
+        onCategories={onCategories}
         onAiOptOut={onAiOptOut}
         onMoreLikeThis={onMoreLikeThis}
       />
@@ -128,6 +133,7 @@ export function LibraryOverlays({
         onClose={onDetailClose}
         onDelete={onDelete}
         onRetryIndexing={onRetryIndexing}
+        onCategories={onCategories}
         onAiOptOut={onAiOptOut}
         onMoreLikeThis={onMoreLikeThis}
       />

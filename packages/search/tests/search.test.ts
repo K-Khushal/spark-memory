@@ -405,6 +405,21 @@ describe("search", () => {
       });
     });
 
+    it("passes a Category chip to the Library as one more filter, and browses by it alone", async () => {
+      const { search, lib } = setup({ now: () => NOW });
+      await search.search("", "instant", { chips: { category: "Recipe" } });
+      expect(lib.asked[0]).toMatchObject({
+        filters: { categories: ["Recipe"] },
+      });
+      await search.search("tart", "instant", {
+        chips: { category: "Recipe", kind: "image" },
+      });
+      expect(lib.asked[1]).toMatchObject({
+        kinds: ["image"],
+        filters: { categories: ["Recipe"] },
+      });
+    });
+
     it("calls a result found by filters a Direct match", async () => {
       const { search } = setup({
         hits: [{ id: "a", matched: ["filter"], distance: null }],

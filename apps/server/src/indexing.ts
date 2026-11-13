@@ -9,6 +9,7 @@ import {
   backoffSeconds,
   createGatherer,
   createIndexer,
+  jevCategories,
   dohResolver,
   embedderFor,
   pdfReaderFor,
@@ -141,6 +142,11 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     const readPdf = pdfReaderFor(options);
     const { index } = createIndexer({
       store,
+      jev: jevCategories({
+        apiKey: env.JEV_API_KEY,
+        enabled: env.JEV_ENABLED === "true",
+        model: env.JEV_MODEL,
+      }),
       providers: providerChain(options),
       ...(embedder && { embedder }),
       ...(readPdf && { readPdf }),

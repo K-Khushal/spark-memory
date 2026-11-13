@@ -15,25 +15,44 @@ import { MOD, useLibraryShortcuts } from "./library/shortcuts";
 export function DeskNavLink({
   to,
   current,
+  inPlace = false,
   onClick,
   children,
 }: {
   to: "/" | "/admin" | "/settings";
   current: boolean;
+  /**
+   * The page is already on this route but narrowed by a filter: a button,
+   * because the router marks a link to the active route as the current
+   * page whatever it is told.
+   */
+  inPlace?: boolean;
   onClick?: () => void;
   children: ReactNode;
 }) {
-  return (
+  const className = cn(
+    "flex h-8 items-center gap-2 rounded-control px-2 text-sm transition-[color] duration-(--duration-press) ease-out [&_svg]:size-4",
+    current
+      ? "bg-surface font-medium text-ink shadow-raised"
+      : "text-ink-muted hover:text-ink"
+  );
+  return inPlace ? (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        className,
+        "w-full text-left focus-visible:outline-2 focus-visible:outline-ring"
+      )}
+    >
+      {children}
+    </button>
+  ) : (
     <Link
       to={to}
       aria-current={current ? "page" : undefined}
       onClick={onClick}
-      className={cn(
-        "flex h-8 items-center gap-2 rounded-control px-2 text-sm transition-[color] duration-(--duration-press) ease-out [&_svg]:size-4",
-        current
-          ? "bg-surface font-medium text-ink shadow-raised"
-          : "text-ink-muted hover:text-ink"
-      )}
+      className={className}
     >
       {children}
     </Link>
@@ -106,6 +125,7 @@ export function DeskSidebar({
   searchActive = false,
   onClearSearch,
   filters,
+  filtered = false,
 }: {
   email: string;
   current: "library" | "admin" | "settings";
@@ -124,6 +144,8 @@ export function DeskSidebar({
   onClearSearch?: () => void;
   /** Filter chips under the navigation (the Library). */
   filters?: ReactNode;
+  /** A filter narrows the Library, so All Memories is not what is showing. */
+  filtered?: boolean;
 }) {
   useLibraryShortcuts({
     onSearch,
@@ -157,7 +179,8 @@ export function DeskSidebar({
           <li>
             <DeskNavLink
               to="/"
-              current={current === "library"}
+              current={current === "library" && !filtered}
+              inPlace={current === "library" && filtered}
               onClick={onLibrary}
             >
               All Memories
@@ -172,8 +195,9 @@ export function DeskSidebar({
           )}
         </ul>
       </nav>
-      {filters}
-      <div className="mt-auto flex flex-col gap-1">
+      {/* Long lists scroll here; the person's own corner stays put. */}
+      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">{filters}</div>
+      <div className="flex shrink-0 flex-col gap-1">
         <DeskNavLink to="/settings" current={current === "settings"}>
           <SettingsIcon aria-hidden /> Settings
         </DeskNavLink>

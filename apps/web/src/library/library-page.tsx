@@ -299,6 +299,7 @@ export function LibraryPage({
   return (
     <div className="flex min-h-dvh bg-canvas">
       <DeskSidebar
+        filtered={filtering}
         email={session.user.email}
         current="library"
         admin={admin}
@@ -467,6 +468,7 @@ export function LibraryPage({
         onRetry={library.retryUpload}
         onBroken={library.refresh}
         onRetryIndexing={library.retryIndexing}
+        onCategories={library.setCategories}
         onAiOptOut={library.setAiOptOut}
         onMoreLikeThis={moreLikeThis}
       />
