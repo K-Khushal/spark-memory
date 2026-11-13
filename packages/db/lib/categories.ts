@@ -30,6 +30,44 @@ export function openCategories(db: Database, userId: string) {
   /** Their Memories the run still has to categorise. */
   const dueWhere = and(eq(memory.userId, userId), embeddable, categoriesStale);
 
+  /** Memories of theirs that have `name`. */
+  const holds = (name: string) =>
+    sql`${memory.categories} @> array[${name}]::text[]`;
+
+  /**
+   * Locks the Memories that have `name`, in id order. A write to a Memory
+   * takes the Memory and then (its trigger) the Category; this takes the
+   * same order, so a rename or delete never waits for a Category while
+   * holding what a write is waiting for. The owner lock keeps two of these apart.
+   */
+  const lockHolders = (tx: Pick<Database, "select">, name: string) =>
+    tx
+      .select({ id: memory.id })
+      .from(memory)
+      .where(and(eq(memory.userId, userId), holds(name)))
+      .orderBy(memory.id)
+      .for("update");
+
+  /** A change to their Categories: a new generation, and for a new Category the one Memories are due at. */
+  const bump = (tx: Pick<Database, "insert">, due: boolean) =>
+    tx
+      .insert(categoryRun)
+      .values({
+        userId,
+        generation: 1,
+        dueGeneration: due ? 1 : 0,
+      })
+      .onConflictDoUpdate({
+        target: categoryRun.userId,
+        set: {
+          generation: sql`${categoryRun.generation} + 1`,
+          ...(due && {
+            dueGeneration: sql`${categoryRun.generation} + 1`,
+            startedAt: sql`now()`,
+          }),
+        },
+      });
+
   async function pending() {
     const [row] = await db
       .select({ n: sql<number>`count(*)::int` })
@@ -78,9 +116,11 @@ export function openCategories(db: Database, userId: string) {
     },
 
     /**
-     * Makes a Category, and every unlocked Memory Indexing has reached is
-     * due for categorising again (`recategorising` of them). The caller
-     * queues them (`due`); the hourly sweep finds any it does not.
+     * Makes a Category, and every unlocked Memory is due for categorising
+     * again (`recategorising` of those Indexing has reached). The caller
+     * queues them (`due`); the hourly sweep finds any it does not. Nothing
+     * of any Memory is written: the new generation alone makes them due,
+     * and refuses a worker still holding the list from before.
      */
     async create(
       raw: string
@@ -102,37 +142,26 @@ export function openCategories(db: Database, userId: string) {
           .insert(category)
           .values({ userId, name: checked.name })
           .returning({ id: category.id, name: category.name });
-        // Not a revision: the text is the same. Only the categoriser's say is.
-        const due = await tx
-          .update(memory)
-          .set({
-            categoriesVersion: null,
-            // Not an edit: the sweep's order (oldest change first) stays.
-            updatedAt: sql`${memory.updatedAt}`,
-          })
-          .where(
-            and(
-              eq(memory.userId, userId),
-              embeddable,
-              sql`not ${memory.categoriesLocked}`
-            )
-          )
-          .returning({ id: memory.id });
+        await bump(tx, true);
+        const [due] = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(memory)
+          .where(dueWhere);
+        const total = due?.n ?? 0;
         await tx
-          .insert(categoryRun)
-          .values({ userId, total: due.length, startedAt: sql`now()` })
-          .onConflictDoUpdate({
-            target: categoryRun.userId,
-            set: { total: due.length, startedAt: sql`now()` },
-          });
-        return {
-          category: { ...made!, memories: 0 },
-          recategorising: due.length,
-        };
+          .update(categoryRun)
+          .set({ total })
+          .where(eq(categoryRun.userId, userId));
+        return { category: { ...made!, memories: 0 }, recategorising: total };
       });
     },
 
-    /** A new name, on the Category and on every Memory that has it, locked or not. Undefined when it is not theirs. */
+    /**
+     * A new name, on the Category and on every Memory that has it, locked or
+     * not. Undefined when it is not theirs. Locks in the order a write to a
+     * Memory does (the Memory, then the Category its trigger reads), so the
+     * two can never wait on each other.
+     */
     async rename(
       id: string,
       raw: string
@@ -152,22 +181,19 @@ export function openCategories(db: Database, userId: string) {
           all.filter((c) => c.id !== id).map((c) => c.name)
         );
         if ("problem" in checked) return checked;
-        await tx
-          .update(category)
-          .set({ name: checked.name })
-          .where(and(mine, eq(category.id, id)));
         if (checked.name !== target.name) {
+          await lockHolders(tx, target.name);
+          await tx
+            .update(category)
+            .set({ name: checked.name })
+            .where(and(mine, eq(category.id, id)));
+          await bump(tx, false);
           await tx
             .update(memory)
             .set({
               categories: sql`array_replace(${memory.categories}, ${target.name}, ${checked.name})`,
             })
-            .where(
-              and(
-                eq(memory.userId, userId),
-                sql`${memory.categories} @> array[${target.name}]::text[]`
-              )
-            );
+            .where(and(eq(memory.userId, userId), holds(target.name)));
         }
         const [renamed] = await tx
           .select(columns)
@@ -180,24 +206,26 @@ export function openCategories(db: Database, userId: string) {
     /**
      * Takes the Category off every Memory that has it, never deleting one;
      * a Memory left with none is Other. How many had it, or undefined when
-     * it is not theirs.
+     * it is not theirs. Locks Memories first, like `rename`.
      */
     async remove(id: string): Promise<{ memories: number } | undefined> {
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
-        const [gone] = await tx
-          .delete(category)
-          .where(and(mine, eq(category.id, id)))
-          .returning({ name: category.name });
-        if (!gone) return undefined;
-        const had = sql`${memory.categories} @> array[${gone.name}]::text[]`;
-        const left = sql`array_remove(${memory.categories}, ${gone.name})`;
+        const [target] = await tx
+          .select({ name: category.name })
+          .from(category)
+          .where(and(mine, eq(category.id, id)));
+        if (!target) return undefined;
+        await lockHolders(tx, target.name);
+        await tx.delete(category).where(and(mine, eq(category.id, id)));
+        await bump(tx, false);
+        const left = sql`array_remove(${memory.categories}, ${target.name})`;
         const changed = await tx
           .update(memory)
           .set({
             categories: sql`case when cardinality(${left}) = 0 then array['Other']::text[] else ${left} end`,
           })
-          .where(and(eq(memory.userId, userId), had))
+          .where(and(eq(memory.userId, userId), holds(target.name)))
           .returning({ id: memory.id });
         return { memories: changed.length };
       });

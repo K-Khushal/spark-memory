@@ -79,6 +79,8 @@ export type PendingMemory = MemoryContent & {
   categoriesStale?: boolean;
   /** The owner's own Category names (never anyone else's). */
   ownCategories?: string[];
+  /** The generation those names are at; a write from an older one is refused. */
+  categoriesGeneration?: number;
   /** A link Memory: false until its Source has been gathered (once). */
   gathered?: boolean;
   /** Storage keys of an image Memory's files. */
@@ -118,6 +120,7 @@ type Image = { bytes: Uint8Array; mime: string };
 export type EmbedMemory = EmbedSource & {
   categoriesStale?: boolean;
   ownCategories?: string[];
+  categoriesGeneration?: number;
   /** Its Overview vector when the vectors are current, so Categories alone are due. */
   overview?: number[];
   userId: string;
@@ -143,7 +146,9 @@ export type IndexStore = {
   writeCategories?(
     claim: Claim,
     revision: number,
-    categories: string[]
+    categories: string[],
+    /** The generation of the owner's Categories it was made from. */
+    categoriesGeneration: number
   ): Promise<boolean>;
   /**
    * Takes the Memory for this delivery (a short lease, so a duplicate
@@ -726,6 +731,7 @@ export function createIndexer({
       revision: number;
       categoriesStale?: boolean;
       ownCategories?: string[];
+      categoriesGeneration?: number;
     },
     vector: number[] | undefined,
     text: string,
@@ -752,7 +758,12 @@ export function createIndexer({
         record: (call) => recordCall({ ...callOf(work), ...call }),
       });
       if (categories) {
-        await store.writeCategories(work, work.revision, categories);
+        await store.writeCategories(
+          work,
+          work.revision,
+          categories,
+          work.categoriesGeneration ?? 0
+        );
       }
     } catch {
       console.error("indexing: categories not made");

@@ -28,12 +28,25 @@ export const CATEGORY_NAME_MAX_CHARS = 40;
 /** Jev takes up to 255 options; 50 of a person's own is plenty for a Library. */
 export const MAX_CUSTOM_CATEGORIES = 50;
 
+/** Characters, not UTF-16 units: 30 emoji are 30 long here, as in the database's `char_length`. */
+const lengthOf = (name: string) => [...name].length;
+
+/**
+ * A Category's name in a Memory, a filter or a request: one to 40
+ * characters, counted the way `checkCategoryName` and the database count.
+ */
+export const CategoryText = z
+  .string()
+  .refine(
+    (name) => lengthOf(name) >= 1 && lengthOf(name) <= CATEGORY_NAME_MAX_CHARS
+  );
+
 /**
  * A Memory's Categories by name. Only the shape is checked here: whether a
  * name is a built-in or the owner's own is the database's to say.
  */
 export const Categories = z
-  .array(z.string().min(1).max(CATEGORY_NAME_MAX_CHARS))
+  .array(CategoryText)
   .min(1)
   .max(MAX_CATEGORIES)
   .refine(
@@ -91,7 +104,7 @@ export function checkCategoryName(
   if (/\p{Cc}/u.test(raw.trim())) return { problem: "characters" };
   const name = raw.trim().replace(/\s+/g, " ");
   if (!name) return { problem: "empty" };
-  if ([...name].length > CATEGORY_NAME_MAX_CHARS) return { problem: "long" };
+  if (lengthOf(name) > CATEGORY_NAME_MAX_CHARS) return { problem: "long" };
   const same = key(name);
   const builtIn = CATEGORY_NAMES.some((b) => key(b) === same);
   if (builtIn || taken.some((other) => key(other) === same)) {

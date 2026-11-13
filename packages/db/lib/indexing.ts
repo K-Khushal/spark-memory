@@ -21,6 +21,7 @@ import {
   accountDeletion,
   aiCall,
   category,
+  categoryRun,
   memory,
   memoryCopy,
   memoryFile,
@@ -99,8 +100,18 @@ export const embeddable = sql`${memory.indexState} = 'searchable' and not ${memo
 /** Vectors missing, from another model or size, or from an older revision. */
 const vectorsStaleIn = (space: string) =>
   sql`(${memory.vectorsSpace} is distinct from ${space} or ${memory.vectorsRevision} is distinct from ${memory.revision})`;
-/** Not locked by the user, and not categorised at this revision by this version of the categoriser. */
-export const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version}))`;
+/**
+ * The owner's Categories' generation now, and the one a Category was last
+ * created at. Written out, not interpolated: drizzle leaves the table's name
+ * off a column in an UPDATE, and `user_id` would then read as the subquery's own.
+ */
+const ownerGeneration = sql`coalesce((select r.generation from category_run r where r.user_id = "memory"."user_id"), 0)`;
+const ownerDueGeneration = sql`coalesce((select r.due_generation from category_run r where r.user_id = "memory"."user_id"), 0)`;
+/**
+ * Not locked by the user, and not categorised at this revision by this
+ * version of the categoriser, nor since the owner's newest Category.
+ */
+export const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version} or coalesce(${memory.categoriesGeneration}, 0) < ${ownerDueGeneration}))`;
 /** What the hourly sweep and `embed` jobs pick up: vectors or Categories to make. */
 const workDueIn = (space: string) =>
   sql`(${vectorsStaleIn(space)} or ${categoriesStale})`;
@@ -279,14 +290,26 @@ export function indexingStore(db: Database) {
     return undefined;
   }
 
-  /** The owner's own Category names, oldest first: Jev and the fallback see this person's list only. */
+  /**
+   * The owner's own Category names, oldest first (Jev and the fallback see
+   * this person's list only), and the generation they are at. The generation
+   * is read first: a change made between the two reads leaves the names
+   * newer than the generation, so a write from them is refused, never wrongly kept.
+   */
   async function ownCategories(userId: string) {
+    const [run] = await db
+      .select({ generation: categoryRun.generation })
+      .from(categoryRun)
+      .where(eq(categoryRun.userId, userId));
     const rows = await db
       .select({ name: category.name })
       .from(category)
       .where(eq(category.userId, userId))
       .orderBy(category.createdAt, category.id);
-    return rows.map((r) => r.name);
+    return {
+      ownCategories: rows.map((r) => r.name),
+      categoriesGeneration: run?.generation ?? 0,
+    };
   }
 
   return {
@@ -341,7 +364,13 @@ export function indexingStore(db: Database) {
      * Automatic Categories for the Memory at `revision`, once: never over a
      * user's edit (Locked categories), AI opt-out, a newer revision or run.
      */
-    async writeCategories(claim: Claim, revision: number, input: unknown) {
+    async writeCategories(
+      claim: Claim,
+      revision: number,
+      input: unknown,
+      /** The generation of the owner's Categories the answer was made from (`load`). */
+      categoriesGeneration: number
+    ) {
       const categories = Categories.parse(input);
       const rows = await db
         .update(memory)
@@ -349,13 +378,17 @@ export function indexingStore(db: Database) {
           categories,
           categoriesRevision: revision,
           categoriesVersion: CATEGORISING.version,
+          categoriesGeneration,
         })
         .where(
           and(
             claimed(claim),
             eq(memory.revision, revision),
             eq(memory.aiOptOut, false),
-            categoriesStale
+            categoriesStale,
+            // Made from an older list than the owner has now: refused, and
+            // the Memory stays due for the next go.
+            sql`${ownerGeneration} = ${categoriesGeneration}`
           )
         )
         .returning({ id: memory.id });
@@ -395,7 +428,7 @@ export function indexingStore(db: Database) {
       if (!row) return row;
       return {
         ...row,
-        ownCategories: await ownCategories(row.userId),
+        ...(await ownCategories(row.userId)),
         ...(await filesOf(id, row.kind)),
       };
     },
@@ -621,7 +654,7 @@ export function indexingStore(db: Database) {
         : [];
       return {
         ...loaded,
-        ownCategories: await ownCategories(row.userId),
+        ...(await ownCategories(row.userId)),
         found,
         overview: kept?.embedding,
         ...(await filesOf(id, row.kind)),

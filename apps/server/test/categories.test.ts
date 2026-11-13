@@ -219,6 +219,25 @@ describe.skipIf(!databaseUrl)("Categories API", () => {
       });
     });
 
+    it("a name of 30 emoji can be made, given to a Memory and filtered by", async () => {
+      const { call } = await signedIn();
+      const name = "🌿".repeat(30);
+      expect((await make(call, name)).status).toBe(201);
+      const saved = (await (
+        await call("/api/memories", { method: "POST", json: { body: "Ferns" } })
+      ).json()) as { id: string };
+      const edit = await call(`/api/memories/${saved.id}`, {
+        method: "PATCH",
+        json: { categories: [name] },
+      });
+      expect(edit.status).toBe(200);
+      const found = (await (
+        await postSearch(call, { chips: { category: name } })
+      ).json()) as { results: { id: string }[] };
+      expect(found.results.map((r) => r.id)).toEqual([saved.id]);
+      expect((await make(call, "🌿".repeat(41))).status).toBe(400);
+    });
+
     it("never lists another person's Categories or touches them", async () => {
       const a = await signedIn();
       const b = await signedIn();

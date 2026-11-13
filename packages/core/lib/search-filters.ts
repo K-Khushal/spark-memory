@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CATEGORY_NAME_MAX_CHARS } from "./categories";
+import { CategoryText } from "./categories";
 import type { MemoryKind } from "./memory";
 
 /**
@@ -118,7 +118,7 @@ export const SearchChips = z
     when: z.enum(SEARCH_WHEN),
     colour: z.enum(SEARCH_COLOUR_NAMES),
     // Whether it is the owner's own or a built-in is the server's to check.
-    category: z.string().min(1).max(CATEGORY_NAME_MAX_CHARS),
+    category: CategoryText,
   })
   .partial()
   .strict();

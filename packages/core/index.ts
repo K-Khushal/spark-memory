@@ -140,6 +140,7 @@ export {
 export { OnboardingUpdate, SearchActivation } from "./lib/onboarding";
 export {
   CATEGORY_NAME_MAX_CHARS,
+  CategoryText,
   CATEGORY_NAMES,
   CATEGORISING,
   Categories,

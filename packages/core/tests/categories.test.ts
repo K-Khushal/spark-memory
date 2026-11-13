@@ -7,6 +7,7 @@ import {
   chooseCategories,
   cosine,
   JevChoiceReply,
+  SearchChips,
 } from "../index";
 
 it("keeps the strongest three Categories at the threshold, else Other", () => {
@@ -39,6 +40,25 @@ it("accepts one to three distinct names, built-in or the owner's own", () => {
   ]) {
     expect(Categories.safeParse(bad).success).toBe(false);
   }
+});
+
+it("measures a name in characters, the same way everywhere", () => {
+  // 🌿 is two UTF-16 units but one character.
+  const ok = "🌿".repeat(30);
+  const long = "🌿".repeat(41);
+  expect(checkCategoryName(ok, [])).toEqual({ name: ok });
+  expect(Categories.safeParse([ok]).success).toBe(true);
+  expect(SearchChips.safeParse({ category: ok }).success).toBe(true);
+  expect(checkCategoryName("🌿".repeat(40), [])).toEqual({
+    name: "🌿".repeat(40),
+  });
+  expect(Categories.safeParse(["🌿".repeat(40)]).success).toBe(true);
+  expect(SearchChips.safeParse({ category: "🌿".repeat(40) }).success).toBe(
+    true
+  );
+  expect(checkCategoryName(long, [])).toEqual({ problem: "long" });
+  expect(Categories.safeParse([long]).success).toBe(false);
+  expect(SearchChips.safeParse({ category: long }).success).toBe(false);
 });
 
 it("checks a new Category name", () => {

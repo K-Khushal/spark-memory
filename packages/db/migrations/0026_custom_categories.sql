@@ -54,10 +54,19 @@ CREATE TRIGGER memory_categories_known
   BEFORE INSERT OR UPDATE OF categories, user_id ON memory
   FOR EACH ROW EXECUTE FUNCTION memory_categories_known();
 --> statement-breakpoint
--- Re-categorising after a Category is created: how many Memories were due
--- when it began. How many are left is read from the Memories themselves.
+-- Re-categorising after a Category is created. `generation` goes up whenever
+-- the person's Categories change (create, rename, delete): a worker that
+-- loaded the list at an older one is refused when it writes. `due_generation`
+-- is the one a Category was last created at: a Memory categorised under an
+-- older one is due again. `total` is how many Memories were due when it began;
+-- how many are left is read from the Memories themselves.
 CREATE TABLE category_run (
   user_id text PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
-  total integer NOT NULL CHECK (total >= 0),
+  generation integer NOT NULL DEFAULT 0,
+  due_generation integer NOT NULL DEFAULT 0,
+  total integer NOT NULL DEFAULT 0 CHECK (total >= 0),
   started_at timestamptz NOT NULL DEFAULT now()
 );
+--> statement-breakpoint
+-- The generation of the Categories a Memory was categorised under; null before any.
+ALTER TABLE memory ADD COLUMN categories_generation integer;

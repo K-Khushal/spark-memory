@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   CATEGORISING,
   CATEGORY_NAMES,
@@ -463,56 +463,202 @@ describe.skipIf(!url)("Custom Categories", () => {
         run: 1,
       };
       await expect(
-        store.writeCategories(claim, m.revision, ["Gardening"])
+        store.writeCategories(
+          claim,
+          m.revision,
+          ["Gardening"],
+          await generationOf(a.id)
+        )
       ).rejects.toThrow();
       expect((await a.row(m.id)).categories).toEqual(["Other"]);
     });
 
-    it("a delete racing a write never leaves a Category that does not exist", async () => {
+    /** The generation of the person's Categories a worker would have loaded. */
+    const generationOf = async (userId: string) =>
+      (
+        await db
+          .select({ g: schema.categoryRun.generation })
+          .from(schema.categoryRun)
+          .where(eq(schema.categoryRun.userId, userId))
+      )[0]?.g ?? 0;
+    const claimOf = (
+      p: Awaited<ReturnType<typeof person>>,
+      m: { id: string; indexGeneration: string }
+    ) => ({
+      memoryId: m.id,
+      userId: p.id,
+      generation: m.indexGeneration,
+      run: 1,
+    });
+    /** What a settled promise came to: "ok", or the Postgres error code (40P01 is a deadlock). */
+    const outcome = async (work: Promise<unknown>) => {
+      try {
+        await work;
+        return "ok";
+      } catch (error) {
+        for (
+          let e = error as { code?: string; cause?: unknown } | undefined,
+            i = 0;
+          e && i < 5;
+          i++
+        ) {
+          if (e.code) return e.code;
+          e = e.cause as typeof e;
+        }
+        return "error";
+      }
+    };
+    /** Until some other statement on Memories is waiting for a lock (or a moment has passed). */
+    const untilLockWait = async () => {
+      for (let i = 0; i < 40; i++) {
+        const { rows } = await db.execute<{ n: number }>(
+          sql`select count(*)::int as n from pg_stat_activity
+              where wait_event_type = 'Lock' and pid <> pg_backend_pid()
+                and datname = current_database()`
+        );
+        if (rows[0]!.n > 0) return;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    };
+
+    describe("lock order", () => {
+      /**
+       * A write holds its Memory and then (the trigger) needs the Category;
+       * the Category's owner must never hold the Category while waiting for
+       * that Memory. Deterministic: the write takes the Memory first, the
+       * edit starts, and only then does the write need the Category.
+       */
+      const probe = async (
+        edit: (
+          p: Awaited<ReturnType<typeof person>>,
+          id: string
+        ) => Promise<unknown>
+      ) => {
+        const a = await person();
+        const garden = await a.create("Gardening");
+        const m = await a.capture("Tomatoes");
+        await a.library.edit(m.id, { categories: ["Gardening"] });
+        let editing: Promise<string> | undefined;
+        const writing = outcome(
+          db.transaction(async (tx) => {
+            await tx.execute(
+              sql`select 1 from memory where id = ${m.id} for update`
+            );
+            editing = outcome(edit(a, garden.id));
+            await untilLockWait();
+            await tx
+              .update(schema.memory)
+              .set({ categories: ["Gardening", "Recipe"] })
+              .where(eq(schema.memory.id, m.id));
+          })
+        );
+        return { a, m, writing: await writing, editing: await editing! };
+      };
+
+      it("deleting a Category and a write to a Memory that has it never deadlock", async () => {
+        const { a, m, writing, editing } = await probe((p, id) =>
+          p.categories.remove(id)
+        );
+        expect({ writing, editing }).toEqual({ writing: "ok", editing: "ok" });
+        expect((await a.row(m.id)).categories).toEqual(["Recipe"]);
+      });
+
+      it("renaming a Category and a write to a Memory that has it never deadlock", async () => {
+        const { a, m, writing, editing } = await probe((p, id) =>
+          p.categories.rename(id, "Plant Care")
+        );
+        expect({ writing, editing }).toEqual({ writing: "ok", editing: "ok" });
+        expect((await a.row(m.id)).categories).toEqual([
+          "Plant Care",
+          "Recipe",
+        ]);
+      });
+    });
+
+    it("a delete racing a write: each ends cleanly, and no Category that does not exist is left", async () => {
       const a = await person();
       const embed = embedder();
       const store = indexingStore(db);
       for (let i = 0; i < 15; i++) {
         const m = await indexed(a, `Garden ${i}`, embed);
         const garden = await a.create("Gardening");
-        const claim = {
-          memoryId: m.id,
-          userId: a.id,
-          generation: m.indexGeneration,
-          run: 1,
-        };
-        await Promise.allSettled([
-          store.writeCategories(claim, m.revision, ["Gardening"]),
-          a.categories.remove(garden.id),
+        const [written, removed] = await Promise.all([
+          outcome(
+            store.writeCategories(
+              claimOf(a, m),
+              m.revision,
+              ["Gardening"],
+              await generationOf(a.id)
+            )
+          ),
+          outcome(a.categories.remove(garden.id)),
         ]);
-        const { categories } = await a.row(m.id);
-        expect(categories).not.toContain("Gardening");
+        // The delete always succeeds; the write lands, or is refused as unknown (23514).
+        expect(removed).toBe("ok");
+        expect(["ok", "23514"]).toContain(written);
+        expect((await a.row(m.id)).categories).not.toContain("Gardening");
         await a.library.remove(m.id);
       }
     });
 
-    it("a rename racing a write never leaves the old name behind", async () => {
+    it("a rename racing a write: each ends cleanly, and the old name is not left behind", async () => {
       const a = await person();
       const embed = embedder();
       const store = indexingStore(db);
       for (let i = 0; i < 15; i++) {
         const m = await indexed(a, `Garden ${i}`, embed);
         const garden = await a.create("Gardening");
-        const claim = {
-          memoryId: m.id,
-          userId: a.id,
-          generation: m.indexGeneration,
-          run: 1,
-        };
-        await Promise.allSettled([
-          store.writeCategories(claim, m.revision, ["Gardening"]),
-          a.categories.rename(garden.id, "Plant Care"),
+        const [written, renamed] = await Promise.all([
+          outcome(
+            store.writeCategories(
+              claimOf(a, m),
+              m.revision,
+              ["Gardening"],
+              await generationOf(a.id)
+            )
+          ),
+          outcome(a.categories.rename(garden.id, "Plant Care")),
         ]);
-        const { categories } = await a.row(m.id);
-        expect(categories).not.toContain("Gardening");
+        expect(renamed).toBe("ok");
+        expect(["ok", "23514"]).toContain(written);
+        expect((await a.row(m.id)).categories).not.toContain("Gardening");
         await a.categories.remove(garden.id);
         await a.library.remove(m.id);
       }
+    });
+
+    it("a Category created while a Memory is being categorised is not lost", async () => {
+      const a = await person();
+      const embed = embedder();
+      const m = await indexed(a, "My garden in June", embed);
+      await a.create("Gardening");
+      // The worker has its list ("Gardening"); while Jev answers, the person
+      // creates a second Category.
+      const asked: (readonly string[])[] = [];
+      const jev: CategoryClient = {
+        model: "fake-jev",
+        async classify(_text, categories) {
+          asked.push(categories);
+          if (asked.length === 1) await a.create("Cat Photos");
+          return {
+            scores: { Gardening: 0.6, "Cat Photos": 0.4 },
+            inputTokens: 100,
+          };
+        },
+      };
+      await indexer(embed, jev)(job(m.id, "embed"));
+      expect(asked[0]).toEqual([...CATEGORY_NAMES, "Gardening"]);
+      // Its answer was made without the new Category: refused, and the Memory is still due.
+      expect((await a.row(m.id)).categories).toEqual(["Other"]);
+      expect((await a.categories.due(10)).map((d) => d.id)).toContain(m.id);
+      // Another go, with both names, finishes it.
+      await indexer(embed, jev)(job(m.id, "embed"));
+      expect(asked[1]).toEqual([...CATEGORY_NAMES, "Gardening", "Cat Photos"]);
+      expect((await a.row(m.id)).categories).toEqual([
+        "Gardening",
+        "Cat Photos",
+      ]);
+      expect((await a.categories.due(10)).map((d) => d.id)).not.toContain(m.id);
     });
   });
 });

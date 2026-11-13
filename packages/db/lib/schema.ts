@@ -141,6 +141,8 @@ export const memory = pgTable(
     categoriesRevision: integer("categories_revision"),
     /** `CATEGORISING.version` of the categoriser that chose them; null before any did. */
     categoriesVersion: integer("categories_version"),
+    /** `category_run.generation` of the person's Categories it was categorised under; null before any. */
+    categoriesGeneration: integer("categories_generation"),
     /**
      * SHA-256 (hex) of the Preserved copy: a file Memory's file, a link's
      * readable text. Unique per person among links.
@@ -654,12 +656,19 @@ export const category = pgTable(
     uniqueIndex("category_user_name_idx").on(t.userId, sql`lower(${t.name})`),
   ]
 );
-/** How many Memories were due when the latest Category was created; what is left is read from the Memories. */
+/**
+ * Per person: `generation` goes up with every change to their Categories, so
+ * a worker holding an older list is refused; `dueGeneration` is where a
+ * Category was last created, and a Memory categorised under an older one is
+ * due again. `total` is how many Memories were due then.
+ */
 export const categoryRun = pgTable("category_run", {
   userId: text("user_id")
     .primaryKey()
     .references(() => user.id, { onDelete: "cascade" }),
-  total: integer("total").notNull(),
+  generation: integer("generation").notNull().default(0),
+  dueGeneration: integer("due_generation").notNull().default(0),
+  total: integer("total").notNull().default(0),
   startedAt: timestamp("started_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

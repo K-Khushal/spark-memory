@@ -364,9 +364,9 @@ describe.skipIf(!url)("Categories", () => {
         generation: m.indexGeneration,
         run,
       };
-      expect(await store.writeCategories(loaded, revision, ["Article"])).toBe(
-        false
-      );
+      expect(
+        await store.writeCategories(loaded, revision, ["Article"], 0)
+      ).toBe(false);
       await db
         .update(schema.memory)
         .set({ categoriesRevision: null })
@@ -389,7 +389,8 @@ describe.skipIf(!url)("Categories", () => {
         await store.writeCategories(
           { ...loaded, memoryId: m.id },
           loaded.revision,
-          ["Article"]
+          ["Article"],
+          0
         )
       ).toBe(false);
       expect((await row(m.id)).categories).toEqual(["Place"]);
