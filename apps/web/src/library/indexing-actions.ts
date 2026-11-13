@@ -8,6 +8,8 @@ export type IndexingTransport = {
   poll: (ids: string[]) => Promise<Memory[]>;
   retryIndexing: (id: string) => Promise<Memory>;
   setAiOptOut: (id: string, on: boolean) => Promise<Memory>;
+  /** Try Again on a Deep fetch that Failed. */
+  retryDeepFetch: (id: string) => Promise<Memory>;
 };
 
 /**
@@ -20,6 +22,7 @@ const indexFields = (m: Memory) => ({
   indexError: m.indexError,
   indexTitle: m.indexTitle,
   aiOptOut: m.aiOptOut,
+  deepFetch: m.deepFetch,
   hasVectors: m.hasVectors,
   preservation: m.preservation,
   pageTitle: m.pageTitle,
@@ -35,10 +38,16 @@ export const POLL = { first: 2000, factor: 1.5, max: 30_000, batch: 100 };
 export const nextPollDelay = (delay: number) =>
   Math.min(POLL.max, Math.round(delay * POLL.factor));
 
-/** Memories the wall shows Indexing, once their upload (if any) is done. */
+/**
+ * Memories the wall shows Indexing, or Deep fetching about now (a wait of an
+ * hour or more is not polled), once their upload (if any) is done.
+ */
 export const indexingIds = (memories: WallMemory[]) =>
   memories
-    .filter((m) => m.indexState === "indexing" && !m.upload)
+    .filter(
+      (m) =>
+        (m.indexState === "indexing" || m.deepFetch === "fetching") && !m.upload
+    )
     .map((m) => m.id)
     .slice(0, POLL.batch);
 
@@ -155,6 +164,17 @@ export function indexingActions({
       } catch {
         patch(memory.id, indexFields(memory));
         notify("Retry Did Not Finish");
+      }
+    },
+
+    /** Try Again on a Deep fetch: Fetching at once, rolled back with a message if refused. */
+    async retryDeepFetch(memory: Memory) {
+      patch(memory.id, { deepFetch: "fetching" });
+      try {
+        merge([await transport.retryDeepFetch(memory.id)]);
+      } catch {
+        patch(memory.id, { deepFetch: memory.deepFetch });
+        notify("Try Again Did Not Finish");
       }
     },
 

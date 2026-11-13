@@ -23,6 +23,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   sample: false,
   aiOptOut: false,
   hasVectors: false,
+  deepFetch: null,
   categories: ["Other"],
   categoriesLocked: false,
   revision: 1,

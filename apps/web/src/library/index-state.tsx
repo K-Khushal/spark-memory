@@ -1,7 +1,7 @@
 import { useId } from "react";
 import { RotateCwIcon } from "lucide-react";
 import type { IndexFailure } from "@spark/core";
-import { cn, Switch } from "@spark/ui";
+import { Button, cn, Switch } from "@spark/ui";
 import type { Memory } from "./library-actions";
 
 /** Index state controls, for Memory detail and the image viewer. */
@@ -127,5 +127,42 @@ export function IndexStatus({ memory }: { memory: Memory }) {
           ? "Indexing"
           : ""}
     </span>
+  );
+}
+
+const DEEP_FETCH_LABEL = {
+  fetching: "Fetching",
+  waiting: "Fetching Later",
+  failed: "Deep Fetch Failed",
+} as const;
+
+/**
+ * Memory detail's line for Deep fetch, only while there is something to say:
+ * Fetching, Fetching Later (a retry or a limit is waiting), or Failed with
+ * Try Again. An engine that is not set up shows nothing: that is the
+ * operator's to fix, not the person's. Quiet text, because the Failed and Indexing
+ * colours belong to Index state. Always mounted when shown, so screen
+ * readers hear each change.
+ */
+export function DeepFetchStatus({
+  memory,
+  onTryAgain,
+}: {
+  memory: Memory;
+  onTryAgain: (memory: Memory) => void;
+}) {
+  if (!memory.deepFetch) return null;
+  const stopped = memory.deepFetch === "failed";
+  return (
+    <>
+      <span role="status" className="text-sm text-ink-muted">
+        {DEEP_FETCH_LABEL[memory.deepFetch]}
+      </span>
+      {stopped && (
+        <Button variant="quiet" size="sm" onClick={() => onTryAgain(memory)}>
+          <RotateCwIcon aria-hidden /> Try Again
+        </Button>
+      )}
+    </>
   );
 }

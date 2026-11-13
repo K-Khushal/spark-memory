@@ -17,6 +17,7 @@
     "@spark/auth": "workspace:*",
     "@spark/core": "workspace:*",
     "@spark/db": "workspace:*",
+    "@spark/deep-fetch": "workspace:*",
     "@spark/indexing": "workspace:*",
     "@spark/search": "workspace:*",
     "aws4fetch": "1.0.20",

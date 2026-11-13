@@ -34,6 +34,7 @@ import {
   type FileStore,
 } from "./files";
 import { extensionCors, sameOrigin } from "./origin";
+import { enqueueDeepFetch } from "./deep-fetch-queue";
 import { enqueue, enqueueEmbed, providers } from "./indexing";
 
 /** Bound screenshot storage calls; cleanup stays durable if a PUT finishes late. */
@@ -412,6 +413,28 @@ export const memories = new Hono<AppEnv>()
     if (!memory) return c.json(notFound, 404);
     if (memory.indexState === "indexing") {
       await enqueue(c.env, memory);
+    }
+    return c.json(await forClient(c.var.files, memory));
+  })
+  /**
+   * Try Again on a Memory whose Deep fetch Failed or was Unavailable: a new
+   * run, with all its automatic attempts, sent at once.
+   */
+  .post("/memories/:id/deep-fetch", async (c) => {
+    const id = c.req.param("id");
+    const before = UUID.test(id) && (await c.var.library.get(id));
+    const memory = before && (await c.var.library.retryDeepFetch(id));
+    if (!memory) return c.json(notFound, 404);
+    // Only a run just started is sent; any other Memory comes back as it is.
+    if (
+      memory.deepFetchRun !== before.deepFetchRun &&
+      memory.deepFetch === "fetching"
+    ) {
+      await enqueueDeepFetch(c.env, {
+        memoryId: memory.id,
+        generation: memory.indexGeneration,
+        run: memory.deepFetchRun,
+      });
     }
     return c.json(await forClient(c.var.files, memory));
   })

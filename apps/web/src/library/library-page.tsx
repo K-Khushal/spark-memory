@@ -13,6 +13,7 @@ import {
 } from "./library-filters";
 import { recordSearch } from "./search-history";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -42,6 +43,7 @@ import { authClient, endSession, type AppSession } from "../auth";
 import { ShareTarget } from "../pwa/share-target";
 import { DeskSearchField, DeskSidebar, focusDeskControl } from "../shell";
 import { productMetrics } from "./product-metrics";
+import { createActivation } from "./activation";
 import { Onboarding, recordActivation } from "./onboarding";
 import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
 import { LibraryOverlaysHost } from "./overlays-host";
@@ -73,6 +75,8 @@ export function LibraryPage({
   const { desk } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [activationVersion, setActivationVersion] = useState(0);
+  const [activation] = useState(() => createActivation(recordActivation));
+  const onActivated = useCallback(() => activation.know(), [activation]);
   const [searchOpen, setSearchOpen] = useState(desk === "search");
   const [overlaysEpoch, setOverlaysEpoch] = useState(0);
   const [overlaysDown, setOverlaysDown] = useState(false);
@@ -177,8 +181,9 @@ export function LibraryPage({
     } else setOpenId(memory.id);
   };
   const activate = (id: string) => {
-    void recordActivation(id).then((ok) => {
-      if (ok) setActivationVersion((v) => v + 1);
+    void activation.activate(id).then((result) => {
+      if (result === "recorded" || result === "unchanged")
+        setActivationVersion((v) => v + 1);
     });
   };
   const openMemory = (memory: Memory) => {
@@ -394,6 +399,7 @@ export function LibraryPage({
         {library.state === "ready" && (
           <Onboarding
             activationVersion={activationVersion}
+            onActivated={onActivated}
             memories={library.memories}
             refresh={library.refreshSamples}
             onCapture={openPasteBox}
@@ -497,6 +503,7 @@ export function LibraryPage({
         onRetry={library.retryUpload}
         onBroken={library.refresh}
         onRetryIndexing={library.retryIndexing}
+        onRetryDeepFetch={library.retryDeepFetch}
         onCategories={library.setCategories}
         onAiOptOut={library.setAiOptOut}
         onMoreLikeThis={moreLikeThis}

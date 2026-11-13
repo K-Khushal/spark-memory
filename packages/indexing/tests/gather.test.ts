@@ -344,6 +344,38 @@ describe("gather", () => {
     expect(found.transient).toBe(false);
   });
 
+  it("says a Source that was never shown to be public is refused, not that it is down", async () => {
+    const site = web({});
+    const refused = createGatherer({
+      fetch: site.fetch,
+      resolve: resolve({ "intranet.corp.test": ["10.0.0.7"] }),
+    });
+    expect(
+      await refused.gather("https://intranet.corp.test/wiki")
+    ).toMatchObject({
+      text: null,
+      transient: false,
+      refused: true,
+    });
+    // A public page that answered 404 is public: a Deep fetch may still help.
+    const plain = createGatherer({ fetch: site.fetch, resolve: resolve() });
+    const missing = await plain.gather("https://garden.test/nothing");
+    expect(missing.refused).toBeUndefined();
+    // One that is down for now is worth another attempt, not refused.
+    const down = createGatherer({
+      fetch: async () => {
+        throw new Error("down");
+      },
+      resolve: resolve(),
+    });
+    expect(await down.gather("https://garden.test/basil")).toMatchObject({
+      transient: true,
+    });
+    expect(
+      (await down.gather("https://garden.test/basil")).refused
+    ).toBeUndefined();
+  });
+
   it("reads JSON-LD when the page has no Open Graph tags", async () => {
     const ld = JSON.stringify({
       "@context": "https://schema.org",

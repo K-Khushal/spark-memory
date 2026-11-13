@@ -1,7 +1,17 @@
 import { withSentry } from "@sentry/cloudflare";
 import { app } from "./app";
-import type { AccountMessage, Bindings, IndexMessage } from "./env";
+import type {
+  AccountMessage,
+  Bindings,
+  DeepFetchMessage,
+  IndexMessage,
+} from "./env";
 import { consumeAccount, sweepAccounts } from "./account-jobs";
+import {
+  consumeDeepFetch,
+  requeueDeepFetches,
+  type DeepFetchBatch,
+} from "./deep-fetch";
 import { consumeIndexing, requeueStalled, type IndexBatch } from "./indexing";
 import { sentryOptions } from "./sentry";
 import { cronCalls } from "./cron-budget";
@@ -19,19 +29,23 @@ const withoutSentry = {
       Promise.all([
         sweep(env, undefined, calls),
         requeueStalled(env, calls),
+        requeueDeepFetches(env, calls),
         sweepAccounts(env, calls),
       ])
     );
   },
-  // The account queue (src/account-jobs.ts); both Indexing queues and their
-  // dead-letter queue (src/indexing.ts).
+  // The account queue (src/account-jobs.ts); the Deep fetch queue
+  // (src/deep-fetch.ts); both Indexing queues and their dead-letter queue
+  // (src/indexing.ts).
   queue: (batch, env) =>
     batch.queue.startsWith("spark-account")
       ? consumeAccount(batch as MessageBatch<AccountMessage>, env)
-      : consumeIndexing(batch as unknown as IndexBatch, env),
+      : batch.queue.startsWith("spark-deepfetch")
+        ? consumeDeepFetch(batch as unknown as DeepFetchBatch, env)
+        : consumeIndexing(batch as unknown as IndexBatch, env),
 } satisfies ExportedHandler<Bindings, QueueMessage>;
 
-type QueueMessage = IndexMessage | AccountMessage;
+type QueueMessage = IndexMessage | AccountMessage | DeepFetchMessage;
 
 const withSentryOn = withSentry((env: Bindings) => sentryOptions(env), {
   ...withoutSentry,

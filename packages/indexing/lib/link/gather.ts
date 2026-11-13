@@ -23,6 +23,12 @@ export type Gathered = {
   contentHash?: string;
   /** Nothing was found because the Source or network was down: worth another attempt. */
   transient: boolean;
+  /**
+   * The Source was never shown to be on the public web (a private address,
+   * a name that does not exist): no engine may be sent there either, so no
+   * Deep fetch is wanted.
+   */
+  refused?: true;
 };
 
 export type Gatherer = {
@@ -140,6 +146,17 @@ function fromPage(page: ScannedPage): { metadata: LinkMetadata; text: string } {
   fill(metadata, { title: page.title });
   const body = str(ld?.articleBody) ?? "";
   return { metadata, text: body.length > page.text.length ? body : page.text };
+}
+
+/**
+ * What a page's HTML says: its metadata and readable text, from the same
+ * scan as gathering a link. For pages another engine rendered (Deep fetch).
+ */
+export function readPage(html: string): {
+  metadata: LinkMetadata;
+  text: string;
+} {
+  return fromPage(scanHtml(html, FREE_ALLOWANCE.textMaxChars));
 }
 
 const sha256 = async (text: string) =>
@@ -276,6 +293,7 @@ export function createGatherer({
       text: preserved,
       ...(preserved && { contentHash: await sha256(preserved) }),
       transient: transient && !preserved && !metadata.title,
+      ...(!confirmed && !transient && { refused: true as const }),
     };
   }
 

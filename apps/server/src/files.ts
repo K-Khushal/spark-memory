@@ -256,7 +256,10 @@ export async function forClient<M extends Memory>(
   store: FileStore,
   memory: M
 ): Promise<
-  Omit<M, "image" | "indexRun" | "indexGeneration" | "indexPriority"> &
+  Omit<
+    M,
+    "image" | "indexRun" | "indexGeneration" | "indexPriority" | "deepFetchRun"
+  > &
     Pick<ClientMemory, "image">
 > {
   const {
@@ -264,6 +267,7 @@ export async function forClient<M extends Memory>(
     indexRun: _run,
     indexGeneration: _generation,
     indexPriority: _priority,
+    deepFetchRun: _deepFetchRun,
     ...rest
   } = memory;
   if (!image) return { ...rest, image: null };
