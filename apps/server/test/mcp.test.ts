@@ -31,6 +31,8 @@ describe.skipIf(!databaseUrl)("Connected assistants over HTTP", () => {
       json: { name: "Test Assistant" },
     });
     expect(issued.status).toBe(201);
+    expect(issued.headers.get("cache-control")).toContain("no-store");
+    expect(issued.headers.get("pragma")).toBe("no-cache");
     const token = (await issued.json()) as { id: string; token: string };
     const rpc = (name: string, args: Record<string, unknown>) =>
       call("/api/mcp", {
@@ -78,7 +80,11 @@ describe.skipIf(!databaseUrl)("OAuth authorization code flow", () => {
       method: "POST",
       json: {
         client_name: "Claude <Assistant>",
-        redirect_uris: ["http://localhost:9000/callback"],
+        redirect_uris: [
+          "http://localhost:9000/callback",
+          "http://127.0.0.1:9000/callback",
+          "http://[::1]:9000/callback",
+        ],
       },
     });
     expect(registered.status).toBe(201);
@@ -108,12 +114,32 @@ describe.skipIf(!databaseUrl)("OAuth authorization code flow", () => {
     const { call } = await signedIn();
     expect((await call(path.replace("S256", "plain"))).status).toBe(400);
     expect((await call(path.replace("9000", "9999"))).status).toBe(400);
-    const consent = await call(path);
+    // Native clients bind an ephemeral loopback port on each sign-in
+    // (RFC 8252 §7.3). Host, scheme and path still have to match.
+    for (const redirect of [
+      "http://127.0.0.1:9999/callback",
+      "http://[::1]:9998/callback",
+    ]) {
+      const native = new URLSearchParams(params);
+      native.set("redirect_uri", redirect);
+      expect((await call(`/api/oauth/authorize?${native}`)).status).toBe(200);
+    }
+    for (const redirect of [
+      "http://127.0.0.1:9999/other",
+      "https://127.0.0.1:9999/callback",
+    ]) {
+      const invalid = new URLSearchParams(params);
+      invalid.set("redirect_uri", redirect);
+      expect((await call(`/api/oauth/authorize?${invalid}`)).status).toBe(400);
+    }
+    const nativeParams = new URLSearchParams(params);
+    nativeParams.set("redirect_uri", "http://127.0.0.1:9999/callback");
+    const consent = await call(`/api/oauth/authorize?${nativeParams}`);
     expect(consent.status).toBe(200);
     const html = await consent.text();
     expect(html).toContain("Claude &lt;Assistant&gt;");
     const nonce = /name="nonce" value="([^"]+)"/.exec(html)![1]!;
-    const form = Object.fromEntries(params);
+    const form = Object.fromEntries(nativeParams);
     const refused = await call("/api/oauth/authorize", {
       method: "POST",
       form: { ...form, nonce: "wrong", decision: "allow" },
@@ -148,6 +174,14 @@ describe.skipIf(!databaseUrl)("OAuth authorization code flow", () => {
         await anonymous("/api/oauth/token", {
           method: "POST",
           form: { ...exchange, resource: "https://other.example/mcp" },
+        })
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await anonymous("/api/oauth/token", {
+          method: "POST",
+          form: { ...exchange, redirect_uri: "http://127.0.0.1:9000/callback" },
         })
       ).status
     ).toBe(400);

@@ -53,12 +53,26 @@ const exchange = z.object({
   code_verifier: z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/),
 });
 const assistantName = z.object({ name: z.string().trim().min(1).max(80) });
+// RFC 8252 §7.3: native loopback IP callbacks choose an ephemeral port.
+// Preserve every other byte; HTTPS and localhost redirects remain exact.
+const withoutLoopbackPort = (uri: string) =>
+  uri.replace(
+    /^(http:\/\/(?:127\.0\.0\.1|\[::1\]))(?::[0-9]+)?(?=\/|\?|$)/i,
+    "$1"
+  );
+const registeredRedirect = (redirects: string[], actual: string) =>
+  redirects.some(
+    (registered) =>
+      withoutLoopbackPort(registered) === withoutLoopbackPort(actual)
+  );
+
 const COOKIE = "spark-assistant-consent";
 
 export const assistantAuth = new Hono<AppEnv>()
   .use("*", bodyLimit({ maxSize: 16_384 }))
   .use("*", async (c, next) => {
     c.header("Cache-Control", "private, no-store");
+    c.header("Pragma", "no-cache");
     c.header("Referrer-Policy", "same-origin");
     c.header(
       "Content-Security-Policy",
@@ -127,7 +141,7 @@ export const assistantAuth = new Hono<AppEnv>()
     if (!p.success || p.data.resource !== resourceFor(c.env))
       return c.json({ error: "invalid_request" }, 400);
     const client = await assistantStore(c.var.db).client(p.data.client_id);
-    if (!client || !client.redirects.includes(p.data.redirect_uri))
+    if (!client || !registeredRedirect(client.redirects, p.data.redirect_uri))
       return c.json({ error: "invalid_client" }, 400);
     const session = await c.var.auth.api.getSession({
       headers: c.req.raw.headers,
@@ -174,7 +188,7 @@ export const assistantAuth = new Hono<AppEnv>()
       return c.json({ error: "invalid_request" }, 400);
     const store = assistantStore(c.var.db);
     const client = await store.client(p.data.client_id);
-    if (!client || !client.redirects.includes(p.data.redirect_uri))
+    if (!client || !registeredRedirect(client.redirects, p.data.redirect_uri))
       return c.json({ error: "invalid_client" }, 400);
     const cookie = await getSignedCookie(c, c.env.BETTER_AUTH_SECRET, COOKIE);
     if (
