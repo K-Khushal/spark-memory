@@ -51,3 +51,9 @@ Only committed searches and clicks on their results are stored, never typing. Ev
 | Search events (`search_event`)    | Query, clicked Memory, its place (1 to 100), reformulation; latest 1,000 and 30 days | At 30 days; with the account; the Memory link goes when the Memory does                              |
 
 Both are in the Library export as `searches.json` (what is still retained). Deleting a recent search does not delete the events behind it: they are the product's own measure and expire on their own. No query text goes to Sentry (events carry no URL query), analytics or the console.
+
+## Image Queries
+
+Full search accepts either `image: { mime, data }` (base64 bytes, never a URL) or `memory` (a Library Memory id), alongside words and chips. Uploaded images use the existing paid-tier embedder and spend interface; Library queries reuse stored Overview and Visual vectors without a provider call. Both search only Overview and Visual vectors, exclude a selected Memory from every ranking leg, and use the threshold MatchJudge's vector rule within the normal candidate window. An unavailable image search fails explicitly instead of returning text-only results.
+
+The HTTP boundary validates JPEG/PNG/WebP signatures and a 1 MiB decoded limit before embedding. The browser downsizes to 1024px. Bytes are transient: only a bounded, short-lived, owner/model/dimensions/digest-keyed vector cache is shared, with in-flight coalescing and account-deletion purge protection beginning before asynchronous hashing.

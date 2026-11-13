@@ -39,9 +39,11 @@ export function useFileDrop(onDrop: (files: File[]) => void) {
     };
     const drop = (e: DragEvent) => {
       if (!hasFiles(e)) return;
+      const handled = e.defaultPrevented;
       e.preventDefault();
       depth = 0;
       setOver(false);
+      if (handled) return;
       latest.current([...e.dataTransfer!.files]);
     };
     const events = [
@@ -53,7 +55,10 @@ export function useFileDrop(onDrop: (files: File[]) => void) {
     ] as const;
     for (const [name, handler] of events)
       window.addEventListener(name, handler);
+    // A nested drop target may stop propagation. Always clear the page highlight.
+    window.addEventListener("drop", end, true);
     return () => {
+      window.removeEventListener("drop", end, true);
       for (const [name, handler] of events)
         window.removeEventListener(name, handler);
     };

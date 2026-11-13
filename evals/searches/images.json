@@ -1,0 +1,26 @@
+[
+  {
+    "id": "image-query-img-amsterdam-bike",
+    "query": "",
+    "imageMemory": "img-amsterdam-bike",
+    "expect": ["img-amsterdam-bike"],
+    "kind": "image-query",
+    "note": "Identical bytes test vector retrieval, not visual meaning."
+  },
+  {
+    "id": "image-query-img-aurora",
+    "query": "",
+    "imageMemory": "img-aurora",
+    "expect": ["img-aurora"],
+    "kind": "image-query",
+    "note": "Identical bytes test vector retrieval, not visual meaning."
+  },
+  {
+    "id": "image-query-img-balloons",
+    "query": "",
+    "imageMemory": "img-balloons",
+    "expect": ["img-balloons"],
+    "kind": "image-query",
+    "note": "Identical bytes test vector retrieval, not visual meaning."
+  }
+]

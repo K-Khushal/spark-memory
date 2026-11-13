@@ -1,3 +1,4 @@
+import type { ImageQuery } from "./image-query";
 import type { SearchChips } from "@spark/core";
 
 /** Instant: keyword and typo, per keystroke. Full: with meaning, after a pause. */
@@ -8,7 +9,8 @@ export type Mode = "instant" | "full";
  * empty, not both), or a Memory to find More Like This of.
  */
 export type SearchRequest =
-  { query: string; chips?: SearchChips } | { like: string };
+  | { query: string; chips?: SearchChips; visual?: ImageQuery }
+  | { like: string };
 
 /** What matched (packages/db MatchedPart); `page` is a PDF's page. */
 export type MatchedPart =
@@ -46,6 +48,8 @@ export type Answer =
 /** Chips key as `f:` so only an identical search, never a prefix, answers for them. */
 export const requestKey = (request: SearchRequest) => {
   if ("like" in request) return `like:${request.like}`;
+  if (request.visual)
+    return `image:${request.visual.id}|${JSON.stringify(request.chips ?? {})}|${request.query}`;
   const chips = Object.entries(request.chips ?? {}).sort();
   return chips.length
     ? `f:${chips.map(([k, v]) => `${k}=${v}`).join("&")}|${request.query}`
@@ -158,9 +162,10 @@ export function searchSession({
     // Each mode's request: waiting, answered (ok), failed, or not made.
     type Step = "waiting" | "ok" | "failed" | "none";
     // Filters alone have no words to find by meaning: the instant answer is the answer.
-    const wordless = "query" in request && !request.query.trim();
+    const wordless =
+      "query" in request && !request.query.trim() && !request.visual;
     const step: Record<Mode, Step> = {
-      instant: "query" in request ? "waiting" : "none",
+      instant: "query" in request && !request.visual ? "waiting" : "none",
       full: wordless ? "none" : "waiting",
     };
     const done = (mode: Mode, page?: Page, final = true) => {
@@ -182,7 +187,7 @@ export function searchSession({
         ({ final, ...page }) => done(mode, page, final),
         () => done(mode)
       );
-    if ("query" in request) void run("instant");
+    if ("query" in request && !request.visual) void run("instant");
     if (wordless) {
       stop = () => controller.abort();
       return;

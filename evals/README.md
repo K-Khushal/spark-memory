@@ -98,3 +98,7 @@ JINA_API_KEY=... pnpm --filter @spark/evals experiments rerank --yes   # none / 
 ```
 
 Copy `reports/TEMPLATE.md` to `reports/<date>.md`, paste each table in, write the decision, and update ADR-0004 with the winner. The Jev adapter is built in #13; `rerankers.ts` has the seam.
+
+## Image queries
+
+`searches/images.json` sends the bytes of three sample images as queries through `createSearch`. Fake mode can meaningfully check identical-byte retrieval through Visual vectors (all three must rank first); it cannot measure visual similarity between different images. These three top-1 expectations were added to the baseline without changing any existing rank. Real mode uses the same cases with the paid-tier embedder. The text-only Supermemory comparison skips image cases. Library selection, filters, owner isolation and the exclusion of Passage vectors are covered at the database and HTTP boundaries.
