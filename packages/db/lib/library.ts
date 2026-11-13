@@ -7,6 +7,7 @@ import {
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
+  type CaptureRefusal,
   keptPage,
   PAGE_IMAGE,
   PDF_TYPE,
@@ -41,6 +42,7 @@ import {
   memoryIndex,
   memoryVector,
   objectRemoval,
+  usageDay,
   type FileRole,
   type PassageAnchor,
 } from "./schema";
@@ -162,7 +164,7 @@ export type CopyUpload = Omit<FileUpload, "role"> & { role: "video" | "frame" };
 export type CopyResult =
   | { memory: Memory; uploads: CopyUpload[] }
   | { already: true }
-  | { refused: "file_too_large" | "storage_full" | "ai_opt_out" };
+  | { refused: CaptureRefusal | "ai_opt_out" };
 
 export type MemoryFileInfo = FileUpload & { stored: boolean };
 
@@ -172,7 +174,7 @@ export type FileCheck = "stored" | "missing" | "mismatch";
 export type ImageCaptureResult =
   | { created: boolean; memory: Memory; uploads: FileUpload[] }
   | { conflict: true }
-  | { refused: "file_too_large" | "storage_full" };
+  | { refused: CaptureRefusal };
 export type PdfCaptureResult = ImageCaptureResult;
 
 /** A PDF's page image, for the viewer. */
@@ -412,24 +414,65 @@ export function openLibrary(
     return row;
   }
 
-  /** Storage in use, counting uploads still in their window; optionally not one Memory's. */
+  /**
+   * Storage in use, counting uploads still in their window; optionally not
+   * one Memory's. A reel's copy (#20) takes storage while it exists, as every
+   * file does, though it is temporary and never a Capture.
+   */
   async function usedStorage(
     tx: Pick<Database, "select">,
     except?: string
   ): Promise<number> {
-    const [row] = await tx
-      .select({ bytes: sql<string>`coalesce(sum(${memoryFile.bytes}), 0)` })
-      .from(memoryFile)
-      .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
-      .where(
-        and(
-          eq(memory.userId, userId),
-          except === undefined ? undefined : ne(memory.id, except),
-          sql`(${memoryFile.storedAt} is not null or ${memoryFile.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
-        )
-      );
-    return Number(row?.bytes ?? 0);
+    const [[files], [copies]] = await Promise.all([
+      tx
+        .select({ bytes: sql<string>`coalesce(sum(${memoryFile.bytes}), 0)` })
+        .from(memoryFile)
+        .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
+        .where(
+          and(
+            eq(memory.userId, userId),
+            except === undefined ? undefined : ne(memory.id, except),
+            sql`(${memoryFile.storedAt} is not null or ${memoryFile.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
+          )
+        ),
+      tx
+        .select({ bytes: sql<string>`coalesce(sum(${memoryCopy.bytes}), 0)` })
+        .from(memoryCopy)
+        .innerJoin(memory, eq(memory.id, memoryCopy.memoryId))
+        .where(
+          and(
+            eq(memory.userId, userId),
+            except === undefined ? undefined : ne(memory.id, except),
+            sql`(${memoryCopy.storedAt} is not null or ${memoryCopy.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
+          )
+        ),
+    ]);
+    return Number(files?.bytes ?? 0) + Number(copies?.bytes ?? 0);
   }
+
+  /**
+   * Takes one of today's Captures (UTC day), false once they are used up.
+   * One atomic upsert on the person's `usage_day` row, so parallel Captures
+   * cannot pass the limit; it commits or rolls back with the Memory it pays for.
+   */
+  async function takeCapture(tx: Pick<Database, "insert">): Promise<boolean> {
+    const rows = await tx
+      .insert(usageDay)
+      .values({ userId, day: today, captures: 1 })
+      .onConflictDoUpdate({
+        target: [usageDay.userId, usageDay.day],
+        set: { captures: sql`${usageDay.captures} + 1` },
+        setWhere: sql`${usageDay.captures} < ${FREE_ALLOWANCE.capturesPerDay}`,
+      })
+      .returning({ n: usageDay.captures });
+    return rows.length > 0;
+  }
+
+  /** Past today's Captures a link or text is kept, keyword-findable only: no AI work follows. */
+  const partlyIndexed = {
+    indexState: "searchable",
+    overAllowance: true,
+  } as const;
 
   /**
    * A file Memory (image or PDF) created before its files are uploaded,
@@ -541,6 +584,8 @@ export function openLibrary(
         usedStorageBytes: (await usedStorage(tx)) + others - capture.upload,
       });
       if (!allowed.ok) return { refused: allowed.reason };
+      // A file has no Source to fall back on: past today's Captures it is refused.
+      if (!(await takeCapture(tx))) return { refused: "captures_full" };
 
       await tx.insert(memory).values({
         id,
@@ -584,6 +629,7 @@ export function openLibrary(
           kind: memory.kind,
           url: memory.sourceUrlNormalised,
           aiOptOut: memory.aiOptOut,
+          over: memory.overAllowance,
           kept: sql<
             string | null
           >`${memory.metadata}->'video'->>'transcriptState'`,
@@ -596,6 +642,7 @@ export function openLibrary(
         !!row.url &&
         !!instagramReel(row.url) &&
         !row.aiOptOut &&
+        !row.over &&
         row.kept !== "available"
       );
     },
@@ -619,6 +666,7 @@ export function openLibrary(
             kind: memory.kind,
             url: memory.sourceUrlNormalised,
             aiOptOut: memory.aiOptOut,
+            over: memory.overAllowance,
             kept: sql<
               string | null
             >`${memory.metadata}->'video'->>'transcriptState'`,
@@ -635,10 +683,25 @@ export function openLibrary(
         }
         // Never sent to a provider, so never uploaded for one.
         if (row.aiOptOut) return { refused: "ai_opt_out" };
+        // Captured over the limit: no AI work, so nothing to read a copy for.
+        if (row.over) return { refused: "captures_full" };
         if (row.kept === "available") return { already: true };
+        // The video is the file (`maxUploadBytes`); its frames take storage
+        // too. An earlier copy is replaced below, so it does not count.
+        const [earlier] = await tx
+          .select({ bytes: sql<string>`coalesce(sum(${memoryCopy.bytes}), 0)` })
+          .from(memoryCopy)
+          .where(
+            and(
+              eq(memoryCopy.memoryId, id),
+              sql`(${memoryCopy.storedAt} is not null or ${memoryCopy.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
+            )
+          );
+        const frames = copy.frames.reduce((n, f) => n + f.bytes, 0);
         const allowed = isFileWithinAllowance({
           fileBytes: copy.bytes,
-          usedStorageBytes: await usedStorage(tx),
+          usedStorageBytes:
+            (await usedStorage(tx)) - Number(earlier?.bytes ?? 0) + frames,
         });
         if (!allowed.ok) return { refused: allowed.reason };
         // An earlier copy goes; the trigger queues its objects for removal.
@@ -725,6 +788,16 @@ export function openLibrary(
       return db.transaction(async (tx) => {
         await lockOwner(tx, userId);
         if (await deletionRequested(tx, userId)) return undefined;
+        // Captured over the limit: no AI work. The copy goes (its objects are
+        // queued for removal) and nothing restarts Indexing.
+        const [flag] = await tx
+          .select({ over: memory.overAllowance })
+          .from(memory)
+          .where(owned(id));
+        if (flag?.over) {
+          await tx.delete(memoryCopy).where(eq(memoryCopy.memoryId, id));
+          return undefined;
+        }
         // Only the generation just checked is stored: a replaced copy has new keys.
         const stored = await tx
           .update(memoryCopy)
@@ -767,25 +840,34 @@ export function openLibrary(
     async capture(input: TextCapture): Promise<CaptureResult> {
       const parsed = TextCapture.parse(input);
       const { id, body, title, captureNote } = parsed;
-      const [row] = await db
-        .insert(memory)
-        .values({
-          id,
-          userId,
-          kind: "text",
-          sourceUrl: parsed.source?.url,
-          metadata: parsed.source
-            ? { selectionContext: parsed.source.context }
-            : undefined,
-          body,
-          title,
-          captureNote,
-          indexPriority: "fresh",
-          productAnalytics: parsed.productAnalytics === true,
-        })
-        .onConflictDoNothing({ target: memory.id })
-        .returning(columns);
-      if (row) return { created: true, memory: row };
+      const saved = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(memory)
+          .values({
+            id,
+            userId,
+            kind: "text",
+            sourceUrl: parsed.source?.url,
+            metadata: parsed.source
+              ? { selectionContext: parsed.source.context }
+              : undefined,
+            body,
+            title,
+            captureNote,
+            indexPriority: "fresh",
+            productAnalytics: parsed.productAnalytics === true,
+          })
+          .onConflictDoNothing({ target: memory.id })
+          .returning(columns);
+        if (!row || (await takeCapture(tx))) return row;
+        const [kept] = await tx
+          .update(memory)
+          .set(partlyIndexed)
+          .where(owned(row.id))
+          .returning(columns);
+        return kept;
+      });
+      if (saved) return { created: true, memory: saved };
       const existing = id ? await get(id) : undefined;
       return existing
         ? { created: false, memory: existing }
@@ -804,26 +886,37 @@ export function openLibrary(
       const { id, url, captureNote, productAnalytics } = parsed;
       const kept = parsed.page ? keptPage(parsed.page) : undefined;
       const normalised = normaliseUrl(url)!;
-      const [row] = await db
-        .insert(memory)
-        .values({
-          id,
-          userId,
-          kind: isVideoUrl(url) ? "video" : "link",
-          sourceUrl: url,
-          sourceUrlNormalised: normalised,
-          captureNote,
-          preservation:
-            !isVideoUrl(url) && kept?.text ? "preserved" : "reference_only",
-          ...(kept && {
-            metadata: kept.metadata,
-            body: isVideoUrl(url) ? null : kept.text,
-          }),
-          indexPriority: "fresh",
-          productAnalytics: productAnalytics === true,
-        })
-        .onConflictDoNothing()
-        .returning(columns);
+      const row = await db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(memory)
+          .values({
+            id,
+            userId,
+            kind: isVideoUrl(url) ? "video" : "link",
+            sourceUrl: url,
+            sourceUrlNormalised: normalised,
+            captureNote,
+            preservation:
+              !isVideoUrl(url) && kept?.text ? "preserved" : "reference_only",
+            ...(kept && {
+              metadata: kept.metadata,
+              body: isVideoUrl(url) ? null : kept.text,
+            }),
+            indexPriority: "fresh",
+            productAnalytics: productAnalytics === true,
+          })
+          .onConflictDoNothing()
+          .returning(columns);
+        // Past today's Captures the link is still kept (GLOSSARY.md, Free
+        // allowance): with what the browser sent, and no Gather or AI.
+        if (!inserted || (await takeCapture(tx))) return inserted;
+        const [limited] = await tx
+          .update(memory)
+          .set(partlyIndexed)
+          .where(owned(inserted.id))
+          .returning(columns);
+        return limited;
+      });
       if (row) return { created: true, memory: row };
       if (id) {
         const [taken] = await db
@@ -863,24 +956,31 @@ export function openLibrary(
         const filled = await db.transaction(async (tx) => {
           await lockOwner(tx, userId);
           if (await deletionRequested(tx, userId)) return undefined;
+          // Captured over the limit: the text is free to keep (and findable),
+          // but it never starts the AI work that Capture did not pay for.
+          const [flag] = await tx
+            .select({ over: memory.overAllowance })
+            .from(memory)
+            .where(owned(existing.id));
+          const over = flag?.over === true;
           const [row] = await tx
             .update(memory)
             .set({
               body: kept.text,
               metadata: sql`coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(kept.metadata)}::jsonb`,
               preservation: "preserved",
-              ...restartIndexing,
+              ...(over ? {} : restartIndexing),
             })
             .where(and(owned(existing.id), sql`${memory.body} is null`))
             .returning(columns);
-          return row;
+          return row && { row, over };
         });
         if (filled)
           return {
             created: false,
             duplicate: true,
-            indexAgain: true,
-            memory: filled,
+            ...(!filled.over && { indexAgain: true as const }),
+            memory: filled.row,
           };
       }
       return existing
@@ -1194,6 +1294,68 @@ export function openLibrary(
     usedStorage: () => usedStorage(db),
 
     /**
+     * What the Free allowance has used: storage, and today's (UTC) Captures
+     * and Deep fetches. Samples have no files and take no Capture.
+     */
+    async usage() {
+      const [[day], storageBytes] = await Promise.all([
+        db
+          .select({
+            captures: usageDay.captures,
+            deepFetches: usageDay.deepFetches,
+          })
+          .from(usageDay)
+          .where(and(eq(usageDay.userId, userId), eq(usageDay.day, today))),
+        usedStorage(db),
+      ]);
+      return {
+        storageBytes,
+        captures: day?.captures ?? 0,
+        deepFetches: day?.deepFetches ?? 0,
+      };
+    },
+
+    /**
+     * The Memories that take the most storage, largest first, for the
+     * person to delete when the Library is full. Counts as `usedStorage`
+     * does: files and reel copies, uploads still in their window too.
+     */
+    async largest(limit: number) {
+      // Files and a reel's copy (#20) are summed per Memory, with the same
+      // expiry rule as `usedStorage`, before ranking.
+      const { rows } = await db.execute<{
+        id: string;
+        kind: MemoryKind;
+        title: string | null;
+        source_url: string | null;
+        bytes: string;
+      }>(sql`
+        select m.id, m.kind, m.title, m.source_url, sum(t.bytes) as bytes
+        from (
+          select memory_id, bytes from memory_file
+            where stored_at is not null
+              or created_at > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})
+          union all
+          select memory_id, bytes from memory_copy
+            where stored_at is not null
+              or created_at > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})
+        ) t
+        join memory m on m.id = t.memory_id
+        where m.user_id = ${userId}
+        group by m.id
+        order by sum(t.bytes) desc, m.id asc
+        limit ${limit}
+      `);
+      return rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        sourceUrl: row.source_url,
+        bytes: Number(row.bytes),
+      }));
+    },
+
+    /**
      * Image Memories whose upload has not finished and whose presigned PUT
      * has expired, newest first, so the wall can offer to delete them before
      * the sweep. Younger ones stay out: another tab may still be uploading.
@@ -1270,7 +1432,7 @@ export function openLibrary(
       const reindex =
         changes.body === undefined
           ? sql`false`
-          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut} and not ${memory.sample}`;
+          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut} and not ${memory.sample} and not ${memory.overAllowance}`;
       // One transaction: new text and the end of the old text's vectors
       // (they would match it, and point into the new text) land together.
       const row = await db.transaction(async (tx) => {
@@ -1356,7 +1518,13 @@ export function openLibrary(
       await db
         .update(memory)
         .set(restartIndexing)
-        .where(and(owned(id), eq(memory.indexState, "failed")));
+        .where(
+          and(
+            owned(id),
+            eq(memory.indexState, "failed"),
+            eq(memory.overAllowance, false)
+          )
+        );
       return get(id);
     },
 
@@ -1382,7 +1550,8 @@ export function openLibrary(
           and(
             owned(id),
             eq(memory.deepFetchState, "failed"),
-            sql`not (${memory.kind} = 'video' and ${memory.aiOptOut})`
+            sql`not (${memory.kind} = 'video' and ${memory.aiOptOut})`,
+            eq(memory.overAllowance, false)
           )
         );
       return get(id);
@@ -1421,7 +1590,7 @@ export function openLibrary(
               : {
                   aiOptOut: false,
                   ...restartIndexing,
-                  indexState: sql`case when ${memory.sample} then 'searchable' else 'indexing' end`,
+                  indexState: sql`case when ${memory.sample} or ${memory.overAllowance} then 'searchable' else 'indexing' end`,
                 }
           )
           .where(and(owned(id), eq(memory.aiOptOut, !on)))
@@ -1554,8 +1723,9 @@ export function openLibrary(
     /**
      * What an outside judge may read of these Memories, each cut to `chars`:
      * title, Capture Note, what Indexing found and the start of the text.
-     * Memories with AI opt-out and Samples are never returned (ADR-0011),
-     * nor is anything of another person's, so the caller cannot send them.
+     * Memories with AI opt-out, Samples and those captured over the Free
+     * allowance (no AI work for good) are never returned (ADR-0011), nor is
+     * anything of another person's, so the caller cannot send them.
      */
     async judgingTexts(
       ids: string[],
@@ -1589,7 +1759,8 @@ export function openLibrary(
             eq(memory.userId, userId),
             inArray(memory.id, wanted),
             eq(memory.aiOptOut, false),
-            eq(memory.sample, false)
+            eq(memory.sample, false),
+            eq(memory.overAllowance, false)
           )
         );
       return new Map(

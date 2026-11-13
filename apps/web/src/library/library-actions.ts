@@ -164,6 +164,7 @@ export function libraryActions({
   notify,
   onSaved,
   onCaptured,
+  freeUpSpace,
 }: {
   setMemories: Dispatch<SetStateAction<WallMemory[]>>;
   transport: Transport;
@@ -172,6 +173,8 @@ export function libraryActions({
   onSaved: () => void;
   /** The server accepted a new Memory. Kind only, for the product event. */
   onCaptured?: (kind: "text" | "image" | "link" | "pdf") => void;
+  /** Where to free storage, offered when a file does not fit (see imageCapture). */
+  freeUpSpace?: () => void;
 }) {
   /** Deletes waiting out their Undo window: id → send it now. */
   const pendingDeletes = new Map<string, () => void>();
@@ -359,6 +362,7 @@ export function libraryActions({
     onSaved,
     onCaptured: (kind) => onCaptured?.(kind),
     inOrder,
+    freeUpSpace,
   });
 
   /** Deletes Memories now, no Undo window; Try Again resends the deletes. */

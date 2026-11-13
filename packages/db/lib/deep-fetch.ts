@@ -61,7 +61,8 @@ const claimed = ({
     eq(memory.indexGeneration, generation),
     eq(memory.deepFetchRun, run),
     eq(memory.deepFetchState, "running"),
-    eq(memory.deepFetchToken, token)
+    eq(memory.deepFetchToken, token),
+    eq(memory.overAllowance, false)
   );
 
 /** Queued and past its due time, or running on a lease that ran out. */
@@ -99,10 +100,12 @@ export function deepFetchStore(db: Database) {
      * does not run for ever. `attempts` is this attempt's number.
      */
     async claim(memoryId: string, generation: string, run: number) {
+      // Captured over the Free allowance: no AI work, so none that restarts it.
       const whose = and(
         eq(memory.id, memoryId),
         eq(memory.indexGeneration, generation),
-        eq(memory.deepFetchRun, run)
+        eq(memory.deepFetchRun, run),
+        eq(memory.overAllowance, false)
       );
       await db
         .update(memory)
@@ -331,7 +334,7 @@ export function deepFetchStore(db: Database) {
           run: memory.deepFetchRun,
         })
         .from(memory)
-        .where(isDue)
+        .where(and(isDue, eq(memory.overAllowance, false)))
         .orderBy(memory.deepFetchDueAt)
         .limit(limit);
       return rows.map((r) => ({ ...r, delaySeconds: 0 }));

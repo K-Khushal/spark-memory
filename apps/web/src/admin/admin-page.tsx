@@ -10,13 +10,9 @@ import {
   noteAdminStatus,
   type AppSession,
 } from "../auth";
+import { formatSize } from "@spark/core";
 import { DeskSidebar, useLibraryDesk } from "../shell";
-import {
-  dollarsToMicros,
-  formatBytes,
-  formatCost,
-  microsToDollars,
-} from "./format";
+import { dollarsToMicros, formatCost, microsToDollars } from "./format";
 
 type Summary = InferResponseType<(typeof api.api.admin.summary)["$get"], 200>;
 type Usage = InferResponseType<(typeof api.api.admin.users)["$get"], 200>;
@@ -267,7 +263,7 @@ export function AdminPage({ session }: { session: AppSession }) {
                           {person.memories}
                         </Cell>
                         <Cell align="right" className="tabular-nums">
-                          {formatBytes(person.storageBytes)}
+                          {formatSize(person.storageBytes)}
                         </Cell>
                         <Cell align="right" className="tabular-nums">
                           {formatCost(person.costMicros)}

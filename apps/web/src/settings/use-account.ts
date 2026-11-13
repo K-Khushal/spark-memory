@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "@spark/ui";
 import { api } from "../api";
 import { endSession } from "../auth";
+import type { Usage } from "./usage";
 
 export type DeviceSession = {
   handle: string;
@@ -34,6 +35,11 @@ async function fetchSessions(): Promise<DeviceSession[] | "failed"> {
   return res?.ok ? (await res.json()).sessions : "failed";
 }
 
+async function fetchUsage(): Promise<Usage | "failed"> {
+  const res = await api.api.usage.$get().catch(() => undefined);
+  return res?.ok ? ((await res.json()) as Usage) : "failed";
+}
+
 async function fetchExport(): Promise<LibraryExport | "failed"> {
   const res = await account.export.$get().catch(() => undefined);
   return res?.ok ? ((await res.json()).export as LibraryExport) : "failed";
@@ -52,6 +58,7 @@ const didNotFinish = (message: string, retry: () => void) =>
 export function useAccount() {
   const [sessions, setSessions] = useState<DeviceSession[] | "failed">();
   const [current, setCurrent] = useState<LibraryExport | "failed">();
+  const [usage, setUsage] = useState<Usage | "failed">();
   const [pending, setPending] = useState<"export" | "everywhere">();
   const [version, setVersion] = useState(0);
   const reload = () => setVersion((v) => v + 1);
@@ -60,6 +67,7 @@ export function useAccount() {
     let live = true;
     void fetchSessions().then((s) => live && setSessions(s));
     void fetchExport().then((e) => live && setCurrent(e));
+    void fetchUsage().then((u) => live && setUsage(u));
     return () => {
       live = false;
     };
@@ -91,6 +99,21 @@ export function useAccount() {
     timer = setTimeout(() => void tick(), delay);
     return () => clearTimeout(timer);
   }, [building]);
+
+  /** Deletes a Memory for good, from the list of what takes the most storage; true once it is gone. */
+  async function deleteMemory(id: string) {
+    const res = await api.api.memories[":id"]
+      .$delete({ param: { id } })
+      .catch(() => undefined);
+    const status: number | undefined = res?.status;
+    if (status !== 204 && status !== 404) {
+      didNotFinish("Delete Did Not Finish", () => void deleteMemory(id));
+      return false;
+    }
+    const next = await fetchUsage();
+    if (next !== "failed") setUsage(next);
+    return true;
+  }
 
   async function revoke(session: DeviceSession) {
     const res = await account.sessions[":handle"]
@@ -155,6 +178,8 @@ export function useAccount() {
 
   return {
     sessions,
+    usage,
+    deleteMemory,
     export: current,
     pending,
     reload,

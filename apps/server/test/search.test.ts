@@ -336,6 +336,40 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     expect(matches(await ask(on))[read]).toBe("direct");
   });
 
+  it("never sends a Memory captured over the Free allowance to Jev: its Direct Match stays with the thresholds", async () => {
+    const { call } = await signedIn();
+    const read = await capture(call, "Sunset over the dock");
+    const over = await capture(call, "Sunset over the dock");
+    await sql.query("update memory set over_allowance = true where id = $1", [
+      over,
+    ]);
+    const sent: { state: { saved: Record<string, string> } }[] = [];
+    const before = vi.mocked(globalThis.fetch).getMockImplementation()!;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.includes("api.typesafe.ai")) return before(input, init);
+      sent.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        answers: { m0: { type: "noul", noul: 0.1 } },
+        usage: { input_tokens: 500, output_tokens: 0 },
+      });
+    });
+    const on = env({ JEV_API_KEY: "k", JEV_ENABLED: "true" });
+    const results = (
+      (await (
+        await postSearch(call, { q: "sunset", mode: "full" }, on)
+      ).json()) as { results: Result[] }
+    ).results;
+    // Jev ruled on the one Memory it may read, and only its content was sent.
+    expect(sent).toHaveLength(1);
+    expect(Object.keys(sent[0]!.state.saved)).toHaveLength(1);
+    expect(JSON.stringify(sent)).not.toContain(over);
+    expect(Object.fromEntries(results.map((r) => [r.id, r.match]))).toEqual({
+      [read]: "related",
+      [over]: "direct",
+    });
+  });
+
   it("says a Memory has vectors only where this environment can search with them", async () => {
     const { call } = await signedIn();
     const id = await capture(call, "Sunset over the dock");
