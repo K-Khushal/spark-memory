@@ -16,20 +16,6 @@ export type OwnCategory = { id: string; name: string; memories: number };
 export type CategoryProgress = { done: number; total: number };
 export type CategoryProblem = CategoryNameProblem | "limit";
 
-/** The Postgres error the `memory_categories_known` trigger raises, wherever drizzle wrapped it. */
-export function isUnknownCategory(error: unknown): boolean {
-  for (
-    let e = error as { cause?: unknown; constraint?: string } | undefined,
-      i = 0;
-    e && i < 5;
-    i++
-  ) {
-    if (e.constraint === "memory_categories_known") return true;
-    e = e.cause as typeof e;
-  }
-  return false;
-}
-
 /**
  * One person's own Categories (ADR-0008). Every call is scoped to the owner:
  * another person's Category is `undefined` or unknown, never an error that

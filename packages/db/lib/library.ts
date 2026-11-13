@@ -28,7 +28,7 @@ import {
   type Preservation,
 } from "@spark/core";
 import type { Database } from "./client";
-import { isUnknownCategory } from "./categories";
+import { isUnknownCategory } from "./category-errors";
 import {
   deletionRequested,
   lockOwner,
