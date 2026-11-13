@@ -232,7 +232,7 @@ function Viewer({
         // A tab stop too, so the keyboard can always come back to scrolling.
         tabIndex={0}
         aria-label="Pages"
-        className="absolute inset-x-0 top-17 bottom-0 overflow-y-auto overscroll-contain px-4 pb-6 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring md:px-16"
+        className="absolute inset-x-0 top-17 bottom-0 overflow-y-auto overscroll-contain px-4 pb-6 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring md:px-16"
       >
         <div className="mx-auto flex max-w-[50rem] flex-col gap-4">
           {shown ? (
@@ -303,6 +303,8 @@ function PageView({
   eager: boolean;
   onBroken: () => void;
 }) {
+  // A page that still will not load leaves its empty sheet, not a broken glyph.
+  const [unreadable, setUnreadable] = useState(false);
   return (
     <figure data-page={page.page} className="flex flex-col gap-3">
       {/* What matched comes first, so it is on screen when the page opens. */}
@@ -322,8 +324,15 @@ function PageView({
         loading={eager ? "eager" : "lazy"}
         decoding="async"
         draggable={false}
-        onError={onBroken}
-        className="h-auto w-full rounded-tile bg-surface select-none"
+        onError={() => {
+          setUnreadable(true);
+          onBroken();
+        }}
+        onLoad={() => setUnreadable(false)}
+        className={cn(
+          "h-auto w-full rounded-tile bg-surface select-none",
+          unreadable && "invisible"
+        )}
       />
     </figure>
   );

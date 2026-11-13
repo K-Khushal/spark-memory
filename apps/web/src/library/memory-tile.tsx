@@ -1,6 +1,6 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { IndexBadge } from "./index-state";
-import { RotateCwIcon, Trash2Icon } from "lucide-react";
+import { PlayIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { sourceHost } from "@spark/core";
 import { cn } from "@spark/ui";
@@ -213,6 +213,8 @@ function ImageTile({
   const placeholder = placeholderUrl(image.thumbhash);
   // A stranded upload may have no thumbnail stored: its ThumbHash stands in.
   const stranded = memory.upload?.step === "stranded";
+  // An image that still will not load leaves the placeholder, not a broken glyph.
+  const [unreadable, setUnreadable] = useState(false);
   return (
     <figure className="group h-full cursor-pointer">
       <div
@@ -226,9 +228,14 @@ function ImageTile({
             loading="lazy"
             decoding="async"
             draggable={false}
-            onError={() => onBroken(memory.id)}
+            onError={() => {
+              setUnreadable(true);
+              onBroken(memory.id);
+            }}
+            onLoad={() => setUnreadable(false)}
             className={cn(
               "h-full w-full object-cover",
+              unreadable && "invisible",
               // Screenshots read top down: crop the bottom.
               image.height / image.width > ASPECT.max && "object-top"
             )}
@@ -410,12 +417,13 @@ function LinkTile({
           </p>
         )}
         <div className="mt-auto flex h-6 shrink-0 items-center justify-between gap-2">
-          <span
-            className="min-w-0 truncate text-xs text-ink-muted"
-            dir="ltr"
-            translate="no"
-          >
-            {host !== name && <Highlighted text={host} query={query} />}
+          <span className="flex min-w-0 items-center gap-1 text-xs text-ink-muted">
+            {memory.kind === "video" && (
+              <PlayIcon className="size-3 shrink-0" aria-hidden />
+            )}
+            <span className="truncate" dir="ltr" translate="no">
+              {host !== name && <Highlighted text={host} query={query} />}
+            </span>
           </span>
           {isReferenceOnly(memory) ? (
             <ReferenceOnlyBadge />
