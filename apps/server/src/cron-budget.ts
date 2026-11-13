@@ -13,8 +13,8 @@ export const CRON_SHARES = {
   uploads: 6,
   accounts: 6,
   cleanup: 4,
-  exports: 10,
-  indexing: 8,
+  exports: 8,
+  indexing: 10,
   imports: 2,
   deepFetch: 4,
 } as const;

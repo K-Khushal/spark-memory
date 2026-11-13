@@ -16,6 +16,7 @@ type Job = {
   loaded: number;
   done: number;
   skipped: number;
+  spread: boolean;
   availableAt: string;
 };
 type Endpoint = ReturnType<typeof createApiClient>["api"]["imports"];
@@ -236,7 +237,11 @@ export function ImportSection({ userId }: { userId: string }) {
       const id = job?.state === "loading" ? job.id : crypto.randomUUID();
       const created = await read<{ job: Job }>(
         endpoint.create.$post({
-          json: { id, total: parsed.items.length, spread },
+          json: {
+            id,
+            total: parsed.items.length,
+            spread: job?.state === "loading" ? job.spread : spread,
+          },
         })
       );
       setJob(created.job);
