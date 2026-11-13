@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { CATEGORY_NAMES, MAX_CATEGORIES, type Category } from "@spark/core";
+import { CATEGORY_NAMES, MAX_CATEGORIES } from "@spark/core";
 import { ChevronDownIcon } from "lucide-react";
 import { Button, FilterChip } from "@spark/ui";
+import { useOwnCategoryNames } from "./own-categories";
 import type { Memory } from "./use-library";
 
 export type CategoryEdit = (
   memory: Memory,
-  categories: Category[]
+  categories: string[]
 ) => Promise<boolean>;
 
 /**
@@ -21,10 +22,11 @@ export function CategoryEditor({
   memory: Memory;
   onSave?: CategoryEdit;
 }) {
-  const [selected, setSelected] = useState<Category[]>(memory.categories);
+  const [selected, setSelected] = useState<string[]>(memory.categories);
   const [state, setState] = useState<"idle" | "saving" | "failed">("idle");
+  const own = useOwnCategoryNames();
   if (!onSave) return null;
-  const toggle = (name: Category) =>
+  const toggle = (name: string) =>
     setSelected((now) =>
       now.includes(name)
         ? now.filter((c) => c !== name)
@@ -53,7 +55,7 @@ export function CategoryEditor({
         />
       </summary>
       <div className="flex flex-wrap gap-2 py-2">
-        {CATEGORY_NAMES.map((name) => (
+        {[...CATEGORY_NAMES, ...own].map((name) => (
           <FilterChip
             key={name}
             aria-pressed={selected.includes(name)}
@@ -61,10 +63,12 @@ export function CategoryEditor({
               !selected.includes(name) && selected.length >= MAX_CATEGORIES
             }
             disabled={state === "saving"}
-            className="aria-disabled:opacity-50"
+            className="max-w-full aria-disabled:opacity-50"
             onClick={() => toggle(name)}
           >
-            {name}
+            <span className="truncate" dir="auto">
+              {name}
+            </span>
           </FilterChip>
         ))}
       </div>

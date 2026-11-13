@@ -28,14 +28,14 @@ export type CategoryScore = {
  */
 export function scoreCategories(
   labels: CategoryLabels,
-  assigned: ReadonlyMap<string, readonly Category[]>
+  assigned: ReadonlyMap<string, readonly string[]>
 ): CategoryScore {
   let first = 0;
   let all = 0;
   const ids = Object.keys(labels);
   for (const id of ids) {
     const got = assigned.get(id) ?? [];
-    const accepted = labels[id]!;
+    const accepted: readonly string[] = labels[id]!;
     if (got.length && accepted.includes(got[0]!)) first++;
     if (got.length && got.every((c) => accepted.includes(c))) all++;
   }

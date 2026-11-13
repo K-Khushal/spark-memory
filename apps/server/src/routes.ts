@@ -7,6 +7,7 @@ import { onboarding } from "./onboarding";
 import { account } from "./account";
 import { admin } from "./admin";
 import { memories } from "./memories";
+import { categories } from "./categories";
 import { FILE_CACHE_CONTROL, usesLocalFiles, verifyLocalUrl } from "./files";
 import {
   readDevOutbox,
@@ -100,5 +101,6 @@ export const routes = new Hono<AppEnv>()
     });
   })
   .route("/", memories)
+  .route("/", categories)
   .route("/", account)
   .route("/", onboarding);
