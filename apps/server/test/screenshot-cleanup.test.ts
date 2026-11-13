@@ -57,7 +57,12 @@ describe.skipIf(!databaseUrl)("screenshot failures", () => {
           bindings,
           ctx
         );
-        expect(response.status).toBe(500);
+        expect(response.status).toBe(failure === "refusal" ? 503 : 500);
+        if (failure === "refusal")
+          expect(await response.json()).toEqual({
+            ok: false,
+            error: "unavailable",
+          });
         expect(files.objects.has(key)).toBe(true);
         // Cleanup must leave a live upload alone, then reclaim the object
         // after its window, including when the request's delete failed.
