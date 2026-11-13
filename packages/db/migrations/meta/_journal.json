@@ -173,8 +173,15 @@
     {
       "idx": 24,
       "version": "7",
-      "when": 1794490000000,
-      "tag": "0024_custom_categories",
+      "when": 1794500000000,
+      "tag": "0024_deep_fetch",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794520000000,
+      "tag": "0026_custom_categories",
       "breakpoints": true
     }
   ]

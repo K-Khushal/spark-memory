@@ -13,3 +13,9 @@ Spark never logs into platforms on the server, not with accounts we own, burner 
 
 - Both engines sit behind one Deep fetch interface, so either can be replaced.
 - Free tiers bound the work (Browser Rendering is 10 minutes a day on the free plan). When a month's Cloud Run free tier runs out, Deep fetches queue for the next month instead of costing money.
+
+## Amendment (November 2026, #21)
+
+The first build returns a timestamped transcript for video and a text, metadata and screenshot for pages. **Keyframes for Visual vectors are not built yet**: they need the Indexing pipeline to embed images that are not the Memory's own, which is a separate change, and the transcript is what makes a video findable. The container carries no headless browser either: the audio path needs only yt-dlp (with Node as its JavaScript runtime) and ffmpeg. Limits, free tiers and what each number rests on are in [docs/research/deep-fetch.md](../research/deep-fetch.md).
+
+Thin means **no Preserved text** (a login wall, an app shell) or a video without a transcript. A missing image alone never triggers a Deep fetch (orchestrator decision, November 2026).

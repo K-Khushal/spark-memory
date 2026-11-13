@@ -1,0 +1,23 @@
+{
+  "name": "@spark/deep-fetch",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./fetcher": "./fetcher.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@spark/core": "workspace:*",
+    "@spark/indexing": "workspace:*"
+  },
+  "devDependencies": {
+    "@spark/config": "workspace:*",
+    "@spark/db": "workspace:*",
+    "drizzle-orm": "0.45.4"
+  }
+}

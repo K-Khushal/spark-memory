@@ -512,6 +512,7 @@ export function LibraryPage({
           onRetry={library.retryUpload}
           onBroken={library.refresh}
           onRetryIndexing={library.retryIndexing}
+          onRetryDeepFetch={library.retryDeepFetch}
           onCategories={library.setCategories}
           onAiOptOut={library.setAiOptOut}
           onMoreLikeThis={moreLikeThis}

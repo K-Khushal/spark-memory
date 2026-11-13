@@ -7,7 +7,7 @@ describe("the hourly cron's call budget", () => {
     expect(CRON_SUBREQUESTS).toBe(40);
     let uploads = 0;
     while (calls.take("uploads")) uploads += 1;
-    expect(uploads).toBe(10);
+    expect(uploads).toBe(6);
     expect(calls.take("uploads")).toBe(false);
     expect(calls.remaining("uploads")).toBe(0);
     expect(calls.take("indexing")).toBe(true);
