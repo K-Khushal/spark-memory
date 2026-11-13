@@ -99,6 +99,8 @@ export function normaliseUrl(input: string): string | undefined {
   const post = socialPostUrl(url);
   if (post) return post;
   url.hash = "";
+  // Valid 11-character ids were canonicalised above. Legacy watch/youtu.be
+  // Sources with other ids still lose their playback timestamp here.
   const video = isYouTubeVideo(input);
   const kept = [...url.searchParams].filter(
     ([name]) => !isTracker(name) && !(video && name === "t")
