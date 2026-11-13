@@ -283,6 +283,8 @@ export type SearchResult = Memory & {
   /** Cosine distance of its closest vector; null when the vector leg did not find it. */
   distance: number | null;
   part: MatchedPart;
+  /** The fused rank score (higher is better); only meaningful beside the same search's other results. */
+  score: number;
 };
 
 /** The query's side of the vector leg: its vector, or a Memory's own (More Like This). */
@@ -1659,6 +1661,7 @@ export function openLibrary(
           matched: hits.matched,
           distance: hits.distance,
           part: hits.part,
+          score: hits.score,
         })
         .from(hits)
         .innerJoin(memory, eq(memory.id, hits.id))
@@ -1670,6 +1673,66 @@ export function openLibrary(
           )
         )
         .orderBy(asc(hits.place));
+    },
+
+    /**
+     * What an outside judge may read of these Memories, each cut to `chars`:
+     * title, Capture Note, what Indexing found and the start of the text.
+     * Memories with AI opt-out and Samples are never returned (ADR-0011),
+     * nor is anything of another person's, so the caller cannot send them.
+     */
+    async judgingTexts(
+      ids: string[],
+      chars: number
+    ): Promise<Map<string, string>> {
+      const wanted = ids.filter((id) => UUID.test(id));
+      if (!wanted.length) return new Map();
+      const rows = await db
+        .select({
+          id: memory.id,
+          title: memory.title,
+          captureNote: memory.captureNote,
+          body: sql<string | null>`left(${memory.body}, ${chars})`,
+          pageTitle: sql<string | null>`${memory.metadata}->>'title'`,
+          pageDescription: sql<
+            string | null
+          >`${memory.metadata}->>'description'`,
+          found: sql<{
+            title: string;
+            description: string;
+            tags: string[];
+            ocrText: string;
+          } | null>`case when ${memoryIndex.memoryId} is null then null else json_build_object(
+            'title', ${memoryIndex.title}, 'description', ${memoryIndex.description},
+            'tags', ${memoryIndex.tags}, 'ocrText', left(${memoryIndex.ocrText}, ${chars})) end`,
+        })
+        .from(memory)
+        .leftJoin(memoryIndex, eq(memoryIndex.memoryId, memory.id))
+        .where(
+          and(
+            eq(memory.userId, userId),
+            inArray(memory.id, wanted),
+            eq(memory.aiOptOut, false),
+            eq(memory.sample, false)
+          )
+        );
+      return new Map(
+        rows.map((row) => {
+          const parts = [
+            row.title ?? row.pageTitle,
+            row.found?.title,
+            row.captureNote && `Note: ${row.captureNote}`,
+            (row.found?.description ?? row.pageDescription) || undefined,
+            row.found?.tags.length ? `Tags: ${row.found.tags.join(", ")}` : "",
+            row.found?.ocrText && `Text in image: ${row.found.ocrText}`,
+            row.body,
+          ];
+          return [
+            row.id,
+            [...new Set(parts.filter(Boolean))].join("\n").slice(0, chars),
+          ];
+        })
+      );
     },
   };
 }
