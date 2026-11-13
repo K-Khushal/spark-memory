@@ -41,18 +41,13 @@ function Popup() {
   return (
     <main>
       <header>
-        <a
-          href={API_ORIGIN}
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Open Library"
-        >
-          Spark
+        <a href={API_ORIGIN} target="_blank" rel="noreferrer">
+          Spark<span className="sr-only">, Open Library</span>
         </a>
       </header>
-      <h1 role="status">
+      <p role="status">
         {("label" in result && result.label) || labels[result.state]}
-      </h1>
+      </p>
       {result.state === "signed-out" && (
         <a
           className="button"
@@ -119,6 +114,7 @@ function Popup() {
       )}
       {result.hasRows && result.state !== "saving" && (
         <button
+          className="quiet"
           onClick={async () => {
             if (!window.confirm("Discard All Queued Captures?")) return;
             await browser.runtime.sendMessage({ type: "clear" });
