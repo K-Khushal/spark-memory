@@ -14,6 +14,7 @@ import {
   embedderFor,
   pdfReaderFor,
   providerChain,
+  transcriberFor,
   type ChainOptions,
   type IndexOutcome,
   type Priority,
@@ -63,6 +64,7 @@ export function gathererFor(env: Bindings) {
   return createGatherer({
     fetch: web,
     resolve: dohResolver(web),
+    instagramOembed: env.INSTAGRAM_OEMBED === "true",
     ...(env.LINK_READER === "jina" && {
       reader: { ...(env.JINA_API_KEY && { apiKey: env.JINA_API_KEY }) },
     }),
@@ -141,6 +143,7 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
     const options = providers(env);
     const embedder = embedderFor(options);
     const readPdf = pdfReaderFor(options);
+    const transcriber = transcriberFor(options);
     const { index } = createIndexer({
       store,
       jev: jevCategories({
@@ -151,7 +154,9 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
       providers: providerChain(options),
       ...(embedder && { embedder }),
       ...(readPdf && { readPdf }),
+      ...(transcriber && { transcriber }),
       gatherer: gathererFor(env),
+      removeFiles: (keys) => env.FILES.delete(keys),
       readFile: async (key) => {
         const object = await env.FILES.get(key);
         return object

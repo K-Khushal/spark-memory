@@ -1,5 +1,6 @@
 import type { LinkCapture, TextCapture, ImageCapture } from "@spark/core";
 import { decodeData, type ImageBytes } from "./image";
+import type { ReelRead } from "./sites/reel";
 
 export class ApiError extends Error {
   constructor(readonly status: number) {
@@ -78,6 +79,59 @@ export function captureClient(origin: string, request: typeof fetch = fetch) {
           throw new ApiError(503);
         throw error;
       }
+    },
+    /** Whether Spark would use a copy of this reel: asked before anything is downloaded. */
+    copyWanted: async (owner: string, id: string): Promise<boolean> =>
+      (await (await call(`memories/${id}/copy`, owner)).json()).wanted === true,
+    /**
+     * A reel's copy for Indexing (ADR-0010): described, then PUT straight to
+     * storage without credentials, then confirmed. "already" when Spark has
+     * its transcript. The bytes live only in this call, never in storage.
+     */
+    copy: async (
+      owner: string,
+      id: string,
+      read: Extract<ReelRead, { ok: true }>
+    ): Promise<"stored" | "already"> => {
+      const reply = await (
+        await call(`memories/${id}/copy`, owner, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            bytes: read.bytes,
+            duration: read.duration,
+            frames: read.frames.map(({ seconds, bytes, width, height }) => ({
+              seconds,
+              bytes,
+              width,
+              height,
+            })),
+          }),
+        })
+      ).json();
+      // Already transcribed, or nothing here could read a copy.
+      if (!reply.uploads) return "already";
+      for (const upload of reply.uploads as {
+        role: "video" | "frame";
+        page: number;
+        url: string;
+        headers: Record<string, string>;
+      }[]) {
+        const data =
+          upload.role === "video" ? read.video : read.frames[upload.page]?.data;
+        if (!data) throw new ApiError(400);
+        const response = await request(new URL(upload.url, origin).href, {
+          method: "PUT",
+          credentials: "omit",
+          redirect: "error",
+          signal: AbortSignal.timeout(60_000),
+          headers: upload.headers,
+          body: decodeData(data),
+        });
+        if (!response.ok) throw new ApiError(503);
+      }
+      await call(`memories/${id}/copy/stored`, owner, { method: "POST" });
+      return "stored";
     },
     screenshot: async (owner: string, id: string, data: string) => {
       const bytes = Uint8Array.from(atob(data.split(",")[1]!), (c) =>

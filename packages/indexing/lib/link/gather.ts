@@ -1,6 +1,7 @@
 import {
   FREE_ALLOWANCE,
   isVideoUrl,
+  socialPlatform,
   youtubeId,
   type LinkMetadata,
 } from "@spark/core";
@@ -57,13 +58,23 @@ const OEMBED: [RegExp, string][] = [
   ],
   [
     /^(www\.|mobile\.)?(twitter|x)\.com$/,
-    "https://publish.twitter.com/oembed?omit_script=1&dnt=1&url=",
+    "https://publish.x.com/oembed?omit_script=1&dnt=1&url=",
   ],
-  [/^(www\.)?tiktok\.com$/, "https://www.tiktok.com/oembed?url="],
+  [/^(www\.|m\.|vm\.|vt\.)?tiktok\.com$/, "https://www.tiktok.com/oembed?url="],
   [/^(www\.)?vimeo\.com$/, "https://vimeo.com/api/oembed.json?url="],
   [/^open\.spotify\.com$/, "https://open.spotify.com/oembed?url="],
   [/^(www\.|old\.)?reddit\.com$/, "https://www.reddit.com/oembed?url="],
 ];
+
+/**
+ * Instagram's, tokenless since May 2026, and off unless the owner switches
+ * it on: Meta's terms allow its content only as a front-end view, never
+ * persisted, and Spark keeps what it gathers (docs/research/social-posts.md).
+ */
+const INSTAGRAM_OEMBED = [
+  /^(www\.)?instagram\.com$/,
+  "https://graph.facebook.com/v27.0/instagram_oembed?url=",
+] as const satisfies [RegExp, string];
 
 /** What the person can edit later (FREE_ALLOWANCE), so a page title is never too long to keep. */
 const MAX_CHARS: Partial<Record<keyof LinkMetadata, number>> = {
@@ -112,7 +123,7 @@ function jsonLdNode(blocks: string[]): Ld | undefined {
 /** Fills only what is still missing: earlier sources win. */
 function fill(into: LinkMetadata, from: LinkMetadata) {
   for (const [key, value] of Object.entries(from) as [
-    Exclude<keyof LinkMetadata, "video">,
+    Exclude<keyof LinkMetadata, "video" | "siteRead">,
     string | undefined,
   ][]) {
     const clean = value
@@ -188,11 +199,14 @@ export function createGatherer({
   fetch,
   resolve,
   reader,
+  instagramOembed = false,
 }: {
   fetch: typeof globalThis.fetch;
   resolve: Resolve;
   /** Jina Reader: a third party, so off unless configured (an owner decision). */
   reader?: { apiKey?: string };
+  /** Instagram oEmbed: a third party, so off unless the owner allows it (INSTAGRAM_OEMBED). */
+  instagramOembed?: boolean;
 }): Gatherer {
   const get = (
     url: string,
@@ -229,10 +243,20 @@ export function createGatherer({
     const transient = !page.ok && isTransient(page.reason);
 
     const host = new URL(url).hostname;
-    const known = OEMBED.find(([pattern]) => pattern.test(host));
+    const known = [
+      ...OEMBED,
+      ...(instagramOembed ? [INSTAGRAM_OEMBED] : []),
+    ].find(([pattern]) => pattern.test(host));
+    // A TikTok short link only redirects: oEmbed wants the video it led to.
+    const subject =
+      page.ok &&
+      /^(vm|vt)\./.test(host) &&
+      socialPlatform(page.url) === "tiktok"
+        ? page.url
+        : url;
     if (confirmed && known) {
       const o = parseJson(
-        await get(known[1] + encodeURIComponent(url), {
+        await get(known[1] + encodeURIComponent(subject), {
           accept: JSON_TYPES,
           maxBytes: GATHER.maxJsonBytes,
           permitted: thirdParty,
