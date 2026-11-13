@@ -1,3 +1,5 @@
+import { emptySelection, select } from "./selection";
+import { SelectionBar } from "./selection-bar";
 import type { SearchChips } from "@spark/core";
 import { isWordless } from "./search-session";
 import {
@@ -34,6 +36,7 @@ import {
   cn,
   toast,
   type MasonryHandle,
+  type MasonrySelection,
 } from "@spark/ui";
 import { startAnalytics, track } from "../analytics";
 import { authClient, endSession, type AppSession } from "../auth";
@@ -258,7 +261,36 @@ export function LibraryPage({
     void library.captureFiles(files);
   };
   const dropping = useFileDrop(captureFiles);
+  const [selected, setSelected] = useState(emptySelection);
+  const wallOrder =
+    searching && results && results !== "failed"
+      ? [...results.direct, ...results.related].map((m) => m.id)
+      : library.memories.map((m) => m.id);
+  const selectable = new Set(
+    library.memories
+      .filter((m) => !m.upload && !library.isPending(m.id))
+      .map((m) => m.id)
+  );
+  const order = wallOrder.filter((id) => selectable.has(id));
+  const selection: MasonrySelection = {
+    ids: selected.ids,
+    choose: (id, mode) =>
+      setSelected((s) => select(s, order, { type: mode, id })),
+    all: () => setSelected((s) => select(s, order, { type: "all" })),
+    clear: () => setSelected(emptySelection),
+    marquee: (ids, additive) =>
+      setSelected((s) =>
+        select(s, order, {
+          type: "marquee",
+          ids,
+          additive: additive ? s.ids : [],
+        })
+      ),
+  };
+  const selectedIds = new Set(selected.ids);
+  const bulkRows = library.memories.filter((m) => selectedIds.has(m.id));
   const tiles: TileActions = {
+    selection,
     onRetry: library.retryUpload,
     onBroken: library.refresh,
     onDelete: library.remove,
@@ -384,7 +416,7 @@ export function LibraryPage({
         }
       />
 
-      <main className="min-w-0 flex-1">
+      <main className="min-w-0 flex-1 pb-32">
         <div className="sticky top-0 z-20 border-b border-line bg-canvas md:hidden">
           <div className="flex items-center gap-2 px-4 py-2">
             <Wordmark />
@@ -494,6 +526,21 @@ export function LibraryPage({
         )}
       </main>
 
+      {bulkRows.length > 0 && (
+        <SelectionBar
+          count={bulkRows.length}
+          ownNames={ownNames}
+          onClear={selection.clear}
+          onDelete={() => {
+            library.bulk(bulkRows, { operation: "delete" });
+            selection.clear();
+          }}
+          onCategories={(categories) => {
+            library.bulk(bulkRows, { operation: "categories", categories });
+            selection.clear();
+          }}
+        />
+      )}
       <OwnCategoryNames.Provider value={ownNames}>
         <LibraryOverlaysHost
           key={overlaysEpoch}
@@ -570,6 +617,7 @@ function Centred({ title, children }: { title: string; children: ReactNode }) {
 
 /** What a tile can ask of the Library: Try Again or Delete for an upload, Retry for Indexing, fresh URLs for a broken image. */
 type TileActions = {
+  selection: MasonrySelection;
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onDelete: (memory: WallMemory) => void;
@@ -593,6 +641,7 @@ function Wall({
   return (
     <Masonry
       label={label}
+      selection={tiles.selection}
       items={memories}
       getKey={(m) => m.id}
       getHeight={tileHeight}
@@ -639,6 +688,7 @@ function ResultWall({
   return (
     <Masonry
       label={label}
+      selection={tiles.selection}
       items={found}
       getKey={(m) => m.id}
       getHeight={tileHeight}

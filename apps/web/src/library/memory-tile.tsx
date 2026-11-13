@@ -397,7 +397,7 @@ function LinkTile({
       <div
         className={cn(
           tileFrame,
-          "flex flex-col gap-2 bg-sunken p-4 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
+          "flex flex-col gap-2 bg-sunken p-4 group-data-[selectable=true]/selection:pr-14 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
         )}
       >
         <p
@@ -464,7 +464,7 @@ function TextTile({
       <div
         className={cn(
           tileFrame,
-          "flex flex-col gap-2 bg-sunken p-4 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
+          "flex flex-col gap-2 bg-sunken p-4 group-data-[selectable=true]/selection:pr-14 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
         )}
       >
         {memory.title && (

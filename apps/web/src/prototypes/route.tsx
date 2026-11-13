@@ -2,6 +2,10 @@ import { lazy, Suspense } from "react";
 import { createLazyRoute } from "@tanstack/react-router";
 import { LibraryPage } from "./library";
 
+const SelectionPrototype = import.meta.env.DEV
+  ? lazy(() => import("./selection"))
+  : null;
+
 const VideoPrototype = import.meta.env.DEV
   ? lazy(() => import("./video"))
   : null;
@@ -11,6 +15,15 @@ const VideoPrototype = import.meta.env.DEV
 export const Route = createLazyRoute("/prototypes")({
   component: function PrototypesPage() {
     const { data } = Route.useSearch();
+    if (
+      SelectionPrototype &&
+      new URLSearchParams(location.search).has("selection")
+    )
+      return (
+        <Suspense>
+          <SelectionPrototype />
+        </Suspense>
+      );
     if (VideoPrototype && new URLSearchParams(location.search).has("video"))
       return (
         <Suspense>

@@ -1,6 +1,8 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { InferResponseType } from "@spark/api-client";
 import {
+  BULK_LIMIT,
+  type BulkMemories,
   FREE_ALLOWANCE,
   linkFromPaste,
   type MemoryEditRequest,
@@ -55,6 +57,10 @@ export type Transport = ImageTransport & {
   ) => Promise<Memory | "stale">;
   /** Resolves when the Memory is gone, including when it never existed. */
   remove: (id: string, init: { keepalive: boolean }) => Promise<void>;
+  bulk?: (
+    change: BulkMemories,
+    init: { keepalive: boolean }
+  ) => Promise<{ ids: string[] }>;
   get: (id: string) => Promise<Memory | undefined>;
 };
 
@@ -177,6 +183,9 @@ export function libraryActions({
   freeUpSpace?: () => void;
 }) {
   /** Deletes waiting out their Undo window: id → send it now. */
+  const bulkIds = new Set<string>();
+  const bulkRemoved = new Set<string>();
+  const pendingBulks = new Set<(closing?: boolean) => void>();
   const pendingDeletes = new Map<string, () => void>();
   /** The tail of each Memory's queue of requests. */
   const queues = new Map<string, Promise<unknown>>();
@@ -528,6 +537,7 @@ export function libraryActions({
 
   /** Sends the pending edit as it is now. One request at a time per Memory. */
   function saveEdit(id: string, { keepalive = true } = {}) {
+    if (pendingDeletes.has(id)) return;
     const edit = pending.get(id);
     if (!edit?.fields || edit.status === "sending" || edit.status === "idle") {
       return;
@@ -790,6 +800,149 @@ export function libraryActions({
     });
   }
 
+  /** Same five-second Undo as a single delete. Large selections use bounded requests. */
+  function bulk(
+    rows: Memory[],
+    change:
+      | { operation: "delete" }
+      | { operation: "categories"; categories: string[] }
+  ) {
+    rows = rows.filter((m) => !bulkIds.has(m.id));
+    if (!rows.length || !transport.bulk) return;
+    for (const m of rows) bulkIds.add(m.id);
+    const ids = new Set(rows.map((m) => m.id));
+    for (const id of ids) bump(id);
+    const restore = (snapshots: Memory[]) => {
+      if (change.operation === "delete")
+        for (const m of snapshots) restoreLocal(m);
+      else {
+        const before = new Map(snapshots.map((m) => [m.id, m]));
+        setMemories((all) =>
+          all.map((m) => {
+            const old = before.get(m.id);
+            return old
+              ? {
+                  ...m,
+                  categories: old.categories,
+                  categoriesLocked: old.categoriesLocked,
+                }
+              : m;
+          })
+        );
+      }
+    };
+    if (change.operation === "delete")
+      for (const id of ids) bulkRemoved.add(id);
+    if (change.operation === "delete")
+      setMemories((all) => all.filter((m) => !ids.has(m.id)));
+    else
+      setMemories((all) =>
+        all.map((m) =>
+          ids.has(m.id)
+            ? { ...m, categories: change.categories, categoriesLocked: true }
+            : m
+        )
+      );
+    let done = false;
+    const send = (closing = false) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      pendingBulks.delete(send);
+      // Reserve every queue before sending, so edits cannot overtake the batch.
+      const previous = [...ids].map(
+        (id) => queues.get(id) ?? Promise.resolve()
+      );
+      const task = Promise.allSettled(previous).then(async () => {
+        const failed: Memory[] = [];
+        const batches: Memory[][] = [];
+        for (let offset = 0; offset < rows.length; offset += BULK_LIMIT)
+          batches.push(rows.slice(offset, offset + BULK_LIMIT));
+        // Start every bounded request before a closing page can lose its JS context.
+        await Promise.all(
+          batches.map(async (batch) => {
+            try {
+              await transport.bulk!(
+                { ...change, ids: batch.map((m) => m.id) },
+                { keepalive: closing }
+              );
+              if (change.operation === "delete")
+                for (const m of batch)
+                  setPending(m.id, undefined, { dropStorage: true });
+              if (change.operation === "categories") {
+                const changed = new Set(batch.map((m) => m.id));
+                setMemories((all) =>
+                  all.map((m) =>
+                    changed.has(m.id)
+                      ? {
+                          ...m,
+                          categories: change.categories,
+                          categoriesLocked: true,
+                        }
+                      : m
+                  )
+                );
+              }
+            } catch {
+              failed.push(...batch);
+            }
+          })
+        );
+        for (const id of ids) {
+          pendingDeletes.delete(id);
+          bulkIds.delete(id);
+        }
+        onSaved();
+        if (failed.length) {
+          for (const m of failed) bulkRemoved.delete(m.id);
+          restore(failed);
+          notify(
+            `${failed.length.toLocaleString()} ${failed.length === 1 ? "Memory" : "Memories"} Not Updated`,
+            {
+              action: {
+                label: "Try Again",
+                onClick: () => bulk(failed, change),
+              },
+            }
+          );
+        }
+      });
+      for (const id of ids) {
+        queues.set(id, task);
+        void task.finally(() => {
+          if (queues.get(id) === task) queues.delete(id);
+        });
+      }
+    };
+    // Hidden rows remain pending through completion, including poll/search merges.
+    if (change.operation === "delete")
+      for (const id of ids) pendingDeletes.set(id, () => send(true));
+    pendingBulks.add(send);
+    const timer = setTimeout(() => send(), UNDO_MS);
+    notify(change.operation === "delete" ? "Deleted" : "Categories Updated", {
+      duration: UNDO_MS,
+      onAutoClose: () => send(),
+      onDismiss: () => send(),
+      action: {
+        label: "Undo",
+        onClick: () => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          pendingBulks.delete(send);
+          for (const id of ids) {
+            pendingDeletes.delete(id);
+            bulkIds.delete(id);
+            bulkRemoved.delete(id);
+            bump(id);
+          }
+          restore(rows);
+          for (const id of ids) saveEdit(id);
+        },
+      },
+    });
+  }
+
   /** Refreshes a Memory's signed URLs (they last two hours), once a minute at most. */
   const refreshed = new Map<string, number>();
   function refresh(id: string) {
@@ -810,13 +963,15 @@ export function libraryActions({
   }
 
   return {
+    bulk,
     capture,
     captureShared,
     captureFiles,
     captureSharedFiles,
     retryUpload: images.retry,
     /** A request for this Memory (Capture, Try Again, edit, delete) is still out. */
-    isPending: (id: string) => queues.has(id),
+    isPending: (id: string) => queues.has(id) || bulkIds.has(id),
+    isRemoving: (id: string) => pendingDeletes.has(id) || bulkRemoved.has(id),
     refresh,
     editText,
     saveEdit,
@@ -829,6 +984,7 @@ export function libraryActions({
     remove,
     /** For a page on its way out: Undo is gone, unsent edits go now. */
     sendPending: () => {
+      for (const send of pendingBulks) send(true);
       for (const send of pendingDeletes.values()) send();
       for (const id of pending.keys()) saveEdit(id);
     },

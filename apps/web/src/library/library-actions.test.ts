@@ -244,3 +244,58 @@ describe("an edit of a link", () => {
     expect(patch.mock.calls[1]![1]).toMatchObject({ title: "Basil, mine" });
   });
 });
+
+describe("Bulk Undo", () => {
+  it("restores every Memory before any delete is sent", () => {
+    const rows = [memory(), memory()];
+    const bulk = vi.fn();
+    const { actions, wall, notify } = setup({ bulk }, rows);
+    actions.bulk(rows, { operation: "delete" });
+    expect(wall()).toEqual([]);
+    toastAction(notify, "Undo")();
+    expect(wall()).toHaveLength(2);
+    actions.sendPending();
+    expect(bulk).not.toHaveBeenCalled();
+  });
+});
+
+it("batches a thousand selected Memories and reports a failed batch for retry", async () => {
+  const rows = Array.from({ length: 1001 }, () => memory());
+  const bulk = vi
+    .fn()
+    .mockResolvedValue({ ids: [] })
+    .mockRejectedValueOnce(new Error("offline"));
+  const { actions, wall, notify } = setup({ bulk }, rows);
+  actions.bulk(rows, { operation: "delete" });
+  actions.sendPending();
+  await settle();
+  expect(bulk).toHaveBeenCalledTimes(6);
+  expect(bulk.mock.calls[0]![0].ids).toHaveLength(200);
+  expect(bulk.mock.calls[5]![0].ids).toHaveLength(1);
+  expect(wall()).toHaveLength(200);
+  expect(notify.mock.calls.at(-1)![0]).toBe("200 Memories Not Updated");
+});
+it("Undo restores the previous Categories on all Memories", () => {
+  const rows = [
+    memory({ categories: ["Recipe"] }),
+    memory({ categories: ["Idea"] }),
+  ];
+  const bulk = vi.fn();
+  const { actions, wall, notify } = setup({ bulk }, rows);
+  actions.bulk(rows, { operation: "categories", categories: ["Code"] });
+  expect(wall().every((m) => m.categoriesLocked)).toBe(true);
+  toastAction(notify, "Undo")();
+  expect(wall().map((m) => m.categories)).toEqual([["Recipe"], ["Idea"]]);
+  actions.sendPending();
+  expect(bulk).not.toHaveBeenCalled();
+});
+
+it("starts every batch on page close before any response arrives", async () => {
+  const rows = Array.from({ length: 1001 }, () => memory());
+  const bulk = vi.fn(() => new Promise<{ ids: string[] }>(() => {}));
+  const { actions } = setup({ bulk }, rows);
+  actions.bulk(rows, { operation: "delete" });
+  actions.sendPending();
+  await settle();
+  expect(bulk).toHaveBeenCalledTimes(6);
+});

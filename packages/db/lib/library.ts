@@ -2,6 +2,8 @@ import { searchHistory } from "./search-history";
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  BulkMemories,
+  CATEGORY_NAMES,
   DEEP_FETCH,
   EMBEDDING,
   FREE_ALLOWANCE,
@@ -38,6 +40,8 @@ import {
   tryLockOwner,
 } from "./owner";
 import {
+  category,
+  categoryRun,
   memory,
   memoryFile,
   memoryCopy,
@@ -1488,6 +1492,112 @@ export function openLibrary(
         return await applyEdit(id, input, revision);
       } catch (error) {
         // The database holds the rule: a name that is not the owner's own or a built-in's.
+        if (isUnknownCategory(error)) return { unknownCategory: true };
+        throw error;
+      }
+    },
+
+    /** One owner-scoped, idempotent transaction. No network calls under locks. */
+    async bulk(
+      raw: BulkMemories
+    ): Promise<
+      { ids: string[]; removals?: string[] } | { unknownCategory: true }
+    > {
+      const change = BulkMemories.parse(raw);
+      try {
+        return await db.transaction(async (tx) => {
+          // Categories lock comes first, before any Memory row, like Indexing.
+          if (change.operation === "categories")
+            await lockCategories(tx, userId);
+          else await lockOwner(tx, userId);
+          const scope = and(
+            eq(memory.userId, userId),
+            inArray(memory.id, [...new Set(change.ids)])
+          );
+          if (change.operation === "categories") {
+            const own = await tx
+              .select({ name: category.name })
+              .from(category)
+              .where(eq(category.userId, userId));
+            const allowed = new Set<string>([
+              ...CATEGORY_NAMES,
+              ...own.map((c) => c.name),
+            ]);
+            if (change.categories.some((name) => !allowed.has(name)))
+              return { unknownCategory: true as const };
+            // Deletion and Category batches lock rows in the same order. The
+            // advisory locks differ, so relying on UPDATE's plan could deadlock.
+            await tx
+              .select({ id: memory.id })
+              .from(memory)
+              .where(scope)
+              .orderBy(memory.id)
+              .for("update");
+            // The trigger validates built-ins and this owner's names under the lock.
+            // Bump only when values/locking change, so a repeated batch is a no-op.
+            const changed = await tx
+              .update(memory)
+              .set({ categories: change.categories, categoriesLocked: true })
+              .where(
+                and(
+                  scope,
+                  sql`(not ${memory.categoriesLocked} or ${memory.categories} is distinct from array[${sql.join(
+                    change.categories.map((name) => sql`${name}`),
+                    sql`, `
+                  )}]::text[])`
+                )
+              )
+              .returning({ id: memory.id });
+            if (changed.length)
+              await tx
+                .insert(categoryRun)
+                .values({ userId, generation: 1, dueGeneration: 0 })
+                .onConflictDoUpdate({
+                  target: categoryRun.userId,
+                  set: { generation: sql`${categoryRun.generation} + 1` },
+                });
+            return {
+              ids: (
+                await tx.select({ id: memory.id }).from(memory).where(scope)
+              ).map((m) => m.id),
+            };
+          }
+          const rows = await tx
+            .select({ id: memory.id })
+            .from(memory)
+            .where(scope)
+            .orderBy(memory.id)
+            .for("update");
+          if (!rows.length) return { ids: [] };
+          const ids = rows.map((m) => m.id);
+          const files = await tx
+            .select({ key: memoryFile.key, stored: memoryFile.storedAt })
+            .from(memoryFile)
+            .where(inArray(memoryFile.memoryId, ids));
+          if (files.length)
+            await tx
+              .insert(objectRemoval)
+              .values(
+                files.map((file) => ({
+                  key: file.key,
+                  dueAt: file.stored
+                    ? sql`now()`
+                    : sql`clock_timestamp() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
+                }))
+              )
+              .onConflictDoNothing();
+          const copies = await tx
+            .select({ key: memoryCopy.key })
+            .from(memoryCopy)
+            .where(inArray(memoryCopy.memoryId, ids));
+          // Cascades remove copies (whose trigger queues storage), vectors and search words.
+          await tx.delete(memory).where(scope);
+          return {
+            ids,
+            removals: [...files, ...copies].map((file) => file.key),
+          };
+        });
+      } catch (error) {
         if (isUnknownCategory(error)) return { unknownCategory: true };
         throw error;
       }

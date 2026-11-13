@@ -13,7 +13,11 @@ export {
   CommandList,
 } from "./lib/command";
 export { Toaster, toast } from "./lib/toaster";
-export { Masonry, type MasonryHandle } from "./lib/masonry";
+export {
+  Masonry,
+  type MasonrySelection,
+  type MasonryHandle,
+} from "./lib/masonry";
 export { Input } from "./lib/input";
 export { Textarea } from "./lib/textarea";
 export { Switch } from "./lib/switch";
