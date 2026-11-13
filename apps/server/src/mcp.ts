@@ -5,8 +5,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { assistantStore } from "@spark/db/assistants";
-import { indexingStore, openDatabase, openLibrary } from "@spark/db";
-import { createSearch } from "@spark/search";
+import { openDatabase, openLibrary } from "@spark/db";
+import { searchFor } from "./library-search";
 import { embedderFor } from "@spark/indexing";
 import { providers } from "./indexing";
 import { fileStore, forClient } from "./files";
@@ -89,12 +89,8 @@ export const mcp = new Hono<AppEnv>()
               }
             : {}
         );
-        const search = createSearch({
-          userId: access.userId,
-          find: (q, options) =>
-            library.search(q, { ...options, excludeSamples: true }),
-          ...(embedder && { embedder }),
-          spend: indexingStore(db),
+        const search = searchFor(c.env, db, access.userId, library, {
+          excludeSamples: true,
         });
         const files = fileStore(c.env, c.req.url);
         const server = new McpServer({ name: "Spark", version: "1.0.0" });
@@ -107,8 +103,8 @@ export const mcp = new Hono<AppEnv>()
           memories: Awaited<ReturnType<typeof library.get>>[]
         ) => {
           const kept = memories.filter((m) => m !== undefined);
-          resultCount = kept.length;
           const data = await Promise.all(kept.map((m) => forClient(files, m)));
+          resultCount = data.length;
           return {
             content: [
               {

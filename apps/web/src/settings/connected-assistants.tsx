@@ -5,31 +5,32 @@ import { api } from "../api";
 const requestTimeout = () => ({
   init: { signal: AbortSignal.timeout(20_000) },
 });
-
 type Assistant = { id: string; name: string };
+type AssistantState =
+  { phase: "idle" | "pending" | "failed" } | { phase: "issued"; token: string };
 async function readAssistants() {
   const res = await api.api.assistants.$get({}, requestTimeout());
   if (!res.ok) throw new Error("assistants unavailable");
   return (await res.json()).assistants;
 }
-/** Credentials exist only in this mounted view, never browser storage or a URL. */
+
+/** Credentials exist only in the issued state, never browser storage or a URL. */
 export function ConnectedAssistants() {
   const [assistants, setAssistants] = useState<Assistant[]>([]);
   const [name, setName] = useState("");
-  const [token, setToken] = useState<string>();
-  const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
-  async function load() {
-    setAssistants(await readAssistants());
-  }
+  const [state, setState] = useState<AssistantState>({ phase: "pending" });
+  const pending = state.phase === "pending";
   useEffect(() => {
     let active = true;
     void readAssistants().then(
       (rows) => {
-        if (active) setAssistants(rows);
+        if (active) {
+          setAssistants(rows);
+          setState({ phase: "idle" });
+        }
       },
       () => {
-        if (active) setFailed(true);
+        if (active) setState({ phase: "failed" });
       }
     );
     return () => {
@@ -39,43 +40,48 @@ export function ConnectedAssistants() {
   async function create(event: FormEvent) {
     event.preventDefault();
     if (pending || !name.trim()) return;
-    setPending(true);
-    setFailed(false);
-    setToken(undefined);
+    setState({ phase: "pending" });
     try {
       const res = await api.api.assistants.$post(
         { json: { name } },
         requestTimeout()
       );
       if (!res.ok) throw new Error("assistant not created");
-      setToken((await res.json()).token);
+      const created = await res.json();
+      setAssistants((all) => [...all, { id: created.id, name: created.name }]);
       setName("");
-      await load();
+      setState({ phase: "issued", token: created.token });
     } catch {
-      setFailed(true);
-    } finally {
-      setPending(false);
+      setState({ phase: "failed" });
     }
   }
   async function revoke(id: string) {
-    setPending(true);
-    setFailed(false);
+    if (pending) return;
+    setState({ phase: "pending" });
     try {
       const res = await api.api.assistants[":id"].$delete(
         { param: { id } },
         requestTimeout()
       );
-      if (!res.ok) throw new Error("assistant not revoked");
-      setToken(undefined);
-      await load();
+      if (!res.ok && res.status !== 404)
+        throw new Error("assistant not revoked");
+      setAssistants((all) => all.filter((a) => a.id !== id));
+      setState({ phase: "idle" });
     } catch {
-      setFailed(true);
-    } finally {
-      setPending(false);
+      setState({ phase: "failed" });
+    }
+  }
+  async function retry() {
+    setState({ phase: "pending" });
+    try {
+      setAssistants(await readAssistants());
+      setState({ phase: "idle" });
+    } catch {
+      setState({ phase: "failed" });
     }
   }
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" aria-busy={pending}>
       {assistants.map((a) => (
         <div
           key={a.id}
@@ -111,7 +117,7 @@ export function ConnectedAssistants() {
           </Button>
         </div>
       </form>
-      {token && (
+      {state.phase === "issued" && (
         <div className="flex flex-col gap-2">
           <label htmlFor="assistant-token">Copy Token Now</label>
           <Input
@@ -119,16 +125,23 @@ export function ConnectedAssistants() {
             name="assistant-token"
             autoComplete="off"
             spellCheck={false}
-            value={token}
+            value={state.token}
             readOnly
             onFocus={(e) => e.currentTarget.select()}
           />
-          <Button variant="outline" onClick={() => setToken(undefined)}>
+          <Button variant="outline" onClick={() => setState({ phase: "idle" })}>
             Done
           </Button>
         </div>
       )}
-      {failed && <p role="alert">Could Not Update Connected Assistants</p>}
+      {state.phase === "failed" && (
+        <div className="flex flex-col gap-2">
+          <p role="alert">Could Not Update Connected Assistants</p>
+          <Button variant="outline" onClick={() => void retry()}>
+            Try Again
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

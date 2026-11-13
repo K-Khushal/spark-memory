@@ -10,7 +10,7 @@ import {
 import type { ReactNode } from "react";
 import { Button } from "@spark/ui";
 import { api } from "./api";
-import { currentSession, requireSession } from "./auth";
+import { redirectIfSignedIn, requireSession } from "./auth";
 import { LibraryPage } from "./library/library-page";
 import { isShareRefusal } from "./pwa/refusal";
 import { ShareRefused } from "./pwa/share-refused";
@@ -78,10 +78,7 @@ const signInRoute = createRoute({
       returnTo: signInReturnTo(search.returnTo),
     }),
   }),
-  beforeLoad: async ({ search }) => {
-    if (await currentSession())
-      throw redirect({ href: search.returnTo ?? "/" });
-  },
+  beforeLoad: ({ search }) => redirectIfSignedIn(search.returnTo),
   loader: async () => {
     const res = await api.api["sign-in-options"].$get();
     if (!res.ok) throw new Error(`sign-in options: ${res.status}`);

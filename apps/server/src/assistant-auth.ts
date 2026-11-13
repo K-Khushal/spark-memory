@@ -59,7 +59,7 @@ export const assistantAuth = new Hono<AppEnv>()
   .use("*", bodyLimit({ maxSize: 16_384 }))
   .use("*", async (c, next) => {
     c.header("Cache-Control", "private, no-store");
-    c.header("Referrer-Policy", "no-referrer");
+    c.header("Referrer-Policy", "same-origin");
     c.header(
       "Content-Security-Policy",
       "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
@@ -136,6 +136,12 @@ export const assistantAuth = new Hono<AppEnv>()
       return c.redirect(
         `/sign-in?returnTo=${encodeURIComponent(new URL(c.req.url).pathname + new URL(c.req.url).search)}`
       );
+    // A form POST must carry its same-origin Origin, and its OAuth redirect
+    // must be allowed by the page's CSP even when the callback is loopback.
+    c.header(
+      "Content-Security-Policy",
+      `default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self' ${new URL(p.data.redirect_uri).origin}; frame-ancestors 'none'; base-uri 'none'`
+    );
     const nonce = opaque();
     const binding = await digest(
       JSON.stringify(p.data) + session.user.id + nonce

@@ -106,7 +106,9 @@ export function SignInPage({
       authClient.signIn.social({
         provider,
         callbackURL: returnTo ?? "/",
-        errorCallbackURL: "/sign-in?failed=1",
+        errorCallbackURL:
+          "/sign-in?failed=1" +
+          (returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""),
         fetchOptions: { headers: { "x-captcha-response": token } },
       })
     );

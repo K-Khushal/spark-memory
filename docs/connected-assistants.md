@@ -48,7 +48,7 @@ MCP_URL=http://localhost:5173/api/mcp node apps/server/scripts/mcp-handshake.mjs
 unset MCP_TOKEN
 ```
 
-The SDK client initializes, discovers all three tools and calls `search_memories`. Output includes counts and success only. The script has a 30-second network timeout. Revoke the test token afterward. Automated auth, owner isolation, revocation, activity and protocol tests run with `DATABASE_URL=... pnpm --filter @spark/server exec vitest run test/mcp.test.ts`. The Playwright smoke test creates a token through Settings and revokes it after an HTTP handshake.
+The SDK client initializes, discovers all three tools and calls `search_memories`. Output includes counts and success only. The script has a 30-second network timeout. Revoke the test token afterward. Automated auth, owner isolation, revocation, activity and protocol tests run with `DATABASE_URL=... pnpm --filter @spark/server exec vitest run test/mcp.test.ts`. The Playwright smoke test creates a token through Settings and revokes it after an HTTP handshake. Its third-party Turnstile widget uses the public test token; Spark sign-in and authorization still run on the real local server.
 
 ## Owner checks before launch
 

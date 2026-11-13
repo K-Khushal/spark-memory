@@ -49,9 +49,9 @@ test("connect an assistant, complete MCP handshake, then revoke", async ({
       for (const colorScheme of ["light", "dark"] as const) {
         await page.setViewportSize({ width, height: 1000 });
         await page.emulateMedia({ colorScheme });
-        await page.evaluate(() =>
-          document.documentElement.removeAttribute("data-theme")
-        );
+        await page.evaluate((theme) => {
+          document.documentElement.dataset.theme = theme;
+        }, colorScheme);
         await page.screenshot({
           path: `/data/workspace/spark-memory/.git/factory/r/t34-settings-${width}-${colorScheme}.png`,
           fullPage: true,
@@ -73,20 +73,25 @@ test("connect an assistant, complete MCP handshake, then revoke", async ({
 
 test("OAuth consent names the assistant and callback, with a working deny action", async ({
   page,
+  baseURL,
 }) => {
-  await signIn(page);
-  const origin = new URL(page.url()).origin;
+  if (!baseURL) throw new Error("baseURL is required");
+  const origin = new URL(baseURL).origin;
+  const callback = "http://127.0.0.1:9001/callback";
+  await page.route(callback + "**", (route) =>
+    route.fulfill({ body: "Authorization Denied", contentType: "text/plain" })
+  );
   const registration = await page.request.post("/api/oauth/register", {
     data: {
       client_name: "Research Assistant / हिंदी",
-      redirect_uris: [`${origin}/settings`],
+      redirect_uris: [callback],
     },
   });
   expect(registration.status()).toBe(201);
   const { client_id } = (await registration.json()) as { client_id: string };
   const params = new URLSearchParams({
     client_id,
-    redirect_uri: `${origin}/settings`,
+    redirect_uri: callback,
     resource: `${origin}/api/mcp`,
     response_type: "code",
     code_challenge: "a".repeat(43),
@@ -94,12 +99,12 @@ test("OAuth consent names the assistant and callback, with a working deny action
     scope: "memories:read",
     state: "test-state",
   });
-  await page.goto(`/api/oauth/authorize?${params}`);
+  await signIn(page, undefined, `/api/oauth/authorize?${params}`);
   await expect(
     page.getByRole("heading", { name: "Research Assistant / हिंदी" })
   ).toBeVisible();
   await expect(
-    page.getByText(new URL(origin).host, { exact: true })
+    page.getByText(new URL(callback).host, { exact: true })
   ).toBeVisible();
   if (process.env.MCP_SCREENSHOTS === "1") {
     for (const width of [1440, 390])
@@ -113,5 +118,5 @@ test("OAuth consent names the assistant and callback, with a working deny action
       }
   }
   await page.getByRole("button", { name: "Deny" }).click();
-  await expect(page).toHaveURL(/settings\?.*error=access_denied/);
+  await expect(page).toHaveURL(/callback\?.*error=access_denied/);
 });
