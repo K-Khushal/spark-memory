@@ -7,6 +7,7 @@ import {
   type ReelCopy,
 } from "@spark/core";
 import {
+  deepFetchStore,
   indexingStore,
   openDatabase,
   openLibrary,
@@ -419,6 +420,41 @@ describe.skipIf(!databaseUrl)("Captures in the Free allowance", () => {
       await library.setAiOptOut(id, true);
       await library.setAiOptOut(id, false);
       expect(await stateOf(id)).toMatchObject({ index_state: "searchable" });
+    });
+
+    it("never hands its text to an outside judge, or lets a Deep fetch claim or find it", async () => {
+      const { library } = await person();
+      const read = await library.capture({ body: "readable words" });
+      const late = await library.capture({ body: "over the limit words" });
+      if (!("memory" in read && "memory" in late)) throw new Error("conflict");
+      await db.execute(
+        sql`update memory set over_allowance = true where id = ${late.memory.id}`
+      );
+      expect([
+        ...(
+          await library.judgingTexts([read.memory.id, late.memory.id], 700)
+        ).keys(),
+      ]).toEqual([read.memory.id]);
+
+      // A Deep fetch row that somehow exists for it is never taken or listed.
+      const link = await library.captureLink({ url: "https://garden.test/df" });
+      if (!("memory" in link)) throw new Error("conflict");
+      const id = link.memory.id;
+      await db.execute(
+        sql`update memory set over_allowance = true, deep_fetch_state = 'queued',
+            deep_fetch_due_at = now() - interval '1 minute' where id = ${id}`
+      );
+      const df = deepFetchStore(db);
+      expect((await df.due(1000)).map((t) => t.memoryId)).not.toContain(id);
+      const { rows } = await db.execute<{
+        index_generation: string;
+        deep_fetch_run: number;
+      }>(
+        sql`select index_generation, deep_fetch_run from memory where id = ${id}`
+      );
+      expect(
+        await df.claim(id, rows[0]!.index_generation, rows[0]!.deep_fetch_run)
+      ).toBeUndefined();
     });
 
     it("still Indexes a Capture within the limit", async () => {

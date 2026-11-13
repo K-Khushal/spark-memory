@@ -1548,7 +1548,8 @@ export function openLibrary(
           and(
             owned(id),
             eq(memory.deepFetchState, "failed"),
-            sql`not (${memory.kind} = 'video' and ${memory.aiOptOut})`
+            sql`not (${memory.kind} = 'video' and ${memory.aiOptOut})`,
+            eq(memory.overAllowance, false)
           )
         );
       return get(id);
@@ -1720,8 +1721,9 @@ export function openLibrary(
     /**
      * What an outside judge may read of these Memories, each cut to `chars`:
      * title, Capture Note, what Indexing found and the start of the text.
-     * Memories with AI opt-out and Samples are never returned (ADR-0011),
-     * nor is anything of another person's, so the caller cannot send them.
+     * Memories with AI opt-out, Samples and those captured over the Free
+     * allowance (no AI work for good) are never returned (ADR-0011), nor is
+     * anything of another person's, so the caller cannot send them.
      */
     async judgingTexts(
       ids: string[],
@@ -1755,7 +1757,8 @@ export function openLibrary(
             eq(memory.userId, userId),
             inArray(memory.id, wanted),
             eq(memory.aiOptOut, false),
-            eq(memory.sample, false)
+            eq(memory.sample, false),
+            eq(memory.overAllowance, false)
           )
         );
       return new Map(
