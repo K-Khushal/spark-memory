@@ -16,16 +16,22 @@ export const INDEXING = {
     fake: "fake",
     jev: "jev-1.14.0",
   },
-  /** List prices in micro-dollars per million tokens: [input, output]. */
+  /**
+   * List prices in micro-dollars per million tokens: [input, output] and,
+   * where audio costs something else, a third: its input price
+   * (`modelCostMicros`). Flash-Lite lists audio at the same $0.30 as text;
+   * it is said outright so a change is one number
+   * (docs/research/deep-fetch.md).
+   */
   pricesMicrosPerMTokens: {
     "@cf/google/gemma-4-26b-a4b-it": [100_000, 300_000],
-    "gemini-3.5-flash-lite": [300_000, 2_500_000],
+    "gemini-3.5-flash-lite": [300_000, 2_500_000, 300_000],
     // Priced too, so switching `models.gemini` to it is a one-line change.
     "gemini-3.1-flash-lite": [250_000, 1_500_000],
     // Input only; output is free (docs/research/jev.md).
     "jev-1.14.0": [42_000, 0],
     fake: [0, 0],
-  } as Record<string, readonly [number, number]>,
+  } as Record<string, readonly [number, number, number?]>,
   /** Global AI spend per UTC day ($1). Past it, background re-indexing waits for the next day. */
   dailyBudgetMicros: 1_000_000,
   /**
@@ -59,6 +65,24 @@ export const INDEXING = {
 } as const;
 
 export type ProviderName = keyof typeof INDEXING.models;
+
+/**
+ * What one model call cost, in micro-dollars, rounded up. `audio` says the
+ * input was mostly audio, which a model may price apart from text; a model
+ * with no audio price charges it as text.
+ */
+export function modelCostMicros(
+  model: string,
+  usage: { inputTokens: number; outputTokens: number; audio?: boolean }
+): number {
+  const [input, output, audio] = INDEXING.pricesMicrosPerMTokens[model] ?? [
+    0, 0,
+  ];
+  const rate = usage.audio ? (audio ?? input) : input;
+  return Math.ceil(
+    (usage.inputTokens * rate + usage.outputTokens * output) / 1_000_000
+  );
+}
 
 /**
  * Embedding (ADR-0004): Overview, Visual and Passage vectors in one

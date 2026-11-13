@@ -46,6 +46,8 @@ export type Bindings = {
   /** Queues (wrangler.jsonc): fresh Captures and Retry, and background re-indexing. */
   INDEX_QUEUE: IndexQueue;
   REINDEX_QUEUE: IndexQueue;
+  /** Queue (wrangler.jsonc): Deep fetch jobs (src/deep-fetch.ts). */
+  DEEP_FETCH_QUEUE: DeepFetchQueue;
   /** Queue (wrangler.jsonc): Library exports and account deletion (src/account-jobs.ts). */
   ACCOUNT_QUEUE: AccountQueue;
   /** Workers AI (Gemma 4), first in the Indexing chain. Absent locally. */
@@ -87,6 +89,19 @@ export type Bindings = {
   LINK_READER?: string;
   /** Secret, optional: a Jina Reader key raises its rate limit. */
   JINA_API_KEY?: string;
+  /**
+   * Deep fetch engines (ADR-0010, docs/deploy.md). A kind with no engine
+   * configured is stored as Unavailable (shown to no one) and never tries.
+   * Pages: Browser Rendering's REST API, with the account's id (var) and a
+   * token that may only use Browser Rendering (secret).
+   */
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  BROWSER_RENDERING_TOKEN?: string;
+  /** Video and audio: the Cloud Run fetcher's https URL (var) and shared token (secret). */
+  FETCHER_URL?: string;
+  FETCHER_TOKEN?: string;
+  /** Var: "fake" (honoured only when SPARK_ENV is local) answers Deep fetch from a script. */
+  DEEP_FETCH_PROVIDER?: string;
   /** Var: "fake" (honoured only when SPARK_ENV is local) Indexes with the fake provider. */
   INDEXING_PROVIDER?: string;
 };
@@ -105,6 +120,19 @@ export type IndexMessage = {
 };
 export type IndexQueue = {
   send(body: IndexMessage, options?: { delaySeconds?: number }): Promise<void>;
+};
+
+/** A Deep fetch job: which Memory, the generation it is, and the run it was sent for. */
+export type DeepFetchMessage = {
+  memoryId: string;
+  generation: string;
+  run: number;
+};
+export type DeepFetchQueue = {
+  send(
+    body: DeepFetchMessage,
+    options?: { delaySeconds?: number }
+  ): Promise<void>;
 };
 
 /** What an account queue message asks for. */

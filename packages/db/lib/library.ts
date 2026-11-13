@@ -2,6 +2,7 @@ import { searchHistory } from "./search-history";
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  DEEP_FETCH,
   EMBEDDING,
   FREE_ALLOWANCE,
   ImageCapture,
@@ -18,6 +19,7 @@ import {
   isYouTubeVideo,
   SCREENSHOT_MAX_BYTES,
   TextCapture,
+  type DeepFetchView,
   type LinkMetadata,
   type MemoryKind,
   type Preservation,
@@ -87,6 +89,13 @@ const baseColumns = {
   indexRun: memory.indexRun,
   indexGeneration: memory.indexGeneration,
   indexPriority: memory.indexPriority,
+  /** For queue messages only, like the three above. */
+  deepFetchRun: memory.deepFetchRun,
+  /** What Deep fetch shows (null: nothing to say). Fetching is under way or due soon. */
+  deepFetch: sql<DeepFetchView | null>`case ${memory.deepFetchState}
+    when 'running' then 'fetching'
+    when 'queued' then case when ${memory.deepFetchDueAt} <= now() + make_interval(secs => ${DEEP_FETCH.soonSeconds}) then 'fetching' else 'waiting' end
+    when 'failed' then 'failed' end`,
   aiOptOut: memory.aiOptOut,
   indexError: memory.indexError,
   indexTitle,
@@ -107,9 +116,16 @@ export type Memory = Pick<
   typeof memory.$inferSelect,
   Exclude<
     keyof typeof baseColumns,
-    "image" | "indexTitle" | "pageTitle" | "description" | "pages" | "video"
+    | "image"
+    | "indexTitle"
+    | "pageTitle"
+    | "description"
+    | "pages"
+    | "video"
+    | "deepFetch"
   >
 > & {
+  deepFetch: DeepFetchView | null;
   /** An image's files, or a PDF's: the PDF and its first page's thumbnail. */
   image: MemoryImage | null;
   pages: number | null;
@@ -1149,6 +1165,34 @@ export function openLibrary(
         .update(memory)
         .set(restartIndexing)
         .where(and(owned(id), eq(memory.indexState, "failed")));
+      return get(id);
+    },
+
+    /**
+     * Try Again on a Memory whose Deep fetch Failed: a new run, with all its
+     * automatic attempts, due now (Unavailable is an operator state: no engine
+     * is set up, and Try Again cannot fix that). The caller sends
+     * it (`deepFetchRun` is in the answer, for the message). Any other
+     * Memory comes back as it is. A video with AI opt-out is never fetched.
+     */
+    async retryDeepFetch(id: string): Promise<Memory | undefined> {
+      await db
+        .update(memory)
+        .set({
+          deepFetchState: "queued",
+          deepFetchRun: sql`${memory.deepFetchRun} + 1`,
+          deepFetchAttempts: 0,
+          deepFetchError: null,
+          deepFetchDueAt: sql`now()`,
+          deepFetchLeaseUntil: null,
+        })
+        .where(
+          and(
+            owned(id),
+            eq(memory.deepFetchState, "failed"),
+            sql`not (${memory.kind} = 'video' and ${memory.aiOptOut})`
+          )
+        );
       return get(id);
     },
 
