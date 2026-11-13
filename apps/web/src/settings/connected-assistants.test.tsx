@@ -189,7 +189,7 @@ describe("Connected Assistants in Settings", () => {
     );
     expect(lines[0]).toContain("Opened Memory");
     expect(lines[0]).toContain("1 Result");
-    expect(lines[1]).toContain("No Results");
+    expect(lines[1]).toContain("0 Results");
     expect(dialog.querySelectorAll("a")).toHaveLength(1);
 
     await click(button("Load More"));

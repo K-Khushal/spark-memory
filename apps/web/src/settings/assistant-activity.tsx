@@ -37,8 +37,6 @@ const TOOLS: Record<string, string> = {
   get_memory: "Opened Memory",
   find_similar: "Found Similar",
 };
-const results = (n: number) =>
-  n === 0 ? "No Results" : n === 1 ? "1 Result" : `${n} Results`;
 
 /** What one assistant did: tool, time and result count. Never what it asked. */
 export function ActivityDialog({
@@ -109,7 +107,12 @@ export function ActivityDialog({
                   )}
                 </span>
                 <span className="shrink-0 text-right text-xs text-ink-muted tabular">
-                  <span className="block">{results(e.resultCount)}</span>
+                  <span className="block">
+                    {e.resultCount}
+                    <span className="sr-only">
+                      {e.resultCount === 1 ? " Result" : " Results"}
+                    </span>
+                  </span>
                   <time dateTime={e.occurredAt}>
                     {when.format(new Date(e.occurredAt))}
                   </time>
