@@ -61,6 +61,13 @@ export {
   type IndexMessageTarget,
 } from "./lib/indexing";
 export {
+  deepFetchStore,
+  type DeepFetched,
+  type DeepFetchClaim,
+  type DeepFetchStore,
+  type DeepFetchTarget,
+} from "./lib/deep-fetch";
+export {
   ADMIN_USERS_LIMIT,
   openAdmin,
   readDailyBudgetMicros,

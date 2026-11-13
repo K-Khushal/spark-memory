@@ -7,6 +7,7 @@ import {
   indexedPages,
   INDEXING,
   IndexingOutput,
+  modelCostMicros,
   PdfScanOutput,
   type IndexFailure,
   type ProviderName,
@@ -644,7 +645,11 @@ export function createIndexer({
             provider: transcriber.name,
             model: transcriber.model,
             usage,
-            costMicros: costMicros(transcriber.model, usage),
+            // The input is a video's sound and picture: priced as audio where a model says so.
+            costMicros: modelCostMicros(transcriber.model, {
+              ...usage,
+              audio: true,
+            }),
           });
           // Never silently keep a partial transcript and call it complete.
           const chars = segments.reduce((n, s) => n + s.text.length + 1, 0);
@@ -665,7 +670,10 @@ export function createIndexer({
               provider: transcriber.name,
               model: transcriber.model,
               usage: error.estimate,
-              costMicros: costMicros(transcriber.model, error.estimate),
+              costMicros: modelCostMicros(transcriber.model, {
+                ...error.estimate,
+                audio: true,
+              }),
               estimated: true,
             });
           }

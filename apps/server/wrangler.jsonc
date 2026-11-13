@@ -20,6 +20,8 @@
   "vars": {
     "SPARK_ENV": "local",
     "INDEXING_PROVIDER": "fake",
+    // Deep fetch answers from a script locally (src/deep-fetch.ts); no keys.
+    "DEEP_FETCH_PROVIDER": "fake",
     "BETTER_AUTH_URL": "http://localhost:5173",
     "EXTENSION_ORIGIN": "chrome-extension://nibnigchkjjmpoolklhjgmlkancbmncm",
     "BETTER_AUTH_SECRET": "local-only-insecure-secret-never-deployed-0000",
@@ -53,6 +55,7 @@
       { "binding": "INDEX_QUEUE", "queue": "spark-index-local" },
       { "binding": "REINDEX_QUEUE", "queue": "spark-reindex-local" },
       { "binding": "ACCOUNT_QUEUE", "queue": "spark-account-local" },
+      { "binding": "DEEP_FETCH_QUEUE", "queue": "spark-deepfetch-local" },
     ],
     "consumers": [
       {
@@ -77,6 +80,14 @@
         "max_batch_size": 1,
         "max_retries": 5,
       },
+      // Deep fetch (src/deep-fetch.ts): one job per invocation (a video takes
+      // minutes), two at a time so the free tiers are not burnt in a burst.
+      {
+        "queue": "spark-deepfetch-local",
+        "max_batch_size": 1,
+        "max_retries": 3,
+        "max_concurrency": 2,
+      },
     ],
   },
 
@@ -85,7 +96,8 @@
   // BETTER_AUTH_SECRET, TURNSTILE_SECRET_KEY, RESEND_API_KEY, and optionally
   // GOOGLE_CLIENT_ID/_SECRET and GITHUB_CLIENT_ID/_SECRET, R2_ACCOUNT_ID,
   // R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY, GEMINI_API_KEY (paid tier only),
-  // ADMIN_EMAILS (comma-separated owner addresses) and POSTHOG_KEY.
+  // ADMIN_EMAILS (comma-separated owner addresses), POSTHOG_KEY, and for Deep
+  // fetch BROWSER_RENDERING_TOKEN and FETCHER_TOKEN.
   // See docs/deploy.md for creating the Hyperdrive configs and replacing the ids.
   "env": {
     "dev": {
@@ -96,6 +108,10 @@
         "TURNSTILE_SITE_KEY": "PLACEHOLDER_DEV_TURNSTILE_SITE_KEY",
         "EMAIL_FROM": "Spark <onboarding@resend.dev>",
         "R2_BUCKET": "spark-files-dev",
+        // Deep fetch engines (docs/deploy.md): empty means Unavailable. The
+        // tokens are secrets (BROWSER_RENDERING_TOKEN, FETCHER_TOKEN).
+        "CLOUDFLARE_ACCOUNT_ID": "",
+        "FETCHER_URL": "",
         // "true" only once GEMINI_API_KEY's Cloud project has billing on (ADR-0005).
         "GEMINI_PAID_TIER": "false",
       },
@@ -111,6 +127,7 @@
           { "binding": "INDEX_QUEUE", "queue": "spark-index-dev" },
           { "binding": "REINDEX_QUEUE", "queue": "spark-reindex-dev" },
           { "binding": "ACCOUNT_QUEUE", "queue": "spark-account-dev" },
+          { "binding": "DEEP_FETCH_QUEUE", "queue": "spark-deepfetch-dev" },
         ],
         "consumers": [
           {
@@ -135,6 +152,14 @@
             "max_batch_size": 1,
             "max_retries": 5,
           },
+          // Deep fetch (src/deep-fetch.ts): one job per invocation (a video takes
+          // minutes), two at a time so the free tiers are not burnt in a burst.
+          {
+            "queue": "spark-deepfetch-dev",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 2,
+          },
         ],
       },
     },
@@ -146,6 +171,10 @@
         "TURNSTILE_SITE_KEY": "PLACEHOLDER_PROD_TURNSTILE_SITE_KEY",
         "EMAIL_FROM": "Spark <onboarding@resend.dev>",
         "R2_BUCKET": "spark-files-prod",
+        // Deep fetch engines (docs/deploy.md): empty means Unavailable. The
+        // tokens are secrets (BROWSER_RENDERING_TOKEN, FETCHER_TOKEN).
+        "CLOUDFLARE_ACCOUNT_ID": "",
+        "FETCHER_URL": "",
         // "true" only once GEMINI_API_KEY's Cloud project has billing on (ADR-0005).
         "GEMINI_PAID_TIER": "false",
       },
@@ -161,6 +190,7 @@
           { "binding": "INDEX_QUEUE", "queue": "spark-index-prod" },
           { "binding": "REINDEX_QUEUE", "queue": "spark-reindex-prod" },
           { "binding": "ACCOUNT_QUEUE", "queue": "spark-account-prod" },
+          { "binding": "DEEP_FETCH_QUEUE", "queue": "spark-deepfetch-prod" },
         ],
         "consumers": [
           {
@@ -185,9 +215,16 @@
             "max_batch_size": 1,
             "max_retries": 5,
           },
+          // Deep fetch (src/deep-fetch.ts): one job per invocation (a video takes
+          // minutes), two at a time so the free tiers are not burnt in a burst.
+          {
+            "queue": "spark-deepfetch-prod",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 2,
+          },
         ],
       },
     },
   },
-  // Browser Rendering arrives with its ticket.
 }

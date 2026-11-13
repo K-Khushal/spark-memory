@@ -80,6 +80,9 @@ export function captureClient(origin: string, request: typeof fetch = fetch) {
         throw error;
       }
     },
+    /** Whether Spark would use a copy of this reel: asked before anything is downloaded. */
+    copyWanted: async (owner: string, id: string): Promise<boolean> =>
+      (await (await call(`memories/${id}/copy`, owner)).json()).wanted === true,
     /**
      * A reel's copy for Indexing (ADR-0010): described, then PUT straight to
      * storage without credentials, then confirmed. "already" when Spark has
@@ -106,6 +109,7 @@ export function captureClient(origin: string, request: typeof fetch = fetch) {
           }),
         })
       ).json();
+      // Already transcribed, or nothing here could read a copy.
       if (!reply.uploads) return "already";
       for (const upload of reply.uploads as {
         role: "video" | "frame";

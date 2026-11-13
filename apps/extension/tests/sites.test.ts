@@ -60,6 +60,7 @@ describe("what each adapter reads from a saved page", () => {
       "https://x.com/anaperez/status/1850000000000000001"
     );
     expect(post).toEqual({
+      site: true,
       title:
         "Shipped the new onboarding today. Two screens, no tour, and the activation rate doubled. #design",
       description:
@@ -98,6 +99,7 @@ describe("what each adapter reads from a saved page", () => {
     expect(
       readSite(dom(instagramReel), "https://www.instagram.com/reel/C1a_b2/")
     ).toEqual({
+      site: true,
       title: "Sourdough in 60 seconds. Save this for Sunday. #bread",
       description: "Sourdough in 60 seconds. Save this for Sunday. #bread",
       text: "Sourdough in 60 seconds. Save this for Sunday. #bread",

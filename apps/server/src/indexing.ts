@@ -4,7 +4,7 @@ import {
   sendProductEvent,
   type ProductEvent,
 } from "@spark/core";
-import { indexingStore, openDatabase } from "@spark/db";
+import { deepFetchStore, indexingStore, openDatabase } from "@spark/db";
 import {
   backoffSeconds,
   createGatherer,
@@ -20,6 +20,7 @@ import {
   type Priority,
 } from "@spark/indexing";
 import type { CronCalls } from "./cron-budget";
+import { enqueueDeepFetch } from "./deep-fetch-queue";
 import type { Bindings, IndexMessage } from "./env";
 
 /**
@@ -217,6 +218,14 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
               },
             });
           }
+        }
+        // Gather may just have come back thin: its Deep fetch is queued (by
+        // the same write) and goes out now. Duplicates are fenced by its lease.
+        if (generation && outcome.result !== "retry" && task !== "embed") {
+          const target = await deepFetchStore(db)
+            .pending(memoryId, generation)
+            .catch(() => undefined);
+          if (target) await enqueueDeepFetch(env, target);
         }
         console.log(`indexing: ${task ?? priority} ${outcome.result}`);
       })

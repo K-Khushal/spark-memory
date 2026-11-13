@@ -34,6 +34,7 @@ export {
 } from "./lib/allowance";
 export {
   INDEXING,
+  modelCostMicros,
   EMBEDDING,
   embeddingSpace,
   INDEX_FAILURES,
@@ -95,6 +96,19 @@ export {
   type VideoMetadata,
   type TranscriptSegment,
 } from "./lib/link";
+
+export {
+  budgetWindow,
+  DEEP_FETCH,
+  engineFor,
+  isThin,
+  retryDelaySeconds,
+  secondsToNextUtcDay,
+  type DeepFetchEngine,
+  type DeepFetchFailure,
+  type DeepFetchState,
+  type DeepFetchView,
+} from "./lib/deep-fetch";
 export {
   SEARCH_COLOURS,
   SEARCH_COLOUR_NAMES,

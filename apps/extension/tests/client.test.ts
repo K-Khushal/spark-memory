@@ -184,3 +184,19 @@ it("sends nothing when Spark already has the reel's transcript, and refuses a fa
   // The copy is never confirmed after a failed PUT.
   expect(broken).toHaveBeenCalledTimes(2);
 });
+
+it("asks whether Spark would use a reel's copy before anything is downloaded", async () => {
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ wanted: true }))
+    .mockResolvedValueOnce(Response.json({ wanted: false }))
+    .mockResolvedValueOnce(Response.json({}));
+  const client = captureClient("https://spark.test", request);
+  expect(await client.copyWanted("ana", "m1")).toBe(true);
+  expect(await client.copyWanted("ana", "m1")).toBe(false);
+  expect(await client.copyWanted("ana", "m1")).toBe(false);
+  expect(request.mock.calls[0]![0]).toBe(
+    "https://spark.test/api/memories/m1/copy"
+  );
+  expect(request.mock.calls[0]![1].credentials).toBe("include");
+});

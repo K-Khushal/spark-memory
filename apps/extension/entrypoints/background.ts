@@ -277,6 +277,8 @@ export default defineBackground(() => {
     code: string
   ) {
     try {
+      // Before downloading up to 25 MB: would Spark use it?
+      if (!(await api.copyWanted(owner, memoryId))) return;
       const [run] = await browser.scripting.executeScript({
         target: { tabId },
         func: readReel,

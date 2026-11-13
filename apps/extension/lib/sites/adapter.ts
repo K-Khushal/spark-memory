@@ -44,5 +44,6 @@ export function toExtract(adapter: SiteAdapter, post: SitePost): PageExtract {
     publishedAt: post.publishedAt,
     imageUrl: post.imageUrl,
     text: text.slice(0, FREE_ALLOWANCE.textMaxChars),
+    site: true,
   });
 }

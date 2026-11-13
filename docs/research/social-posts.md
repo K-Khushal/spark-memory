@@ -82,4 +82,4 @@ a transcript (Gemini Flash-Lite on the paid tier, inline, so up to about 15 MB
 of video; larger videos still get Visual vectors from their frames) and for
 Visual vectors, then is deleted: immediately when Indexing ends (done or Failed),
 within an hour by the sweep otherwise, and after 24 hours whatever happened.
-The transcript is model-written from the user's copy, so AI opt-out removes it.
+A site adapter's Capture is marked (`site`), and its caption outranks what gathering finds of a login wall; every other page keeps the freshest gathered metadata. The transcript is model-written from the user's copy, so AI opt-out removes it.

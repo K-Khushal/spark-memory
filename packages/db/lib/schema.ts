@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm/pg-core";
 import {
   DEFAULT_PLAN,
+  type DeepFetchState,
   type Category,
   type IndexFailure,
   type IndexState,
@@ -201,6 +202,22 @@ export const memory = pgTable(
     indexFreshDay: date("index_fresh_day"),
     /** Why Indexing failed; set only while `indexState` is failed. */
     indexError: text("index_error").$type<IndexFailure>(),
+    /**
+     * Deep fetch (ADR-0010; null: never wanted). Set when Gather came back
+     * thin. `deepFetchRun` fences queue messages (Try Again starts another);
+     * `deepFetchDueAt` is when the next attempt is due, `deepFetchLeaseUntil`
+     * that one is running; `deepFetchError` why it ended Failed.
+     */
+    deepFetchState: text("deep_fetch_state").$type<DeepFetchState>(),
+    deepFetchRun: integer("deep_fetch_run").default(0).notNull(),
+    deepFetchAttempts: integer("deep_fetch_attempts").default(0).notNull(),
+    deepFetchDueAt: timestamp("deep_fetch_due_at", { withTimezone: true }),
+    deepFetchLeaseUntil: timestamp("deep_fetch_lease_until", {
+      withTimezone: true,
+    }),
+    /** Who holds the lease: every Deep fetch write names it. */
+    deepFetchToken: uuid("deep_fetch_token"),
+    deepFetchError: text("deep_fetch_error"),
     /** AI opt-out (GLOSSARY.md, ADR-0011): never sent to any AI provider. */
     aiOptOut: boolean("ai_opt_out").default(false).notNull(),
     /** BCP-47 tag Indexing detected; picks the keyword index's language. */
@@ -241,6 +258,9 @@ export const memory = pgTable(
       t.id.desc()
     ),
     index("memory_search_tsv_idx").using("gin", t.searchTsv),
+    index("memory_deep_fetch_due_idx")
+      .on(t.deepFetchDueAt)
+      .where(sql`${t.deepFetchState} in ('queued', 'running')`),
     index("memory_user_saved_idx").on(
       t.userId,
       t.lastSavedAt.desc(),
@@ -305,7 +325,7 @@ export const memoryFile = pgTable(
 export const COPY_LIFETIME_HOURS = 24;
 
 /**
- * A reel's user-provided copy (ADR-0010, migrations/0024): the video and a
+ * A reel's user-provided copy (ADR-0010, migrations/0025): the video and a
  * few frames the person's own browser fetched, kept only for Indexing and
  * deleted when it ends. Not a `memory_file`: an unfinished copy never hides
  * its reel or counts as an abandoned upload. A trigger queues the object of
@@ -540,6 +560,30 @@ export const objectRemoval = pgTable("object_removal", {
   key: text("key").primaryKey(),
   dueAt: instant("due_at"),
 });
+
+/** What a person has used today (PLAN.md §4): Deep fetches so far. */
+export const usageDay = pgTable(
+  "usage_day",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    deepFetches: integer("deep_fetches").default(0).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.day] })]
+);
+
+/** What a Deep fetch engine has spent of its free tier in a window (a UTC day or month). */
+export const deepFetchUsage = pgTable(
+  "deep_fetch_usage",
+  {
+    engine: text("engine").notNull(),
+    window: text("window").notNull(),
+    seconds: integer("seconds").default(0).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.engine, t.window] })]
+);
 
 /** Explicit searches, retained for thirty days; owner deletion cascades. */
 export const recentSearch = pgTable(

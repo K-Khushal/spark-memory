@@ -3,6 +3,7 @@ import worker from "../src/index";
 import {
   ctx,
   databaseUrl,
+  deepFetchQueue,
   drain,
   env,
   fakeTurnstile,
@@ -29,6 +30,7 @@ type Memory = {
   indexState: string;
   preservation: string;
   video: { transcriptState: string; transcript: { text: string }[] } | null;
+  deepFetch: string | null;
 };
 
 const mp4 = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112]);
@@ -133,7 +135,10 @@ describe.skipIf(!databaseUrl)("a reel's user-provided copy", () => {
       indexState: "searchable",
       preservation: "reference_only",
       video: { transcriptState: "available" },
+      // Its own browser gave the copy: no Deep fetch is asked for it (ADR-0010).
+      deepFetch: null,
     });
+    expect(deepFetchQueue.sent.map((m) => m.body.memoryId)).not.toContain(id);
     expect(memory.video!.transcript[0]!.text).toContain("quillfeather");
     // The video and every frame are gone from storage.
     expect(objectsOf(id)).toEqual([]);
@@ -206,5 +211,57 @@ describe.skipIf(!databaseUrl)("a reel's user-provided copy", () => {
     const early = await stored(call, id);
     expect(early.status).toBe(409);
     expect(await early.json()).toEqual({ ok: false, error: "not_uploaded" });
+  });
+});
+
+describe.skipIf(!databaseUrl)("a copy nothing here could read", () => {
+  it("is not wanted without a transcriber or an embedder, so nothing is taken", async () => {
+    const { call } = await signedIn();
+    stubWeb();
+    const id = await saveReel(call);
+    // The same Worker, with no provider configured (no paid Gemini key).
+    const bare = env({ INDEXING_PROVIDER: undefined });
+    const wanted = async (bindings = env()) =>
+      (await (await call(`/api/memories/${id}/copy`, {}, bindings)).json()) as {
+        wanted: boolean;
+      };
+    expect(await wanted()).toEqual({ wanted: true });
+    expect(await wanted(bare)).toEqual({ wanted: false });
+    const posted = await call(
+      `/api/memories/${id}/copy`,
+      { method: "POST", json: copy },
+      bare
+    );
+    expect(await posted.json()).toEqual({ ok: true, notNeeded: true });
+    expect(objectsOf(id)).toEqual([]);
+  });
+
+  it("is not wanted for AI opt-out, a reel with its transcript, or anything but a reel", async () => {
+    const { call } = await signedIn();
+    stubWeb();
+    const id = await saveReel(call);
+    const wanted = async (target: string) =>
+      (
+        (await (await call(`/api/memories/${target}/copy`)).json()) as {
+          wanted: boolean;
+        }
+      ).wanted;
+    await call(`/api/memories/${id}/ai-opt-out`, {
+      method: "PUT",
+      json: { aiOptOut: true },
+    });
+    expect(await wanted(id)).toBe(false);
+    const link = crypto.randomUUID();
+    await call("/api/memories/links", {
+      method: "POST",
+      json: { id: link, url: "https://news.test/a" },
+    });
+    expect(await wanted(link)).toBe(false);
+    expect(await wanted("not-an-id")).toBe(false);
+    const done = await saveReel(call);
+    await upload(call, done);
+    await stored(call, done);
+    await drain(done);
+    expect(await wanted(done)).toBe(false);
   });
 });

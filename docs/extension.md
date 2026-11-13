@@ -219,7 +219,7 @@ returns nothing or throws.
 - **Instagram reels** also get a copy for Indexing: after the link is saved
   (never before, never awaited, never in the outbox), a script in the tab reads
   the reel with the person's own session and Spark uploads the video and a few
-  frames to the `/api/memories/:id/copy` flow. Offline, signed out, over 25 MB,
+  frames to the `/api/memories/:id/copy` flow. It first asks `GET /api/memories/:id/copy` whether Spark would use a copy (a transcriber or embedder is configured, no AI opt-out, no transcript yet), so nothing is downloaded for nothing. Offline, signed out, over 25 MB,
   a changed endpoint, a moved tab or a refused upload all leave the reel saved
   as Reference only. Bytes live in memory only, never in extension storage.
 - Test build: `<all_urls>` already includes these hosts, so

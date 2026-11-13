@@ -140,12 +140,18 @@ function socialPostUrl(url: WhatwgUrl): string | undefined {
   const platform = socialPlatform(url.toString());
   const path = url.pathname;
   if (platform === "x") {
-    const m = /^\/(\w{1,15})\/status\/(\d+)(?:\/|$)/.exec(path);
-    return m ? `https://x.com/${m[1]}/status/${m[2]}` : undefined;
+    // `/i/web/status/<id>` is the same post as `/i/status/<id>`.
+    const m = /^\/(?:(\w{1,15})|i\/web)\/status\/(\d+)(?:\/|$)/.exec(path);
+    return m ? `https://x.com/${m[1] ?? "i"}/status/${m[2]}` : undefined;
   }
   if (platform === "tiktok" && /^(www\.|m\.)?tiktok\.com$/.test(url.hostname)) {
-    const m = /^\/(@[\w.-]+)\/video\/(\d+)\/?$/.exec(path);
-    return m ? `https://www.tiktok.com/${m[1]}/video/${m[2]}` : undefined;
+    const m = /^\/(@[\w.-]+)\/(video|photo)\/(\d+)\/?$/.exec(path);
+    return m ? `https://www.tiktok.com/${m[1]}/${m[2]}/${m[3]}` : undefined;
+  }
+  // A carousel's `?img_index=` is a place in the post, not another post.
+  const post = /^\/(?:[\w.]+\/)?p\/([\w-]+)\/?$/.exec(path)?.[1];
+  if (platform === "instagram" && post) {
+    return `https://www.instagram.com/p/${post}/`;
   }
   const reel = instagramReel(url.toString());
   return reel ? `https://www.instagram.com/reel/${reel}/` : undefined;
@@ -211,6 +217,8 @@ export const PageExtract = z.object({
     .optional()
     .transform((value) => httpUrl(value)),
   text: line(FREE_ALLOWANCE.textMaxChars).optional(),
+  /** Read by a site adapter (X, TikTok, Instagram): what the person saw outranks what the web says. */
+  site: z.boolean().optional(),
 });
 export type PageExtract = z.output<typeof PageExtract>;
 
@@ -229,7 +237,7 @@ export function keptPage(
 ): { metadata: LinkMetadata; text: string | null } | undefined {
   const metadata: LinkMetadata = {};
   const put = (
-    key: Exclude<keyof LinkMetadata, "video">,
+    key: Exclude<keyof LinkMetadata, "video" | "siteRead">,
     value: string | undefined
   ) => {
     const clean = oneLine(value);
@@ -241,6 +249,7 @@ export function keptPage(
   put("author", page.author);
   put("publishedAt", page.publishedAt);
   put("imageUrl", page.imageUrl);
+  if (page.site) metadata.siteRead = true;
   const text = oneLine(page.text) ?? "";
   const preserved = text.length >= MIN_PRESERVED_CHARS ? text : null;
   if (!preserved && Object.keys(metadata).length === 0) return undefined;
@@ -275,6 +284,8 @@ export type LinkCapture = z.input<typeof LinkCapture>;
  */
 export type LinkMetadata = {
   video?: VideoMetadata;
+  /** A site adapter read this Memory's page in the person's browser (precedence in saveGathered). */
+  siteRead?: boolean;
   selectionContext?: string;
   title?: string;
   description?: string;

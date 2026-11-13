@@ -62,6 +62,22 @@ describe("social posts", () => {
     expect(normaliseUrl("https://instagram.com/reels/C1a")).toBe(
       "https://www.instagram.com/reel/C1a/"
     );
+    // The three forms that used to slip through.
+    expect(normaliseUrl("https://x.com/i/web/status/20?s=20")).toBe(
+      "https://x.com/i/status/20"
+    );
+    expect(normaliseUrl("https://x.com/i/status/20")).toBe(
+      "https://x.com/i/status/20"
+    );
+    expect(
+      normaliseUrl("https://www.tiktok.com/@a/photo/7123?is_from_webapp=1")
+    ).toBe("https://www.tiktok.com/@a/photo/7123");
+    expect(
+      normaliseUrl("https://instagram.com/p/C1a_b-2/?img_index=3&igsh=x")
+    ).toBe("https://www.instagram.com/p/C1a_b-2/");
+    expect(normaliseUrl("https://instagram.com/ana.bakes/p/C1a_b-2")).toBe(
+      "https://www.instagram.com/p/C1a_b-2/"
+    );
     // Anything else on these hosts keeps the general rule.
     expect(normaliseUrl("https://x.com/jack?lang=en&utm_source=a")).toBe(
       "https://x.com/jack?lang=en"

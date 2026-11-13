@@ -88,28 +88,96 @@ describe.skipIf(!databaseUrl)("a reel's user-provided copy", () => {
     return keys;
   };
 
-  it("keeps what the extension read of a reel over what the public page says", async () => {
-    const result = await library().captureLink({
-      url: `https://www.instagram.com/reel/${crypto.randomUUID().slice(0, 8)}/`,
-      page: {
-        description: "Sourdough in 60 seconds, from the screen",
-        author: "@ana.bakes",
-      },
-    });
-    if (!("memory" in result)) throw new Error("conflict");
-    const claim = await claimOf(result.memory.id);
-    await store().saveGathered(claim, {
+  describe("what a Capture's page says against what gathering finds", () => {
+    const gatheredPage = {
       metadata: {
+        title: "Current video",
         description: "1,204 likes - a login wall",
         siteName: "Instagram",
-        video: { transcript: [], transcriptState: "unavailable" },
+        video: { transcript: [], transcriptState: "unavailable" as const },
       },
       text: null,
+    };
+
+    it("keeps what a site adapter read of a reel over what the public page says", async () => {
+      const result = await library().captureLink({
+        url: `https://www.instagram.com/reel/${crypto.randomUUID().slice(0, 8)}/`,
+        page: {
+          description: "Sourdough in 60 seconds, from the screen",
+          author: "@ana.bakes",
+          site: true,
+        },
+      });
+      if (!("memory" in result)) throw new Error("conflict");
+      await store().saveGathered(await claimOf(result.memory.id), gatheredPage);
+      expect(await library().get(result.memory.id)).toMatchObject({
+        description: "Sourdough in 60 seconds, from the screen",
+        video: { transcriptState: "unavailable" },
+      });
     });
-    const kept = await library().get(result.memory.id);
-    expect(kept).toMatchObject({
-      description: "Sourdough in 60 seconds, from the screen",
-      video: { transcriptState: "unavailable" },
+
+    it("lets the page gathered now win for any other Capture, as a stale YouTube tag would otherwise stick", async () => {
+      const result = await library().captureLink({
+        url: `https://www.youtube.com/watch?v=${crypto.randomUUID().replace(/-/g, "").slice(0, 11)}`,
+        // Read after in-app navigation: the previous video's title.
+        page: { title: "Previous video", description: "Previous description" },
+      });
+      if (!("memory" in result)) throw new Error("conflict");
+      await store().saveGathered(await claimOf(result.memory.id), gatheredPage);
+      expect(await library().get(result.memory.id)).toMatchObject({
+        pageTitle: "Current video",
+        description: "1,204 likes - a login wall",
+      });
+    });
+  });
+
+  describe("with Deep fetch (ADR-0010, #21)", () => {
+    const deepFetchOf = async (id: string) =>
+      (
+        await db
+          .select({ state: schema.memory.deepFetchState })
+          .from(schema.memory)
+          .where(eq(schema.memory.id, id))
+      )[0]!.state;
+    const noTranscript = {
+      metadata: {
+        title: "Ana on Instagram",
+        video: { transcript: [], transcriptState: "unavailable" as const },
+      },
+      text: null,
+    };
+
+    it("does not queue a reel that has a user-provided copy", async () => {
+      const memory = await reel();
+      await attach(memory.id);
+      await library().markCopyStored(memory.id, async () => "stored");
+      await store().saveGathered(await claimOf(memory.id), noTranscript);
+      expect(await deepFetchOf(memory.id)).toBeNull();
+      expect((await library().get(memory.id))!.deepFetch).toBeNull();
+    });
+
+    it("does not queue a reel whose copy arrives after Gather, and cancels nothing it never queued", async () => {
+      const memory = await reel();
+      await store().saveGathered(await claimOf(memory.id), noTranscript);
+      expect(await deepFetchOf(memory.id)).toBeNull();
+      await attach(memory.id);
+      await library().markCopyStored(memory.id, async () => "stored");
+      expect(await deepFetchOf(memory.id)).toBeNull();
+    });
+
+    it("does not queue a reel with no copy either: its login wall is not the server's to cross", async () => {
+      const memory = await reel();
+      await store().saveGathered(await claimOf(memory.id), noTranscript);
+      expect(await deepFetchOf(memory.id)).toBeNull();
+    });
+
+    it("still queues a public video that came back without a transcript", async () => {
+      const result = await library().captureLink({
+        url: `https://www.youtube.com/watch?v=${crypto.randomUUID().replace(/-/g, "").slice(0, 11)}`,
+      });
+      if (!("memory" in result)) throw new Error("conflict");
+      await store().saveGathered(await claimOf(result.memory.id), noTranscript);
+      expect(await deepFetchOf(result.memory.id)).toBe("queued");
     });
   });
 

@@ -24,7 +24,7 @@ import {
   type Library,
   type Memory,
 } from "@spark/db";
-import { embedderFor } from "@spark/indexing";
+import { embedderFor, transcriberFor } from "@spark/indexing";
 import { createSearch } from "@spark/search";
 import type { AppEnv } from "./env";
 import { requireUser, withAuth, type UserVariables } from "./auth";
@@ -35,6 +35,7 @@ import {
   type FileStore,
 } from "./files";
 import { extensionCors, sameOrigin } from "./origin";
+import { enqueueDeepFetch } from "./deep-fetch-queue";
 import { enqueue, enqueueEmbed, providers } from "./indexing";
 
 /** Bound screenshot storage calls; cleanup stays durable if a PUT finishes late. */
@@ -54,6 +55,12 @@ async function screenshotStorage<T>(work: Promise<T>): Promise<T> {
     clearTimeout(timer);
   }
 }
+
+/** Indexing can read a reel's copy only with a transcriber or an embedder. */
+const copyUsable = (env: AppEnv["Bindings"]) => {
+  const options = providers(env);
+  return !!transcriberFor(options) || !!embedderFor(options);
+};
 
 /** The signed-in person's Library, for every route below. */
 const withLibrary = createMiddleware<
@@ -363,12 +370,30 @@ export const memories = new Hono<AppEnv>()
     return c.json({ memory, uploads }, result.created ? 201 : 200);
   })
   /**
+   * Whether a copy would be used: only when this environment can read one
+   * (a transcriber or an embedder, which need a paid Gemini key) and the
+   * reel has no transcript yet. The extension asks before downloading.
+   */
+  .get("/memories/:id/copy", async (c) => {
+    const id = c.req.param("id");
+    return c.json({
+      wanted:
+        UUID.test(id) &&
+        copyUsable(c.env) &&
+        (await c.var.library.wantsCopy(id)),
+    });
+  })
+  /**
    * A reel's user-provided copy (ADR-0010): the person's own browser fetched
    * the video with their own session. Presigned PUTs for it and its frames;
    * it exists only for Indexing, which deletes it. Refused for AI opt-out.
    */
   .post("/memories/:id/copy", limitCopyBody, json(ReelCopy), async (c) => {
     const id = c.req.param("id");
+    // Nothing here could read it: do not take 25 MB only to delete it.
+    if (!copyUsable(c.env)) {
+      return c.json({ ok: true, notNeeded: true } as const);
+    }
     const result = UUID.test(id)
       ? await c.var.library.attachCopy(id, c.req.valid("json"))
       : undefined;
@@ -447,6 +472,28 @@ export const memories = new Hono<AppEnv>()
     if (!memory) return c.json(notFound, 404);
     if (memory.indexState === "indexing") {
       await enqueue(c.env, memory);
+    }
+    return c.json(await forClient(c.var.files, memory));
+  })
+  /**
+   * Try Again on a Memory whose Deep fetch Failed or was Unavailable: a new
+   * run, with all its automatic attempts, sent at once.
+   */
+  .post("/memories/:id/deep-fetch", async (c) => {
+    const id = c.req.param("id");
+    const before = UUID.test(id) && (await c.var.library.get(id));
+    const memory = before && (await c.var.library.retryDeepFetch(id));
+    if (!memory) return c.json(notFound, 404);
+    // Only a run just started is sent; any other Memory comes back as it is.
+    if (
+      memory.deepFetchRun !== before.deepFetchRun &&
+      memory.deepFetch === "fetching"
+    ) {
+      await enqueueDeepFetch(c.env, {
+        memoryId: memory.id,
+        generation: memory.indexGeneration,
+        run: memory.deepFetchRun,
+      });
     }
     return c.json(await forClient(c.var.files, memory));
   })

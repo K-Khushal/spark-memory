@@ -421,6 +421,9 @@ const reel = {
 };
 const saved = (path: string) =>
   request.mock.calls.filter(([url]) => String(url).endsWith(path));
+/** The copy uploads themselves, not the question whether one is wanted. */
+const copies = () =>
+  saved("/copy").filter(([, init]) => init?.method === "POST");
 /** The page script answering as extract.ts or extract-site.ts would. */
 function pageSays(
   tab: typeof post,
@@ -553,11 +556,15 @@ const readOk = {
 };
 /** A server that saves the Capture under the id it was sent: a new Memory, not a duplicate. */
 function savesNew(
-  extra: (url: string) => Response | undefined = () => undefined
+  extra: (url: string, init?: RequestInit) => Response | undefined = () =>
+    undefined,
+  wanted = true
 ) {
   request.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url.endsWith("/me")) return Response.json({ id: "ana" });
-    const answer = extra(url);
+    if (url.endsWith("/copy") && !init?.method)
+      return Response.json({ wanted });
+    const answer = extra(url, init);
     if (answer) return answer;
     return Response.json({
       id: url.endsWith("/links") ? JSON.parse(String(init?.body)).id : "memory",
@@ -599,10 +606,10 @@ it("copies a reel with the person's own session after saving it, without waiting
   expect(run.target).toEqual({ tabId: 1 });
   expect(run.args[0]).toBe("C1a_b2");
   // The copy is bound to the Memory just saved and to this account.
-  expect(saved("/copy")[0]![0]).toBe(
+  expect(copies()[0]![0]).toBe(
     `https://sparkmemory.xyz/api/memories/${memoryId}/copy`
   );
-  expect(saved("/copy")[0]![1].headers).toMatchObject({
+  expect(copies()[0]![1].headers).toMatchObject({
     "x-spark-user": "ana",
   });
   // Neither the video nor a frame is ever kept in extension storage.
@@ -619,7 +626,7 @@ it("saves a reel as Reference only when its video cannot be read", async () => {
   background.main();
   expect(await message("capture")).toMatchObject({ memory: { id: "memory" } });
   await new Promise((resolve) => setTimeout(resolve, 20));
-  expect(saved("/copy")).toEqual([]);
+  expect(copies()).toEqual([]);
   expect(saved("/links")).toHaveLength(1);
 });
 
@@ -631,7 +638,7 @@ it("keeps the reel saved when uploading its copy fails, and says nothing of it",
   );
   background.main();
   expect(await message("capture")).toMatchObject({ state: "saved" });
-  await vi.waitFor(() => expect(saved("/copy")).toHaveLength(1));
+  await vi.waitFor(() => expect(copies()).toHaveLength(1));
   expect(browser.action.setBadgeText).not.toHaveBeenCalledWith({ text: "!" });
 });
 
@@ -660,4 +667,20 @@ it("does not copy a reel the person already had: saving it again costs nothing",
   expect(browser.scripting.executeScript.mock.calls.some(([i]) => i.func)).toBe(
     false
   );
+});
+
+it("downloads nothing when Spark would not use a copy", async () => {
+  pageSays(reel, { description: "Sourdough in 60 seconds" }, readOk);
+  browser.permissions.contains.mockResolvedValue(true);
+  savesNew(() => undefined, false);
+  background.main();
+  expect(await message("capture")).toMatchObject({ state: "saved" });
+  await vi.waitFor(() =>
+    expect(saved("/copy").filter(([, init]) => !init?.method)).toHaveLength(1)
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(browser.scripting.executeScript.mock.calls.some(([i]) => i.func)).toBe(
+    false
+  );
+  expect(copies()).toEqual([]);
 });

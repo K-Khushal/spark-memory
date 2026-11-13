@@ -4,6 +4,8 @@ import {
   EMBEDDING,
   Categories,
   embeddingSpace,
+  instagramReel,
+  isThin,
   type IndexFailure,
   type IndexingOutput,
   type LinkMetadata,
@@ -419,14 +421,21 @@ export function indexingStore(db: Database) {
         metadata: LinkMetadata;
         text: string | null;
         contentHash?: string;
+        /** The Source was never shown to be public: no Deep fetch (Gathered.refused). */
+        refused?: boolean;
       }
     ) {
       const write = async (hash: string | null) => {
         const [row] = await db
           .update(memory)
           .set({
-            // What the person's own browser read (the extension) wins over what the web says.
-            metadata: sql`${JSON.stringify(gathered.metadata)}::jsonb || coalesce(${memory.metadata}, '{}'::jsonb)`,
+            // What a site adapter read in the person's own browser (X, TikTok,
+            // Instagram) wins over what the web says of a login wall. For any
+            // other page the gathered metadata wins: an OG tag the page has
+            // just served is fresher than text read before in-app navigation.
+            metadata: sql`case when ${memory.metadata}->>'siteRead' = 'true'
+              then ${JSON.stringify(gathered.metadata)}::jsonb || ${memory.metadata}
+              else coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(gathered.metadata)}::jsonb end`,
             body: gathered.text,
             preservation: sql`case when ${memory.kind} = 'video' then 'reference_only' when ${gathered.text}::text is not null then 'preserved' else 'reference_only' end`,
             contentHash: sql`case when exists (
@@ -446,19 +455,47 @@ export function indexingStore(db: Database) {
             title: memory.title,
             body: memory.body,
             captureNote: memory.captureNote,
+            kind: memory.kind,
+            aiOptOut: memory.aiOptOut,
+            metadata: memory.metadata,
             ...linkColumns,
           });
         return row;
       };
+      let row;
       try {
-        return await write(gathered.contentHash ?? null);
+        row = await write(gathered.contentHash ?? null);
       } catch (error) {
         // Another link with this text was gathered at the same moment.
         if ((error as { cause?: { code?: string } }).cause?.code !== "23505") {
           throw error;
         }
-        return write(null);
+        row = await write(null);
       }
+      if (!row) return row;
+      const { kind, aiOptOut, metadata, ...saved } = row;
+      // Came back thin (ADR-0010): a Deep fetch is wanted, once per Memory.
+      // The video engine sends audio to an AI provider, so never for opt-out.
+      // Never for a reel either: it is behind a login wall, which the server
+      // never crosses; its own browser provides a copy instead (#20), so a
+      // reel that gets one cannot also be queued to fetch the video.
+      if (
+        !gathered.refused &&
+        !(row.sourceUrl && instagramReel(row.sourceUrl)) &&
+        isThin({ kind, text: row.body, metadata: metadata ?? {} }) &&
+        !(kind === "video" && aiOptOut)
+      ) {
+        await db
+          .update(memory)
+          .set({ deepFetchState: "queued", deepFetchDueAt: sql`now()` })
+          .where(
+            and(
+              claimed(claim),
+              sql`${memory.deepFetchState} is null and ${memory.deepFetchRun} = 0`
+            )
+          );
+      }
+      return saved;
     },
 
     /**
