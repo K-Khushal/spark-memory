@@ -83,7 +83,7 @@ export function PasteBox({
             placeholder="Capture Note"
             aria-label="Capture Note"
             dir="auto"
-            className="h-11 min-w-0 rounded-control bg-sunken px-3 text-[1rem] text-ink outline-none placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring"
+            className="h-11 min-w-0 rounded-control bg-sunken px-3 text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring"
           />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Button

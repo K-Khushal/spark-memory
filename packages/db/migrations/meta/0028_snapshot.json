@@ -1,5 +1,5 @@
 {
-  "id": "19dbf5b9-1ec2-4be0-9e3e-81dd364664e8",
+  "id": "156051b7-2402-4b0c-918c-93ccfe8c29b2",
   "prevId": "3589ccf6-7fc2-4a5b-bfe1-1835a5d913aa",
   "version": "7",
   "dialect": "postgresql",
@@ -760,6 +760,13 @@
         },
         "sample": {
           "name": "sample",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "over_allowance": {
+          "name": "over_allowance",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
@@ -2192,6 +2199,13 @@
         },
         "deep_fetches": {
           "name": "deep_fetches",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "captures": {
+          "name": "captures",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

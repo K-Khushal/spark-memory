@@ -19,6 +19,7 @@ import {
 } from "@spark/ui";
 import { confirmsDeletion } from "@spark/core";
 import type { Session } from "../auth";
+import { UsageSection } from "./usage";
 import { DeskSidebar, useLibraryDesk, useSignOut } from "../shell";
 import {
   EXPORT_DOWNLOAD_URL,
@@ -38,9 +39,15 @@ export function SettingsPage({
   const desk = useLibraryDesk();
   const account = useAccount();
   const { email } = session.user;
+  const { usage } = account;
   const loading =
-    account.sessions === undefined || account.export === undefined;
-  const failed = account.sessions === "failed" || account.export === "failed";
+    account.sessions === undefined ||
+    account.export === undefined ||
+    usage === undefined;
+  const failed =
+    account.sessions === "failed" ||
+    account.export === "failed" ||
+    usage === "failed";
 
   return (
     <div className="flex min-h-dvh bg-canvas">
@@ -80,6 +87,9 @@ export function SettingsPage({
             </div>
           ) : loading ? null : (
             <>
+              <Section title="Usage">
+                <UsageSection usage={usage} onDelete={account.deleteMemory} />
+              </Section>
               <Section title="Sessions">
                 <Sessions account={account} />
               </Section>

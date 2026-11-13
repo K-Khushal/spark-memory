@@ -99,6 +99,8 @@ export function normaliseUrl(input: string): string | undefined {
   const post = socialPostUrl(url);
   if (post) return post;
   url.hash = "";
+  // Valid 11-character ids were canonicalised above. Legacy watch/youtu.be
+  // Sources with other ids still lose their playback timestamp here.
   const video = isYouTubeVideo(input);
   const kept = [...url.searchParams].filter(
     ([name]) => !isTracker(name) && !(video && name === "t")
@@ -352,5 +354,12 @@ export type VideoMetadata = {
   /** Written by a model from a user-provided copy (a reel), so AI opt-out removes it; else the video's own captions. */
   transcribedBy?: "model";
 };
-export const formatTimestamp = (seconds: number) =>
-  `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
+export const formatTimestamp = (seconds: number) => {
+  const whole = Math.floor(seconds);
+  const hours = Math.floor(whole / 3600);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const minutes = Math.floor(whole / 60) % 60;
+  return hours
+    ? `${hours}:${pad(minutes)}:${pad(whole % 60)}`
+    : `${minutes}:${pad(whole % 60)}`;
+};

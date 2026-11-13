@@ -75,7 +75,7 @@ export function IndexBadge({
           aria-label={`Retry, ${reason}`}
           title={reason}
           tabIndex={focusable ? undefined : -1}
-          className="relative grid size-5 place-items-center rounded-[4px] text-ink transition-[background-color,transform] duration-(--duration-press) ease-out outline-none hover:bg-sunken focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.97] before:absolute before:-inset-2.5"
+          className="relative grid size-5 place-items-center rounded-[4px] text-ink transition-[background-color,transform] duration-(--duration-press) ease-out hover:bg-sunken focus-visible:outline-2 focus-visible:outline-ring active:scale-[0.97] before:absolute before:-inset-2.5"
         >
           <RotateCwIcon className="size-3.5" aria-hidden />
         </button>
@@ -154,8 +154,9 @@ export function DeepFetchStatus({
   if (!memory.deepFetch) return null;
   const stopped = memory.deepFetch === "failed";
   return (
-    <>
-      <span role="status" className="text-sm text-ink-muted">
+    // One unit, so Try Again never wraps away from what failed.
+    <span className="inline-flex items-center gap-2">
+      <span role="status" className="text-sm whitespace-nowrap text-ink-muted">
         {DEEP_FETCH_LABEL[memory.deepFetch]}
       </span>
       {stopped && (
@@ -163,6 +164,6 @@ export function DeepFetchStatus({
           <RotateCwIcon aria-hidden /> Try Again
         </Button>
       )}
-    </>
+    </span>
   );
 }

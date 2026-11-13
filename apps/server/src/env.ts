@@ -43,6 +43,13 @@ export type Bindings = {
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
 
+  /**
+   * Rate Limiting bindings (wrangler.jsonc, docs/research/rate-limits.md),
+   * per signed-in person: Capture routes, and search. Absent locally.
+   */
+  CAPTURE_LIMITER?: RateLimiter;
+  SEARCH_LIMITER?: RateLimiter;
+
   /** Queues (wrangler.jsonc): fresh Captures and Retry, and background re-indexing. */
   INDEX_QUEUE: IndexQueue;
   REINDEX_QUEUE: IndexQueue;
@@ -112,6 +119,11 @@ export type Bindings = {
   DEEP_FETCH_PROVIDER?: string;
   /** Var: "fake" (honoured only when SPARK_ENV is local) Indexes with the fake provider. */
   INDEXING_PROVIDER?: string;
+};
+
+/** The part of a Cloudflare Rate Limiting binding the API uses. */
+export type RateLimiter = {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
 };
 
 /**

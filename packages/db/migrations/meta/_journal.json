@@ -187,8 +187,15 @@
     {
       "idx": 26,
       "version": "7",
-      "when": 1794564825698,
-      "tag": "0026_connected_assistants",
+      "when": 1794520000000,
+      "tag": "0027_captures_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794574105192,
+      "tag": "0028_connected_assistants",
       "breakpoints": true
     }
   ]

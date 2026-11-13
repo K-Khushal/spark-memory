@@ -1,10 +1,11 @@
+import { FREE_ALLOWANCE, formatSize } from "@spark/core";
 import type { ShareRefusal } from "./validate";
 
 /** What each refusal says (and the toast and page copy for a share that cannot be read or saved). */
 export const REFUSAL_COPY: Record<ShareRefusal, string> = {
   empty: "Nothing to Capture",
   too_long: "Too Long to Capture",
-  too_large: "Files Over 25 MB Can't Be Captured",
+  too_large: `Files Over ${formatSize(FREE_ALLOWANCE.maxUploadBytes)} Can't Be Captured`,
   too_many: "Too Many Files to Capture",
   unsupported: "This File Type Can't Be Captured",
   unreadable: "This Share Can't Be Read",
