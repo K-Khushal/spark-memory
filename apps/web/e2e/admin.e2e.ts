@@ -20,16 +20,17 @@ test("an admin sees spend and usage, and can change the daily budget", async ({
 }) => {
   test.setTimeout(45_000);
   await signIn(page, ADMIN);
-  await page.evaluate(() => {
+  const memory = `Admin smoke memory ${crypto.randomUUID()}`;
+  await page.evaluate((memory) => {
     const data = new DataTransfer();
-    data.setData("text/plain", "Admin smoke memory");
+    data.setData("text/plain", memory);
     document.body.dispatchEvent(
       new ClipboardEvent("paste", { clipboardData: data, bubbles: true })
     );
-  });
+  }, memory);
   await expect(page.getByText("Captured")).toBeVisible();
   await expect(
-    page.getByRole("listitem", { name: "Admin smoke memory", exact: true })
+    page.getByRole("listitem", { name: memory, exact: true })
   ).toBeVisible({ timeout: 15_000 });
   // The Capture toast belongs to the Library. Let it leave before leaving the page.
   await expect(page.getByText("Captured")).toBeHidden({ timeout: 10_000 });

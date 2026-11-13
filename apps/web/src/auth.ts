@@ -78,6 +78,6 @@ export async function requireSession(options?: { freshAdmin?: boolean }) {
 }
 
 /** Route guard for the sign-in screen: signed-in people go to their Library. */
-export async function redirectIfSignedIn() {
-  if (await currentSession()) throw redirect({ to: "/" });
+export async function redirectIfSignedIn(returnTo?: string) {
+  if (await currentSession()) throw redirect({ href: returnTo ?? "/" });
 }

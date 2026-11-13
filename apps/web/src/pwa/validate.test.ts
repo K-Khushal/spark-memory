@@ -3,9 +3,9 @@ import { FREE_ALLOWANCE } from "@spark/core";
 import type { PendingShare } from "./hold";
 import { checkShare, MAX_SHARE_FILES } from "./validate";
 
-const file = (name: string, type: string, bytes = 8) => ({
+const file = (name: string, type: string) => ({
   id: crypto.randomUUID(),
-  file: new File([new Uint8Array(bytes)], name, { type }),
+  file: new File([new Uint8Array(8)], name, { type }),
 });
 
 const share = (over: Partial<PendingShare> = {}): PendingShare => ({
@@ -45,7 +45,12 @@ describe("checkShare", () => {
   });
 
   it("refuses a file over the upload limit", () => {
-    const big = file("big.png", "image/png", FREE_ALLOWANCE.maxUploadBytes + 1);
+    const big = file("big.png", "image/png");
+    // This boundary validates metadata, not bytes. Avoid allocating the
+    // entire oversized file merely to exercise the size limit.
+    Object.defineProperty(big.file, "size", {
+      value: FREE_ALLOWANCE.maxUploadBytes + 1,
+    });
     expect(checkShare(share({ files: [big] }))).toBe("too_large");
   });
 

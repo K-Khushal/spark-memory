@@ -1,3 +1,4 @@
+import { ConnectedAssistants } from "./connected-assistants";
 import {
   useEffect,
   useId,
@@ -91,6 +92,9 @@ export function SettingsPage({
               </Section>
               <Section title="Sessions">
                 <Sessions account={account} />
+              </Section>
+              <Section title="Connected Assistants">
+                <ConnectedAssistants />
               </Section>
               <Section title="Export" live>
                 <Export account={account} />
