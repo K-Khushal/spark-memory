@@ -41,7 +41,10 @@ test("onboarding resumes, captures, searches samples and removes them together",
   await expect(page.getByPlaceholder("Search…")).toHaveValue(
     "bookshop with a cat"
   );
-  await page.getByRole("option", { name: /A Quiet Place to Read/ }).click();
+  await page
+    .getByRole("listbox")
+    .getByRole("option", { name: /A Quiet Place to Read/ })
+    .click();
   await page.keyboard.press("Escape");
   await expect(flow.getByRole("heading", { name: "Ready" })).toBeVisible();
   await expect

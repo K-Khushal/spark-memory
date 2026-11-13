@@ -389,7 +389,18 @@ export async function runEvals({
     });
     const outcomes: SearchOutcome[] = [];
     for (const c of searches) {
-      const { results, mode } = await search.search(c.query, "full");
+      const sample =
+        c.imageMemory && memories.find((m) => m.id === c.imageMemory);
+      const image = sample &&
+        sample.image && {
+          mime: sample.image.mime,
+          data: (await readLibraryFile(sample.file!)).toString("base64"),
+        };
+      const { results, mode } = await search.search(
+        c.query,
+        "full",
+        image ? { image } : {}
+      );
       const accepted = new Set([...c.expect, ...(c.also ?? [])]);
       const found = results.map((r) => ({
         id: sampleOf.get(r.id) ?? r.id,
@@ -400,7 +411,7 @@ export async function runEvals({
         score: r.score,
       }));
       let ids = found.map((r) => r.id);
-      if (rerank && documents) {
+      if (rerank && documents && !c.imageMemory) {
         const head = found.slice(0, RERANK_TOP);
         const order = await rerank(
           c.query,

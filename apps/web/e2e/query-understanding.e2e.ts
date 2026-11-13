@@ -69,7 +69,9 @@ test("browses by filter chips with no words, says why, and understands typed fil
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("images");
   // Enter puts the answer on the wall once the menu has one.
-  await expect(page.getByRole("option", { name: /^images/ })).toBeVisible();
+  await expect(
+    page.getByRole("listbox").getByRole("option", { name: /^images/ })
+  ).toBeVisible();
   await page.keyboard.press("Enter");
   const direct = page.getByRole("list", { name: "Direct Matches" });
   await expect(direct.getByRole("listitem")).toHaveCount(1);
@@ -83,7 +85,9 @@ test("browses by filter chips with no words, says why, and understands typed fil
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("budget from this year");
   await expect(
-    page.getByRole("option", { name: /^budget from this year/ })
+    page
+      .getByRole("listbox")
+      .getByRole("option", { name: /^budget from this year/ })
   ).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(direct.getByRole("listitem")).toHaveCount(1);
@@ -101,7 +105,7 @@ test("browses by filter chips with no words, says why, and understands typed fil
   });
   await page.keyboard.press("ControlOrMeta+k");
   const option = (name: string) =>
-    page.getByRole("option", { name, exact: true });
+    page.getByRole("listbox").getByRole("option", { name, exact: true });
   await expect(option("invoices")).toBeVisible();
   await expect(option("images")).toBeVisible();
   await expect(option("budget from this year")).toBeVisible();
@@ -129,7 +133,10 @@ test("browses by filter chips with no words, says why, and understands typed fil
     data: { query: "to clear" },
   });
   await page.keyboard.press("ControlOrMeta+k");
-  await page.getByRole("option", { name: "Clear Recent Searches" }).click();
+  await page
+    .getByRole("listbox")
+    .getByRole("option", { name: "Clear Recent Searches" })
+    .click();
   await page.keyboard.press("ControlOrMeta+k");
   await expect(option("to clear")).toHaveCount(0);
   await page.keyboard.press("Escape");
@@ -182,11 +189,13 @@ test("recent searches handle empty, one and worst-case data without horizontal o
     await expect(page.getByRole("dialog")).toBeVisible();
     if (data.length)
       await expect(
-        page.getByRole("option", { name: "Clear Recent Searches" })
+        page
+          .getByRole("listbox")
+          .getByRole("option", { name: "Clear Recent Searches" })
       ).toBeAttached();
     else
       await expect(
-        page.getByRole("option", { name: /^Capture/ })
+        page.getByRole("listbox").getByRole("option", { name: /^Capture/ })
       ).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     expect(

@@ -81,7 +81,9 @@ test("video transcript timestamps open the privacy-enhanced player", async ({
   );
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("heliotropism");
-  await expect(page.getByRole("option", { name: /Garden Film/ })).toBeVisible();
+  await expect(
+    page.getByRole("listbox").getByRole("option", { name: /Garden Film/ })
+  ).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(page.getByText("Said at 12:40")).toBeVisible();
   const tile = page.getByRole("listitem", { name: /Garden Film/ });
