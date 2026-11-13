@@ -24,13 +24,11 @@ test("image search accepts files, paste and drop without Capturing the query", a
   const sent = page.waitForRequest(
     (req) => req.url().endsWith("/api/search") && !!req.postDataJSON()?.image
   );
-  await dialog
-    .getByLabel("Query Image File")
-    .setInputFiles({
-      name: "query.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(data, "base64"),
-    });
+  await dialog.getByLabel("Query Image File").setInputFiles({
+    name: "query.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(data, "base64"),
+  });
   const request = await sent;
   expect(request.method()).toBe("POST");
   expect(request.url()).not.toContain("base64");
@@ -51,9 +49,7 @@ test("image search accepts files, paste and drop without Capturing the query", a
     dialog.getByRole("button", { name: "Remove Query Image" })
   ).toBeVisible();
   await dialog.getByPlaceholder("Search…").fill("lemon");
-  await expect(
-    dialog.getByRole("option", { name: "lemon", exact: true })
-  ).toBeVisible();
+  await expect(dialog.getByRole("option", { name: /^lemon/ })).toBeVisible();
   if (process.env.IMAGE_SCREENSHOTS_DIR) {
     for (const width of [1440, 390])
       for (const scheme of ["light", "dark"] as const) {
@@ -92,6 +88,57 @@ test("image search accepts files, paste and drop without Capturing the query", a
     ).toBeVisible();
     await dialog.getByRole("button", { name: "Remove Query Image" }).click();
   }
+  const memoryId = before.memories.find(
+    (m: { body: string }) => m.body === "Lemon tart with a short crust"
+  ).id as string;
+  await expect(
+    dialog.getByRole("combobox").locator(`option[value="${memoryId}"]`)
+  ).toHaveCount(1);
+  const picked = page.waitForRequest(
+    (req) =>
+      req.url().endsWith("/api/search") &&
+      req.postDataJSON()?.memory === memoryId
+  );
+  await dialog.getByRole("combobox").selectOption(memoryId);
+  expect((await picked).postDataJSON().image).toBeUndefined();
+  await expect(
+    dialog.getByRole("button", { name: "Remove Query Image" })
+  ).toBeVisible();
   const after = await (await page.request.get("/api/memories")).json();
   expect(after.memories.length).toBe(before.memories.length);
+});
+
+test("image query controls fit worst-case Library titles and collections", async ({
+  page,
+}) => {
+  await page.goto("/prototypes?imageSearch=1");
+  await page.setViewportSize({ width: 320, height: 800 });
+  for (const state of [
+    "Demo Data",
+    "Worst Case",
+    "Empty",
+    "One",
+    "1,000 Memories",
+  ]) {
+    await page.getByRole("button", { name: state, exact: true }).click();
+    await expect(
+      page.getByRole("combobox", { name: "Choose From Library" })
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth
+      )
+    ).toBe(true);
+  }
+  await page.getByRole("button", { name: "Worst Case", exact: true }).click();
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "32px";
+    document.documentElement.dir = "rtl";
+    document.documentElement.dataset.theme = "dark";
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth
+    )
+  ).toBe(true);
 });

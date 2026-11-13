@@ -109,7 +109,7 @@ export function SearchCommand({
         memories={memories}
       >
         <CommandInput
-          value={draft || "Search By Image"}
+          value={draft}
           onValueChange={onDraft}
           onKeyDown={forgetHighlighted}
           placeholder="Search…"

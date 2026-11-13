@@ -555,12 +555,37 @@ it("image queries refuse exhausted budgets and missing providers, without a text
 it("image Direct Matches require vector confidence even when keywords match", async () => {
   const { search } = setup({
     hits: [
-      { id: "keyword", matched: ["keyword"], distance: 0.5 },
-      { id: "visual", matched: ["vector"], distance: 0.01 },
+      { id: "keyword", matched: ["keyword"], distance: 0.5, score: 0.02 },
+      { id: "visual", matched: ["vector"], distance: 0.01, score: 0.01 },
     ],
   });
   const { results } = await search.search("blue", "full", {
     image: { mime: "image/png", data: "iVBORw0KGgo=" },
   });
   expect(results.map((r) => r.match)).toEqual(["related", "direct"]);
+});
+
+it("image queries use the threshold MatchJudge window and never send a text-only question to Jev", async () => {
+  const lib = library(
+    Array.from({ length: 21 }, (_, i) => ({
+      id: String(i),
+      matched: ["vector"],
+      distance: 0.01,
+      score: 1 / (i + 1),
+    }))
+  );
+  const judge = { judge: vi.fn(async () => new Map()) };
+  const search = createSearch({
+    userId: `u${++user}`,
+    find: lib.find,
+    embedder: embedder(),
+    spend: spend(),
+    judge,
+  });
+  const { results } = await search.search("blue", "full", {
+    image: { mime: "image/png", data: "iVBORw0KGgo=" },
+  });
+  expect(judge.judge).not.toHaveBeenCalled();
+  expect(results.filter((r) => r.match === "direct")).toHaveLength(20);
+  expect(results[20]!.match).toBe("related");
 });

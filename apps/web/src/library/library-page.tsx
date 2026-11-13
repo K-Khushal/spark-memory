@@ -81,7 +81,7 @@ export function LibraryPage({
   const {
     value: visual,
     change: setVisual,
-    choose: chooseImage,
+    choose: decodeImage,
     busy: imageBusy,
   } = useImageQuery();
   const [query, setQuery] = useState("");
@@ -98,6 +98,10 @@ export function LibraryPage({
   const [pdf, setPdf] = useState<{ id: string; match: PdfMatch }>();
   /** The Memory the wall shows More Like This of, instead of a query. */
   const [like, setLike] = useState<Memory>();
+  const chooseImage = (file?: File) => {
+    setLike(undefined);
+    return decodeImage(file);
+  };
   // ⌘K: instant per keystroke, full once typing pauses.
   const instant = useSearch(
     searchOpen ? { query: draft, chips, ...(visual && { visual }) } : undefined,
@@ -267,6 +271,7 @@ export function LibraryPage({
     window.scrollTo({ top: 0 });
   };
   const moreLikeThis = (memory: Memory) => {
+    setVisual(undefined);
     setOpenId(undefined);
     setImageId(undefined);
     setPdf(undefined);
@@ -328,7 +333,9 @@ export function LibraryPage({
     await navigate({ to: "/sign-in" });
   };
 
-  const searchLabel = like ? "More Like This" : query || "Search";
+  const searchLabel = like
+    ? "More Like This"
+    : query || (visual ? "Search By Image" : "Search");
   const clearSearchClick = searching
     ? () => {
         metrics.cleared();
@@ -514,7 +521,10 @@ export function LibraryPage({
         onImageFile={chooseImage}
         imageBusy={imageBusy}
         visual={visual}
-        onVisual={setVisual}
+        onVisual={(value) => {
+          setLike(undefined);
+          setVisual(value);
+        }}
         memories={library.memories}
         draft={draft}
         instant={instant}

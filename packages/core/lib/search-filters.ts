@@ -165,8 +165,13 @@ export const SearchRequest = z
           .string()
           .min(4)
           .max(1_398_104)
-          .regex(
-            /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+          .refine(
+            (data) =>
+              data.length % 4 === 0 &&
+              (data.length / 4) * 3 -
+                (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0) <=
+                1_048_576
           ),
       })
       .strict()

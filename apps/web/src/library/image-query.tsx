@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, toast } from "@spark/ui";
 import { ImagePlusIcon, XIcon } from "lucide-react";
 import type { Memory } from "./use-library";
+import { memoryName } from "./memory-tile";
 
 export type ImageQuery =
   | { id: string; image: { data: string; mime: "image/jpeg" } }
@@ -149,12 +150,10 @@ export function ImageQueryControls({
         >
           <option value="">Choose From Library</option>
           {memories
-            .filter(
-              (m) => m.image && !m.aiOptOut && m.indexState === "searchable"
-            )
+            .filter((m) => m.hasVectors && !m.aiOptOut)
             .map((m) => (
               <option key={m.id} value={m.id}>
-                {m.title || m.body || "Image"}
+                {memoryName(m) || "Memory"}
               </option>
             ))}
         </select>
