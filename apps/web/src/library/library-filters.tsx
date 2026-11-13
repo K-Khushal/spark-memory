@@ -89,7 +89,9 @@ export function LibraryFilters({
   options,
   chips,
   onChange,
+  leading,
 }: {
+  leading?: ReactNode;
   layout: "sidebar" | "row";
   options: FilterOptions;
   chips: SearchChips;
@@ -157,6 +159,7 @@ export function LibraryFilters({
   if (layout === "row") {
     return (
       <div className="flex items-center gap-1.5 overflow-x-auto px-4 pb-2 [scrollbar-width:none]">
+        {leading}
         {kinds.map((item) => (
           <Chip key={item.id} {...item} />
         ))}
@@ -175,6 +178,7 @@ export function LibraryFilters({
   }
   return (
     <div className="flex flex-col gap-5">
+      {leading}
       <Group label="Kind" items={kinds} />
       {colours}
       <Group label="Source" items={sources} />

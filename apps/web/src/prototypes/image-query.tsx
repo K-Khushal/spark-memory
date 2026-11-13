@@ -5,7 +5,10 @@ import type { Memory } from "../library/use-library";
 
 const titles = [
   "Q3 Board Deck — FINAL (revised) v12 [approved by legal].png",
-  "Benachrichtigungseinstellungen".repeat(8),
+  "https://example.com/workspaces/northwind-industries-holdings/projects/international-enterprise-onboarding/design-references/notification-preferences-and-permissions/reviews/2026/quarter-four/approved-by-security-and-legal/board-deck-final-revised-version-12/settings-and-account-preferences-mobile-web.png".slice(
+    0,
+    300
+  ),
   "王秀英 👩🏽‍💻 — نور الهدى عبد الرحمن",
   "",
   "J",
@@ -49,7 +52,10 @@ const memory = (title: string, index: number): Memory => ({
 /** Dev-only break-ui fixture: the same controls and props as the Library. */
 export default function ImageQueryPrototype() {
   const states = ["Demo Data", "Worst Case", "Empty", "One", "1,000 Memories"];
-  const [state, setState] = useState("Demo Data");
+  const [state, setState] = useState(() => {
+    const saved = new URLSearchParams(location.search).get("queryData");
+    return saved && states.includes(saved) ? saved : "Demo Data";
+  });
   const query = useImageQuery();
   const names =
     state === "Empty"
@@ -77,7 +83,12 @@ export default function ImageQueryPrototype() {
           <Button
             key={label}
             variant={state === label ? "primary" : "quiet"}
-            onClick={() => setState(label)}
+            onClick={() => {
+              const url = new URL(location.href);
+              url.searchParams.set("queryData", label);
+              history.replaceState(history.state, "", url);
+              setState(label);
+            }}
           >
             {label}
           </Button>

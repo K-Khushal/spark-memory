@@ -87,6 +87,7 @@ AS $$
     CROSS JOIN q
     CROSS JOIN f
     WHERE btrim(p_query) <> '' AND m.user_id = p_user_id AND m.search_tsv @@ q.keyword
+      AND m.id IS DISTINCT FROM p_like
       AND (NOT f.scoped OR in_scope(m, p_kinds, f.hosts, f.after, f.before, f.must_colour, f.categories))
     ORDER BY rank
     LIMIT 100
@@ -99,6 +100,7 @@ AS $$
     CROSS JOIN q
     CROSS JOIN f
     WHERE btrim(p_query) <> '' AND m.user_id = p_user_id AND m.search_tsv @@ q.typo
+      AND m.id IS DISTINCT FROM p_like
       AND (NOT f.scoped OR in_scope(m, p_kinds, f.hosts, f.after, f.before, f.must_colour, f.categories))
     ORDER BY rank
     LIMIT 100

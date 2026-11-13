@@ -1,4 +1,4 @@
-import { ImageQueryControls, type ImageQuery } from "./image-query";
+import { ImageQueryControls, type ImageQueryProps } from "./image-query";
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useRecentSearches } from "./search-history";
 import { restoreLibraryFocus } from "./focus";
@@ -30,10 +30,7 @@ import { whyLabel } from "./why";
 export function SearchCommand({
   open,
   draft,
-  onImageFile,
-  imageBusy,
-  visual,
-  onVisual,
+  imageQuery,
   memories,
   instant,
   onOpenChange,
@@ -45,10 +42,7 @@ export function SearchCommand({
   onSignOut,
 }: {
   open: boolean;
-  onImageFile: (file?: File) => Promise<void>;
-  imageBusy: boolean;
-  visual: ImageQuery | undefined;
-  onVisual: (v: ImageQuery | undefined) => void;
+  imageQuery: ImageQueryProps;
   memories: Memory[];
   draft: string;
   instant: Results | "failed" | undefined;
@@ -60,6 +54,7 @@ export function SearchCommand({
   onSettings: () => void;
   onSignOut: () => void;
 }) {
+  const visual = imageQuery.value;
   const { recent, forget } = useRecentSearches(open);
   const listRef = useRef<HTMLDivElement>(null);
   // The highlighted row. With nothing typed, Recent searches open on their
@@ -101,13 +96,7 @@ export function SearchCommand({
       value={highlight}
       onValueChange={setHighlight}
     >
-      <ImageQueryControls
-        value={visual}
-        onFile={onImageFile}
-        busy={imageBusy}
-        onChange={onVisual}
-        memories={memories}
-      >
+      <ImageQueryControls {...imageQuery} memories={memories}>
         <CommandInput
           value={draft}
           onValueChange={onDraft}
@@ -128,7 +117,7 @@ export function SearchCommand({
         )}
         {draft.trim() || visual ? (
           instant === "failed" ? (
-            <ListNote>Search Unavailable — Try Again</ListNote>
+            <ListNote>Search Unavailable</ListNote>
           ) : instant &&
             instant.direct.length + instant.related.length === 0 ? (
             <ListNote>No Direct Matches</ListNote>

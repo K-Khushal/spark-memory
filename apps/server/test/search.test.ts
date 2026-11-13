@@ -191,7 +191,8 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
       ).toBe(400);
     // A body too large for any search.
     expect(
-      (await postSearch(call, { q: "x", timezone: "y".repeat(20_000) })).status
+      (await postSearch(call, { q: "x", timezone: "y".repeat(1_420_001) }))
+        .status
     ).toBe(413);
   });
 

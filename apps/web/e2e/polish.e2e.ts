@@ -26,7 +26,9 @@ test("keyboard Capture, Search, open, Delete returns visible focus to the Librar
   await expect(page.getByRole("dialog")).toBeHidden();
   await page.keyboard.press("ControlOrMeta+k");
   await page.keyboard.type("cardamom");
-  const result = page.getByRole("option", { name: /Cardamom buns/ });
+  const result = page
+    .getByRole("listbox")
+    .getByRole("option", { name: /Cardamom buns/ });
   await expect(result).toBeVisible();
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");

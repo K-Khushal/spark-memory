@@ -55,7 +55,10 @@ export function useFileDrop(onDrop: (files: File[]) => void) {
     ] as const;
     for (const [name, handler] of events)
       window.addEventListener(name, handler);
+    // A nested drop target may stop propagation. Always clear the page highlight.
+    window.addEventListener("drop", end, true);
     return () => {
+      window.removeEventListener("drop", end, true);
       for (const [name, handler] of events)
         window.removeEventListener(name, handler);
     };

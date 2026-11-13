@@ -589,3 +589,20 @@ it("image queries use the threshold MatchJudge window and never send a text-only
   expect(results.filter((r) => r.match === "direct")).toHaveLength(20);
   expect(results[20]!.match).toBe("related");
 });
+
+it("does not retain an image vector when the owner is forgotten while its digest is in flight", async () => {
+  const userId = `image-deletion-${++user}`;
+  const search = createSearch({
+    userId,
+    find: library().find,
+    embedder: embedder(),
+    spend: spend(),
+  });
+  const pending = search.search("", "full", {
+    image: { mime: "image/png", data: "iVBORw0KGgo=" },
+  });
+  forgetQueryVectors(userId);
+  await pending;
+  expect(queryVectorsCached(userId)).toBe(0);
+  expect(searchesTracked()).toBe(0);
+});

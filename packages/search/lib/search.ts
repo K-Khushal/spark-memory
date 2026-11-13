@@ -318,81 +318,84 @@ export function createSearch<R extends Hit>({
   }): Promise<number[]> {
     const bytes = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0));
     if (bytes.length > 1_048_576) throw new Error("image_search_too_large");
-    // Only a short-lived vector and digest survive a request, never image bytes.
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-    const key = [
-      userId,
-      embedder!.model,
-      embedder!.dimensions,
-      "image",
-      image.mime,
-      [...digest].map((n) => n.toString(16).padStart(2, "0")).join(""),
-    ].join("\0");
-    const hit = cached(key, now());
-    if (hit) return hit;
-    const pending = imageInFlight.get(key);
-    if (pending) return pending;
     const tracked = inFlight.get(userId) ?? { searches: 0, purges: 0 };
     inFlight.set(userId, tracked);
     tracked.searches++;
     const purges = tracked.purges;
-    const run = async () => {
-      const [spent, budget] = await Promise.all([
-        spend.spentTodayMicros(),
-        spend.dailyBudgetMicros(),
-      ]);
-      if (spent >= budget) throw new Error("image_search_budget");
-      const bytes = Uint8Array.from(atob(image!.data), (c) => c.charCodeAt(0));
-      if (bytes.length > 1_048_576) throw new Error("image_search_too_large");
-      const record = async (
-        textTokens: number,
-        imageTokens: number,
-        estimated = false
-      ) => {
-        await spend.recordCall({
-          userId,
-          memoryId: null,
-          provider: embedder!.name,
-          model: embedder!.model,
-          usage: { inputTokens: textTokens + imageTokens, outputTokens: 0 },
-          costMicros: embedCostMicros(embedder!.model, {
-            textTokens,
-            imageTokens,
-          }),
-          ...(estimated && { estimated }),
-        });
-      };
-      let embedded;
-      try {
-        embedded = await embedder!.embed(
-          [{ image: { bytes, mime: image!.mime } }],
-          { timeoutMs: EMBEDDING.queryTimeoutMs }
-        );
-      } catch (error) {
-        if (error instanceof ProviderError && error.estimate) {
-          const images = error.estimate.imageTokens ?? 0;
-          await record(
-            Math.max(0, error.estimate.inputTokens - images),
-            images,
-            true
+    try {
+      // Only a short-lived vector and digest survive a request, never image bytes.
+      const digest = new Uint8Array(
+        await crypto.subtle.digest("SHA-256", bytes)
+      );
+      const key = [
+        userId,
+        embedder!.model,
+        embedder!.dimensions,
+        "image",
+        image.mime,
+        [...digest].map((n) => n.toString(16).padStart(2, "0")).join(""),
+      ].join("\0");
+      const hit = cached(key, now());
+      if (hit) return hit;
+      const pending = imageInFlight.get(key);
+      if (pending) return await pending;
+      const run = async () => {
+        const [spent, budget] = await Promise.all([
+          spend.spentTodayMicros(),
+          spend.dailyBudgetMicros(),
+        ]);
+        if (spent >= budget) throw new Error("image_search_budget");
+        const record = async (
+          textTokens: number,
+          imageTokens: number,
+          estimated = false
+        ) => {
+          await spend.recordCall({
+            userId,
+            memoryId: null,
+            provider: embedder!.name,
+            model: embedder!.model,
+            usage: { inputTokens: textTokens + imageTokens, outputTokens: 0 },
+            costMicros: embedCostMicros(embedder!.model, {
+              textTokens,
+              imageTokens,
+            }),
+            ...(estimated && { estimated }),
+          });
+        };
+        let embedded;
+        try {
+          embedded = await embedder!.embed(
+            [{ image: { bytes, mime: image!.mime } }],
+            { timeoutMs: EMBEDDING.queryTimeoutMs }
           );
+        } catch (error) {
+          if (error instanceof ProviderError && error.estimate) {
+            const images = error.estimate.imageTokens ?? 0;
+            await record(
+              Math.max(0, error.estimate.inputTokens - images),
+              images,
+              true
+            );
+          }
+          throw new Error("image_search_unavailable", { cause: error });
         }
-        throw new Error("image_search_unavailable", { cause: error });
-      }
-      await record(embedded.usage.textTokens, embedded.usage.imageTokens);
-      return embedded.vectors[0]!;
-    };
-    const promise = run()
-      .then((vector) => {
-        if (tracked.purges === purges) remember(key, vector, now());
-        return vector;
-      })
-      .finally(() => {
-        imageInFlight.delete(key);
-        if (--tracked.searches === 0) inFlight.delete(userId);
-      });
-    imageInFlight.set(key, promise);
-    return promise;
+        await record(embedded.usage.textTokens, embedded.usage.imageTokens);
+        return embedded.vectors[0]!;
+      };
+      const promise = run()
+        .then((vector) => {
+          if (tracked.purges === purges) remember(key, vector, now());
+          return vector;
+        })
+        .finally(() => {
+          imageInFlight.delete(key);
+        });
+      imageInFlight.set(key, promise);
+      return await promise;
+    } finally {
+      if (--tracked.searches === 0) inFlight.delete(userId);
+    }
   }
 
   return {

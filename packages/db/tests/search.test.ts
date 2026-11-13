@@ -144,6 +144,14 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
         })
       ).map((m) => m.id)
     ).toEqual([visual]);
+    expect(
+      (
+        await library().search("Overview", {
+          probe: { ...space, like: overview, imageQuery: true },
+          maxDistance: 0.1,
+        })
+      ).map((m) => m.id)
+    ).toEqual([visual]);
   });
 
   describe("the vector leg", () => {

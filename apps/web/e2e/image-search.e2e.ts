@@ -5,9 +5,11 @@ test("image search accepts files, paste and drop without Capturing the query", a
   page,
 }) => {
   await signIn(page);
-  await page.request.post("/api/memories", {
+  const captured = await page.request.post("/api/memories", {
+    headers: { Origin: new URL(page.url()).origin },
     data: { body: "Lemon tart with a short crust" },
   });
+  expect(captured.ok()).toBe(true);
   await page.reload();
   const before = await (await page.request.get("/api/memories")).json();
   const data = await page.evaluate(() => {
@@ -50,12 +52,20 @@ test("image search accepts files, paste and drop without Capturing the query", a
   ).toBeVisible();
   await dialog.getByPlaceholder("Search…").fill("lemon");
   await expect(dialog.getByRole("option", { name: /^lemon/ })).toBeVisible();
+  await expect(
+    dialog.getByRole("listbox").getByRole("option", { name: /Lemon tart/ })
+  ).toBeVisible();
   if (process.env.IMAGE_SCREENSHOTS_DIR) {
     for (const width of [1440, 390])
       for (const scheme of ["light", "dark"] as const) {
         await page.setViewportSize({ width, height: 900 });
         await page.emulateMedia({ colorScheme: scheme });
+        await expect(page.locator("html")).toHaveAttribute(
+          "data-theme",
+          scheme
+        );
         await page.screenshot({
+          animations: "disabled",
           path: `${process.env.IMAGE_SCREENSHOTS_DIR}/t14-search-${width}-${scheme}.png`,
         });
       }
@@ -92,14 +102,18 @@ test("image search accepts files, paste and drop without Capturing the query", a
     (m: { body: string }) => m.body === "Lemon tart with a short crust"
   ).id as string;
   await expect(
-    dialog.getByRole("combobox").locator(`option[value="${memoryId}"]`)
+    dialog
+      .getByRole("combobox", { name: "Choose From Library" })
+      .locator(`option[value="${memoryId}"]`)
   ).toHaveCount(1);
   const picked = page.waitForRequest(
     (req) =>
       req.url().endsWith("/api/search") &&
       req.postDataJSON()?.memory === memoryId
   );
-  await dialog.getByRole("combobox").selectOption(memoryId);
+  await dialog
+    .getByRole("combobox", { name: "Choose From Library" })
+    .selectOption(memoryId);
   expect((await picked).postDataJSON().image).toBeUndefined();
   await expect(
     dialog.getByRole("button", { name: "Remove Query Image" })

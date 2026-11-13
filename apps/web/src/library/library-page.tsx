@@ -1,4 +1,9 @@
-import { ImageQueryControls, useImageQuery } from "./image-query";
+import {
+  ImageQueryControls,
+  QueryImageChip,
+  useImageQuery,
+  type ImageQueryProps,
+} from "./image-query";
 import type { SearchChips } from "@spark/core";
 import { isWordless } from "./search-session";
 import {
@@ -102,9 +107,18 @@ export function LibraryPage({
     setLike(undefined);
     return decodeImage(file);
   };
+  const queryImage: ImageQueryProps = {
+    value: visual,
+    busy: imageBusy,
+    onFile: chooseImage,
+    onChange: (value) => {
+      setLike(undefined);
+      setVisual(value);
+    },
+  };
   // ⌘K: instant per keystroke, full once typing pauses.
   const instant = useSearch(
-    searchOpen ? { query: draft, chips, ...(visual && { visual }) } : undefined,
+    searchOpen ? { query: draft, ...(visual && { visual, chips }) } : undefined,
     library.memories,
     library.version,
     {
@@ -117,16 +131,11 @@ export function LibraryPage({
   const request = like
     ? { like: like.id }
     : { query, ...(visual && { visual }), ...(filtering && { chips }) };
-  const first = useSearch(
-    searchOpen && visual ? undefined : request,
-    library.memories,
-    library.version,
-    {
-      userId: session.user.id,
-      pauseMs: 0,
-      keepPrevious: !visual,
-    }
-  );
+  const first = useSearch(request, library.memories, library.version, {
+    userId: session.user.id,
+    pauseMs: 0,
+    keepPrevious: true,
+  });
   const more = useMoreResults(request, first, library.memories);
   const results = useMemo(
     () =>
@@ -362,6 +371,7 @@ export function LibraryPage({
           event.dataTransfer.files[0]
         ) {
           event.preventDefault();
+          event.stopPropagation();
           void chooseImage(event.dataTransfer.files[0]);
         }
       }}
@@ -384,9 +394,10 @@ export function LibraryPage({
         searchActive={searching}
         onClearSearch={clearSearchClick}
         filters={
-          library.memories.length > 0 && (
+          (library.memories.length > 0 || visual || imageBusy) && (
             <LibraryFilters
               layout="sidebar"
+              leading={<QueryImageChip {...queryImage} />}
               options={filterOptions}
               chips={chips}
               onChange={changeChips}
@@ -422,9 +433,10 @@ export function LibraryPage({
               <PlusIcon aria-hidden />
             </Button>
           </div>
-          {library.memories.length > 0 && (
+          {(library.memories.length > 0 || visual || imageBusy) && (
             <LibraryFilters
               layout="row"
+              leading={<QueryImageChip {...queryImage} />}
               options={filterOptions}
               chips={chips}
               onChange={changeChips}
@@ -433,13 +445,8 @@ export function LibraryPage({
         </div>
         <h1 className="sr-only">Library</h1>
         <ImageQueryControls
-          value={visual}
-          onFile={chooseImage}
-          busy={imageBusy}
-          onChange={(v) => {
-            setLike(undefined);
-            setVisual(v);
-          }}
+          {...queryImage}
+          showChip={false}
           memories={library.memories}
         />
         {library.state === "ready" && (
@@ -518,13 +525,7 @@ export function LibraryPage({
         key={overlaysEpoch}
         onCatch={() => setOverlaysDown(true)}
         searchOpen={searchOpen}
-        onImageFile={chooseImage}
-        imageBusy={imageBusy}
-        visual={visual}
-        onVisual={(value) => {
-          setLike(undefined);
-          setVisual(value);
-        }}
+        imageQuery={queryImage}
         memories={library.memories}
         draft={draft}
         instant={instant}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, toast } from "@spark/ui";
+import { Button, FilterChip, toast } from "@spark/ui";
 import { ImagePlusIcon, XIcon } from "lucide-react";
 import type { Memory } from "./use-library";
 import { memoryName } from "./memory-tile";
@@ -89,7 +89,9 @@ export function ImageQueryControls({
   children,
   onFile: choose,
   busy,
+  showChip = true,
 }: ImageQueryProps & {
+  showChip?: boolean;
   memories: Memory[];
   children?: ReactNode;
 }) {
@@ -110,6 +112,7 @@ export function ImageQueryControls({
       onDrop={(event) => {
         if (event.dataTransfer.files.length) {
           event.preventDefault();
+          event.stopPropagation();
           void choose(event.dataTransfer.files[0]);
         }
       }}
@@ -140,7 +143,7 @@ export function ImageQueryControls({
         <select
           aria-label="Choose From Library"
           value=""
-          className="min-w-0 max-w-full rounded-control bg-surface text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+          className="min-w-0 max-w-full min-h-9 rounded-control bg-surface text-[1rem] text-ink md:text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           onKeyDown={(event) => event.stopPropagation()}
           onChange={(event) => {
             if (event.target.value) {
@@ -157,29 +160,39 @@ export function ImageQueryControls({
               </option>
             ))}
         </select>
-        {(value || busy) && (
-          <Button
-            variant="quiet"
-            className="max-w-full"
-            aria-label="Remove Query Image"
-            onClick={() => {
-              onChange(undefined);
-            }}
-          >
-            {value && "image" in value && (
-              <img
-                className="size-6 shrink-0 rounded-control object-cover"
-                width={24}
-                height={24}
-                alt=""
-                src={`data:${value.image.mime};base64,${value.image.data}`}
-              />
-            )}
-            {busy ? "Reading Image…" : "Query Image"}
-            <XIcon aria-hidden />
-          </Button>
+        {showChip && (
+          <QueryImageChip value={value} busy={busy} onChange={onChange} />
         )}
       </div>
     </div>
+  );
+}
+
+/** The query image sits with the filter chips; removal cancels a pending decode too. */
+export function QueryImageChip({
+  value,
+  busy,
+  onChange,
+}: Pick<ImageQueryProps, "value" | "busy" | "onChange">) {
+  if (!value && !busy) return null;
+  return (
+    <FilterChip
+      aria-pressed
+      aria-label="Remove Query Image"
+      onClick={() => onChange(undefined)}
+      className="max-w-full shrink-0"
+    >
+      {value && "image" in value && (
+        <img
+          className="size-6 shrink-0 rounded-chip object-cover"
+          width={24}
+          height={24}
+          alt=""
+          src={`data:${value.image.mime};base64,${value.image.data}`}
+        />
+      )}
+      {busy ? "Reading Image" : "Query Image"}
+      <XIcon className="size-4" aria-hidden />
+    </FilterChip>
   );
 }
