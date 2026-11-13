@@ -14,7 +14,7 @@ Settings accepts Netscape HTML (Chrome, Firefox, Safari, Pocket and Raindrop), P
 
 ## Deployment and verification
 
-Apply `0030_import.sql` after the existing migrations; its journal `when` is `1794600000000`, later than every existing journal entry. Main includes `0028_custom_categories`; numbering by timestamp reserves `0029` for #14 and `0031` for #34. Renumber at merge time if necessary while preserving timestamp order. Create `spark-import-dev` and `spark-import-prod` queues before deploying. Bindings and single-consumer configuration are in each Wrangler environment. No additional secrets are needed.
+Apply `0032_import.sql` after the existing migrations; its journal `when` is `1794630000000`, later than every existing journal entry. Main includes `0028_custom_categories`; numbering by timestamp reserves `0029` for #14 (`1794572552722`) and `0030`/`0031` for #34 (`1794610000000`/`1794610000001`). Renumber at merge time if necessary while preserving timestamp order. Create `spark-import-dev` and `spark-import-prod` queues before deploying. Bindings and single-consumer configuration are in each Wrangler environment. No additional secrets are needed.
 
 Run `pnpm check` with a migrated Postgres database, `pnpm --filter @spark/evals eval:check`, and `pnpm --filter @spark/web exec playwright test import.e2e.ts`. The feature smoke covers reload, pause, resume, cancel, image uploads, and worst-case progress counts. `IMPORT_SCREENSHOTS` saves 1440/390 light/dark captures. Its test-only fixture picker exercises Demo, Worst Case, Empty and Complete at the real API boundary, including 320px, RTL and 200% text size.
 
