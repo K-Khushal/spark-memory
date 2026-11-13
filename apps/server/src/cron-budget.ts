@@ -10,10 +10,10 @@ export const CRON_SUBREQUESTS = 40;
  * a queue of deletions cannot spend the calls that remove expired objects.
  */
 export const CRON_SHARES = {
-  uploads: 6,
+  uploads: 4,
   accounts: 6,
   cleanup: 4,
-  exports: 8,
+  exports: 10,
   indexing: 10,
   imports: 2,
   deepFetch: 4,
