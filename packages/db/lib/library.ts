@@ -284,9 +284,11 @@ export type SearchResult = Memory & {
 };
 
 /** The query's side of the vector leg: its vector, or a Memory's own (More Like This). */
-export type VectorProbe = { model: string; dimensions: number } & (
-  { vector: number[] } | { like: string }
-);
+export type VectorProbe = {
+  model: string;
+  dimensions: number;
+  imageQuery?: true;
+} & ({ vector: number[] } | { like: string });
 
 /**
  * What a search is narrowed to before it ranks (kinds go in `kinds`).
@@ -1523,7 +1525,7 @@ export function openLibrary(
             place: sql<number>`place`.as("place"),
           })
           .from(
-            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[], ${JSON.stringify({ ...filters, ...(cursor && { cursor }) })}::jsonb, ${offset}::int)`
+            sql`search_memories(${userId}, ${query}, ${limit}, ${vector}::halfvec, ${like}::uuid, ${probe?.model ?? null}, ${probe?.dimensions ?? null}::int, ${maxDistance}::float8, ${kinds ? `{${kinds.join(",")}}` : null}::text[], ${JSON.stringify({ ...filters, ...(probe?.imageQuery && { imageQuery: true }), ...(cursor && { cursor }) })}::jsonb, ${offset}::int)`
           )
       );
       return db

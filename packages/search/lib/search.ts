@@ -18,7 +18,7 @@ import {
 } from "@spark/indexing";
 
 /** The query's side of the vector leg (as @spark/db's Library takes it). */
-export type Probe = { model: string; dimensions: number } & (
+export type Probe = { model: string; dimensions: number; imageQuery?: true } & (
   { vector: number[] } | { like: string }
 );
 
@@ -81,6 +81,7 @@ export type Ranked<R> = R & { match: "direct" | "related" };
  * (`userId\0model\0dimensions\0query`), so one person's can be forgotten.
  */
 const cache = new Map<string, { vector: number[]; at: number }>();
+const imageInFlight = new Map<string, Promise<number[]>>();
 /**
  * People with a query embedding in flight: how many, and how often their
  * vectors were forgotten meanwhile. An entry lives only while a search
@@ -243,6 +244,89 @@ export function createSearch<R extends Hit>({
     }
   }
 
+  async function embedImage(image: {
+    data: string;
+    mime: string;
+  }): Promise<number[]> {
+    const bytes = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0));
+    if (bytes.length > 1_048_576) throw new Error("image_search_too_large");
+    // Only a short-lived vector and digest survive a request, never image bytes.
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const key = [
+      userId,
+      embedder!.model,
+      embedder!.dimensions,
+      "image",
+      image.mime,
+      [...digest].map((n) => n.toString(16).padStart(2, "0")).join(""),
+    ].join("\0");
+    const hit = cached(key, now());
+    if (hit) return hit;
+    const pending = imageInFlight.get(key);
+    if (pending) return pending;
+    const tracked = inFlight.get(userId) ?? { searches: 0, purges: 0 };
+    inFlight.set(userId, tracked);
+    tracked.searches++;
+    const purges = tracked.purges;
+    const run = async () => {
+      const [spent, budget] = await Promise.all([
+        spend.spentTodayMicros(),
+        spend.dailyBudgetMicros(),
+      ]);
+      if (spent >= budget) throw new Error("image_search_budget");
+      const bytes = Uint8Array.from(atob(image!.data), (c) => c.charCodeAt(0));
+      if (bytes.length > 1_048_576) throw new Error("image_search_too_large");
+      const record = async (
+        textTokens: number,
+        imageTokens: number,
+        estimated = false
+      ) => {
+        await spend.recordCall({
+          userId,
+          memoryId: null,
+          provider: embedder!.name,
+          model: embedder!.model,
+          usage: { inputTokens: textTokens + imageTokens, outputTokens: 0 },
+          costMicros: embedCostMicros(embedder!.model, {
+            textTokens,
+            imageTokens,
+          }),
+          ...(estimated && { estimated }),
+        });
+      };
+      let embedded;
+      try {
+        embedded = await embedder!.embed(
+          [{ image: { bytes, mime: image!.mime } }],
+          { timeoutMs: EMBEDDING.queryTimeoutMs }
+        );
+      } catch (error) {
+        if (error instanceof ProviderError && error.estimate) {
+          const images = error.estimate.imageTokens ?? 0;
+          await record(
+            Math.max(0, error.estimate.inputTokens - images),
+            images,
+            true
+          );
+        }
+        throw new Error("image_search_unavailable", { cause: error });
+      }
+      await record(embedded.usage.textTokens, embedded.usage.imageTokens);
+      return embedded.vectors[0]!;
+    };
+    const promise = run()
+      .then((vector) => {
+        if (tracked.purges === purges) remember(key, vector, now());
+        return vector;
+      })
+      .finally(() => {
+        imageInFlight.delete(key);
+        if (--tracked.searches === 0) inFlight.delete(userId);
+      });
+    imageInFlight.set(key, promise);
+    return promise;
+  }
+
   return {
     /**
      * `mode` in the answer is the search that actually ran: "instant" when
@@ -255,6 +339,8 @@ export function createSearch<R extends Hit>({
         timezone,
         chips = {},
         page,
+        image,
+        memory,
       }: {
         /** The person's IANA timezone, for "last month". */
         timezone?: string;
@@ -262,6 +348,8 @@ export function createSearch<R extends Hit>({
         chips?: SearchChips;
         /** Where the page begins: the `next` an earlier answer gave. */
         page?: string;
+        image?: { mime: string; data: string };
+        memory?: string;
       } = {}
     ): Promise<{ results: Ranked<R>[]; mode: Mode; next?: string }> {
       const when = {
@@ -280,10 +368,11 @@ export function createSearch<R extends Hit>({
       const scope = scopeOf(spoken, chosen, text);
       const narrowed = scope.kinds || scope.filters;
       // Nothing to look for and nothing to narrow by: no results, not the whole Library.
-      if (!text && !narrowed) return { results: [], mode: "instant" };
+      if (!text && !narrowed && !image && !memory)
+        return { results: [], mode: "instant" };
       // With no words and no colour, results are the newest first and page by
       // the last Memory; every other order is a score, and pages by count.
-      const newestFirst = !text && !scope.filters?.colour;
+      const newestFirst = !text && !image && !memory && !scope.filters?.colour;
       const start = page?.startsWith("c:")
         ? { cursor: page.slice(2) }
         : page?.startsWith("o:")
@@ -308,6 +397,31 @@ export function createSearch<R extends Hit>({
             }),
         };
       };
+      // Image queries never silently become a different, text-only search.
+      if (image || memory) {
+        if (mode !== "full") return { results: [], mode: "instant" };
+        if (!space) throw new Error("image_search_unavailable");
+        let probe: Probe;
+        if (memory) probe = { ...space, like: memory, imageQuery: true };
+        else {
+          probe = {
+            ...space,
+            vector: await embedImage(image!),
+            imageQuery: true,
+          };
+        }
+        const hits = await find(text, { ...options, probe });
+        return answer(
+          hits.map((hit) => ({
+            ...hit,
+            match:
+              hit.distance !== null && hit.distance <= EMBEDDING.directDistance
+                ? ("direct" as const)
+                : ("related" as const),
+          })),
+          "full"
+        );
+      }
       // Filters alone browse the Library, with no provider call.
       if (text && mode === "full" && space) {
         // Anything wrong on the way to the vector leg (the budget, the

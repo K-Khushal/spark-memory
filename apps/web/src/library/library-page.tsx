@@ -1,3 +1,4 @@
+import { ImageQueryControls, useImageQuery } from "./image-query";
 import type { SearchChips } from "@spark/core";
 import { isWordless } from "./search-session";
 import { LibraryFilters, useFilterOptions } from "./library-filters";
@@ -61,6 +62,12 @@ export function LibraryPage({
   const [overlaysDown, setOverlaysDown] = useState(false);
   const previousSearch = useRef("");
   const [draft, setDraft] = useState("");
+  const {
+    value: visual,
+    change: setVisual,
+    choose: chooseImage,
+    busy: imageBusy,
+  } = useImageQuery();
   const [query, setQuery] = useState("");
   /** The filter chips, one choice per group; they work with no words. */
   const [chips, setChips] = useState<SearchChips>({});
@@ -77,7 +84,7 @@ export function LibraryPage({
   const [like, setLike] = useState<Memory>();
   // ⌘K: instant per keystroke, full once typing pauses.
   const instant = useSearch(
-    { query: draft },
+    searchOpen ? { query: draft, chips, ...(visual && { visual }) } : undefined,
     library.memories,
     library.version,
     {
@@ -89,12 +96,17 @@ export function LibraryPage({
   const filtering = Object.keys(chips).length > 0;
   const request = like
     ? { like: like.id }
-    : { query, ...(filtering && { chips }) };
-  const first = useSearch(request, library.memories, library.version, {
-    userId: session.user.id,
-    pauseMs: 0,
-    keepPrevious: true,
-  });
+    : { query, ...(visual && { visual }), ...(filtering && { chips }) };
+  const first = useSearch(
+    searchOpen && visual ? undefined : request,
+    library.memories,
+    library.version,
+    {
+      userId: session.user.id,
+      pauseMs: 0,
+      keepPrevious: !visual,
+    }
+  );
   const more = useMoreResults(request, first, library.memories);
   const results = useMemo(
     () =>
@@ -107,7 +119,7 @@ export function LibraryPage({
         : first,
     [first, more.direct, more.related]
   );
-  const searching = !!like || !!query || filtering;
+  const searching = !!visual || !!like || !!query || filtering;
   const filterOptions = useFilterOptions(library.memories);
   const opened = library.memories.find((m) => m.id === openId);
   // The viewer steps through the images of the wall on screen.
@@ -251,6 +263,7 @@ export function LibraryPage({
     setLike(undefined);
   };
   const clearSearch = () => {
+    setVisual(undefined);
     setChips({});
     setQuery("");
     setLike(undefined);
@@ -308,7 +321,28 @@ export function LibraryPage({
     : undefined;
 
   return (
-    <div className="flex min-h-dvh bg-canvas">
+    <div
+      className="flex min-h-dvh bg-canvas"
+      onPasteCapture={(event) => {
+        if (
+          (event.target as HTMLElement).closest('[data-desk="search"]') &&
+          event.clipboardData.files[0]
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          void chooseImage(event.clipboardData.files[0]);
+        }
+      }}
+      onDropCapture={(event) => {
+        if (
+          (event.target as HTMLElement).closest('[data-desk="search"]') &&
+          event.dataTransfer.files[0]
+        ) {
+          event.preventDefault();
+          void chooseImage(event.dataTransfer.files[0]);
+        }
+      }}
+    >
       <DeskSidebar
         filtered={filtering}
         email={session.user.email}
@@ -375,6 +409,16 @@ export function LibraryPage({
           )}
         </div>
         <h1 className="sr-only">Library</h1>
+        <ImageQueryControls
+          value={visual}
+          onFile={chooseImage}
+          busy={imageBusy}
+          onChange={(v) => {
+            setLike(undefined);
+            setVisual(v);
+          }}
+          memories={library.memories}
+        />
         {library.state === "ready" && (
           <Onboarding
             activationVersion={activationVersion}
@@ -449,6 +493,11 @@ export function LibraryPage({
         key={overlaysEpoch}
         onCatch={() => setOverlaysDown(true)}
         searchOpen={searchOpen}
+        onImageFile={chooseImage}
+        imageBusy={imageBusy}
+        visual={visual}
+        onVisual={setVisual}
+        memories={library.memories}
         draft={draft}
         instant={instant}
         onSearchOpenChange={(open) => {

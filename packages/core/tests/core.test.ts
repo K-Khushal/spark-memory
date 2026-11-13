@@ -170,3 +170,16 @@ describe("search filters", () => {
       );
   });
 });
+
+it("accepts bounded image queries and refuses unsupported, malformed or ambiguous images", () => {
+  const image = { mime: "image/png", data: "iVBORw0KGgo=" };
+  expect(SearchRequest.safeParse({ image, mode: "full" }).success).toBe(true);
+  for (const bad of [
+    { image: { ...image, mime: "image/svg+xml" } },
+    { image: { ...image, data: "not base64" } },
+    { image: { ...image, data: "AAAA" } },
+    { image, memory: "0f8fad5b-d9cb-469f-a165-70867728950e" },
+    { image: { ...image, data: "A".repeat(1_398_108) } },
+  ])
+    expect(SearchRequest.safeParse(bad).success).toBe(false);
+});

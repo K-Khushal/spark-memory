@@ -491,3 +491,64 @@ describe("search", () => {
     });
   });
 });
+
+it("searches a transient image with words and filters, accounting image tokens", async () => {
+  const { search, lib, budget, model } = setup();
+  model!.embed.mockResolvedValue({
+    vectors: [[0, 1, 0]],
+    usage: { textTokens: 2, imageTokens: 258 },
+  });
+  const image = { mime: "image/png", data: "iVBORw0KGgo=" };
+  await search.search("dashboard", "full", { image, chips: { kind: "image" } });
+  expect(model!.embed.mock.calls[0]![0][0]).toEqual({
+    image: {
+      mime: "image/png",
+      bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    },
+  });
+  expect(lib.calls[0]!.probe).toEqual({
+    model: "gemini-embedding-2",
+    dimensions: 3,
+    vector: [0, 1, 0],
+    imageQuery: true,
+  });
+  expect(lib.calls[0]!.query).toBe("dashboard");
+  expect(budget.calls[0]!.usage.inputTokens).toBe(260);
+});
+
+it("shares an in-flight image embedding and caches only its vector per owner", async () => {
+  const { search, model, budget } = setup();
+  const image = { mime: "image/png", data: "iVBORw0KGgo=" };
+  await Promise.all([
+    search.search("", "full", { image }),
+    search.search("blue", "full", { image }),
+  ]);
+  expect(model!.embed).toHaveBeenCalledTimes(1);
+  expect(budget.calls).toHaveLength(1);
+  await search.search("red", "full", { image });
+  expect(model!.embed).toHaveBeenCalledTimes(1);
+});
+
+it("image queries refuse exhausted budgets and missing providers, without a text fallback", async () => {
+  const image = { mime: "image/png", data: "iVBORw0KGgo=" };
+  for (const s of [
+    setup({ spent: INDEXING.dailyBudgetMicros }),
+    setup({ model: null }),
+  ]) {
+    await expect(s.search.search("blue", "full", { image })).rejects.toThrow();
+    expect(s.lib.calls).toEqual([]);
+  }
+});
+
+it("image Direct Matches require vector confidence even when keywords match", async () => {
+  const { search } = setup({
+    hits: [
+      { id: "keyword", matched: ["keyword"], distance: 0.5 },
+      { id: "visual", matched: ["vector"], distance: 0.01 },
+    ],
+  });
+  const { results } = await search.search("blue", "full", {
+    image: { mime: "image/png", data: "iVBORw0KGgo=" },
+  });
+  expect(results.map((r) => r.match)).toEqual(["related", "direct"]);
+});

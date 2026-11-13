@@ -1,3 +1,4 @@
+import type { ImageQuery } from "./image-query";
 import type { CategoryEdit } from "./categories";
 import { ImageViewer } from "./image-viewer";
 import { MemoryDetail, type Edits } from "./memory-detail";
@@ -11,6 +12,11 @@ import type { Results } from "./use-search";
 export type LibraryOverlaysProps = {
   onCategories?: CategoryEdit;
   searchOpen: boolean;
+  onImageFile: (file?: File) => Promise<void>;
+  imageBusy: boolean;
+  visual: ImageQuery | undefined;
+  onVisual: (v: ImageQuery | undefined) => void;
+  memories: Memory[];
   draft: string;
   instant: Results | "failed" | undefined;
   onSearchOpenChange: (open: boolean) => void;
@@ -51,6 +57,11 @@ export type LibraryOverlaysProps = {
  */
 export function LibraryOverlays({
   searchOpen,
+  onImageFile,
+  imageBusy,
+  visual,
+  onVisual,
+  memories,
   draft,
   instant,
   onSearchOpenChange,
@@ -88,6 +99,11 @@ export function LibraryOverlays({
     <>
       <SearchCommand
         open={searchOpen}
+        onImageFile={onImageFile}
+        imageBusy={imageBusy}
+        visual={visual}
+        onVisual={onVisual}
+        memories={memories}
         draft={draft}
         instant={instant}
         onOpenChange={onSearchOpenChange}

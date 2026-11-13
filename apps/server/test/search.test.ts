@@ -44,6 +44,45 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
   beforeAll(() => sql.connect());
   afterAll(() => sql.end());
 
+  it("validates transient image bodies, keeps them out of storage, and scopes Library probes", async () => {
+    const { call } = await signedIn();
+    const other = (await signedIn()).call;
+    const id = await capture(call, "A blue dashboard");
+    const before = await (await call("/api/memories")).json();
+    const image = { mime: "image/png", data: "iVBORw0KGgo=" };
+    const response = await postSearch(call, {
+      mode: "full",
+      image,
+      q: "dashboard",
+      chips: { kind: "note" },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toMatchObject({
+      mode: "full",
+      results: [{ id, match: "related" }],
+    });
+    expect(await (await call("/api/memories")).json()).toEqual(before);
+    expect(
+      await (await postSearch(other, { mode: "full", memory: id })).json()
+    ).toMatchObject({ results: [] });
+    for (const bad of [
+      { ...image, mime: "image/svg+xml" },
+      { ...image, data: "AAAA" },
+    ])
+      expect(
+        (await postSearch(call, { mode: "full", image: bad })).status
+      ).toBe(400);
+    expect(
+      (
+        await postSearch(call, {
+          mode: "full",
+          image: { ...image, data: "A".repeat(1_420_001) },
+        })
+      ).status
+    ).toBe(413);
+  });
+
   it("records committed searches behind authentication and isolates their history", async () => {
     expect((await newClient()("/api/search/recent")).status).toBe(401);
     const { call } = await signedIn();

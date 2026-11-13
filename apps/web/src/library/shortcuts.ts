@@ -39,9 +39,11 @@ export function useFileDrop(onDrop: (files: File[]) => void) {
     };
     const drop = (e: DragEvent) => {
       if (!hasFiles(e)) return;
+      const handled = e.defaultPrevented;
       e.preventDefault();
       depth = 0;
       setOver(false);
+      if (handled) return;
       latest.current([...e.dataTransfer!.files]);
     };
     const events = [

@@ -278,3 +278,23 @@ describe("filters without words", () => {
     expect(last()).toMatchObject({ failed: true });
   });
 });
+
+it("image-only searches use full mode and discard a removed image's late answer", async () => {
+  const s = setup(0);
+  s.session.set(
+    { query: "", visual: { id: "one", memory: "memory-one" } },
+    "0"
+  );
+  expect(s.pending.map((p) => p.mode)).toEqual(["full"]);
+  s.session.set(
+    { query: "", visual: { id: "two", memory: "memory-two" } },
+    "0"
+  );
+  s.pending[1]!.answer(["new"]);
+  await settle();
+  s.pending[0]!.answer(["old"]);
+  await settle();
+  expect(s.ids()).toEqual(["full", ["new"]]);
+  s.session.set(undefined, "0");
+  expect(s.last()).toBeUndefined();
+});
