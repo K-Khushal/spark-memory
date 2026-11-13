@@ -1,6 +1,6 @@
 {
-  "id": "156051b7-2402-4b0c-918c-93ccfe8c29b2",
-  "prevId": "3589ccf6-7fc2-4a5b-bfe1-1835a5d913aa",
+  "id": "fd263386-bd68-4a6d-964b-916d7676313d",
+  "prevId": "156051b7-2402-4b0c-918c-93ccfe8c29b2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -349,6 +349,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "client_id": {
+          "name": "client_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "assistant": {
           "name": "assistant",
           "type": "text",
@@ -406,6 +412,15 @@
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "assistant_activity_client_id_assistant_client_id_fk": {
+          "name": "assistant_activity_client_id_assistant_client_id_fk",
+          "tableFrom": "assistant_activity",
+          "tableTo": "assistant_client",
+          "columnsFrom": ["client_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -528,6 +543,181 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.assistant_code_use": {
+      "name": "assistant_code_use",
+      "schema": "",
+      "columns": {
+        "digest": {
+          "name": "digest",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grant_id": {
+          "name": "grant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "assistant_code_use_user_id_user_id_fk": {
+          "name": "assistant_code_use_user_id_user_id_fk",
+          "tableFrom": "assistant_code_use",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.assistant_grant": {
+      "name": "assistant_grant",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource": {
+          "name": "resource",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now() + interval '90 days'"
+        }
+      },
+      "indexes": {
+        "assistant_grant_owner_client": {
+          "name": "assistant_grant_owner_client",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "assistant_grant_user_id_user_id_fk": {
+          "name": "assistant_grant_user_id_user_id_fk",
+          "tableFrom": "assistant_grant",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "assistant_grant_client_id_assistant_client_id_fk": {
+          "name": "assistant_grant_client_id_assistant_client_id_fk",
+          "tableFrom": "assistant_grant",
+          "tableTo": "assistant_client",
+          "columnsFrom": ["client_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.assistant_refresh": {
+      "name": "assistant_refresh",
+      "schema": "",
+      "columns": {
+        "digest": {
+          "name": "digest",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "grant_id": {
+          "name": "grant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "used": {
+          "name": "used",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "assistant_refresh_grant_id_assistant_grant_id_fk": {
+          "name": "assistant_refresh_grant_id_assistant_grant_id_fk",
+          "tableFrom": "assistant_refresh",
+          "tableTo": "assistant_grant",
+          "columnsFrom": ["grant_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.assistant_token": {
       "name": "assistant_token",
       "schema": "",
@@ -543,6 +733,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "grant_id": {
+          "name": "grant_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "name": {
           "name": "name",
@@ -610,6 +812,24 @@
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "assistant_token_client_id_assistant_client_id_fk": {
+          "name": "assistant_token_client_id_assistant_client_id_fk",
+          "tableFrom": "assistant_token",
+          "tableTo": "assistant_client",
+          "columnsFrom": ["client_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "assistant_token_grant_id_assistant_grant_id_fk": {
+          "name": "assistant_token_grant_id_assistant_grant_id_fk",
+          "tableFrom": "assistant_token",
+          "tableTo": "assistant_grant",
+          "columnsFrom": ["grant_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -620,6 +840,134 @@
           "columns": ["digest"]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.category": {
+      "name": "category",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "category_user_name_idx": {
+          "name": "category_user_name_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "category_user_id_user_id_fk": {
+          "name": "category_user_id_user_id_fk",
+          "tableFrom": "category",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.category_run": {
+      "name": "category_run",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "generation": {
+          "name": "generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "due_generation": {
+          "name": "due_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "total": {
+          "name": "total",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "category_run_user_id_user_id_fk": {
+          "name": "category_run_user_id_user_id_fk",
+          "tableFrom": "category_run",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -818,6 +1166,12 @@
         },
         "categories_version": {
           "name": "categories_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "categories_generation": {
+          "name": "categories_generation",
           "type": "integer",
           "primaryKey": false,
           "notNull": false

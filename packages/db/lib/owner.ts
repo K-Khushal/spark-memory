@@ -15,6 +15,22 @@ export const lockOwner = (tx: Pick<Database, "execute">, userId: string) =>
     sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${OWNER_LOCK}))`
   );
 
+/** Seeds the per-owner Categories lock (its own lock space, two-key form). */
+const CATEGORY_LOCK = 7;
+
+/**
+ * The one lock every change to a person's Categories goes through: creating,
+ * renaming and deleting one, and every write that sets a Memory's Categories
+ * (the categoriser, a person's edit, AI opt-out). Taken FIRST in the
+ * transaction, before any Memory row is locked, and held to its end. With
+ * every such path serialised here, the database trigger only has to read:
+ * it takes no lock of its own, so no two of them can ever wait on each other.
+ */
+export const lockCategories = (tx: Pick<Database, "execute">, userId: string) =>
+  tx.execute(
+    sql`select pg_advisory_xact_lock(${CATEGORY_LOCK}::int, hashtext(${userId}))`
+  );
+
 /**
  * Takes the owner lock only when it is free. The sweep uses this so a confirm
  * or a deletion already in progress cannot hold the sweep past its budget.

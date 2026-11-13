@@ -192,17 +192,24 @@
       "breakpoints": true
     },
     {
-      "idx": 28,
+      "idx": 27,
       "version": "7",
-      "when": 1794610000000,
-      "tag": "0028_connected_assistants",
+      "when": 1794530000000,
+      "tag": "0028_custom_categories",
       "breakpoints": true
     },
     {
-      "idx": 29,
+      "idx": 31,
+      "version": "7",
+      "when": 1794610000000,
+      "tag": "0031_connected_assistants",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
       "version": "7",
       "when": 1794610000001,
-      "tag": "0029_assistant_refresh",
+      "tag": "0032_assistant_refresh",
       "breakpoints": true
     }
   ]

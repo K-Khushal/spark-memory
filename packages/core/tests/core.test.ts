@@ -112,12 +112,16 @@ describe("search filters", () => {
         colour: "teal",
       }).success
     ).toBe(true);
+    // A Category is a name; the server says whose it is (built-in or the person's own).
+    expect(SearchChips.safeParse({ category: "Gardening" }).success).toBe(true);
     for (const bad of [
       { kind: "file" },
       { colour: "#fff" },
       { when: "tomorrow" },
       { source: "a b" },
-      { category: "recipe" },
+      { category: "" },
+      { category: "x".repeat(41) },
+      { category: ["Recipe"] },
     ])
       expect(SearchChips.safeParse(bad).success, JSON.stringify(bad)).toBe(
         false
