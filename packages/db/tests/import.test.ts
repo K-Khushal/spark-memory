@@ -301,6 +301,11 @@ it.skipIf(!process.env.DATABASE_URL)(
         thumbnail: { mime: "image/webp", bytes: 300 },
       });
       await library.markStored(imageId);
+      // Stored bytes remain recoverable if confirmation lost its wake-up.
+      expect(await pendingImports(db, 100, late)).toContainEqual({
+        id,
+        userId,
+      });
       expect(await jobs.wakeImage(imageId, late)).toBe(id);
       expect(await jobs.wakeImage(imageId, late)).toBeUndefined();
       await jobs.step(id, late);

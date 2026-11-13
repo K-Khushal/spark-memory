@@ -440,7 +440,11 @@ export async function pendingImports(
     .where(
       and(
         eq(importJob.state, "running"),
-        sql`${importJob.waitingImageId} is null`,
+        sql`(${importJob.waitingImageId} is null or exists (
+          select 1 from memory_file f join memory m on m.id = f.memory_id
+          where m.id = ${importJob.waitingImageId} and m.user_id = ${importJob.userId}
+          and f.role = 'original' and f.stored_at is not null
+        ))`,
         sql`${importJob.availableAt} < ${new Date(now.getTime() - 10 * 60_000)}`
       )
     )
