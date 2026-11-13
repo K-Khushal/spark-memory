@@ -18,6 +18,7 @@ import {
 } from "@spark/core";
 import {
   indexingStore,
+  openCategories,
   openLibrary,
   type FileUpload,
   type Library,
@@ -170,7 +171,7 @@ const signedCapture = async (
 const filesOf = async (library: Library, id: string) =>
   UUID.test(id) ? library.files(id) : undefined;
 
-const signedIn = [
+export const signedIn = [
   extensionCors,
   sameOrigin({ extension: true }),
   withAuth,
@@ -433,6 +434,9 @@ export const memories = new Hono<AppEnv>()
     if ("stale" in result) {
       return c.json({ ok: false, error: "stale" } as const, 409);
     }
+    if ("unknownCategory" in result) {
+      return c.json({ ok: false, error: "unknown_category" } as const, 400);
+    }
     // New text is Indexed again, behind fresh Captures.
     if (changes.body !== undefined && result.indexState === "indexing") {
       await enqueue(c.env, result);
@@ -464,6 +468,13 @@ export const memories = new Hono<AppEnv>()
     // A POST, so what was typed and chosen is in the body, never in a URL
     // that a request log keeps.
     const { q, mode, timezone, chips, page } = c.req.valid("json");
+    // A Category chip is a built-in or the person's own, never another's.
+    if (
+      chips?.category &&
+      !(await openCategories(c.var.db, c.var.user.id).has(chips.category))
+    ) {
+      return c.json({ ok: false, error: "unknown_category" } as const, 400);
+    }
     const answer = await searchFor(
       c.env,
       c.var.db,

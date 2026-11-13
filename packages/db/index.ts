@@ -52,6 +52,14 @@ export {
   lockOwner,
 } from "./lib/owner";
 export {
+  isUnknownCategory,
+  openCategories,
+  type Categories,
+  type CategoryProblem,
+  type CategoryProgress,
+  type OwnCategory,
+} from "./lib/categories";
+export {
   indexingStore,
   type Claim,
   type Embedding,

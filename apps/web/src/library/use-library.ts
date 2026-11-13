@@ -1,4 +1,3 @@
-import type { Category } from "@spark/core";
 import { useEffect, useState } from "react";
 import { toast } from "@spark/ui";
 import { api } from "../api";
@@ -18,6 +17,7 @@ import {
   type Transport,
   type WallMemory,
 } from "./library-actions";
+import { renamedIn, withoutIn } from "./category-wall";
 import { libraryVersion } from "./search-session";
 
 export type { Memory, WallMemory } from "./library-actions";
@@ -241,7 +241,7 @@ export function useLibrary() {
 
   return {
     memories,
-    async setCategories(memory: Memory, categories: Category[]) {
+    async setCategories(memory: Memory, categories: string[]) {
       try {
         const saved = await transport.patch(
           memory.id,
@@ -260,6 +260,48 @@ export function useLibrary() {
       } catch {
         return false;
       }
+    },
+    /** The wall follows a Category the person renamed or deleted, as the server did. */
+    categoryRenamed(from: string, to: string) {
+      setMemories((all) => renamedIn(all, from, to));
+      setVersion((n) => n + 1);
+    },
+    categoryRemoved(name: string) {
+      setMemories((all) => withoutIn(all, name));
+      setVersion((n) => n + 1);
+    },
+    /** Reads the Categories the server chose (a re-categorising ended), touching nothing else. */
+    async syncCategories() {
+      const fresh = new Map<
+        string,
+        { categories: string[]; categoriesLocked: boolean }
+      >();
+      try {
+        let after: string | undefined;
+        do {
+          const res = await ok(
+            api.api.memories.$get({ query: after ? { after } : {} })
+          );
+          const page = await res.json();
+          for (const m of page.memories) fresh.set(m.id, m);
+          after = page.next;
+        } while (after);
+      } catch {
+        return;
+      }
+      setMemories((all) =>
+        all.map((m) => {
+          const now = fresh.get(m.id);
+          return now
+            ? {
+                ...m,
+                categories: now.categories,
+                categoriesLocked: now.categoriesLocked,
+              }
+            : m;
+        })
+      );
+      setVersion((n) => n + 1);
     },
     state,
     version,

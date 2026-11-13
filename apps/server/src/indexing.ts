@@ -282,3 +282,36 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
     await close();
   }
 }
+
+/** The most one new Category queues at once; the hourly sweep finds the rest. */
+const RECATEGORISE_QUEUED = 500;
+const QUEUE_BATCH = 100;
+
+/**
+ * Queues the Memories a new Category is due on (`due`, from the owner's
+ * Categories) as embed jobs on the background queue: they categorise from
+ * the vectors already kept. A message that is lost is sent again by the sweep.
+ */
+export async function enqueueRecategorising(
+  env: Bindings,
+  due: { id: string; generation: string }[]
+) {
+  const messages = due
+    .slice(0, RECATEGORISE_QUEUED)
+    .map(({ id, generation }) => ({
+      body: {
+        memoryId: id,
+        generation,
+        priority: "background",
+        task: "embed",
+      } satisfies IndexMessage,
+    }));
+  for (let i = 0; i < messages.length; i += QUEUE_BATCH) {
+    try {
+      await env.REINDEX_QUEUE.sendBatch(messages.slice(i, i + QUEUE_BATCH));
+    } catch {
+      console.error("indexing: recategorising enqueue failed");
+      return;
+    }
+  }
+}

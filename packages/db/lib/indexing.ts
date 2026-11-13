@@ -17,6 +17,7 @@ import { ANONYMISED_USER, lockOwner } from "./owner";
 import {
   accountDeletion,
   aiCall,
+  category,
   memory,
   memoryFile,
   memoryIndex,
@@ -90,12 +91,12 @@ async function replaceVectors(
 }
 
 /** Searchable, AI allowed, and Indexing found something to embed. */
-const embeddable = sql`${memory.indexState} = 'searchable' and not ${memory.sample} and not ${memory.aiOptOut} and exists (select 1 from memory_index i where i.memory_id = ${memory.id})`;
+export const embeddable = sql`${memory.indexState} = 'searchable' and not ${memory.sample} and not ${memory.aiOptOut} and exists (select 1 from memory_index i where i.memory_id = ${memory.id})`;
 /** Vectors missing, from another model or size, or from an older revision. */
 const vectorsStaleIn = (space: string) =>
   sql`(${memory.vectorsSpace} is distinct from ${space} or ${memory.vectorsRevision} is distinct from ${memory.revision})`;
 /** Not locked by the user, and not categorised at this revision by this version of the categoriser. */
-const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version}))`;
+export const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version}))`;
 /** What the hourly sweep and `embed` jobs pick up: vectors or Categories to make. */
 const workDueIn = (space: string) =>
   sql`(${vectorsStaleIn(space)} or ${categoriesStale})`;
@@ -229,6 +230,16 @@ export function indexingStore(db: Database) {
     return undefined;
   }
 
+  /** The owner's own Category names, oldest first: Jev and the fallback see this person's list only. */
+  async function ownCategories(userId: string) {
+    const rows = await db
+      .select({ name: category.name })
+      .from(category)
+      .where(eq(category.userId, userId))
+      .orderBy(category.createdAt, category.id);
+    return rows.map((r) => r.name);
+  }
+
   return {
     /**
      * Automatic Categories for the Memory at `revision`, once: never over a
@@ -286,7 +297,11 @@ export function indexingStore(db: Database) {
           ...linkColumns,
         });
       if (!row) return row;
-      return { ...row, ...(await filesOf(id, row.kind)) };
+      return {
+        ...row,
+        ownCategories: await ownCategories(row.userId),
+        ...(await filesOf(id, row.kind)),
+      };
     },
 
     /**
@@ -474,6 +489,7 @@ export function indexingStore(db: Database) {
         : [];
       return {
         ...loaded,
+        ownCategories: await ownCategories(row.userId),
         found,
         overview: kept?.embedding,
         ...(await filesOf(id, row.kind)),

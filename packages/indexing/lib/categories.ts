@@ -4,7 +4,7 @@ import {
   chooseCategories,
   cosine,
   INDEXING,
-  type Category,
+  prototypeOf,
 } from "@spark/core";
 import { embedCostMicros, type Embedder } from "./embedder";
 import type { AiCall } from "./indexer";
@@ -15,15 +15,20 @@ export type CategoryClient = {
   /** Probabilities per Category. Throws when unavailable, slow or invalid. */
   classify(
     text: string,
-    categories: readonly Category[]
+    categories: readonly string[]
   ): Promise<{
-    scores: Partial<Record<Category, number>>;
+    scores: Record<string, number>;
     inputTokens: number;
   }>;
 };
 
-/** Prototype vectors by embedding space: the same ones serve every Memory. */
-const prototypes = new Map<string, number[][]>();
+/**
+ * Prototype vectors by embedding space and name: the same ones serve every
+ * Memory (and every person who has a Category of that name).
+ */
+const prototypes = new Map<string, number[]>();
+const MAX_PROTOTYPES = 2000;
+const prototypeKey = (space: string, name: string) => `${space}\0${name}`;
 
 /** About three characters a token, plus the question and the Category names. */
 export const jevTokenEstimate = (text: string) =>
@@ -51,6 +56,7 @@ export async function categorise({
   vector,
   embedder,
   jev,
+  own = [],
   allow,
   record,
 }: {
@@ -59,6 +65,8 @@ export async function categorise({
   vector: number[];
   embedder: Embedder;
   jev?: CategoryClient;
+  /** The owner's own Category names, beside the built-ins and no one else's. */
+  own?: readonly string[];
   allow: () => Promise<boolean>;
   record: (
     call: Pick<
@@ -66,11 +74,12 @@ export async function categorise({
       "provider" | "model" | "usage" | "costMicros" | "estimated"
     >
   ) => Promise<void>;
-}): Promise<Category[] | undefined> {
+}): Promise<string[] | undefined> {
+  const names = [...CATEGORY_NAMES, ...own];
   if (jev && (await allow())) {
     let reply;
     try {
-      reply = await jev.classify(text, CATEGORY_NAMES);
+      reply = await jev.classify(text, names);
     } catch {
       // It may still have been billed: count the most it could have cost.
       const inputTokens = jevTokenEstimate(text);
@@ -94,11 +103,13 @@ export async function categorise({
   }
   if (!(await allow())) return undefined;
   const space = `${embedder.model}:${embedder.dimensions}`;
-  let known = prototypes.get(space);
+  const missing = names.filter(
+    (name) => !prototypes.has(prototypeKey(space, name))
+  );
   try {
-    if (!known) {
+    if (missing.length) {
       const { vectors, usage } = await embedder.embed(
-        CATEGORY_NAMES.map((name) => ({ text: CATEGORISING.prototypes[name] })),
+        missing.map((name) => ({ text: prototypeOf(name) })),
         { timeoutMs: 10_000 }
       );
       await record({
@@ -110,13 +121,19 @@ export async function categorise({
         },
         costMicros: embedCostMicros(embedder.model, usage),
       });
-      prototypes.set(space, (known = vectors));
+      if (prototypes.size + missing.length > MAX_PROTOTYPES) prototypes.clear();
+      missing.forEach((name, i) =>
+        prototypes.set(prototypeKey(space, name), vectors[i] ?? [])
+      );
     }
   } catch {
     return undefined;
   }
   const scores = Object.fromEntries(
-    CATEGORY_NAMES.map((name, i) => [name, cosine(vector, known[i] ?? [])])
+    names.map((name) => [
+      name,
+      cosine(vector, prototypes.get(prototypeKey(space, name)) ?? []),
+    ])
   );
   return chooseCategories(scores, CATEGORISING.embeddingThreshold);
 }

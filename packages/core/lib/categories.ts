@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-/** Built-in Categories (ADR-0008); the names are also the API values. */
+/**
+ * The built-in Categories (ADR-0008); the names are also the API values.
+ * A person's own Categories sit beside them (`checkCategoryName`).
+ */
 export const CATEGORY_NAMES = [
   "Article",
   "Video",
@@ -21,14 +24,81 @@ export const Category = z.enum(CATEGORY_NAMES);
 export type Category = z.infer<typeof Category>;
 
 export const MAX_CATEGORIES = 3;
+export const CATEGORY_NAME_MAX_CHARS = 40;
+/** Jev takes up to 255 options; 50 of a person's own is plenty for a Library. */
+export const MAX_CUSTOM_CATEGORIES = 50;
+
+/**
+ * A Memory's Categories by name. Only the shape is checked here: whether a
+ * name is a built-in or the owner's own is the database's to say.
+ */
 export const Categories = z
-  .array(Category)
+  .array(z.string().min(1).max(CATEGORY_NAME_MAX_CHARS))
   .min(1)
   .max(MAX_CATEGORIES)
   .refine(
     (names) => new Set(names).size === names.length,
     "Categories must be distinct"
   );
+
+/** Creating or renaming a Category: the name as typed; `checkCategoryName` judges it. */
+export const CategoryRequest = z.object({ name: z.string().max(200) }).strict();
+
+/** Words that stay lower case inside a Title Case name, as in "Receipt or Document". */
+const MINOR_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "as",
+  "at",
+  "by",
+  "for",
+  "in",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "vs",
+  "with",
+]);
+
+/** Why a new Category name was refused. */
+export type CategoryNameProblem =
+  "empty" | "long" | "characters" | "case" | "duplicate";
+
+const key = (name: string) => name.toLowerCase();
+
+/** Every word starts with a capital where its script has one; minor words after the first may not. */
+function isTitleCase(name: string): boolean {
+  return name.split(" ").every((word, i) => {
+    if (i > 0 && MINOR_WORDS.has(word)) return true;
+    const first = /\p{L}/u.exec(word)?.[0];
+    return !first || first === first.toUpperCase();
+  });
+}
+
+/**
+ * A person's name for a Category, as they typed it: trimmed, spaces inside
+ * kept as one, never re-cased (it must already be Title Case). `taken` is
+ * every other name in play, the built-ins and the person's own; a duplicate
+ * is judged without regard to case.
+ */
+export function checkCategoryName(
+  raw: string,
+  taken: readonly string[]
+): { name: string } | { problem: CategoryNameProblem } {
+  if (/\p{Cc}/u.test(raw.trim())) return { problem: "characters" };
+  const name = raw.trim().replace(/\s+/g, " ");
+  if (!name) return { problem: "empty" };
+  if ([...name].length > CATEGORY_NAME_MAX_CHARS) return { problem: "long" };
+  const same = key(name);
+  const builtIn = CATEGORY_NAMES.some((b) => key(b) === same);
+  if (builtIn || taken.some((other) => key(other) === same)) {
+    return { problem: "duplicate" };
+  }
+  return isTitleCase(name) ? { name } : { problem: "case" };
+}
 
 /**
  * Jev answers a Choice with probabilities that sum to about 1; the
@@ -64,14 +134,21 @@ export const CATEGORISING = {
   } satisfies Record<Category, string>,
 } as const;
 
+/** What the fallback compares a Memory with for `name`: a built-in's sentence, else one made of the name. */
+export function prototypeOf(name: string): string {
+  return Object.hasOwn(CATEGORISING.prototypes, name)
+    ? CATEGORISING.prototypes[name as Category]
+    : `Memories about ${name}`;
+}
+
 /** The strongest Categories at or above `threshold`, at most 3; Other when none. */
 export function chooseCategories(
-  scores: Partial<Record<Category, number>>,
+  scores: Readonly<Record<string, number | undefined>>,
   threshold: number
-): Category[] {
-  const chosen = CATEGORY_NAMES.filter(
-    (name) => name !== "Other" && (scores[name] ?? -1) >= threshold
-  )
+): string[] {
+  const chosen = Object.keys(scores)
+    .filter((name) => name !== "Other" && (scores[name] ?? -1) >= threshold)
+    // Equal scores keep the order they were given in, built-ins first.
     .sort((a, b) => scores[b]! - scores[a]!)
     .slice(0, MAX_CATEGORIES);
   return chosen.length ? chosen : ["Other"];

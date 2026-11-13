@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import {
   Categories,
   CATEGORY_NAMES,
+  checkCategoryName,
   CATEGORISING,
   chooseCategories,
   cosine,
@@ -26,16 +27,53 @@ it("keeps the strongest three Categories at the threshold, else Other", () => {
   expect(chooseCategories({}, 0.5)).toEqual(["Other"]);
 });
 
-it("accepts one to three distinct built-in Categories only", () => {
+it("accepts one to three distinct names, built-in or the owner's own", () => {
   expect(Categories.safeParse(["Recipe", "Tutorial"]).success).toBe(true);
+  expect(Categories.safeParse(["Recipe", "Gardening"]).success).toBe(true);
   for (const bad of [
     [],
     ["Recipe", "Recipe"],
-    ["Unknown"],
+    [""],
+    ["x".repeat(41)],
     ["Recipe", "Code", "Article", "Video"],
   ]) {
     expect(Categories.safeParse(bad).success).toBe(false);
   }
+});
+
+it("checks a new Category name", () => {
+  const own = ["Gardening", "Cat Photos"];
+  // Trimmed, spaces inside kept as one, otherwise as typed.
+  expect(checkCategoryName("  Home Lab ", own)).toEqual({ name: "Home Lab" });
+  expect(checkCategoryName("Home   Lab", own)).toEqual({ name: "Home Lab" });
+  expect(checkCategoryName("UX Research", own)).toEqual({
+    name: "UX Research",
+  });
+  expect(checkCategoryName("Books to Read", own)).toEqual({
+    name: "Books to Read",
+  });
+  expect(checkCategoryName("दादी की रेसिपी", own)).toEqual({
+    name: "दादी की रेसिपी",
+  });
+  expect(checkCategoryName("2026 Trips", own)).toEqual({ name: "2026 Trips" });
+
+  const problem = (name: string) => checkCategoryName(name, own);
+  expect(problem("")).toEqual({ problem: "empty" });
+  expect(problem("   ")).toEqual({ problem: "empty" });
+  expect(problem("x".repeat(41))).toEqual({ problem: "long" });
+  expect(problem("home lab")).toEqual({ problem: "case" });
+  expect(problem("to Read")).toEqual({ problem: "case" });
+  expect(problem("Line\nBreak")).toEqual({ problem: "characters" });
+  expect(problem("Tab\there")).toEqual({ problem: "characters" });
+  // Against the built-ins and the owner's own, whatever the case.
+  expect(problem("recipe")).toEqual({ problem: "duplicate" });
+  expect(problem("Receipt Or Document")).toEqual({ problem: "duplicate" });
+  expect(problem("GARDENING")).toEqual({ problem: "duplicate" });
+  expect(problem("Gardening ")).toEqual({ problem: "duplicate" });
+  // A name may be changed in case alone: only the others count.
+  expect(checkCategoryName("GARDENING", ["Cat Photos"])).toEqual({
+    name: "GARDENING",
+  });
 });
 
 it("compares by cosine and refuses vectors it cannot compare", () => {

@@ -105,6 +105,10 @@ export type IndexMessage = {
 };
 export type IndexQueue = {
   send(body: IndexMessage, options?: { delaySeconds?: number }): Promise<void>;
+  /** At most 100 messages at a time. */
+  sendBatch(
+    messages: { body: IndexMessage; delaySeconds?: number }[]
+  ): Promise<void>;
 };
 
 /** What an account queue message asks for. */
