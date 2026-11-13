@@ -12,3 +12,10 @@ export {
   type Search,
 } from "./lib/search";
 export { understandQuery } from "./lib/query";
+export {
+  jevMatchJudge,
+  thresholdJudge,
+  type Candidate,
+  type MatchJudge,
+  type Verdict,
+} from "./lib/judge";

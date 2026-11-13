@@ -98,11 +98,10 @@ export const EMBEDDING = {
   queryTimeoutMs: 2_500,
   /**
    * Cosine distances, guesses until the search test set tunes them (evals/,
-   * #11): a Memory joins the vector leg within `maxDistance` of the query,
-   * and its vector alone makes it a Direct Match within `directDistance`.
+   * #11): a Memory joins the vector leg within `maxDistance` of the query.
+   * What makes a Direct Match is in judging.ts.
    */
   maxDistance: 0.6,
-  directDistance: 0.35,
   /** A person's repeated query reuses its vector this long (per Worker isolate). */
   queryCacheMs: 5 * 60_000,
   queryCacheSize: 500,

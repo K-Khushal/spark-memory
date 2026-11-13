@@ -1,5 +1,6 @@
 import {
   EMBEDDING,
+  JUDGING,
   SEARCH_COLOURS,
   SEARCH_KINDS,
   SEARCH_PAGE_SIZE,
@@ -9,6 +10,7 @@ import {
   type SearchFilters,
 } from "@spark/core";
 import { understandQuery } from "./query";
+import { thresholdJudge, type Candidate, type MatchJudge } from "./judge";
 import {
   embedCostMicros,
   ProviderError,
@@ -23,7 +25,13 @@ export type Probe = { model: string; dimensions: number } & (
 );
 
 /** What a search leg returns per Memory, at least. */
-export type Hit = { id: string; matched: string[]; distance: number | null };
+export type Hit = {
+  id: string;
+  matched: string[];
+  distance: number | null;
+  /** The fused rank score; the judge reads it beside the best one in the same search. */
+  score: number;
+};
 
 /** The Library's narrowing, in its own words (hosts, hex colours); see `scopeOf`. */
 export type Scope = {
@@ -123,20 +131,68 @@ function remember(key: string, vector: number[], now: number) {
   }
 }
 
+const thresholds = thresholdJudge();
+
 /**
- * Direct when a keyword matched or a vector came very close (ADR-0008's
- * judge replaces this, PLAN.md §6.4); Related otherwise. Order is kept.
+ * Splits results into Direct and Related Matches, keeping their order.
+ * Only the first `JUDGING.window` results of a search with words can be
+ * Direct (`from` is the rank of the first one). Thresholds decide for
+ * everything; the Jev judge, when there is one and time, overrules them for
+ * the Memories it may read. A judge that fails or is late changes nothing.
  */
-const split = <R extends Hit>(hits: R[]): Ranked<R>[] =>
-  hits.map((hit) => ({
+async function split<R extends Hit>(
+  hits: R[],
+  {
+    query,
+    judge,
+    from = 0,
+    budgetMs = 0,
+  }: {
+    /** The words searched for; none (a browse) means every hit is a filter's. */
+    query: string;
+    judge?: MatchJudge | undefined;
+    from?: number;
+    /** What is left of `JUDGING.fullBudgetMs` after the reserve; the judge only runs with enough. */
+    budgetMs?: number;
+  }
+): Promise<Ranked<R>[]> {
+  const topScore = hits.reduce((best, hit) => Math.max(best, hit.score), 0);
+  const candidates: Candidate[] = hits
+    .slice(0, query ? Math.max(0, JUDGING.window - from) : hits.length)
+    .map((hit, rank) => ({
+      ...hit,
+      topScore,
+      rank: from + rank,
+      nextScore: hits[rank + 1]?.score ?? 0,
+    }));
+  const controller = new AbortController();
+  const verdicts = await thresholds.judge(query, candidates, controller.signal);
+  if (judge && query && candidates.length && budgetMs >= JUDGING.jevMinMs) {
+    const ms = Math.min(JUDGING.jevTimeoutMs, budgetMs);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const late = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error("judging timed out"));
+        }, ms);
+      });
+      const judged = await Promise.race([
+        judge.judge(query, candidates, controller.signal),
+        late,
+      ]);
+      for (const [id, verdict] of judged) verdicts.set(id, verdict);
+    } catch {
+      console.error("search: Direct Matches fell back to thresholds");
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return hits.map((hit) => ({
     ...hit,
-    match:
-      hit.matched.includes("keyword") ||
-      hit.matched.includes("filter") ||
-      (hit.distance !== null && hit.distance <= EMBEDDING.directDistance)
-        ? "direct"
-        : "related",
+    match: verdicts.get(hit.id) ?? "related",
   }));
+}
 
 /**
  * One person's search (ADR-0004, PLAN.md §6): instant mode per keystroke,
@@ -150,6 +206,7 @@ export function createSearch<R extends Hit>({
   find,
   embedder,
   spend,
+  judge,
   now = Date.now,
 }: {
   userId: string;
@@ -173,6 +230,8 @@ export function createSearch<R extends Hit>({
     dailyBudgetMicros(): Promise<number>;
     recordCall(call: AiCall): Promise<void>;
   };
+  /** Jev's judge of Direct Matches (ADR-0008); without one, thresholds decide. */
+  judge?: MatchJudge;
   now?: () => number;
 }) {
   const space = embedder && {
@@ -264,8 +323,9 @@ export function createSearch<R extends Hit>({
         page?: string;
       } = {}
     ): Promise<{ results: Ranked<R>[]; mode: Mode; next?: string }> {
+      const started = now();
       const when = {
-        now: new Date(now()),
+        now: new Date(started),
         ...(timezone && { timezone }),
       };
       const { text, filters: spoken } = understandQuery(query, when);
@@ -316,8 +376,15 @@ export function createSearch<R extends Hit>({
           const vector = await embedQuery(text);
           if (vector) {
             const probe = { ...space, vector };
+            const hits = await find(text, { ...options, probe });
             return answer(
-              split(await find(text, { ...options, probe })),
+              await split(hits, {
+                query: text,
+                judge,
+                from: options.offset ?? 0,
+                budgetMs:
+                  JUDGING.fullBudgetMs - JUDGING.reserveMs - (now() - started),
+              }),
               "full"
             );
           }
@@ -325,7 +392,13 @@ export function createSearch<R extends Hit>({
           console.error("search: full search fell back to keywords");
         }
       }
-      return answer(split(await find(text, options)), "instant");
+      return answer(
+        await split(await find(text, options), {
+          query: text,
+          from: options.offset ?? 0,
+        }),
+        "instant"
+      );
     },
 
     /** More Like This: the Memory's own vectors as the query, no provider call. */
@@ -335,7 +408,8 @@ export function createSearch<R extends Hit>({
         await find("", {
           probe: { ...space, like: memoryId },
           maxDistance: EMBEDDING.maxDistance,
-        })
+        }),
+        { query: "" }
       );
     },
   };

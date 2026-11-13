@@ -44,6 +44,13 @@ export {
   type ProviderName,
 } from "./lib/indexing";
 export {
+  JUDGING,
+  JevNoulReply,
+  thresholdMatch,
+  type MatchSignals,
+  type MatchThresholds,
+} from "./lib/judging";
+export {
   ROLES,
   adminEmails,
   isAdmin,

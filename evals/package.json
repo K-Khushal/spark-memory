@@ -9,6 +9,7 @@
     "eval:check": "tsx src/cli.ts --check",
     "eval:update-baseline": "tsx src/cli.ts --update-baseline",
     "eval:real": "tsx src/cli.ts --real",
+    "eval:tune": "tsx src/cli.ts --tune",
     "experiments": "tsx src/experiments.ts",
     "compare:supermemory": "tsx src/supermemory.ts",
     "typecheck": "tsc --noEmit",

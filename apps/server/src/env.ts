@@ -62,7 +62,8 @@ export type Bindings = {
   /**
    * Jev (ADR-0008) is OFF unless both the secret key and `JEV_ENABLED` =
    * "true" are set, an owner decision pending TypeSafe's retention terms
-   * (docs/research/jev.md). Without it, Categories use embeddings.
+   * (docs/research/jev.md). Without it, Categories use embeddings and
+   * thresholds decide Direct Matches.
    */
   JEV_API_KEY?: string;
   JEV_ENABLED?: string;
