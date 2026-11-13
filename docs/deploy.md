@@ -191,6 +191,10 @@ Optional (ADR-0010): without it, a link or video that came back thin is stored a
 
 The Deep fetch queue (`spark-deepfetch-<env>`) is in `wrangler.jsonc`; create it with the others. Locally, `DEEP_FETCH_PROVIDER` is `fake` and answers from a script.
 
+## Free allowance and rate limits
+
+Captures a day, Deep fetches a day and storage are counted in Postgres (`usage_day`, `memory_file`): nothing to set up. Per-person rate limits use Cloudflare's Rate Limiting binding (`CAPTURE_LIMITER`, `SEARCH_LIMITER` in `apps/server/wrangler.jsonc`, with namespace ids 2001/2002 for dev and 3001/3002 for production; they must stay unique in the Cloudflare account). It needs no secret. If a deploy is refused because the account's plan lacks the binding, remove the `ratelimits` block for that environment: a Worker without the bindings does not limit, and the daily counts still hold. See [docs/research/rate-limits.md](./research/rate-limits.md).
+
 ## Admin
 
 `/admin` shows daily AI spend by provider and model (`ai_call`, the last 30 UTC days), per-person usage (Memories, storage counted the same way as the Free allowance, AI cost) and the daily budget against today's `spend_day` total. The page says whether background Indexing is paused.

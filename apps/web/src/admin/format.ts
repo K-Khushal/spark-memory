@@ -23,16 +23,4 @@ export function formatCost(micros: number): string {
 }
 
 /** Bytes the way the Free allowance is counted, short. */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"] as const;
-  let value = bytes / 1024;
-  let unit: (typeof units)[number] = "KB";
-  for (const next of units) {
-    unit = next;
-    if (value < 1024 || next === "GB") break;
-    value /= 1024;
-  }
-  const digits = value >= 10 || Number.isInteger(value) ? 0 : 1;
-  return `${value.toFixed(digits)} ${unit}`;
-}
+export { formatSize as formatBytes } from "@spark/core";

@@ -31,10 +31,13 @@ export const IMAGE_TYPES = [
   "image/avif",
 ] as const;
 
+/** Why a file is refused. `captures_full` is the daily limit, which resets at midnight UTC. */
+export type FileRefusal = "file_too_large" | "storage_full";
+
 export function isFileWithinAllowance(input: {
   fileBytes: number;
   usedStorageBytes: number;
-}): { ok: true } | { ok: false; reason: "file_too_large" | "storage_full" } {
+}): { ok: true } | { ok: false; reason: FileRefusal } {
   if (input.fileBytes > FREE_ALLOWANCE.maxUploadBytes) {
     return { ok: false, reason: "file_too_large" };
   }
@@ -48,3 +51,51 @@ export function isFileWithinAllowance(input: {
 export const PLANS = ["free"] as const;
 export type Plan = (typeof PLANS)[number];
 export const DEFAULT_PLAN: Plan = "free";
+
+/** Whether one more Capture fits in today's allowance, given those already taken today. */
+export const isCaptureWithinAllowance = (capturedToday: number) =>
+  capturedToday < FREE_ALLOWANCE.capturesPerDay;
+
+/** One counted limit, as Settings shows it. */
+export type Meter = { used: number; limit: number };
+
+/** What the person has used of the Free allowance: storage, and today's Captures and Deep fetches. */
+export type AllowanceUsage = {
+  storage: Meter;
+  captures: Meter;
+  deepFetches: Meter;
+  /** When today's counts start again (the next UTC midnight), ISO. */
+  resetsAt: string;
+};
+
+export function allowanceUsage(
+  used: { storageBytes: number; captures: number; deepFetches: number },
+  now: Date
+): AllowanceUsage {
+  return {
+    storage: { used: used.storageBytes, limit: FREE_ALLOWANCE.storageBytes },
+    captures: { used: used.captures, limit: FREE_ALLOWANCE.capturesPerDay },
+    deepFetches: {
+      used: used.deepFetches,
+      limit: FREE_ALLOWANCE.deepFetchesPerDay,
+    },
+    resetsAt: new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
+    ).toISOString(),
+  };
+}
+
+/** Bytes in words, the way copy names a limit: "25 MB", "1 GB", "1.5 MB". */
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB"] as const;
+  let value = bytes / 1024;
+  let unit: (typeof units)[number] = "KB";
+  for (const next of units) {
+    unit = next;
+    if (value < 1024 || next === "GB") break;
+    value /= 1024;
+  }
+  const digits = value >= 10 || Number.isInteger(value) ? 0 : 1;
+  return `${value.toFixed(digits)} ${unit}`;
+}

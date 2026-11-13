@@ -214,6 +214,11 @@ export async function runEvals({
     const jobs: { memoryId: string; run: number }[] = [];
 
     for (const sample of memories) {
+      // A fixture is not a person's day: the set has more Memories than the
+      // Free allowance's Captures a day, and every one must be Captured whole.
+      await db
+        .delete(schema.usageDay)
+        .where(eq(schema.usageDay.userId, userId));
       const id = memoryId(sample.id);
       let run: number;
       if (sample.kind === "text") {

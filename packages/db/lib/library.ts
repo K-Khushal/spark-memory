@@ -7,6 +7,7 @@ import {
   FREE_ALLOWANCE,
   ImageCapture,
   isFileWithinAllowance,
+  type FileRefusal,
   keptPage,
   PAGE_IMAGE,
   PDF_TYPE,
@@ -37,6 +38,7 @@ import {
   memoryIndex,
   memoryVector,
   objectRemoval,
+  usageDay,
   type FileRole,
   type PassageAnchor,
 } from "./schema";
@@ -161,7 +163,7 @@ export type FileCheck = "stored" | "missing" | "mismatch";
 export type ImageCaptureResult =
   | { created: boolean; memory: Memory; uploads: FileUpload[] }
   | { conflict: true }
-  | { refused: "file_too_large" | "storage_full" };
+  | { refused: FileRefusal | "captures_full" };
 export type PdfCaptureResult = ImageCaptureResult;
 
 /** A PDF's page image, for the viewer. */
@@ -417,6 +419,27 @@ export function openLibrary(
   }
 
   /**
+   * Takes one of today's Captures (UTC day), false once they are used up.
+   * One atomic upsert on the person's `usage_day` row, so parallel Captures
+   * cannot pass the limit; it commits or rolls back with the Memory it pays for.
+   */
+  async function takeCapture(tx: Pick<Database, "insert">): Promise<boolean> {
+    const rows = await tx
+      .insert(usageDay)
+      .values({ userId, day: today, captures: 1 })
+      .onConflictDoUpdate({
+        target: [usageDay.userId, usageDay.day],
+        set: { captures: sql`${usageDay.captures} + 1` },
+        setWhere: sql`${usageDay.captures} < ${FREE_ALLOWANCE.capturesPerDay}`,
+      })
+      .returning({ n: usageDay.captures });
+    return rows.length > 0;
+  }
+
+  /** Past today's Captures a link or text is kept, keyword-findable only: no AI work follows. */
+  const partlyIndexed = { indexState: "searchable" } as const;
+
+  /**
    * A file Memory (image or PDF) created before its files are uploaded,
    * within the Free allowance (`upload` is the file it checks; every file
    * takes storage). A retry with the same `id` returns the same Memory and
@@ -526,6 +549,8 @@ export function openLibrary(
         usedStorageBytes: (await usedStorage(tx)) + others - capture.upload,
       });
       if (!allowed.ok) return { refused: allowed.reason };
+      // A file has no Source to fall back on: past today's Captures it is refused.
+      if (!(await takeCapture(tx))) return { refused: "captures_full" };
 
       await tx.insert(memory).values({
         id,
@@ -575,25 +600,34 @@ export function openLibrary(
     async capture(input: TextCapture): Promise<CaptureResult> {
       const parsed = TextCapture.parse(input);
       const { id, body, title, captureNote } = parsed;
-      const [row] = await db
-        .insert(memory)
-        .values({
-          id,
-          userId,
-          kind: "text",
-          sourceUrl: parsed.source?.url,
-          metadata: parsed.source
-            ? { selectionContext: parsed.source.context }
-            : undefined,
-          body,
-          title,
-          captureNote,
-          indexPriority: "fresh",
-          productAnalytics: parsed.productAnalytics === true,
-        })
-        .onConflictDoNothing({ target: memory.id })
-        .returning(columns);
-      if (row) return { created: true, memory: row };
+      const saved = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(memory)
+          .values({
+            id,
+            userId,
+            kind: "text",
+            sourceUrl: parsed.source?.url,
+            metadata: parsed.source
+              ? { selectionContext: parsed.source.context }
+              : undefined,
+            body,
+            title,
+            captureNote,
+            indexPriority: "fresh",
+            productAnalytics: parsed.productAnalytics === true,
+          })
+          .onConflictDoNothing({ target: memory.id })
+          .returning(columns);
+        if (!row || (await takeCapture(tx))) return row;
+        const [kept] = await tx
+          .update(memory)
+          .set(partlyIndexed)
+          .where(owned(row.id))
+          .returning(columns);
+        return kept;
+      });
+      if (saved) return { created: true, memory: saved };
       const existing = id ? await get(id) : undefined;
       return existing
         ? { created: false, memory: existing }
@@ -612,26 +646,37 @@ export function openLibrary(
       const { id, url, captureNote, productAnalytics } = parsed;
       const kept = parsed.page ? keptPage(parsed.page) : undefined;
       const normalised = normaliseUrl(url)!;
-      const [row] = await db
-        .insert(memory)
-        .values({
-          id,
-          userId,
-          kind: isVideoUrl(url) ? "video" : "link",
-          sourceUrl: url,
-          sourceUrlNormalised: normalised,
-          captureNote,
-          preservation:
-            !isVideoUrl(url) && kept?.text ? "preserved" : "reference_only",
-          ...(kept && {
-            metadata: kept.metadata,
-            body: isVideoUrl(url) ? null : kept.text,
-          }),
-          indexPriority: "fresh",
-          productAnalytics: productAnalytics === true,
-        })
-        .onConflictDoNothing()
-        .returning(columns);
+      const row = await db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(memory)
+          .values({
+            id,
+            userId,
+            kind: isVideoUrl(url) ? "video" : "link",
+            sourceUrl: url,
+            sourceUrlNormalised: normalised,
+            captureNote,
+            preservation:
+              !isVideoUrl(url) && kept?.text ? "preserved" : "reference_only",
+            ...(kept && {
+              metadata: kept.metadata,
+              body: isVideoUrl(url) ? null : kept.text,
+            }),
+            indexPriority: "fresh",
+            productAnalytics: productAnalytics === true,
+          })
+          .onConflictDoNothing()
+          .returning(columns);
+        // Past today's Captures the link is still kept (GLOSSARY.md, Free
+        // allowance): with what the browser sent, and no Gather or AI.
+        if (!inserted || (await takeCapture(tx))) return inserted;
+        const [limited] = await tx
+          .update(memory)
+          .set(partlyIndexed)
+          .where(owned(inserted.id))
+          .returning(columns);
+        return limited;
+      });
       if (row) return { created: true, memory: row };
       if (id) {
         const [taken] = await db
@@ -1000,6 +1045,57 @@ export function openLibrary(
 
     /** Bytes of storage in use, counting uploads still in their window. */
     usedStorage: () => usedStorage(db),
+
+    /**
+     * What the Free allowance has used: storage, and today's (UTC) Captures
+     * and Deep fetches. Samples have no files and take no Capture.
+     */
+    async usage() {
+      const [[day], storageBytes] = await Promise.all([
+        db
+          .select({
+            captures: usageDay.captures,
+            deepFetches: usageDay.deepFetches,
+          })
+          .from(usageDay)
+          .where(and(eq(usageDay.userId, userId), eq(usageDay.day, today))),
+        usedStorage(db),
+      ]);
+      return {
+        storageBytes,
+        captures: day?.captures ?? 0,
+        deepFetches: day?.deepFetches ?? 0,
+      };
+    },
+
+    /**
+     * The Memories that take the most storage, largest first, for the
+     * person to delete when the Library is full. Counts as `usedStorage`
+     * does (uploads still in their window too).
+     */
+    async largest(limit: number) {
+      const bytes = sql<string>`sum(${memoryFile.bytes})`;
+      const rows = await db
+        .select({
+          id: memory.id,
+          kind: memory.kind,
+          title: memory.title,
+          sourceUrl: memory.sourceUrl,
+          bytes,
+        })
+        .from(memoryFile)
+        .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
+        .where(
+          and(
+            eq(memory.userId, userId),
+            sql`(${memoryFile.storedAt} is not null or ${memoryFile.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
+          )
+        )
+        .groupBy(memory.id)
+        .orderBy(desc(bytes), asc(memory.id))
+        .limit(limit);
+      return rows.map((row) => ({ ...row, bytes: Number(row.bytes) }));
+    },
 
     /**
      * Image Memories whose upload has not finished and whose presigned PUT

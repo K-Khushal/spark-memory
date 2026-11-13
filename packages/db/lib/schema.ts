@@ -523,7 +523,7 @@ export const objectRemoval = pgTable("object_removal", {
   dueAt: instant("due_at"),
 });
 
-/** What a person has used today (PLAN.md §4): Deep fetches so far. */
+/** What a person has used today (PLAN.md §4): Captures and Deep fetches so far. */
 export const usageDay = pgTable(
   "usage_day",
   {
@@ -532,6 +532,7 @@ export const usageDay = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     day: date("day").notNull(),
     deepFetches: integer("deep_fetches").default(0).notNull(),
+    captures: integer("captures").default(0).notNull(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.day] })]
 );

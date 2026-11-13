@@ -106,7 +106,10 @@ const serverCopy = (id: string): Memory => ({
   },
 });
 
-function setup(transport: Partial<Transport> = {}) {
+function setup(
+  transport: Partial<Transport> = {},
+  extra: { freeUpSpace?: () => void } = {}
+) {
   let wall: WallMemory[] = [];
   const notify = vi.fn();
   const calls: string[] = [];
@@ -138,6 +141,7 @@ function setup(transport: Partial<Transport> = {}) {
     drafts: draftStore(undefined),
     notify: notify as never,
     onSaved: vi.fn(),
+    ...extra,
   });
   return { actions, wall: () => wall, notify, calls, transport: full };
 }
@@ -279,6 +283,7 @@ describe("image Capture", () => {
 
   it.each([
     ["storage_full", "Your 1 GB Free Allowance Is Full"],
+    ["captures_full", "Daily Capture Limit Reached"],
     // e.g. a 400 for something the browser made that the server won't take:
     // no Failed tile that Try Again could never fix.
     ["invalid", "Image Can't Be Captured"],
@@ -296,6 +301,34 @@ describe("image Capture", () => {
       expect(notify).toHaveBeenCalledWith(message, expect.anything());
     }
   );
+
+  it("offers a way to free up space when the server says storage is full, and not for the day's limit", async () => {
+    const freeUpSpace = vi.fn();
+    const full = setup(
+      {
+        createImage: async () => {
+          throw new Refused("storage_full");
+        },
+      },
+      { freeUpSpace }
+    );
+    await full.actions.captureFiles([png()]);
+    await settle();
+    toastAction(full.notify, "Free Up Space")();
+    expect(freeUpSpace).toHaveBeenCalledTimes(1);
+
+    const daily = setup(
+      {
+        createImage: async () => {
+          throw new Refused("captures_full");
+        },
+      },
+      { freeUpSpace }
+    );
+    await daily.actions.captureFiles([png()]);
+    await settle();
+    expect(() => toastAction(daily.notify, "Free Up Space")).toThrow();
+  });
 
   it("stops the other file when one fails, so no upload outlives its run", async () => {
     let signal: AbortSignal | undefined;

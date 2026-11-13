@@ -10,7 +10,13 @@ import {
   type PreparedImage,
   type PreparedPdf,
 } from "@spark/capture";
-import { PDF_TYPE, type ImageCapture, type PdfCapture } from "@spark/core";
+import {
+  FREE_ALLOWANCE,
+  formatSize,
+  PDF_TYPE,
+  type ImageCapture,
+  type PdfCapture,
+} from "@spark/core";
 import type { toast } from "@spark/ui";
 import { captureProductAnalytics } from "../product-analytics";
 import type { Memory, WallMemory } from "./library-actions";
@@ -26,10 +32,14 @@ export type Upload = {
 
 /** The server refused the Capture for a reason a retry cannot fix. */
 export class Refused extends Error {
-  constructor(readonly reason: "file_too_large" | "storage_full" | "invalid") {
+  constructor(readonly reason: ServerRefusal) {
     super(reason);
   }
 }
+
+/** Why the server refuses a file: the Free allowance (413 or, for the day's Captures, 429), or what it was sent. */
+export type ServerRefusal =
+  "file_too_large" | "storage_full" | "captures_full" | "invalid";
 
 /** What image Capture needs from the server. Each call rejects when it fails. */
 export type ImageTransport = {
@@ -89,6 +99,7 @@ export function imageCapture({
   onSaved,
   onCaptured,
   inOrder,
+  freeUpSpace,
 }: {
   setMemories: Dispatch<SetStateAction<WallMemory[]>>;
   transport: ImageTransport;
@@ -96,6 +107,8 @@ export function imageCapture({
   onSaved: () => void;
   onCaptured?: (kind: "image" | "pdf") => void;
   inOrder: <T>(id: string, task: () => Promise<T>) => Promise<T>;
+  /** Where the person can delete what takes the space (Settings); offered when storage is full. */
+  freeUpSpace?: () => void;
 }) {
   type Entry = {
     prepared: Prepared;
@@ -248,9 +261,11 @@ export function imageCapture({
       entry.abort?.abort();
       if (error instanceof Refused || error === "unreadable") {
         const pdf = isPdfCapture(prepared);
-        // Only a full account keeps a share: freeing space makes it fit.
+        // Only a full account keeps a share: freeing space, or the next
+        // UTC day, makes it fit.
         const full =
-          error instanceof Refused && error.reason === "storage_full";
+          error instanceof Refused &&
+          (error.reason === "storage_full" || error.reason === "captures_full");
         drop(id, full ? "full" : "refused");
         refuse(error instanceof Refused ? error.reason : "unreadable", pdf);
         return;
@@ -279,9 +294,15 @@ export function imageCapture({
     return true;
   }
 
-  function refuse(reason: ImageRefusal | "invalid", pdf = false) {
+  function refuse(reason: ImageRefusal | ServerRefusal, pdf = false) {
     const message = (pdf && PDF_REFUSALS[reason]) || REFUSALS[reason];
-    notify(message, { id: `refused-${reason}` });
+    notify(message, {
+      id: `refused-${reason}`,
+      ...(reason === "storage_full" &&
+        freeUpSpace && {
+          action: { label: "Free Up Space", onClick: freeUpSpace },
+        }),
+    });
   }
 
   /** Try Again on a failed upload: a new run, same Memory id. */
@@ -400,18 +421,21 @@ export function imageCapture({
   };
 }
 
+const size = formatSize;
+
 /** What differs for a PDF; the rest reads the same. */
-const PDF_REFUSALS: Partial<Record<ImageRefusal | "invalid", string>> = {
+const PDF_REFUSALS: Partial<Record<ImageRefusal | ServerRefusal, string>> = {
   invalid: "PDF Can't Be Captured",
-  file_too_large: "PDFs Over 25 MB Can't Be Captured",
+  file_too_large: `PDFs Over ${size(FREE_ALLOWANCE.maxUploadBytes)} Can't Be Captured`,
   unreadable: "PDF Can't Be Read",
 };
 
-const REFUSALS: Record<ImageRefusal | "invalid", string> = {
+const REFUSALS: Record<ImageRefusal | ServerRefusal, string> = {
   // The server could not accept what the browser made of it: retrying won't help.
   invalid: "Image Can't Be Captured",
-  file_too_large: "Images Over 25 MB Can't Be Captured",
-  storage_full: "Your 1 GB Free Allowance Is Full",
+  file_too_large: `Images Over ${size(FREE_ALLOWANCE.maxUploadBytes)} Can't Be Captured`,
+  storage_full: `Your ${size(FREE_ALLOWANCE.storageBytes)} Free Allowance Is Full`,
+  captures_full: "Daily Capture Limit Reached",
   unsupported: "This File Type Can't Be Captured",
   unreadable: "Image Can't Be Read",
 };
