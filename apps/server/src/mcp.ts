@@ -72,6 +72,7 @@ export const mcp = new Hono<AppEnv>()
           ? call.data.params.name
           : "unknown";
       let resultCount = 0;
+      let opened = null as string | null;
       try {
         const perUser = c.env.SEARCH_LIMITER;
         if (
@@ -140,7 +141,11 @@ export const mcp = new Hono<AppEnv>()
             inputSchema: { id: z.uuid() },
             annotations,
           },
-          async ({ id }) => answer([await library.get(id)])
+          async ({ id }) => {
+            const found = await library.get(id);
+            if (found) opened = id;
+            return answer([found]);
+          }
         );
         server.registerTool(
           "find_similar",
@@ -164,7 +169,7 @@ export const mcp = new Hono<AppEnv>()
           await server.close();
         }
       } finally {
-        if (call.success) await store.record(access, tool, resultCount);
+        if (call.success) await store.record(access, tool, resultCount, opened);
       }
     } finally {
       await close();

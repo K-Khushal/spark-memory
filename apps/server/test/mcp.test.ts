@@ -873,3 +873,141 @@ describe.skipIf(!databaseUrl)("credential replay receipt retention", () => {
     }
   });
 });
+
+type Row = {
+  id: string;
+  tool: string;
+  occurredAt: string;
+  resultCount: number;
+  memory: { id: string; title: string | null } | null;
+};
+type Page = { activity: Row[]; next: string | null };
+type Listed = {
+  assistants: { id: string; name: string; lastActiveAt: string | null }[];
+};
+
+describe.skipIf(!databaseUrl)("Connected assistants activity", () => {
+  const rpc = (
+    call: ReturnType<typeof newClient>,
+    token: string,
+    name: string,
+    args: Record<string, unknown>
+  ) =>
+    call("/api/mcp", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/json, text/event-stream",
+      },
+      json: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name, arguments: args },
+      },
+    });
+  const connect = async (call: ReturnType<typeof newClient>, name: string) => {
+    const issued = (await (
+      await call("/api/assistants", { method: "POST", json: { name } })
+    ).json()) as { id: string; token: string };
+    return issued;
+  };
+  const pageOf = async (
+    call: ReturnType<typeof newClient>,
+    query: Record<string, string>
+  ) =>
+    (await (
+      await call(`/api/assistants/activity?${new URLSearchParams(query)}`)
+    ).json()) as Page;
+
+  it("shows last activity, pages one assistant's log newest first and names the opened Memory without any search text", async () => {
+    const { call } = await signedIn();
+    const saved = (await (
+      await call("/api/memories", {
+        method: "POST",
+        json: { body: "plain body" },
+      })
+    ).json()) as { id: string };
+    await call(`/api/memories/${saved.id}`, {
+      method: "PATCH",
+      json: { title: "Bread Notes" },
+    });
+    const claude = await connect(call, "Claude Code");
+    const codex = await connect(call, "Codex");
+    expect(
+      ((await (await call("/api/assistants")).json()) as Listed).assistants.map(
+        (a) => a.lastActiveAt
+      )
+    ).toEqual([null, null]);
+
+    await rpc(call, claude.token, "search_memories", {
+      query: "NEVER_SHOW_THIS_QUERY",
+    });
+    await rpc(call, claude.token, "get_memory", { id: saved.id });
+    await rpc(call, claude.token, "get_memory", { id: crypto.randomUUID() });
+    await rpc(call, codex.token, "search_memories", { query: "other" });
+
+    const all = await pageOf(call, { assistant: claude.id });
+    expect(all.next).toBeNull();
+    expect(all.activity.map((r) => [r.tool, r.resultCount, r.memory])).toEqual([
+      ["get_memory", 0, null],
+      ["get_memory", 1, { id: saved.id, title: "Bread Notes" }],
+      ["search_memories", expect.any(Number), null],
+    ]);
+    expect(JSON.stringify(all)).not.toContain("NEVER_SHOW_THIS_QUERY");
+
+    const first = await pageOf(call, { assistant: claude.id, limit: "2" });
+    expect(first.activity).toHaveLength(2);
+    expect(first.next).toEqual(expect.any(String));
+    const second = await pageOf(call, {
+      assistant: claude.id,
+      limit: "2",
+      before: first.next!,
+    });
+    expect(second.activity.map((r) => r.id)).toEqual([all.activity[2]!.id]);
+    expect(second.next).toBeNull();
+
+    const listed = (await (await call("/api/assistants")).json()) as Listed;
+    for (const a of listed.assistants)
+      expect(Date.parse(a.lastActiveAt!)).not.toBeNaN();
+
+    // Deleting the Memory blanks the row; the visit itself stays.
+    await call(`/api/memories/${saved.id}`, { method: "DELETE" });
+    expect(
+      (await pageOf(call, { assistant: claude.id })).activity[1]
+    ).toMatchObject({ tool: "get_memory", resultCount: 1, memory: null });
+  });
+
+  it("scopes the log to its owner and one assistant, and attributes OAuth clients by client row", async () => {
+    const { call } = await signedIn();
+    const other = await signedIn();
+    const mine = await connect(call, "Mine");
+    const theirs = await connect(other.call, "Theirs");
+    await rpc(call, mine.token, "search_memories", { query: "mine" });
+    await rpc(other.call, theirs.token, "search_memories", { query: "theirs" });
+
+    // Another person's assistant id reads nothing, and a bad cursor is refused.
+    expect(await pageOf(call, { assistant: theirs.id })).toEqual({
+      activity: [],
+      next: null,
+    });
+    expect((await pageOf(call, {})).activity).toHaveLength(1);
+    const refused = await call("/api/assistants/activity?before=nope");
+    expect(refused.status).toBe(400);
+
+    const code = await authorize(call);
+    const issued = (await (await tokenRequest(call, code)).json()) as {
+      access_token: string;
+    };
+    await rpc(call, issued.access_token, "search_memories", { query: "x" });
+    const clientRow = (
+      (await (await call("/api/assistants")).json()) as Listed
+    ).assistants.find((a) => a.id.startsWith("client:"))!;
+    expect(clientRow.lastActiveAt).not.toBeNull();
+    const log = await pageOf(call, { assistant: clientRow.id });
+    expect(log.activity.map((r) => r.tool)).toEqual(["search_memories"]);
+    expect(
+      (await pageOf(other.call, { assistant: clientRow.id })).activity
+    ).toEqual([]);
+  });
+});

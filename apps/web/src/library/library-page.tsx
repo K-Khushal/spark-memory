@@ -76,7 +76,7 @@ export function LibraryPage({
 }) {
   const navigate = useNavigate();
   const library = useLibrary();
-  const { desk } = useRouteSearch({ from: "/" });
+  const { desk, memory: linked } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [activationVersion, setActivationVersion] = useState(0);
   const [activation] = useState(() => createActivation(recordActivation));
@@ -339,6 +339,20 @@ export function LibraryPage({
     setQuery("");
     setLike(undefined);
   };
+
+  // A link from elsewhere (an assistant's activity) opens that Memory once the
+  // Library has loaded, or just the wall when it is gone. Opened while
+  // rendering, once per link, then the address is cleared.
+  const [linkOpened, setLinkOpened] = useState<string>();
+  if (linked && linkOpened !== linked && library.state !== "loading") {
+    setLinkOpened(linked);
+    const found = library.memories.find((m) => m.id === linked);
+    if (found) reveal(found);
+  }
+  useEffect(() => {
+    if (linked && linkOpened === linked)
+      void navigate({ to: "/", search: {}, replace: true });
+  }, [linked, linkOpened, navigate]);
 
   useEffect(() => {
     if (desk !== "capture" && desk !== "search") return;

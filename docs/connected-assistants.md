@@ -21,7 +21,7 @@ codex mcp add spark --url https://YOUR_SPARK_HOST/api/mcp
 codex mcp login spark
 ```
 
-Start a session and ask it to find a Memory you saved. Inspect the Source before relying on it. In Spark Settings → Connected Assistants, Revoke ends every access and refresh token held by that client on its next request. Settings and exports show one row per client, excluding expired grants.
+Start a session and ask it to find a Memory you saved. Inspect the Source before relying on it. In Spark Settings → Connected Assistants, Connection Guide repeats these steps with Copy buttons ([sources](research/mcp-clients.md)). Revoke asks for confirmation, then ends every access and refresh token held by that client on its next request. Settings and exports show one row per client, excluding expired grants. Each row shows its last activity; Activity lists its calls, newest first, as tool, time and result count. A `get_memory` call also shows the opened Memory's title as a link, read from your Library when shown, so deleting the Memory blanks it.
 
 ## Connect with a personal access token
 
@@ -60,4 +60,4 @@ Real Claude Code and Codex checks need your own signed-in clients; the SDK hands
 4. Revoke the assistant in Settings; confirm the next tool request asks for authorization. Confirm access renews without consent, then verify refresh reuse or 90 days of inactivity requires reconnection.
 5. Repeat with a personal access token where supported, and remove it afterward.
 
-Already returned data cannot be recalled. Original-file URLs already issued retain the existing download expiry (at most two hours). Activity records omit queries and Memory content; account deletion removes all credentials and activity. Library export includes `connected-assistants.json` with metadata only.
+Already returned data cannot be recalled. Original-file URLs already issued retain the existing download expiry (at most two hours). Activity records omit queries and Memory content (an opened Memory is kept as its id only); account deletion removes all credentials and activity. Library export includes `connected-assistants.json` with metadata only.

@@ -4,7 +4,9 @@ import { signIn } from "./sign-in";
 
 test("connect an assistant, complete MCP handshake, then revoke", async ({
   page,
+  context,
 }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await signIn(page);
   await page.goto("/settings");
   await page.getByLabel("Assistant Name").fill("Claude Code");
@@ -59,12 +61,61 @@ test("connect an assistant, complete MCP handshake, then revoke", async ({
         });
       }
   }
+  const searched = await page.request.post("/api/mcp", {
+    headers,
+    data: {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        name: "search_memories",
+        arguments: { query: "NEVER_SHOW_THIS_QUERY" },
+      },
+    },
+  });
+  expect(searched.ok()).toBe(true);
   await page.reload();
   await expect(page.getByLabel("Copy Token Now")).toHaveCount(0);
+  await expect(page.getByText("No Connected Assistants")).toHaveCount(0);
+
+  // Last activity and the log: the tool, never the query.
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "Claude Code" })
+  ).toContainText("Today");
+  await page.getByRole("button", { name: "Activity of Claude Code" }).click();
+  const log = page.getByRole("dialog", { name: "Claude Code Activity" });
+  await expect(log.getByRole("listitem")).toContainText("Searched");
+  await expect(log).not.toContainText("NEVER_SHOW_THIS_QUERY");
+  if (process.env.MCP_SCREENSHOTS === "1")
+    await page.screenshot({
+      path: "/data/workspace/spark-memory/.git/factory/r/t35-activity-390.png",
+    });
+  await page.keyboard.press("Escape");
+
+  // The guide copies the exact command.
+  await page.getByRole("button", { name: "Connection Guide" }).click();
+  await page.getByRole("button", { name: "Copy claude mcp add" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Copied" })
+  ).toHaveCount(1);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    `claude mcp add --transport http spark ${new URL(page.url()).origin}/api/mcp`
+  );
+  await page.keyboard.press("Escape");
+
+  // Revoke asks first, naming the assistant.
   await page.getByRole("button", { name: "Revoke Claude Code" }).click();
+  const confirm = page.getByRole("dialog", { name: "Revoke Claude Code" });
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+  await expect(
+    page.getByRole("button", { name: "Revoke Claude Code" })
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Revoke Claude Code" }).click();
+  await confirm.getByRole("button", { name: "Revoke", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Revoke Claude Code" })
   ).toHaveCount(0);
+  await expect(page.getByText("No Connected Assistants")).toBeVisible();
   const revoked = await page.request.post("/api/mcp", {
     headers,
     data: { jsonrpc: "2.0", id: 3, method: "tools/list" },
@@ -159,6 +210,10 @@ test("personal access token limit is labeled and revoking frees a slot", async (
   await expect(page.getByRole("alert")).toHaveText("Token Limit Reached");
   await page
     .getByRole("button", { name: "Revoke Limited Assistant 0", exact: true })
+    .click();
+  await page
+    .getByRole("dialog", { name: "Revoke Limited Assistant 0" })
+    .getByRole("button", { name: "Revoke", exact: true })
     .click();
   await page.getByRole("button", { name: "Create Token" }).click();
   await expect(page.getByLabel("Copy Token Now")).toHaveValue(

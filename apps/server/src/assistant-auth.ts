@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { validator } from "hono/validator";
 import { getSignedCookie, setSignedCookie, deleteCookie } from "hono/cookie";
 import { z } from "zod";
 import { assistantStore } from "@spark/db/assistants";
@@ -59,6 +60,14 @@ const renewal = z.object({
   refresh_token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
   client_id: z.string().max(128),
   resource: z.string().max(2048).optional(),
+});
+const activityQuery = z.object({
+  assistant: z.string().max(100).optional(),
+  before: z
+    .string()
+    .regex(/^\d{1,18}$/)
+    .optional(),
+  limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 const assistantName = z.object({ name: z.string().trim().min(1).max(80) });
 // RFC 8252 §7.3: native loopback IP callbacks choose an ephemeral port.
@@ -291,8 +300,24 @@ export const assistantAuth = new Hono<AppEnv>()
       ? c.json({ ...assistant, token, scope: "memories:read" }, 201)
       : c.json({ error: "unauthorized" }, 401);
   })
-  .get("/assistants/activity", async (c) =>
-    c.json({ activity: await assistantStore(c.var.db).activity(c.var.user.id) })
+  .get(
+    "/assistants/activity",
+    validator("query", (value, c) => {
+      const p = activityQuery.safeParse(value);
+      return p.success
+        ? p.data
+        : c.json({ error: "invalid_request" } as const, 400);
+    }),
+    async (c) => {
+      const q = c.req.valid("query");
+      return c.json(
+        await assistantStore(c.var.db).activity(c.var.user.id, {
+          assistantId: q.assistant,
+          before: q.before,
+          limit: q.limit,
+        })
+      );
+    }
   )
   .delete("/assistants/:id", async (c) =>
     (await assistantStore(c.var.db).revoke(c.var.user.id, c.req.param("id")))

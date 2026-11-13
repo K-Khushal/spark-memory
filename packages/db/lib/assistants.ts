@@ -10,6 +10,20 @@ export type Assistant = {
   expiresAt: Date;
 };
 export type AssistantAccess = Assistant & { userId: string };
+/** A Settings row: a personal token, or one OAuth client (`client:<id>`). */
+export type AssistantRow = Assistant & { lastActiveAt: string | null };
+/** One tool call. `memory` is the opened Memory, gone once it is deleted. */
+export type AssistantActivity = {
+  id: string;
+  clientId: string | null;
+  assistant: string;
+  tool: string;
+  occurredAt: string;
+  resultCount: number;
+  memory: { id: string; title: string | null } | null;
+};
+const iso = (column: string) =>
+  `to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 export type OAuthClient = { id: string; name: string; redirects: string[] };
 
 /** Only digests cross the persistence boundary. No query or Memory content is accepted here. */
@@ -239,13 +253,15 @@ export function assistantStore(db: Database) {
     },
     async list(userId: string) {
       return (
-        await db.execute<Assistant>(sql`
-        select id, name, client_id as "clientId", created_at as "createdAt", expires_at as "expiresAt"
-        from assistant_token where user_id = ${userId} and client_id is null and expires_at > now()
+        await db.execute<AssistantRow>(sql`
+        select t.id, t.name, t.client_id as "clientId", t.created_at as "createdAt", t.expires_at as "expiresAt",
+          (select ${sql.raw(iso("a.occurred_at"))} from assistant_activity a where a.user_id = t.user_id and a.assistant_id = t.id order by a.id desc limit 1) as "lastActiveAt"
+        from assistant_token t where t.user_id = ${userId} and t.client_id is null and t.expires_at > now()
         union all
-        select 'client:' || g.client_id, c.name, g.client_id, min(g.created_at), max(g.expires_at)
+        select 'client:' || g.client_id, c.name, g.client_id, min(g.created_at), max(g.expires_at),
+          (select ${sql.raw(iso("a.occurred_at"))} from assistant_activity a where a.user_id = g.user_id and a.assistant_id = 'client:' || g.client_id order by a.id desc limit 1)
           from assistant_grant g join assistant_client c on c.id = g.client_id
-          where g.user_id = ${userId} and g.expires_at > now() group by g.client_id, c.name
+          where g.user_id = ${userId} and g.expires_at > now() group by g.user_id, g.client_id, c.name
         order by "createdAt", id`)
       ).rows;
     },
@@ -286,19 +302,47 @@ export function assistantStore(db: Database) {
         ).rowCount === 1
       );
     },
-    async record(access: AssistantAccess, tool: string, resultCount: number) {
+    /** `memoryId` is the Memory `get_memory` opened. Never a query or content. */
+    async record(
+      access: AssistantAccess,
+      tool: string,
+      resultCount: number,
+      memoryId: string | null = null
+    ) {
+      const rowId = access.clientId ? `client:${access.clientId}` : access.id;
       await ownedWrite(access.userId, async (tx) => {
-        await tx.execute(sql`insert into assistant_activity(user_id, client_id, assistant, tool, result_count)
-        select ${access.userId}, ${access.clientId}, ${access.name}, ${tool}, ${resultCount}
+        await tx.execute(sql`insert into assistant_activity(user_id, client_id, assistant_id, assistant, tool, result_count, memory_id)
+        select ${access.userId}, ${access.clientId}, ${rowId}, ${access.name}, ${tool}, ${resultCount},
+          (select id from memory where id = ${memoryId} and user_id = ${access.userId})
         where not exists(select 1 from account_deletion where user_id = ${access.userId})
         and exists(select 1 from "user" where id = ${access.userId})`);
       });
     },
-    async activity(userId: string) {
-      return (
-        await db.execute(sql`select client_id as "clientId", assistant, tool, occurred_at as "occurredAt", result_count as "resultCount"
-        from assistant_activity where user_id = ${userId} order by occurred_at desc, id desc limit 100`)
+    /**
+     * The owner's log, newest first, optionally of one Settings row. `before` is
+     * the previous page's `next`. Titles are read from the owner's Library now.
+     */
+    async activity(
+      userId: string,
+      page: { assistantId?: string; before?: string; limit?: number } = {}
+    ) {
+      const limit = page.limit ?? 20;
+      const rows = (
+        await db.execute<AssistantActivity>(sql`
+        select a.id::text as id, a.client_id as "clientId", a.assistant, a.tool,
+          ${sql.raw(iso("a.occurred_at"))} as "occurredAt", a.result_count as "resultCount",
+          case when m.id is null then null else jsonb_build_object('id', m.id, 'title', m.title) end as memory
+        from assistant_activity a left join memory m on m.id = a.memory_id and m.user_id = a.user_id
+        where a.user_id = ${userId}
+          and (${page.assistantId ?? null}::text is null or a.assistant_id = ${page.assistantId ?? null})
+          and (${page.before ?? null}::bigint is null or a.id < ${page.before ?? null}::bigint)
+        order by a.id desc limit ${limit + 1}`)
       ).rows;
+      const activity = rows.slice(0, limit);
+      return {
+        activity,
+        next: rows.length > limit ? activity[limit - 1]!.id : null,
+      };
     },
   };
 }

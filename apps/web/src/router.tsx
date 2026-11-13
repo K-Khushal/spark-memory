@@ -17,6 +17,7 @@ import { ShareRefused } from "./pwa/share-refused";
 import type { ShareRefusal } from "./pwa/validate";
 import { DATA_SETS, type DataSet } from "./prototypes/data-sets";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
 const shareRoute = createRoute({
@@ -40,10 +41,14 @@ const libraryRoute = createRoute({
   path: "/",
   validateSearch: (
     search: Record<string, unknown>
-  ): { desk?: "capture" | "search" } =>
-    search.desk === "capture" || search.desk === "search"
+  ): { desk?: "capture" | "search"; memory?: string } => ({
+    ...(search.desk === "capture" || search.desk === "search"
       ? { desk: search.desk }
-      : {},
+      : {}),
+    ...(typeof search.memory === "string" && UUID.test(search.memory)
+      ? { memory: search.memory }
+      : {}),
+  }),
   beforeLoad: () => requireSession(),
   component: function Library() {
     const { session, admin } = libraryRoute.useRouteContext();
