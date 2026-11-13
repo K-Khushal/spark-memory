@@ -44,6 +44,23 @@
   // whose Indexing message was lost (src/indexing.ts).
   "triggers": { "crons": ["17 * * * *"] },
 
+  // Per signed-in person, per Cloudflare location, approximate (src/rate-limit.ts,
+  // docs/research/rate-limits.md). Period is 10 or 60 seconds; namespace ids are unique per
+  // account, so each environment has its own. Capture: 60 a minute (a Capture is two or
+  // three calls). Search: 600 a minute, so instant search on every keystroke never trips it.
+  "ratelimits": [
+    {
+      "name": "CAPTURE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 60, "period": 60 },
+    },
+    {
+      "name": "SEARCH_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 600, "period": 60 },
+    },
+  ],
+
   // Indexing (src/indexing.ts). Queues have no priorities, so fresh Captures
   // and Retry get their own queue, consumed at once; background re-indexing
   // waits behind it (one consumer at a time, larger batches). After
@@ -119,6 +136,22 @@
         { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_DEV_HYPERDRIVE_ID" },
       ],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "spark-files-dev" }],
+      // Per signed-in person, per Cloudflare location, approximate (src/rate-limit.ts,
+      // docs/research/rate-limits.md). Period is 10 or 60 seconds; namespace ids are unique per
+      // account, so each environment has its own. Capture: 60 a minute (a Capture is two or
+      // three calls). Search: 600 a minute, so instant search on every keystroke never trips it.
+      "ratelimits": [
+        {
+          "name": "CAPTURE_LIMITER",
+          "namespace_id": "2001",
+          "simple": { "limit": 60, "period": 60 },
+        },
+        {
+          "name": "SEARCH_LIMITER",
+          "namespace_id": "2002",
+          "simple": { "limit": 600, "period": 60 },
+        },
+      ],
       "triggers": { "crons": ["17 * * * *"] },
       // Workers AI: Gemma 4, first in the Indexing chain (ADR-0005).
       "ai": { "binding": "AI" },
@@ -182,6 +215,22 @@
         { "binding": "HYPERDRIVE", "id": "PLACEHOLDER_PROD_HYPERDRIVE_ID" },
       ],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "spark-files-prod" }],
+      // Per signed-in person, per Cloudflare location, approximate (src/rate-limit.ts,
+      // docs/research/rate-limits.md). Period is 10 or 60 seconds; namespace ids are unique per
+      // account, so each environment has its own. Capture: 60 a minute (a Capture is two or
+      // three calls). Search: 600 a minute, so instant search on every keystroke never trips it.
+      "ratelimits": [
+        {
+          "name": "CAPTURE_LIMITER",
+          "namespace_id": "3001",
+          "simple": { "limit": 60, "period": 60 },
+        },
+        {
+          "name": "SEARCH_LIMITER",
+          "namespace_id": "3002",
+          "simple": { "limit": 600, "period": 60 },
+        },
+      ],
       "triggers": { "crons": ["17 * * * *"] },
       // Workers AI: Gemma 4, first in the Indexing chain (ADR-0005).
       "ai": { "binding": "AI" },

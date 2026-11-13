@@ -27,8 +27,15 @@ export {
 } from "./lib/memory";
 export {
   FREE_ALLOWANCE,
+  allowanceUsage,
+  formatSize,
+  isCaptureWithinAllowance,
   isFileWithinAllowance,
   PLANS,
+  type AllowanceUsage,
+  type CaptureRefusal,
+  type FileRefusal,
+  type Meter,
   DEFAULT_PLAN,
   type Plan,
 } from "./lib/allowance";

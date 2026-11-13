@@ -204,6 +204,23 @@ describe.skipIf(!databaseUrl)("Deep fetch store", () => {
     expect(await store().claim(m.id, m.indexGeneration, 0)).toBeDefined();
   });
 
+  it.each([false, true])(
+    "clears the lease and token when done (found: %s)",
+    async (found) => {
+      const m = await gathered(`https://settled-${found}.test/`, {
+        text: null,
+      });
+      const { claim } = (await store().claim(m.id, m.indexGeneration, 0))!;
+      expect((await row(m.id)).deepFetchToken).toBe(claim.token);
+      await store().done(claim, found ? { text: ARTICLE } : undefined);
+      expect(await row(m.id)).toMatchObject({
+        deepFetchState: "done",
+        deepFetchLeaseUntil: null,
+        deepFetchToken: null,
+      });
+    }
+  );
+
   it("keeps what it found, Preserves a link with text and starts Indexing over", async () => {
     const m = await gathered("https://found1.test/", { text: null });
     const { claim } = (await store().claim(m.id, m.indexGeneration, 0))!;

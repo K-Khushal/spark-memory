@@ -1,9 +1,11 @@
-import { Hono } from "hono";
+import { Hono, type Context, type Env } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
 import {
   AiOptOut,
+  allowanceUsage,
+  type CaptureRefusal,
   EMBEDDING,
   embeddingSpace,
   FREE_ALLOWANCE,
@@ -15,6 +17,7 @@ import {
   SCREENSHOT_MAX_BYTES,
   SearchEvent,
   SearchRequest,
+  secondsToNextUtcDay,
   TextCapture,
 } from "@spark/core";
 import {
@@ -38,6 +41,7 @@ import {
 import { extensionCors, sameOrigin } from "./origin";
 import { enqueueDeepFetch } from "./deep-fetch-queue";
 import { enqueue, enqueueEmbed, providers } from "./indexing";
+import { rateLimited } from "./rate-limit";
 
 /** Bound screenshot storage calls; cleanup stays durable if a PUT finishes late. */
 async function screenshotStorage<T>(work: Promise<T>): Promise<T> {
@@ -201,6 +205,19 @@ const signedCapture = async (
 const filesOf = async (library: Library, id: string) =>
   UUID.test(id) ? library.files(id) : undefined;
 
+/**
+ * A file the Free allowance refuses (GLOSSARY.md): too big or no storage
+ * left (413, the person can act), or today's Captures used up (429, with
+ * Retry-After to the next UTC day).
+ */
+const refusal = <E extends Env>(c: Context<E>, reason: CaptureRefusal) => {
+  if (reason !== "captures_full") {
+    return c.json({ ok: false, error: reason } as const, 413);
+  }
+  c.header("Retry-After", String(secondsToNextUtcDay(new Date())));
+  return c.json({ ok: false, error: reason } as const, 429);
+};
+
 export const signedIn = [
   extensionCors,
   sameOrigin({ extension: true }),
@@ -236,6 +253,7 @@ export const memories = new Hono<AppEnv>()
   .use("/search", ...signedIn)
   .use("/search/*", ...signedIn)
   .use("/storage", ...signedIn)
+  .use("/usage", ...signedIn)
   .get("/memories", async (c) => {
     // `ids`: just these Memories, for the dashboard's poll while they Index.
     const ids = c.req.query("ids");
@@ -267,38 +285,50 @@ export const memories = new Hono<AppEnv>()
     ]);
     return c.json({ ...page, memories, unfinished });
   })
-  .post("/memories", limitBody, json(TextCapture), async (c) => {
-    const result = await c.var.library.capture(c.req.valid("json"));
-    if ("conflict" in result) {
-      return c.json({ ok: false, error: "conflict" } as const, 409);
+  .post(
+    "/memories",
+    rateLimited("CAPTURE_LIMITER"),
+    limitBody,
+    json(TextCapture),
+    async (c) => {
+      const result = await c.var.library.capture(c.req.valid("json"));
+      if ("conflict" in result) {
+        return c.json({ ok: false, error: "conflict" } as const, 409);
+      }
+      // A retry of a Capture still Indexing enqueues again: duplicates are harmless.
+      if (result.memory.indexState === "indexing") {
+        await enqueue(c.env, result.memory);
+      }
+      const memory = await forClient(c.var.files, result.memory);
+      return c.json(memory, result.created ? 201 : 200);
     }
-    // A retry of a Capture still Indexing enqueues again: duplicates are harmless.
-    if (result.memory.indexState === "indexing") {
-      await enqueue(c.env, result.memory);
-    }
-    const memory = await forClient(c.var.files, result.memory);
-    return c.json(memory, result.created ? 201 : 200);
-  })
+  )
   /**
    * A pasted link: the Memory at once (201), Indexing gathers its Source.
    * The same page again answers 200 with the Memory already saved, moved
    * to the top; its id differs from the one sent, which is how the
    * dashboard tells it apart from a retry of this Capture.
    */
-  .post("/memories/links", limitBody, json(LinkCapture), async (c) => {
-    const result = await c.var.library.captureLink(c.req.valid("json"));
-    if ("conflict" in result) {
-      return c.json({ ok: false, error: "conflict" } as const, 409);
+  .post(
+    "/memories/links",
+    rateLimited("CAPTURE_LIMITER"),
+    limitBody,
+    json(LinkCapture),
+    async (c) => {
+      const result = await c.var.library.captureLink(c.req.valid("json"));
+      if ("conflict" in result) {
+        return c.json({ ok: false, error: "conflict" } as const, 409);
+      }
+      if (
+        result.memory.indexState === "indexing" &&
+        (!result.duplicate || result.indexAgain)
+      ) {
+        await enqueue(c.env, result.memory);
+      }
+      const memory = await forClient(c.var.files, result.memory);
+      return c.json(memory, result.created ? 201 : 200);
     }
-    if (
-      result.memory.indexState === "indexing" &&
-      (!result.duplicate || result.indexAgain)
-    ) {
-      await enqueue(c.env, result.memory);
-    }
-    const memory = await forClient(c.var.files, result.memory);
-    return c.json(memory, result.created ? 201 : 200);
-  })
+  )
   /**
    * The extension's visible-area screenshot, already a small JPEG. The
    * bytes are stored and the file row is written as stored in this
@@ -313,79 +343,96 @@ export const memories = new Hono<AppEnv>()
       ? c.json({ url: await c.var.files.signDownload(file.key) })
       : c.json(notFound, 404);
   })
-  .post("/memories/:id/screenshot", limitScreenshot, async (c) => {
-    const id = c.req.param("id");
-    if (!UUID.test(id)) return c.json(notFound, 404);
-    const type = c.req.header("content-type")?.split(";")[0]?.trim();
-    if (type !== "image/jpeg") {
-      return c.json({ ok: false, error: "invalid" } as const, 400);
+  .post(
+    "/memories/:id/screenshot",
+    rateLimited("CAPTURE_LIMITER"),
+    limitScreenshot,
+    async (c) => {
+      const id = c.req.param("id");
+      if (!UUID.test(id)) return c.json(notFound, 404);
+      const type = c.req.header("content-type")?.split(";")[0]?.trim();
+      if (type !== "image/jpeg") {
+        return c.json({ ok: false, error: "invalid" } as const, 400);
+      }
+      const body = await c.req.arrayBuffer();
+      const bytes = new Uint8Array(body);
+      if (bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+        return c.json({ ok: false, error: "invalid" } as const, 400);
+      }
+      const slot = await c.var.library.prepareScreenshot(id, bytes.byteLength);
+      if (!slot) return c.json(notFound, 404);
+      if ("refused" in slot) {
+        return c.json({ ok: false, error: slot.refused } as const, 413);
+      }
+      if ("already" in slot) return c.json({ ok: true } as const);
+      try {
+        await screenshotStorage(
+          c.env.FILES.put(slot.key, body, {
+            httpMetadata: {
+              contentType: "image/jpeg",
+              cacheControl: FILE_CACHE_CONTROL,
+            },
+          })
+        );
+      } catch {
+        return c.json({ ok: false, error: "unavailable" } as const, 503);
+      }
+      const recorded = await c.var.library.recordScreenshot(id, {
+        key: slot.key,
+        bytes: bytes.byteLength,
+        width: dimension(c.req.header("x-spark-width")),
+        height: dimension(c.req.header("x-spark-height")),
+      });
+      if (!recorded) {
+        try {
+          await screenshotStorage(c.env.FILES.delete(slot.key));
+        } catch {
+          // The pending object_removal row covers cleanup if storage is unavailable.
+        }
+        return c.json({ ok: false, error: "unavailable" } as const, 503);
+      }
+      return c.json({ ok: true } as const);
     }
-    const body = await c.req.arrayBuffer();
-    const bytes = new Uint8Array(body);
-    if (bytes[0] !== 0xff || bytes[1] !== 0xd8) {
-      return c.json({ ok: false, error: "invalid" } as const, 400);
-    }
-    const slot = await c.var.library.prepareScreenshot(id, bytes.byteLength);
-    if (!slot) return c.json(notFound, 404);
-    if ("refused" in slot) {
-      return c.json({ ok: false, error: slot.refused } as const, 413);
-    }
-    if ("already" in slot) return c.json({ ok: true } as const);
-    try {
-      await screenshotStorage(
-        c.env.FILES.put(slot.key, body, {
-          httpMetadata: {
-            contentType: "image/jpeg",
-            cacheControl: FILE_CACHE_CONTROL,
-          },
-        })
-      );
-    } catch {
-      return c.json({ ok: false, error: "unavailable" } as const, 503);
-    }
-    const recorded = await c.var.library.recordScreenshot(id, {
-      key: slot.key,
-      bytes: bytes.byteLength,
-      width: dimension(c.req.header("x-spark-width")),
-      height: dimension(c.req.header("x-spark-height")),
-    });
-    if (!recorded) {
-      await screenshotStorage(c.env.FILES.delete(slot.key));
-      return c.json({ ok: false, error: "unavailable" } as const, 503);
-    }
-    return c.json({ ok: true } as const);
-  })
+  )
   /**
    * Step one of an image Capture: the Memory is created (within the Free
    * allowance) and the browser gets a presigned PUT per file still missing.
    */
-  .post("/memories/images", limitImageBody, json(ImageCapture), async (c) => {
-    const result = await c.var.library.captureImage(c.req.valid("json"));
-    if ("conflict" in result) {
-      return c.json({ ok: false, error: "conflict" } as const, 409);
+  .post(
+    "/memories/images",
+    rateLimited("CAPTURE_LIMITER"),
+    limitImageBody,
+    json(ImageCapture),
+    async (c) => {
+      const result = await c.var.library.captureImage(c.req.valid("json"));
+      if ("conflict" in result) {
+        return c.json({ ok: false, error: "conflict" } as const, 409);
+      }
+      if ("refused" in result) return refusal(c, result.refused);
+      const { memory, uploads } = await signedCapture(c.var.files, result);
+      return c.json({ memory, uploads }, result.created ? 201 : 200);
     }
-    if ("refused" in result) {
-      return c.json({ ok: false, error: result.refused } as const, 413);
-    }
-    const { memory, uploads } = await signedCapture(c.var.files, result);
-    return c.json({ memory, uploads }, result.created ? 201 : 200);
-  })
+  )
   /**
    * Step one of a PDF Capture, as for an image: the Memory, and a
    * presigned PUT for the PDF, its thumbnail and each Indexed page's image.
    * Step two is the same `stored`.
    */
-  .post("/memories/pdfs", limitPdfBody, json(PdfCapture), async (c) => {
-    const result = await c.var.library.capturePdf(c.req.valid("json"));
-    if ("conflict" in result) {
-      return c.json({ ok: false, error: "conflict" } as const, 409);
+  .post(
+    "/memories/pdfs",
+    rateLimited("CAPTURE_LIMITER"),
+    limitPdfBody,
+    json(PdfCapture),
+    async (c) => {
+      const result = await c.var.library.capturePdf(c.req.valid("json"));
+      if ("conflict" in result) {
+        return c.json({ ok: false, error: "conflict" } as const, 409);
+      }
+      if ("refused" in result) return refusal(c, result.refused);
+      const { memory, uploads } = await signedCapture(c.var.files, result);
+      return c.json({ memory, uploads }, result.created ? 201 : 200);
     }
-    if ("refused" in result) {
-      return c.json({ ok: false, error: result.refused } as const, 413);
-    }
-    const { memory, uploads } = await signedCapture(c.var.files, result);
-    return c.json({ memory, uploads }, result.created ? 201 : 200);
-  })
+  )
   /**
    * Whether a copy would be used: only when this environment can read one
    * (a transcriber or an embedder, which need a paid Gemini key) and the
@@ -405,33 +452,39 @@ export const memories = new Hono<AppEnv>()
    * the video with their own session. Presigned PUTs for it and its frames;
    * it exists only for Indexing, which deletes it. Refused for AI opt-out.
    */
-  .post("/memories/:id/copy", limitCopyBody, json(ReelCopy), async (c) => {
-    const id = c.req.param("id");
-    // Nothing here could read it: do not take 25 MB only to delete it.
-    if (!copyUsable(c.env)) {
-      return c.json({ ok: true, notNeeded: true } as const);
-    }
-    const result = UUID.test(id)
-      ? await c.var.library.attachCopy(id, c.req.valid("json"))
-      : undefined;
-    if (!result) return c.json(notFound, 404);
-    if ("already" in result)
-      return c.json({ ok: true, already: true } as const);
-    if ("refused" in result) {
-      return c.json(
-        { ok: false, error: result.refused } as const,
-        result.refused === "ai_opt_out" ? 409 : 413
+  .post(
+    "/memories/:id/copy",
+    rateLimited("CAPTURE_LIMITER"),
+    limitCopyBody,
+    json(ReelCopy),
+    async (c) => {
+      const id = c.req.param("id");
+      // Nothing here could read it: do not take 25 MB only to delete it.
+      if (!copyUsable(c.env)) {
+        return c.json({ ok: true, notNeeded: true } as const);
+      }
+      const result = UUID.test(id)
+        ? await c.var.library.attachCopy(id, c.req.valid("json"))
+        : undefined;
+      if (!result) return c.json(notFound, 404);
+      if ("already" in result)
+        return c.json({ ok: true, already: true } as const);
+      if ("refused" in result) {
+        if (result.refused === "ai_opt_out") {
+          return c.json({ ok: false, error: result.refused } as const, 409);
+        }
+        return refusal(c, result.refused);
+      }
+      const uploads = await Promise.all(
+        result.uploads.map(async (u) => ({
+          role: u.role,
+          page: u.page,
+          ...(await c.var.files.signUpload(u)),
+        }))
       );
+      return c.json({ uploads }, 201);
     }
-    const uploads = await Promise.all(
-      result.uploads.map(async (u) => ({
-        role: u.role,
-        page: u.page,
-        ...(await c.var.files.signUpload(u)),
-      }))
-    );
-    return c.json({ uploads }, 201);
-  })
+  )
   /** The copy is checked in storage and Indexing reads it (then deletes it). */
   .post("/memories/:id/copy/stored", async (c) => {
     const id = c.req.param("id");
@@ -526,6 +579,14 @@ export const memories = new Hono<AppEnv>()
     }
     return c.json(await forClient(c.var.files, memory));
   })
+  /** The Free allowance and what is used of it, with the Memories that take the most storage. */
+  .get("/usage", async (c) => {
+    const [used, largest] = await Promise.all([
+      c.var.library.usage(),
+      c.var.library.largest(5),
+    ]);
+    return c.json({ ...allowanceUsage(used, new Date()), largest });
+  })
   .get("/storage", async (c) =>
     c.json({
       usedBytes: await c.var.library.usedStorage(),
@@ -564,7 +625,10 @@ export const memories = new Hono<AppEnv>()
     }
     return c.json(await forClient(c.var.files, result));
   })
-  /** Permanent: the files go from storage first, then the Memory. */
+  /**
+   * Remove storage immediately before deleting the Memory. remove() also
+   * queues every key durably, covering pending PUTs that land afterwards.
+   */
   .delete("/memories/:id", async (c) => {
     const id = c.req.param("id");
     const files = await filesOf(c.var.library, id);
@@ -578,37 +642,43 @@ export const memories = new Hono<AppEnv>()
    * leg; instant (per keystroke) is keyword and typo only. Each result says
    * whether it is a Direct or Related Match and which part matched.
    */
-  .post("/search", limitSearchBody, json(SearchRequest), async (c) => {
-    // A POST, so what was typed and chosen is in the body, never in a URL
-    // that a request log keeps.
-    const { q, mode, timezone, chips, page } = c.req.valid("json");
-    // A Category chip is a built-in or the person's own, never another's.
-    if (
-      chips?.category &&
-      !(await openCategories(c.var.db, c.var.user.id).has(chips.category))
-    ) {
-      return c.json({ ok: false, error: "unknown_category" } as const, 400);
+  .post(
+    "/search",
+    rateLimited("SEARCH_LIMITER"),
+    limitSearchBody,
+    json(SearchRequest),
+    async (c) => {
+      // A POST, so what was typed and chosen is in the body, never in a URL
+      // that a request log keeps.
+      const { q, mode, timezone, chips, page } = c.req.valid("json");
+      // A Category chip is a built-in or the person's own, never another's.
+      if (
+        chips?.category &&
+        !(await openCategories(c.var.db, c.var.user.id).has(chips.category))
+      ) {
+        return c.json({ ok: false, error: "unknown_category" } as const, 400);
+      }
+      const answer = await searchFor(
+        c.env,
+        c.var.db,
+        c.var.user.id,
+        c.var.library
+      ).search(q, mode, {
+        ...(timezone && { timezone }),
+        ...(chips && { chips }),
+        ...(page && { page }),
+      });
+      return c.json({
+        // "instant" when full mode fell back (no embedder, budget, provider).
+        mode: answer.mode,
+        results: await Promise.all(
+          answer.results.map((m) => forClient(c.var.files, m))
+        ),
+        // Where the next page begins, when there is one.
+        ...(answer.next && { next: answer.next }),
+      });
     }
-    const answer = await searchFor(
-      c.env,
-      c.var.db,
-      c.var.user.id,
-      c.var.library
-    ).search(q, mode, {
-      ...(timezone && { timezone }),
-      ...(chips && { chips }),
-      ...(page && { page }),
-    });
-    return c.json({
-      // "instant" when full mode fell back (no embedder, budget, provider).
-      mode: answer.mode,
-      results: await Promise.all(
-        answer.results.map((m) => forClient(c.var.files, m))
-      ),
-      // Where the next page begins, when there is one.
-      ...(answer.next && { next: answer.next }),
-    });
-  })
+  )
   /** Recent searches, newest first. */
   .get("/search/recent", async (c) =>
     c.json({ searches: await c.var.library.recentSearches() })
@@ -634,7 +704,7 @@ export const memories = new Hono<AppEnv>()
     return c.body(null, 204);
   })
   /** More Like This: Memories near this one's own vectors, leaving it out. */
-  .get("/memories/:id/similar", async (c) => {
+  .get("/memories/:id/similar", rateLimited("SEARCH_LIMITER"), async (c) => {
     const id = c.req.param("id");
     if (!UUID.test(id) || !(await c.var.library.get(id))) {
       return c.json(notFound, 404);

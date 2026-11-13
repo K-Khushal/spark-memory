@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  dollarsToMicros,
-  formatBytes,
-  formatCost,
-  microsToDollars,
-} from "./format";
+import { dollarsToMicros, formatCost, microsToDollars } from "./format";
 
 describe("admin amounts", () => {
   it("turns the daily budget between dollars and micro-dollars", () => {
@@ -21,14 +16,10 @@ describe("admin amounts", () => {
     expect(dollarsToMicros("")).toBeUndefined();
   });
 
-  it("shows cost and storage", () => {
+  it("shows cost", () => {
     expect(formatCost(0)).toBe("$0.00");
     expect(formatCost(1_000_000)).toBe("$1.00");
     expect(formatCost(1_500_000)).toBe("$1.50");
     expect(formatCost(1_234)).toBe("$0.0012");
-    expect(formatBytes(0)).toBe("0 B");
-    expect(formatBytes(2048)).toBe("2 KB");
-    expect(formatBytes(1536)).toBe("1.5 KB");
-    expect(formatBytes(5 * 1024 * 1024)).toBe("5 MB");
   });
 });

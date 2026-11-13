@@ -101,7 +101,7 @@ Each package exposes only its entry point; dependency-cruiser enforces this (`se
    7. **Write** the index and set `searchable`. On final failure set `failed` with a reason and offer Retry. Clients poll while anything is `indexing`, so badges change live.
 4. **Edits** to title, note, Tags or text body re-index text only. A model or index_version change triggers a low-priority background re-index.
 
-**Free allowance** (one config in `packages/core`): 1 GB storage, 25 MB per upload, 100 Captures a day, first 30 PDF pages indexed, transcripts for videos up to 60 minutes, 20 Deep fetches a day. Paid plans come later; the user record carries a plan field from day one.
+**Free allowance** (one config in `packages/core`): 1 GB storage, 25 MB per upload, 100 Captures a day, first 30 PDF pages indexed, transcripts for videos up to 60 minutes, 20 Deep fetches a day. Paid plans come later; the user record carries a plan field from day one. Over the limit: a link (or a text Memory) past the day's Captures is kept and findable by its own words, with no Gather or AI work; a file past the day's Captures or storage is refused with its reason (`captures_full` answers 429 with Retry-After to the next UTC day; `storage_full` links to Settings, which lists the Memories taking the most space). Samples never count. Per-user rate limits sit on Capture and search (docs/research/rate-limits.md).
 
 ## 6. Search
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { toast } from "@spark/ui";
 import { api } from "../api";
 import { track } from "../analytics";
@@ -39,6 +40,11 @@ async function created(request: Promise<Response>) {
     if (error === "file_too_large" || error === "storage_full") {
       throw new Refused(error);
     }
+  }
+  // Today's Captures are used up: it is allowed again after midnight UTC.
+  if (status === 429) {
+    const { error } = (await res.clone().json()) as { error: string };
+    if (error === "captures_full") throw new Refused(error);
   }
   // The server refused what was sent: the same request would fail again.
   if (status === 400 || status === 413) throw new Refused("invalid");
@@ -146,12 +152,14 @@ export function useLibrary() {
   const version = versionOf(changes);
   const setVersion = setChanges;
   // Stable for the page's life, so dialogs can depend on them.
+  const navigate = useNavigate();
   const [actions] = useState(() =>
     libraryActions({
       setMemories,
       transport,
       drafts,
       notify: toast,
+      freeUpSpace: () => void navigate({ to: "/settings" }),
       onSaved: () => setVersion((n) => n + 1),
       onCaptured: (kind) =>
         track({ event: "save_success", properties: { kind } }),
