@@ -13,6 +13,15 @@ describe("narrowing", () => {
     ).toEqual({ kinds: ["image", "note"], categories: ["Screenshot"] });
   });
 
+  it("offers the person's own Categories after the built-ins", () => {
+    expect(
+      narrowing([note("Gardening", "Idea"), image("Recipe"), note("Idea")], {})
+    ).toEqual({
+      kinds: ["image", "note"],
+      categories: ["Recipe", "Idea", "Gardening"],
+    });
+  });
+
   it("offers nothing that every result has, since it would narrow nothing", () => {
     expect(narrowing([note("Recipe"), note("Recipe")], {})).toEqual({
       kinds: [],

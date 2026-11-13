@@ -12,7 +12,9 @@ import {
   LibraryFilters,
   useFilterOptions,
 } from "./library-filters";
+import { ManageCategories } from "./manage-categories";
 import { narrowing } from "./narrowing";
+import { OwnCategoryNames, useOwnCategories } from "./own-categories";
 import { recordSearch } from "./search-history";
 import {
   useCallback,
@@ -150,7 +152,34 @@ export function LibraryPage({
     [first, more.direct, more.related]
   );
   const searching = !!visual || !!like || !!query || filtering;
-  const filterOptions = useFilterOptions(library.memories);
+  const categories = useOwnCategories({
+    onRenamed: (from, to) => {
+      library.categoryRenamed(from, to);
+      setChips((now) =>
+        now.category === from ? { ...now, category: to } : now
+      );
+    },
+    onRemoved: (name) => {
+      library.categoryRemoved(name);
+      // A filter on a Category that is gone would only ever show nothing.
+      setChips(({ category, ...rest }) =>
+        category === name ? rest : { ...rest, ...(category && { category }) }
+      );
+    },
+    onFinished: library.syncCategories,
+  });
+  const ownNames = useMemo(
+    () => categories.state?.categories.map((c) => c.name) ?? [],
+    [categories.state]
+  );
+  const filterOptions = useFilterOptions(library.memories, ownNames);
+  const manage = (layout: "sidebar" | "row") => (
+    <ManageCategories
+      layout={layout}
+      state={categories.state}
+      actions={categories}
+    />
+  );
   const opened = library.memories.find((m) => m.id === openId);
   // The viewer steps through the images of the wall on screen.
   const images = useMemo(() => {
@@ -356,7 +385,9 @@ export function LibraryPage({
 
   const searchLabel = like
     ? "More Like This"
-    : query || (visual ? "Search By Image" : "Search");
+    : visual
+      ? "Image"
+      : query || "Search";
   const clearSearchClick = searching
     ? () => {
         metrics.cleared();
@@ -416,6 +447,7 @@ export function LibraryPage({
               options={filterOptions}
               chips={chips}
               onChange={changeChips}
+              manage={manage("sidebar")}
             />
           )
         }
@@ -462,6 +494,7 @@ export function LibraryPage({
               options={filterOptions}
               chips={chips}
               onChange={changeChips}
+              manage={manage("row")}
             />
           )}
         </div>
@@ -538,48 +571,50 @@ export function LibraryPage({
         )}
       </main>
 
-      <LibraryOverlaysHost
-        key={overlaysEpoch}
-        onCatch={() => setOverlaysDown(true)}
-        searchOpen={searchOpen}
-        imageQuery={queryImage}
-        draft={draft}
-        instant={instant}
-        onSearchOpenChange={(open) => {
-          setSearchOpen(open);
-          if (!open) metrics.abandoned();
-        }}
-        onDraft={setDraft}
-        onShowOnWall={showOnWall}
-        onOpenFromSearch={openFromSearch}
-        onCapture={openPasteBox}
-        onSettings={() => void navigate({ to: "/settings" })}
-        onSignOut={() => void signOut()}
-        pasteOpen={pasteOpen}
-        onPasteOpenChange={setPasteOpen}
-        onPasteCapture={library.capture}
-        onFiles={captureFiles}
-        images={images}
-        imageId={imageId}
-        onImageId={setImageId}
-        onImageClose={() => setImageId(undefined)}
-        pdf={library.memories.find((m) => m.id === pdf?.id)}
-        pdfMatch={pdf?.match ?? {}}
-        onPdfClose={() => setPdf(undefined)}
-        videoSeconds={videoSeconds}
-        opened={opened}
-        edits={library.edits}
-        onDetailClose={() => setOpenId(undefined)}
-        onDelete={library.remove}
-        onRetry={library.retryUpload}
-        onBroken={library.refresh}
-        onRetryIndexing={library.retryIndexing}
-        onRetryDeepFetch={library.retryDeepFetch}
-        onCategories={library.setCategories}
-        onAiOptOut={library.setAiOptOut}
-        onMoreLikeThis={moreLikeThis}
-        onSearchByImage={searchByImage}
-      />
+      <OwnCategoryNames.Provider value={ownNames}>
+        <LibraryOverlaysHost
+          key={overlaysEpoch}
+          onCatch={() => setOverlaysDown(true)}
+          searchOpen={searchOpen}
+          imageQuery={queryImage}
+          draft={draft}
+          instant={instant}
+          onSearchOpenChange={(open) => {
+            setSearchOpen(open);
+            if (!open) metrics.abandoned();
+          }}
+          onDraft={setDraft}
+          onShowOnWall={showOnWall}
+          onOpenFromSearch={openFromSearch}
+          onCapture={openPasteBox}
+          onSettings={() => void navigate({ to: "/settings" })}
+          onSignOut={() => void signOut()}
+          pasteOpen={pasteOpen}
+          onPasteOpenChange={setPasteOpen}
+          onPasteCapture={library.capture}
+          onFiles={captureFiles}
+          images={images}
+          imageId={imageId}
+          onImageId={setImageId}
+          onImageClose={() => setImageId(undefined)}
+          pdf={library.memories.find((m) => m.id === pdf?.id)}
+          pdfMatch={pdf?.match ?? {}}
+          onPdfClose={() => setPdf(undefined)}
+          videoSeconds={videoSeconds}
+          opened={opened}
+          edits={library.edits}
+          onDetailClose={() => setOpenId(undefined)}
+          onDelete={library.remove}
+          onRetry={library.retryUpload}
+          onBroken={library.refresh}
+          onRetryIndexing={library.retryIndexing}
+          onRetryDeepFetch={library.retryDeepFetch}
+          onCategories={library.setCategories}
+          onAiOptOut={library.setAiOptOut}
+          onMoreLikeThis={moreLikeThis}
+          onSearchByImage={searchByImage}
+        />
+      </OwnCategoryNames.Provider>
       {dropping && (
         <div
           aria-hidden

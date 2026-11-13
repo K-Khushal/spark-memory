@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CATEGORY_NAMES, type Category } from "./categories";
+import { CategoryText } from "./categories";
 import type { MemoryKind } from "./memory";
 
 /**
@@ -93,8 +93,8 @@ export type SearchFilters = {
   /** Captured before this ISO instant. */
   before?: string;
   colour?: SearchColour;
-  /** A Memory has at least one of these. */
-  categories?: Category[];
+  /** A Memory has at least one of these: built-in names or the owner's own. */
+  categories?: string[];
 };
 
 /** Time ranges a chip offers, in the words the query parser already reads. */
@@ -117,7 +117,8 @@ export const SearchChips = z
     source: host,
     when: z.enum(SEARCH_WHEN),
     colour: z.enum(SEARCH_COLOUR_NAMES),
-    category: z.enum(CATEGORY_NAMES),
+    // Whether it is the owner's own or a built-in is the server's to check.
+    category: CategoryText,
   })
   .partial()
   .strict();

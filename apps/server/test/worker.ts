@@ -95,6 +95,11 @@ export function recordingQueue(name: string) {
     send: async (body, options) => {
       sent.push({ body, delaySeconds: options?.delaySeconds });
     },
+    sendBatch: async (messages) => {
+      for (const { body, delaySeconds } of messages) {
+        sent.push({ body, delaySeconds });
+      }
+    },
   };
   return Object.assign(queue, { name, sent });
 }

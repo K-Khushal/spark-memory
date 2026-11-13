@@ -75,6 +75,14 @@ Verdict: the independent code reviews' actionable findings are fixed. Interface 
 - S4: A Library query chip shows the selected Memory's bounded name and thumbnail.
 - S5: The type/size message is “Use a JPEG, PNG or WebP Under 20 MB”.
 
-The three updated browser tests passed, including field visibility, paste/drop on both surfaces, detail and viewer actions, thumbnail/name identification, no Capture side effects, and worst-case chip labels. Retook `t14-wall-*`, `t14-search-*` and `t14-picked-*` at 1440 and 390 in light and dark themes. Migration 0028 and its timestamp remain unchanged per coordination with #25.
+The three updated browser tests passed, including field visibility, paste/drop on both surfaces, detail and viewer actions, thumbnail/name identification, no Capture side effects, and worst-case chip labels. Retook `t14-wall-*`, `t14-search-*` and `t14-picked-*` at 1440 and 390 in light and dark themes. After #25 merged, main is merged and image search is renumbered to `0029_image_search`; its journal timestamp stays `1794572552722`.
 
 Revision verification: `pnpm check` passed, including the full real-Postgres/API suites and builds; `eval:check` passed without regression (27/36 top-1, 31/36 top-5, all three image cases first). Nine neighboring image/search/focus browser smoke tests also passed. Temporary runner configuration was restored after the check.
+
+## Final Opus Nits
+
+At the approved `72bc4cb` head, the remaining action-eligibility issue was reproduced through the public component: text Notes, links, social posts and generic files all rendered Search By Image when they had only text vectors. The action now requires kind Image, PDF or Video (including reels), usable vectors, and AI enabled. All nine component cases pass; the browser flow confirms a Note keeps More Like This but has no image-search action.
+
+An image query labels the desk field “Image”; its text can shrink and truncate while the icon controls retain their width. The viewer screenshot waits for its successful search response, the full-results view and the loaded empty-state heading before capture. Retook and inspected `t14-picked-1440-light.png` and `t14-picked-1440-dark.png` (also refreshed 390px and the other image-search views). The validation copy remains “Use a JPEG, PNG or WebP Under 20 MB”.
+
+Merged main `9066271` (#25), retaining both the image chip slot and custom Category management/provider scope and validating Category ownership before search. Renamed the unchanged SQL migration to `0029_image_search`, after `0028_custom_categories`, preserving `when: 1794572552722` and assigning journal index 28. Fresh-database migration, web typecheck, nine action tests, the four image-search/settings browser cases, and evals passed without regression.

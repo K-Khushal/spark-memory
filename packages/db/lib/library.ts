@@ -29,8 +29,10 @@ import {
   type Preservation,
 } from "@spark/core";
 import type { Database } from "./client";
+import { isUnknownCategory } from "./category-errors";
 import {
   deletionRequested,
+  lockCategories,
   lockOwner,
   ownerPrefix,
   tryLockOwner,
@@ -328,7 +330,9 @@ export type SearchOptions = {
   excludeSamples?: boolean;
 };
 
-export type EditResult = Memory | { stale: true } | undefined;
+/** `unknownCategory`: a name that is neither built-in nor one of the owner's own. */
+export type EditResult =
+  Memory | { stale: true } | { unknownCategory: true } | undefined;
 
 export type CaptureResult =
   { created: boolean; memory: Memory } | { conflict: true };
@@ -408,6 +412,66 @@ export function openLibrary(
   };
   const owned = (id: string) =>
     and(eq(memory.userId, userId), eq(memory.id, id));
+
+  async function applyEdit(
+    id: string,
+    input: MemoryEdit,
+    revision?: number
+  ): Promise<EditResult> {
+    const changes = MemoryEdit.parse(input);
+    if (Object.keys(changes).length === 0) return get(id);
+    // Categories are not text: choosing them leaves the revision, and so
+    // the vectors, alone. A choice locks them (GLOSSARY.md).
+    const textChanged = Object.entries(changes).some(
+      ([key, value]) => key !== "categories" && value !== undefined
+    );
+    const reindex =
+      changes.body === undefined
+        ? sql`false`
+        : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut} and not ${memory.sample} and not ${memory.overAllowance}`;
+    // One transaction: new text and the end of the old text's vectors
+    // (they would match it, and point into the new text) land together.
+    const row = await db.transaction(async (tx) => {
+      // Choosing Categories goes through the Categories lock, before the Memory's row.
+      if (changes.categories) await lockCategories(tx, userId);
+      const [edited] = await tx
+        .update(memory)
+        .set({
+          ...changes,
+          ...(changes.categories && { categoriesLocked: true }),
+          ...(textChanged && { revision: sql`${memory.revision} + 1` }),
+          indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
+          indexRun: sql`${memory.indexRun} + (${reindex})::int`,
+          indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
+          // A fix to a Capture still on its first, fresh run stays first in
+          // line; any later edit is background work.
+          indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
+          vectorsSpace: sql`case when ${reindex} then null else ${memory.vectorsSpace} end`,
+          vectorsRevision: sql`case when ${reindex} then null else ${memory.vectorsRevision} end`,
+        })
+        .where(
+          and(
+            owned(id),
+            // Only a text Memory has text to edit.
+            changes.body === undefined ? undefined : eq(memory.kind, "text"),
+            revision === undefined ? undefined : eq(memory.revision, revision)
+          )
+        )
+        .returning({ ...columns, vectorsSpace: memory.vectorsSpace });
+      if (!edited) return undefined;
+      const { vectorsSpace, ...shown } = edited;
+      // Vectors always come with their space: none means none are kept.
+      if (vectorsSpace === null) {
+        await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
+      }
+      return shown;
+    });
+    if (row) return row;
+    const now = revision === undefined ? undefined : await get(id);
+    return now && (changes.body === undefined || now.kind === "text")
+      ? { stale: true }
+      : undefined;
+  }
 
   async function get(id: string): Promise<Memory | undefined> {
     const [row] = await db.select(columns).from(memory).where(owned(id));
@@ -1422,57 +1486,13 @@ export function openLibrary(
       input: MemoryEdit,
       revision?: number
     ): Promise<EditResult> {
-      const changes = MemoryEdit.parse(input);
-      if (Object.keys(changes).length === 0) return get(id);
-      // Categories are not text: choosing them leaves the revision, and so
-      // the vectors, alone. A choice locks them (GLOSSARY.md).
-      const textChanged = Object.entries(changes).some(
-        ([key, value]) => key !== "categories" && value !== undefined
-      );
-      const reindex =
-        changes.body === undefined
-          ? sql`false`
-          : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut} and not ${memory.sample} and not ${memory.overAllowance}`;
-      // One transaction: new text and the end of the old text's vectors
-      // (they would match it, and point into the new text) land together.
-      const row = await db.transaction(async (tx) => {
-        const [edited] = await tx
-          .update(memory)
-          .set({
-            ...changes,
-            ...(changes.categories && { categoriesLocked: true }),
-            ...(textChanged && { revision: sql`${memory.revision} + 1` }),
-            indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
-            indexRun: sql`${memory.indexRun} + (${reindex})::int`,
-            indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
-            // A fix to a Capture still on its first, fresh run stays first in
-            // line; any later edit is background work.
-            indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
-            vectorsSpace: sql`case when ${reindex} then null else ${memory.vectorsSpace} end`,
-            vectorsRevision: sql`case when ${reindex} then null else ${memory.vectorsRevision} end`,
-          })
-          .where(
-            and(
-              owned(id),
-              // Only a text Memory has text to edit.
-              changes.body === undefined ? undefined : eq(memory.kind, "text"),
-              revision === undefined ? undefined : eq(memory.revision, revision)
-            )
-          )
-          .returning({ ...columns, vectorsSpace: memory.vectorsSpace });
-        if (!edited) return undefined;
-        const { vectorsSpace, ...shown } = edited;
-        // Vectors always come with their space: none means none are kept.
-        if (vectorsSpace === null) {
-          await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
-        }
-        return shown;
-      });
-      if (row) return row;
-      const now = revision === undefined ? undefined : await get(id);
-      return now && (changes.body === undefined || now.kind === "text")
-        ? { stale: true }
-        : undefined;
+      try {
+        return await applyEdit(id, input, revision);
+      } catch (error) {
+        // The database holds the rule: a name that is not the owner's own or a built-in's.
+        if (isUnknownCategory(error)) return { unknownCategory: true };
+        throw error;
+      }
     },
 
     /** Deletes permanently, durably queuing all file keys under the owner's lock. */
@@ -1566,6 +1586,8 @@ export function openLibrary(
      */
     async setAiOptOut(id: string, on: boolean): Promise<Memory | undefined> {
       await db.transaction(async (tx) => {
+        // Turning it on takes back what a model decided, Categories included.
+        if (on) await lockCategories(tx, userId);
         const [row] = await tx
           .update(memory)
           .set(

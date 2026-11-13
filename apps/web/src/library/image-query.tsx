@@ -209,7 +209,10 @@ export function SearchByImage({
   compact?: boolean;
   className?: string;
 }) {
-  if (!memory.hasVectors || memory.aiOptOut || !onSelect) return null;
+  // Overview vectors alone do not make a Note or link an image query.
+  const visual = ["image", "pdf", "video"].includes(memory.kind);
+  if (!visual || !memory.hasVectors || memory.aiOptOut || !onSelect)
+    return null;
   return (
     <Button
       variant="quiet"

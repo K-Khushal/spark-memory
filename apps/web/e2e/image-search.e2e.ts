@@ -157,9 +157,6 @@ test("image search accepts files, paste and drop without Capturing the query", a
       .click();
   }
   await page.keyboard.press("ControlOrMeta+k");
-  const memoryId = before.memories.find(
-    (m: { body: string }) => m.body === "Lemon tart with a short crust"
-  ).id as string;
   await page.keyboard.press("Escape");
   await page.getByRole("link", { name: "All Memories", exact: true }).click();
   await page
@@ -169,21 +166,10 @@ test("image search accepts files, paste and drop without Capturing the query", a
   await expect(
     dialog.getByRole("button", { name: "More Like This", exact: true })
   ).toBeVisible();
-  const picked = page.waitForRequest(
-    (req) =>
-      req.url().endsWith("/api/search") &&
-      req.postDataJSON()?.memory === memoryId
-  );
-  await dialog
-    .getByRole("button", { name: "Search By Image", exact: true })
-    .click();
-  expect((await picked).postDataJSON().image).toBeUndefined();
-  await expect(dialog).toBeHidden();
   await expect(
-    page
-      .getByRole("button", { name: "Remove Query Image" })
-      .filter({ visible: true })
-  ).toContainText("Lemon tart with a short crust");
+    dialog.getByRole("button", { name: "Search By Image", exact: true })
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
   const after = await (await page.request.get("/api/memories")).json();
   expect(after.memories.length).toBe(before.memories.length);
 });
@@ -269,6 +255,11 @@ test("an image viewer reuses its Memory vectors and identifies the query chip", 
       req.url().endsWith("/api/search") &&
       req.postDataJSON()?.memory === memory.id
   );
+  const response = page.waitForResponse(
+    (res) =>
+      res.url().endsWith("/api/search") &&
+      res.request().postDataJSON()?.memory === memory.id
+  );
   await viewer
     .getByRole("button", { name: "Search By Image", exact: true })
     .click();
@@ -281,6 +272,16 @@ test("an image viewer reuses its Memory vectors and identifies the query chip", 
   await expect(chip.locator("img")).toHaveAttribute(
     "src",
     memory.image.thumbnailUrl
+  );
+  const completed = await response;
+  expect(completed.ok()).toBe(true);
+  expect((await completed.json()).results).toEqual([]);
+  await expect(page.locator('[data-search="full"]')).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "No Direct Matches", exact: true })
+  ).toBeVisible();
+  await expect(page.locator('[data-desk="search"]:visible')).toHaveText(
+    "Image"
   );
   await screenshots(page, "picked");
 });

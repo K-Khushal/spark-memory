@@ -53,6 +53,14 @@ export {
   endSessionIfDeleting,
   lockOwner,
 } from "./lib/owner";
+export { isUnknownCategory } from "./lib/category-errors";
+export {
+  openCategories,
+  type Categories,
+  type CategoryProblem,
+  type CategoryProgress,
+  type OwnCategory,
+} from "./lib/categories";
 export {
   indexingStore,
   type Claim,

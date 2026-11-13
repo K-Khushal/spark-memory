@@ -3,7 +3,6 @@ import {
   CATEGORY_NAMES,
   SEARCH_KINDS,
   sourceOf,
-  type Category,
   type SearchChips,
   type SearchColour,
   type SearchKind,
@@ -48,12 +47,19 @@ export const kindOf = (kind: Memory["kind"]) =>
     (SEARCH_KINDS[k] as readonly string[]).includes(kind)
   );
 
-/** Only what this Library has to filter by, so no chip leads nowhere. */
-export function useFilterOptions(memories: Memory[]) {
+/**
+ * Only what this Library has to filter by, so no chip leads nowhere. The
+ * person's own Categories are always listed, even before a Memory has one:
+ * they made them.
+ */
+export function useFilterOptions(
+  memories: Memory[],
+  ownCategories: readonly string[] = []
+) {
   return useMemo(() => {
     const kinds = new Set<SearchKind>();
     const sources = new Map<string, number>();
-    const categories = new Set<Category>();
+    const categories = new Set<string>();
     let colours = false;
     for (const memory of memories) {
       for (const category of memory.categories) categories.add(category);
@@ -71,10 +77,13 @@ export function useFilterOptions(memories: Memory[]) {
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .slice(0, SOURCES_SHOWN)
         .map(([name]) => name),
-      categories: CATEGORY_NAMES.filter((c) => categories.has(c)),
+      categories: [
+        ...CATEGORY_NAMES.filter((c) => categories.has(c)),
+        ...ownCategories,
+      ],
       colours,
     };
-  }, [memories]);
+  }, [memories, ownCategories]);
 }
 export type FilterOptions = ReturnType<typeof useFilterOptions>;
 
@@ -90,12 +99,15 @@ export function LibraryFilters({
   chips,
   onChange,
   leading,
+  manage,
 }: {
   leading?: ReactNode;
   layout: "sidebar" | "row";
   options: FilterOptions;
   chips: SearchChips;
   onChange: (next: SearchChips) => void;
+  /** Opens the Categories dialog: the last thing in the Category group. */
+  manage?: ReactNode;
 }) {
   const set = <K extends keyof SearchChips>(
     group: K,
@@ -173,6 +185,7 @@ export function LibraryFilters({
         {categories.map((item) => (
           <Chip key={item.id} {...item} />
         ))}
+        {manage}
       </div>
     );
   }
@@ -183,7 +196,7 @@ export function LibraryFilters({
       {colours}
       <Group label="Source" items={sources} />
       <Group label="When" items={whens} />
-      <Group label="Category" items={categories} />
+      <Group label="Category" items={categories} footer={manage} />
     </div>
   );
 }
@@ -212,8 +225,10 @@ function Chip({
 function Group({
   label,
   items,
+  footer,
 }: {
   label: string;
+  footer?: ReactNode;
   items: {
     id: string;
     dir?: "ltr" | "auto";
@@ -244,6 +259,7 @@ function Group({
           </button>
         </li>
       ))}
+      {footer && <li className="flex flex-col">{footer}</li>}
     </ul>
   );
 }
