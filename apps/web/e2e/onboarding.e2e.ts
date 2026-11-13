@@ -39,7 +39,7 @@ test("onboarding resumes, captures, searches samples and removes them together",
   await flow.getByRole("button", { name: "Try Search" }).click();
   await flow.getByRole("button", { name: "Try a Vague Search" }).click();
   await expect(page.getByPlaceholder("Search…")).toHaveValue(
-    "that little place with books and a cat"
+    "bookshop with a cat"
   );
   await page.getByRole("option", { name: /A Quiet Place to Read/ }).click();
   await page.keyboard.press("Escape");
