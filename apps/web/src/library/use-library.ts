@@ -5,6 +5,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { toast } from "@spark/ui";
 import { api } from "../api";
 import { track } from "../analytics";
+import { bulkOutbox } from "./bulk-outbox";
 import { drafts } from "./drafts";
 import { Refused, type Upload } from "./image-capture";
 import {
@@ -58,6 +59,15 @@ async function created(request: Promise<Response>) {
 
 /** The Memory API, as the Library actions need it. */
 const transport: Transport = {
+  bulk: async (json, init) =>
+    await (
+      await ok(
+        api.api.memories.bulk.$post(
+          { json },
+          { init: { ...init, signal: AbortSignal.timeout(30_000) } }
+        )
+      )
+    ).json(),
   create: async (json) =>
     (await (await ok(api.api.memories.$post({ json }))).json()) as Memory,
   createLink: async (json) =>
@@ -173,7 +183,7 @@ function putFile(
  * permanent; a page that closes inside that window sends them on its way
  * out. `version` goes up whenever the server accepts a change.
  */
-export function useLibrary() {
+export function useLibrary(owner: string) {
   const [memories, setMemories] = useState<WallMemory[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [attempt, setAttempt] = useState(0);
@@ -190,6 +200,7 @@ export function useLibrary() {
       setMemories,
       transport,
       drafts,
+      bulkOutbox: bulkOutbox(owner),
       notify: toast,
       freeUpSpace: () => void navigate({ to: "/settings" }),
       onSaved: () => setVersion((n) => n + 1),
@@ -201,6 +212,7 @@ export function useLibrary() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      await actions.resumeBulks();
       let after: string | undefined;
       do {
         const res = await ok(
@@ -216,7 +228,12 @@ export function useLibrary() {
           upload: { step: "stranded" },
         }));
         setMemories((all) =>
-          mergeNewestFirst(all, [...page.memories, ...stranded])
+          mergeNewestFirst(
+            all,
+            [...page.memories, ...stranded].filter(
+              (m) => !actions.isRemoving(m.id)
+            )
+          )
         );
         setState("ready");
         after = page.next;
@@ -225,7 +242,7 @@ export function useLibrary() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, actions]);
 
   const [indexing] = useState(() =>
     indexingActions({

@@ -162,6 +162,8 @@ export {
   prototypeOf,
   type CategoryNameProblem,
 } from "./lib/categories";
+
+export { BulkMemories, BULK_LIMIT } from "./lib/bulk";
 export {
   IMPORT_LIMITS,
   IMPORT_RESERVE,

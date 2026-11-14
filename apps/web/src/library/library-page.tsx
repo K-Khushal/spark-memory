@@ -1,3 +1,5 @@
+import { emptySelection, select } from "./selection";
+import { SelectionBar } from "./selection-bar";
 import {
   ImageQueryControls,
   memoryImageQuery,
@@ -41,6 +43,7 @@ import {
   cn,
   toast,
   type MasonryHandle,
+  type MasonrySelection,
 } from "@spark/ui";
 import { startAnalytics, track } from "../analytics";
 import { authClient, endSession, type AppSession } from "../auth";
@@ -76,7 +79,7 @@ export function LibraryPage({
   admin: boolean;
 }) {
   const navigate = useNavigate();
-  const library = useLibrary();
+  const library = useLibrary(session.user.id);
   const { desk, memory: linked } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [activationVersion, setActivationVersion] = useState(0);
@@ -312,7 +315,42 @@ export function LibraryPage({
     void library.captureFiles(files);
   };
   const dropping = useFileDrop(captureFiles);
+  const [selected, setSelected] = useState(emptySelection);
+  // Only what the wall shows can be selected: nothing while results are pending or failed.
+  const wallOrder = searching
+    ? results && results !== "failed"
+      ? [...results.direct, ...results.related].map((m) => m.id)
+      : []
+    : library.memories.map((m) => m.id);
+  const selectable = new Set(
+    library.memories
+      .filter((m) => !m.upload && !library.isPending(m.id))
+      .map((m) => m.id)
+  );
+  const order = wallOrder.filter((id) => selectable.has(id));
+  // A search or filter can take Memories off the wall; a bulk action never reaches them.
+  const pruned = select(selected, order, { type: "prune" });
+  if (pruned !== selected) setSelected(pruned);
+  const visible = pruned.ids;
+  const selection: MasonrySelection = {
+    ids: visible,
+    choose: (id, mode) =>
+      setSelected((s) => select(s, order, { type: mode, id })),
+    all: () => setSelected((s) => select(s, order, { type: "all" })),
+    clear: () => setSelected(emptySelection),
+    marquee: (ids, additive) =>
+      setSelected((s) =>
+        select(s, order, {
+          type: "marquee",
+          ids,
+          additive: additive ? s.ids : [],
+        })
+      ),
+  };
+  const visibleIds = new Set(visible);
+  const bulkRows = library.memories.filter((m) => visibleIds.has(m.id));
   const tiles: TileActions = {
+    selection,
     onRetry: library.retryUpload,
     onBroken: library.refresh,
     onDelete: library.remove,
@@ -509,7 +547,7 @@ export function LibraryPage({
         }
       />
 
-      <main className="min-w-0 flex-1">
+      <main className="min-w-0 flex-1 pb-32">
         <div className="sticky top-0 z-20 border-b border-line bg-canvas md:hidden">
           <div className="flex items-center gap-2 px-4 py-2">
             <Wordmark />
@@ -638,6 +676,21 @@ export function LibraryPage({
         )}
       </main>
 
+      {bulkRows.length > 0 && (
+        <SelectionBar
+          count={bulkRows.length}
+          ownNames={ownNames}
+          onClear={selection.clear}
+          onDelete={() => {
+            library.bulk(bulkRows, { operation: "delete" });
+            selection.clear();
+          }}
+          onCategories={(categories) => {
+            library.bulk(bulkRows, { operation: "categories", categories });
+            selection.clear();
+          }}
+        />
+      )}
       <OwnCategoryNames.Provider value={ownNames}>
         <LibraryOverlaysHost
           key={overlaysEpoch}
@@ -716,6 +769,7 @@ function Centred({ title, children }: { title: string; children: ReactNode }) {
 
 /** What a tile can ask of the Library: Try Again or Delete for an upload, Retry for Indexing, fresh URLs for a broken image. */
 type TileActions = {
+  selection: MasonrySelection;
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onDelete: (memory: WallMemory) => void;
@@ -739,6 +793,7 @@ function Wall({
   return (
     <Masonry
       label={label}
+      selection={tiles.selection}
       items={memories}
       getKey={(m) => m.id}
       getHeight={tileHeight}
@@ -772,7 +827,7 @@ function ResultWall({
   found: Found[];
   /** Focus moves between the Direct and Related walls through these. */
   handle?: Ref<MasonryHandle>;
-  onEdge?: (key: "ArrowUp" | "ArrowDown") => boolean;
+  onEdge?: (key: "ArrowUp" | "ArrowDown") => string | undefined;
   /** The search these answer: reordering within it glides (Masonry). */
   glideKey: string;
   /** Direct or Related; undefined for More Like This, which needs no why-chip. */
@@ -785,6 +840,7 @@ function ResultWall({
   return (
     <Masonry
       label={label}
+      selection={tiles.selection}
       items={found}
       getKey={(m) => m.id}
       getHeight={tileHeight}
@@ -920,9 +976,9 @@ function SearchResults({
             handle={direct}
             // Down from the bottom tile goes on to the Related Matches.
             onEdge={(key) => {
-              if (key !== "ArrowDown" || !results.related.length) return false;
+              if (key !== "ArrowDown" || !results.related.length) return;
               related.current?.focus("first");
-              return true;
+              return results.related[0]!.id;
             }}
           />
         ) : (
@@ -958,9 +1014,9 @@ function SearchResults({
             tiles={tiles}
             handle={related}
             onEdge={(key) => {
-              if (key !== "ArrowUp" || !results.direct.length) return false;
+              if (key !== "ArrowUp" || !results.direct.length) return;
               direct.current?.focus("last");
-              return true;
+              return results.direct.at(-1)!.id;
             }}
           />
         </section>

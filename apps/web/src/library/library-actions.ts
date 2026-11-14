@@ -1,6 +1,9 @@
+import type { BulkOutbox, PendingBulk } from "./bulk-outbox";
 import type { Dispatch, SetStateAction } from "react";
 import type { InferResponseType } from "@spark/api-client";
 import {
+  BULK_LIMIT,
+  type BulkMemories,
   FREE_ALLOWANCE,
   linkFromPaste,
   type MemoryEditRequest,
@@ -55,6 +58,10 @@ export type Transport = ImageTransport & {
   ) => Promise<Memory | "stale">;
   /** Resolves when the Memory is gone, including when it never existed. */
   remove: (id: string, init: { keepalive: boolean }) => Promise<void>;
+  bulk?: (
+    change: BulkMemories,
+    init: { keepalive: boolean }
+  ) => Promise<{ ids: string[] }>;
   get: (id: string) => Promise<Memory | undefined>;
 };
 
@@ -165,10 +172,12 @@ export function libraryActions({
   onSaved,
   onCaptured,
   freeUpSpace,
+  bulkOutbox,
 }: {
   setMemories: Dispatch<SetStateAction<WallMemory[]>>;
   transport: Transport;
   drafts: DraftStore;
+  bulkOutbox?: BulkOutbox;
   notify: typeof toast;
   onSaved: () => void;
   /** The server accepted a new Memory. Kind only, for the product event. */
@@ -176,6 +185,12 @@ export function libraryActions({
   /** Where to free storage, offered when a file does not fit (see imageCapture). */
   freeUpSpace?: () => void;
 }) {
+  /** Memories in a bulk change, from its Undo window to its answer. */
+  const bulkIds = new Set<string>();
+  /** The bulk-deleted ones, kept off the wall until the server has answered. */
+  const bulkRemoved = new Set<string>();
+  /** Bulk changes waiting out their Undo window: send it now. */
+  const pendingBulks = new Set<(closing?: boolean) => void>();
   /** Deletes waiting out their Undo window: id → send it now. */
   const pendingDeletes = new Map<string, () => void>();
   /** The tail of each Memory's queue of requests. */
@@ -528,6 +543,7 @@ export function libraryActions({
 
   /** Sends the pending edit as it is now. One request at a time per Memory. */
   function saveEdit(id: string, { keepalive = true } = {}) {
+    if (pendingDeletes.has(id)) return;
     const edit = pending.get(id);
     if (!edit?.fields || edit.status === "sending" || edit.status === "idle") {
       return;
@@ -790,6 +806,248 @@ export function libraryActions({
     });
   }
 
+  // One request at a time across all bulk operations, including page-close sends.
+  let bulkQueue: Promise<unknown> = Promise.resolve();
+  const serialBulk = (change: BulkMemories, closing: boolean) => {
+    const task = bulkQueue
+      .catch(() => {})
+      .then(() =>
+        transport.bulk!(change, { keepalive: closing && fitsKeepalive(change) })
+      );
+    bulkQueue = task;
+    return task;
+  };
+
+  async function acknowledgeBulk(record: PendingBulk, ids: string[]) {
+    const acknowledged = new Set(ids);
+    const change = record.change;
+    record.remaining = record.remaining.filter((id) => !acknowledged.has(id));
+    await bulkOutbox?.put(record);
+    if (change.operation === "delete") {
+      setMemories((all) => all.filter((m) => !acknowledged.has(m.id)));
+      for (const id of ids) setPending(id, undefined, { dropStorage: true });
+    } else {
+      setMemories((all) =>
+        all.map((m) =>
+          acknowledged.has(m.id)
+            ? { ...m, categories: change.categories, categoriesLocked: true }
+            : m
+        )
+      );
+    }
+  }
+
+  // Once Undo ends, newer intent supersedes unresolved older intent for these ids.
+  // Write the new record first: a crash between writes replays old then new.
+  async function supersedeBulks(record: PendingBulk) {
+    if (!bulkOutbox) return;
+    const ids = new Set(record.change.ids);
+    for (const old of await bulkOutbox.list()) {
+      if (old.key === record.key || old.readyAt > record.readyAt) continue;
+      old.remaining = old.remaining.filter((id) => !ids.has(id));
+      if (old.remaining.length) await bulkOutbox.put(old);
+      else await bulkOutbox.remove(old.key);
+    }
+  }
+
+  async function resumeBulks() {
+    if (!bulkOutbox || !transport.bulk) return;
+    let records: PendingBulk[];
+    try {
+      records = await bulkOutbox.list();
+    } catch {
+      notify("Bulk Updates Unavailable");
+      return;
+    }
+    for (const record of records.sort((a, b) => a.readyAt - b.readyAt)) {
+      // A reload ends Undo, just like pagehide.
+      for (const id of record.remaining) {
+        bulkIds.add(id);
+        if (record.change.operation === "delete") bulkRemoved.add(id);
+      }
+      try {
+        while (record.remaining.length) {
+          const ids = record.remaining.slice(0, BULK_LIMIT);
+          await serialBulk({ ...record.change, ids }, false);
+          await acknowledgeBulk(record, ids);
+          for (const id of ids) bulkIds.delete(id);
+        }
+        await bulkOutbox.remove(record.key);
+        onSaved();
+      } catch {
+        for (const id of record.remaining) {
+          bulkRemoved.delete(id);
+          bulkIds.delete(id);
+        }
+        notify(
+          `${record.remaining.length.toLocaleString()} ${record.remaining.length === 1 ? "Memory" : "Memories"} Not Updated`,
+          {
+            action: {
+              label: "Try Again",
+              onClick: () => void resumeBulks(),
+            },
+          }
+        );
+        // Keep ordering: don't replay a later operation over an unfinished one.
+        break;
+      }
+    }
+  }
+
+  /** Same five-second Undo as a single delete. Large selections use bounded requests. */
+  function bulk(
+    rows: Memory[],
+    change:
+      | { operation: "delete" }
+      | { operation: "categories"; categories: string[] }
+  ) {
+    rows = rows.filter((m) => !bulkIds.has(m.id));
+    if (!rows.length || !transport.bulk) return;
+    for (const m of rows) bulkIds.add(m.id);
+    const ids = new Set(rows.map((m) => m.id));
+    for (const id of ids) bump(id);
+    const restore = (snapshots: Memory[]) => {
+      if (change.operation === "delete")
+        for (const m of snapshots) restoreLocal(m);
+      else {
+        const before = new Map(snapshots.map((m) => [m.id, m]));
+        setMemories((all) =>
+          all.map((m) => {
+            const old = before.get(m.id);
+            return old
+              ? {
+                  ...m,
+                  categories: old.categories,
+                  categoriesLocked: old.categoriesLocked,
+                }
+              : m;
+          })
+        );
+      }
+    };
+    if (change.operation === "delete")
+      for (const id of ids) bulkRemoved.add(id);
+    if (change.operation === "delete")
+      setMemories((all) => all.filter((m) => !ids.has(m.id)));
+    else
+      setMemories((all) =>
+        all.map((m) =>
+          ids.has(m.id)
+            ? { ...m, categories: change.categories, categoriesLocked: true }
+            : m
+        )
+      );
+    const record: PendingBulk = {
+      key: crypto.randomUUID(),
+      change: { ...change, ids: [...ids] },
+      remaining: [...ids],
+      readyAt: Date.now() + UNDO_MS,
+    };
+    // Start durability during Undo, never for the first time in pagehide.
+    const persisted = bulkOutbox?.put(record);
+    void persisted?.catch(() => {});
+    let done = false;
+    const send = (closing = false) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      pendingBulks.delete(send);
+      // Reserve every queue before sending, so edits cannot overtake the batch.
+      const previous = [...ids].map(
+        (id) => queues.get(id) ?? Promise.resolve()
+      );
+      const task = Promise.allSettled(previous).then(async () => {
+        const failed: Memory[] = [];
+        const batches: Memory[][] = [];
+        for (let offset = 0; offset < rows.length; offset += BULK_LIMIT)
+          batches.push(rows.slice(offset, offset + BULK_LIMIT));
+        try {
+          await persisted;
+          await supersedeBulks(record);
+        } catch {
+          // Refuse to send without a crash copy when persistent storage failed.
+          for (const id of ids) {
+            bulkIds.delete(id);
+            bulkRemoved.delete(id);
+            pendingDeletes.delete(id);
+          }
+          restore(rows);
+          notify("Bulk Update Could Not Be Saved");
+          return;
+        }
+        for (const batch of batches) {
+          try {
+            await serialBulk(
+              { ...change, ids: batch.map((m) => m.id) },
+              closing
+            );
+            await acknowledgeBulk(
+              record,
+              batch.map((m) => m.id)
+            );
+          } catch {
+            failed.push(...batch);
+          }
+        }
+        if (!record.remaining.length) await bulkOutbox?.remove(record.key);
+        for (const id of ids) {
+          pendingDeletes.delete(id);
+          bulkIds.delete(id);
+        }
+        onSaved();
+        if (failed.length) {
+          for (const m of failed) bulkRemoved.delete(m.id);
+          restore(failed);
+          notify(
+            `${failed.length.toLocaleString()} ${failed.length === 1 ? "Memory" : "Memories"} Not Updated`,
+            {
+              action: {
+                label: "Try Again",
+                onClick: () => bulk(failed, change),
+              },
+            }
+          );
+        }
+      });
+      for (const id of ids) {
+        queues.set(id, task);
+        void task.finally(() => {
+          if (queues.get(id) === task) queues.delete(id);
+        });
+      }
+    };
+    // Hidden rows remain pending through completion, including poll/search merges.
+    if (change.operation === "delete")
+      for (const id of ids) pendingDeletes.set(id, () => send(true));
+    pendingBulks.add(send);
+    const timer = setTimeout(() => send(), UNDO_MS);
+    notify(change.operation === "delete" ? "Deleted" : "Categories Updated", {
+      duration: UNDO_MS,
+      onAutoClose: () => send(),
+      onDismiss: () => send(),
+      action: {
+        label: "Undo",
+        onClick: () => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          pendingBulks.delete(send);
+          void persisted
+            ?.then(() => bulkOutbox?.remove(record.key))
+            .catch(() => {});
+          for (const id of ids) {
+            pendingDeletes.delete(id);
+            bulkIds.delete(id);
+            bulkRemoved.delete(id);
+            bump(id);
+          }
+          restore(rows);
+          for (const id of ids) saveEdit(id);
+        },
+      },
+    });
+  }
+
   /** Refreshes a Memory's signed URLs (they last two hours), once a minute at most. */
   const refreshed = new Map<string, number>();
   function refresh(id: string) {
@@ -810,13 +1068,16 @@ export function libraryActions({
   }
 
   return {
+    resumeBulks,
+    bulk,
     capture,
     captureShared,
     captureFiles,
     captureSharedFiles,
     retryUpload: images.retry,
     /** A request for this Memory (Capture, Try Again, edit, delete) is still out. */
-    isPending: (id: string) => queues.has(id),
+    isPending: (id: string) => queues.has(id) || bulkIds.has(id),
+    isRemoving: (id: string) => pendingDeletes.has(id) || bulkRemoved.has(id),
     refresh,
     editText,
     saveEdit,
@@ -829,6 +1090,7 @@ export function libraryActions({
     remove,
     /** For a page on its way out: Undo is gone, unsent edits go now. */
     sendPending: () => {
+      for (const send of pendingBulks) send(true);
       for (const send of pendingDeletes.values()) send();
       for (const id of pending.keys()) saveEdit(id);
     },

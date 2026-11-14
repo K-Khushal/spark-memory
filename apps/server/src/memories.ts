@@ -5,6 +5,7 @@ import { createMiddleware } from "hono/factory";
 import { validator } from "hono/validator";
 import {
   AiOptOut,
+  BulkMemories,
   allowanceUsage,
   type CaptureRefusal,
   EMBEDDING,
@@ -43,8 +44,11 @@ import { enqueueDeepFetch } from "./deep-fetch-queue";
 import { enqueue, enqueueEmbed, providers } from "./indexing";
 import { rateLimited } from "./rate-limit";
 
-/** Bound screenshot storage calls; cleanup stays durable if a PUT finishes late. */
-async function screenshotStorage<T>(work: Promise<T>): Promise<T> {
+/** Keys per storage delete call. */
+const STORAGE_BATCH = 1000;
+
+/** Bound storage calls; cleanup stays durable if a PUT finishes late. */
+async function boundedStorage<T>(work: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -334,7 +338,7 @@ export const memories = new Hono<AppEnv>()
       }
       if ("already" in slot) return c.json({ ok: true } as const);
       try {
-        await screenshotStorage(
+        await boundedStorage(
           c.env.FILES.put(slot.key, body, {
             httpMetadata: {
               contentType: "image/jpeg",
@@ -353,7 +357,7 @@ export const memories = new Hono<AppEnv>()
       });
       if (!recorded) {
         try {
-          await screenshotStorage(c.env.FILES.delete(slot.key));
+          await boundedStorage(c.env.FILES.delete(slot.key));
         } catch {
           // The pending object_removal row covers cleanup if storage is unavailable.
         }
@@ -562,6 +566,23 @@ export const memories = new Hono<AppEnv>()
       limitBytes: FREE_ALLOWANCE.storageBytes,
     })
   )
+  .post("/memories/bulk", limitBody, json(BulkMemories), async (c) => {
+    const result = await c.var.library.bulk(c.req.valid("json"));
+    if ("unknownCategory" in result)
+      return c.json({ ok: false, error: "unknown_category" } as const, 400);
+    // The transaction is over. Storage failure never rolls a committed delete back;
+    // every key stays durably queued, including PUTs that can still land later.
+    const keys = result.removals ?? [];
+    if (keys.length) {
+      const removals: Promise<void>[] = [];
+      for (let offset = 0; offset < keys.length; offset += STORAGE_BATCH)
+        removals.push(
+          c.var.files.remove(keys.slice(offset, offset + STORAGE_BATCH))
+        );
+      await boundedStorage(Promise.all(removals)).catch(() => {});
+    }
+    return c.json({ ids: result.ids });
+  })
   .get("/memories/:id", async (c) => {
     const id = c.req.param("id");
     const memory = UUID.test(id) && (await c.var.library.get(id));

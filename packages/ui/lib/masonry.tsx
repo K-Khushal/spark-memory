@@ -1,3 +1,4 @@
+import { CheckIcon } from "lucide-react";
 import {
   useEffect,
   useImperativeHandle,
@@ -5,6 +6,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
   type Ref,
 } from "react";
@@ -23,7 +25,16 @@ type MasonryTile = {
 /** What a parent can ask of a wall: put focus on its first or last tile. */
 export type MasonryHandle = { focus: (which: "first" | "last") => void };
 
+export type MasonrySelection = {
+  ids: readonly string[];
+  choose: (id: string, mode: "toggle" | "range") => void;
+  all: () => void;
+  clear: () => void;
+  marquee: (ids: string[], additive: boolean) => void;
+};
+
 type MasonryProps<T> = {
+  selection?: MasonrySelection;
   items: readonly T[];
   getKey: (item: T) => string;
   /** width / height of the item's visual. */
@@ -50,9 +61,9 @@ type MasonryProps<T> = {
   /**
    * ↑ or ↓ pressed on the top or bottom tile of its column: there is no
    * tile further that way here, so a neighbouring wall can take focus.
-   * Return true when it did; otherwise the key keeps its default (scrolling).
+   * Return the destination id when it did; otherwise the key keeps its default (scrolling).
    */
-  onEdge?: (key: "ArrowUp" | "ArrowDown") => boolean;
+  onEdge?: (key: "ArrowUp" | "ArrowDown") => string | undefined;
   handle?: Ref<MasonryHandle>;
   renderItem: (item: T, tile: MasonryTile) => ReactNode;
 };
@@ -60,10 +71,11 @@ type MasonryProps<T> = {
 /**
  * A window-scrolled, virtualised masonry of Memories. Heights come from the
  * known aspect ratio (no measuring, so no reflow jumps). Keyboard: arrows move
- * spatially, Enter opens, Space previews.
+ * spatially, Enter opens; Space toggles when selection is enabled, otherwise previews.
  */
 export function Masonry<T>({
   items,
+  selection,
   getKey,
   getAspect = () => 1,
   getLabel,
@@ -82,6 +94,19 @@ export function Masonry<T>({
   renderItem,
 }: MasonryProps<T>) {
   const ref = useRef<HTMLDivElement>(null);
+  const marquee = useRef<HTMLDivElement>(null);
+  const gesture = useRef<{
+    x: number;
+    y: number;
+    pageY: number;
+    active: boolean;
+    touch: boolean;
+    index?: number;
+    additive: boolean;
+    timer?: ReturnType<typeof setTimeout>;
+  }>(undefined);
+  const suppressClick = useRef(false);
+  useEffect(() => () => clearTimeout(gesture.current?.timer), []);
   const [box, setBox] = useState({ width: 0, top: 0 });
   const [active, setActive] = useState(0);
 
@@ -121,6 +146,7 @@ export function Masonry<T>({
     overscan: 3,
     estimateSize: sizeOf,
     scrollMargin: box.top,
+    scrollPaddingEnd: selection?.ids.length ? 128 : 0,
     getItemKey: (i) => (items[i] ? getKey(items[i]) : i),
   });
 
@@ -185,22 +211,139 @@ export function Masonry<T>({
   });
 
   const onKeyDown = (event: KeyboardEvent) => {
+    // Only the wall and its tiles; never an input a tile might hold.
+    if (
+      event.target !== event.currentTarget &&
+      !(
+        event.target instanceof HTMLElement &&
+        event.target.hasAttribute("data-index")
+      )
+    )
+      return;
+    if (selection?.ids.length && event.key === "Escape") {
+      event.preventDefault();
+      clearTimeout(gesture.current?.timer);
+      gesture.current = undefined;
+      if (marquee.current) marquee.current.hidden = true;
+      selection.clear();
+      return;
+    }
+    if (
+      selection &&
+      (event.metaKey || event.ctrlKey) &&
+      event.key.toLowerCase() === "a"
+    ) {
+      event.preventDefault();
+      selection.all();
+      return;
+    }
     if (current === undefined) return;
     const target = neighbour(virtualizer.measurementsCache, current, event.key);
     if (target !== undefined) {
       event.preventDefault();
       focusIndex(target);
-    } else if (
-      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
-      onEdge?.(event.key)
-    ) {
-      event.preventDefault();
+      if (event.shiftKey && selection && items[target]) {
+        if (!selection.ids.length && items[current])
+          selection.choose(getKey(items[current]), "toggle");
+        selection.choose(getKey(items[target]), "range");
+      }
+    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      const destination = onEdge?.(event.key);
+      if (destination !== undefined) {
+        event.preventDefault();
+        if (event.shiftKey && selection) {
+          if (!selection.ids.length && items[current])
+            selection.choose(getKey(items[current]), "toggle");
+          selection.choose(destination, "range");
+        }
+      }
     } else if (event.key === "Enter") {
       onOpen?.(current);
     } else if (event.key === " ") {
       event.preventDefault();
-      onPreview?.(current);
+      if (selection && items[current])
+        selection.choose(getKey(items[current]), "toggle");
+      else onPreview?.(current);
     }
+  };
+
+  const pointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    suppressClick.current = false;
+    if (
+      !selection ||
+      e.button !== 0 ||
+      !(e.target instanceof HTMLElement) ||
+      e.target.closest("button, a, input, summary")
+    )
+      return;
+    const tile = e.target.closest<HTMLElement>("[data-index]");
+    const index = tile ? Number(tile.dataset.index) : undefined;
+    const touch = e.pointerType === "touch";
+    const g = {
+      x: e.clientX,
+      y: e.clientY,
+      pageY: e.pageY,
+      active: false,
+      touch,
+      index,
+      additive: e.ctrlKey || e.metaKey,
+      timer: undefined as ReturnType<typeof setTimeout> | undefined,
+    };
+    gesture.current = g;
+    if (touch && index !== undefined)
+      g.timer = setTimeout(() => {
+        if (gesture.current !== g || !items[index]) return;
+        selection.choose(getKey(items[index]), "toggle");
+        suppressClick.current = true;
+        g.active = true;
+      }, 450);
+  };
+  const pointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    const g = gesture.current;
+    if (!g) return;
+    if (Math.hypot(e.clientX - g.x, e.clientY - g.y) < 6 && !g.active) return;
+    clearTimeout(g.timer);
+    if (g.touch) {
+      if (!g.active) gesture.current = undefined;
+      return;
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    g.active = true;
+    suppressClick.current = true;
+    const el = marquee.current;
+    if (!el) return;
+    el.hidden = false;
+    el.style.transform = `translate(${Math.min(g.x, e.clientX)}px, ${Math.min(g.pageY, e.pageY) - window.scrollY}px)`;
+    el.style.width = `${Math.abs(e.clientX - g.x)}px`;
+    el.style.height = `${Math.abs(e.pageY - g.pageY)}px`;
+    if (e.clientY > window.innerHeight - 32) window.scrollBy(0, 24);
+    else if (e.clientY < 32) window.scrollBy(0, -24);
+  };
+  const pointerEnd = (e: PointerEvent<HTMLDivElement>, cancel = false) => {
+    const g = gesture.current;
+    gesture.current = undefined;
+    clearTimeout(g?.timer);
+    if (marquee.current) marquee.current.hidden = true;
+    if (!g || !g.active || g.touch || cancel || !selection) return;
+    const rect = ref.current!.getBoundingClientRect();
+    const left = rect.left;
+    const top = rect.top + window.scrollY;
+    const x1 = Math.min(g.x, e.clientX) - left,
+      x2 = Math.max(g.x, e.clientX) - left;
+    const y1 = Math.min(g.pageY, e.pageY) - top,
+      y2 = Math.max(g.pageY, e.pageY) - top;
+    const ids = virtualizer.measurementsCache
+      .filter((v) => {
+        const x = v.lane * (colWidth + gap);
+        return (
+          x < x2 &&
+          x + colWidth > x1 &&
+          v.start - box.top < y2 &&
+          v.end - box.top > y1
+        );
+      })
+      .flatMap((v) => (items[v.index] ? [getKey(items[v.index]!)] : []));
+    selection.marquee(ids, g.additive);
   };
 
   return (
@@ -209,9 +352,22 @@ export function Masonry<T>({
       role="list"
       aria-label={label}
       onKeyDown={onKeyDown}
+      onPointerDown={pointerDown}
+      onPointerMove={pointerMove}
+      onPointerUp={(e) => pointerEnd(e)}
+      onPointerCancel={(e) => pointerEnd(e, true)}
+      onContextMenu={(e) => {
+        if (suppressClick.current) e.preventDefault();
+      }}
       className={cn("relative w-full", className)}
       style={{ height: virtualizer.getTotalSize() }}
     >
+      <div
+        ref={marquee}
+        hidden
+        aria-hidden
+        className="pointer-events-none fixed top-0 left-0 z-40 border border-ring bg-spark/20"
+      />
       {rendered.map((v) => {
         const item = items[v.index];
         if (!item) return null;
@@ -221,17 +377,55 @@ export function Masonry<T>({
             role="listitem"
             data-index={v.index}
             tabIndex={v.index === current ? 0 : -1}
-            aria-label={getLabel(item)}
+            aria-label={`${getLabel(item)}${selection?.ids.includes(getKey(item)) ? ", Selected" : ""}`}
+            data-selected={selection?.ids.includes(getKey(item)) || undefined}
+            data-selectable={selection ? "true" : undefined}
             onFocus={() => setActive(v.index)}
-            onClick={() => onOpen?.(v.index)}
+            onClick={(e) => {
+              if (suppressClick.current) {
+                suppressClick.current = false;
+                return;
+              }
+              if (
+                selection &&
+                (e.shiftKey || e.metaKey || e.ctrlKey || selection.ids.length)
+              ) {
+                selection.choose(getKey(item), e.shiftKey ? "range" : "toggle");
+              } else onOpen?.(v.index);
+            }}
             data-key={v.key}
-            className="absolute top-0 left-0 rounded-tile outline-offset-2"
+            className="group/selection absolute top-0 left-0 rounded-tile outline-offset-2 select-none data-selected:ring-2 data-selected:ring-ring"
             style={{
               width: colWidth,
               height: v.size,
               transform: `translate(${v.lane * (colWidth + gap)}px, ${v.start - box.top}px)`,
             }}
           >
+            {selection && (
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-label={`Select ${getLabel(item)}`}
+                aria-pressed={selection.ids.includes(getKey(item))}
+                className="absolute top-1 right-1 z-10 grid size-11 place-items-center rounded-control opacity-0 focus:opacity-100 group-hover/selection:opacity-100 aria-pressed:opacity-100 [@media(pointer:coarse)]:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  selection.choose(
+                    getKey(item),
+                    e.shiftKey ? "range" : "toggle"
+                  );
+                }}
+              >
+                <span
+                  aria-hidden
+                  className="grid size-5 place-items-center rounded-chip border border-ring bg-surface text-ink"
+                >
+                  {selection.ids.includes(getKey(item)) && (
+                    <CheckIcon aria-hidden className="size-4" />
+                  )}
+                </span>
+              </button>
+            )}
             {renderItem(item, {
               index: v.index,
               width: colWidth,

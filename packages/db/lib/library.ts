@@ -3,6 +3,8 @@ import { searchHistory } from "./search-history";
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
+  BulkMemories,
+  CATEGORY_NAMES,
   DEEP_FETCH,
   EMBEDDING,
   FREE_ALLOWANCE,
@@ -40,6 +42,7 @@ import {
   tryLockOwner,
 } from "./owner";
 import {
+  category,
   memory,
   importJob,
   importItem,
@@ -394,6 +397,29 @@ function parseCursor(cursor: string) {
   if (!MICROS.test(at) || !UUID.test(id)) return undefined;
   const micros = Number(at);
   return Number.isSafeInteger(micros) ? { micros, id } : undefined;
+}
+
+/**
+ * Queues storage removal for Memory files, under the owner's lock. A pending
+ * PUT can still land after deletion, so an unstored file's cleanup waits out
+ * the upload window.
+ */
+async function queueRemovals(
+  tx: Pick<Database, "insert">,
+  files: { key: string; stored: Date | null }[]
+) {
+  if (!files.length) return;
+  await tx
+    .insert(objectRemoval)
+    .values(
+      files.map((file) => ({
+        key: file.key,
+        dueAt: file.stored
+          ? sql`now()`
+          : sql`clock_timestamp() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
+      }))
+    )
+    .onConflictDoNothing();
 }
 
 /**
@@ -1527,6 +1553,86 @@ export function openLibrary(
       }
     },
 
+    /** One owner-scoped, idempotent transaction. No network calls under locks. */
+    async bulk(
+      raw: BulkMemories
+    ): Promise<
+      { ids: string[]; removals?: string[] } | { unknownCategory: true }
+    > {
+      const change = BulkMemories.parse(raw);
+      try {
+        return await db.transaction(async (tx) => {
+          // Categories lock comes first, before any Memory row, like Indexing.
+          if (change.operation === "categories")
+            await lockCategories(tx, userId);
+          else await lockOwner(tx, userId);
+          const scope = and(
+            eq(memory.userId, userId),
+            inArray(memory.id, [...new Set(change.ids)])
+          );
+          if (change.operation === "categories") {
+            const own = await tx
+              .select({ name: category.name })
+              .from(category)
+              .where(eq(category.userId, userId));
+            const allowed = new Set<string>([
+              ...CATEGORY_NAMES,
+              ...own.map((c) => c.name),
+            ]);
+            if (change.categories.some((name) => !allowed.has(name)))
+              return { unknownCategory: true as const };
+            // Deletion and Category batches lock rows in the same order. The
+            // advisory locks differ, so relying on UPDATE's plan could deadlock.
+            await tx
+              .select({ id: memory.id })
+              .from(memory)
+              .where(scope)
+              .orderBy(memory.id)
+              .for("update");
+            // The trigger validates built-ins and this owner's names under the
+            // lock. Choosing Categories never changes the owner's list, so, like
+            // a single edit, it leaves the generation alone: Indexing already skips
+            // locked Memories, and in-flight work on others stays valid.
+            await tx
+              .update(memory)
+              .set({ categories: change.categories, categoriesLocked: true })
+              .where(scope);
+            return {
+              ids: (
+                await tx.select({ id: memory.id }).from(memory).where(scope)
+              ).map((m) => m.id),
+            };
+          }
+          const rows = await tx
+            .select({ id: memory.id })
+            .from(memory)
+            .where(scope)
+            .orderBy(memory.id)
+            .for("update");
+          if (!rows.length) return { ids: [] };
+          const ids = rows.map((m) => m.id);
+          const files = await tx
+            .select({ key: memoryFile.key, stored: memoryFile.storedAt })
+            .from(memoryFile)
+            .where(inArray(memoryFile.memoryId, ids));
+          await queueRemovals(tx, files);
+          const copies = await tx
+            .select({ key: memoryCopy.key })
+            .from(memoryCopy)
+            .where(inArray(memoryCopy.memoryId, ids));
+          // Cascades remove copies (whose trigger queues storage), vectors and search words.
+          await tx.delete(memory).where(scope);
+          return {
+            ids,
+            removals: [...files, ...copies].map((file) => file.key),
+          };
+        });
+      } catch (error) {
+        if (isUnknownCategory(error)) return { unknownCategory: true };
+        throw error;
+      }
+    },
+
     /** Deletes permanently, durably queuing all file keys under the owner's lock. */
     async remove(id: string): Promise<boolean> {
       return db.transaction(async (tx) => {
@@ -1540,20 +1646,7 @@ export function openLibrary(
           .select({ key: memoryFile.key, stored: memoryFile.storedAt })
           .from(memoryFile)
           .where(eq(memoryFile.memoryId, id));
-        if (files.length)
-          await tx
-            .insert(objectRemoval)
-            .values(
-              files.map((file) => ({
-                key: file.key,
-                // Pending PUTs can still land after deletion. Keep their cleanup
-                // until the upload window closes, even if storage is empty now.
-                dueAt: file.stored
-                  ? sql`now()`
-                  : sql`clock_timestamp() + make_interval(mins => ${UPLOAD_URL_MINUTES})`,
-              }))
-            )
-            .onConflictDoNothing();
+        await queueRemovals(tx, files);
         const rows = await tx
           .delete(memory)
           .where(owned(id))
