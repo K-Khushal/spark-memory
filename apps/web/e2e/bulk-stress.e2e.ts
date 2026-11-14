@@ -33,11 +33,8 @@ test("selection survives long text, narrow screens, reduced motion and virtualis
         name: "An Unreasonably Long Category Name Here",
       })
     ).toBeVisible();
-    if (width === 1440)
-      for (const category of ["Recipe", "Code", "Article"])
-        await dialog
-          .getByRole("button", { name: category, exact: true })
-          .click();
+    for (const category of ["Recipe", "Code", "Article"])
+      await dialog.getByRole("button", { name: category, exact: true }).click();
     await expect(
       dialog.getByRole("button", { name: "Video", exact: true })
     ).toBeDisabled();
