@@ -105,7 +105,15 @@ export function SearchCommand({
           className="pr-10 text-[1rem] md:text-md"
         />
       </ImageQueryControls>
-      <CommandList ref={listRef}>
+      <CommandList
+        ref={listRef}
+        data-search-mode={
+          instant && instant !== "failed" ? instant.mode : undefined
+        }
+        data-search-key={
+          instant && instant !== "failed" ? instant.key : undefined
+        }
+      >
         {(draft.trim() || visual) && (
           <CommandItem value="__wall" onSelect={() => onShowOnWall(draft)}>
             <SearchIcon className="size-4 text-ink-muted" aria-hidden />

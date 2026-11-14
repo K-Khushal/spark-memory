@@ -13,7 +13,8 @@
     "experiments": "tsx src/experiments.ts",
     "compare:supermemory": "tsx src/supermemory.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "perf": "tsx perf/run.ts"
   },
   "dependencies": {
     "@spark/core": "workspace:*",

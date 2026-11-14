@@ -123,10 +123,15 @@ export function LibraryPage({
       setVisual(value);
     },
   };
+  // Shared by the menu, wall and further pages. Keystrokes only read this lookup.
+  const memoriesById = useMemo(
+    () => new Map(library.memories.map((memory) => [memory.id, memory])),
+    [library.memories]
+  );
   // ⌘K: instant per keystroke, full once typing pauses.
   const instant = useSearch(
     searchOpen ? { query: draft, ...(visual && { visual, chips }) } : undefined,
-    library.memories,
+    memoriesById,
     library.version,
     {
       userId: session.user.id,
@@ -138,12 +143,12 @@ export function LibraryPage({
   const request = like
     ? { like: like.id }
     : { query, ...(visual && { visual }), ...(filtering && { chips }) };
-  const first = useSearch(request, library.memories, library.version, {
+  const first = useSearch(request, memoriesById, library.version, {
     userId: session.user.id,
     pauseMs: 0,
     keepPrevious: true,
   });
-  const more = useMoreResults(request, first, library.memories);
+  const more = useMoreResults(request, first, memoriesById);
   const results = useMemo(
     () =>
       first && first !== "failed" && (more.direct.length || more.related.length)
@@ -347,8 +352,10 @@ export function LibraryPage({
         })
       ),
   };
-  const visibleIds = new Set(visible);
-  const bulkRows = library.memories.filter((m) => visibleIds.has(m.id));
+  const bulkRows = useMemo(() => {
+    const visibleIds = new Set(visible);
+    return library.memories.filter((m) => visibleIds.has(m.id));
+  }, [visible, library.memories]);
   const tiles: TileActions = {
     selection,
     onRetry: library.retryUpload,
