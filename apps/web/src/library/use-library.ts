@@ -1,3 +1,5 @@
+import { createApiClient } from "@spark/api-client";
+import type { ImageCapture } from "@spark/core";
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "@spark/ui";
@@ -89,6 +91,34 @@ const transport: Transport = {
     (await (await ok(byId.stored.$post({ param: { id } }))).json()) as Memory,
 };
 
+/** Bulk image Capture stays bound to the owner who selected the originals. */
+export function importImageTransport(
+  userId: string,
+  jobId: () => string | undefined
+) {
+  const client = createApiClient(window.location.origin, {
+    headers: { "x-spark-user": userId },
+    fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+      fetch(input, {
+        ...init,
+        signal: init?.signal ?? AbortSignal.timeout(30_000),
+      }),
+  });
+  return {
+    ...transport,
+    createImage: (json: ImageCapture) =>
+      created(
+        client.api.memories.images.$post({
+          json: { ...json, background: true, importJobId: jobId() },
+        })
+      ),
+    confirm: async (id: string) =>
+      (await (
+        await ok(client.api.memories[":id"].stored.$post({ param: { id } }))
+      ).json()) as Memory,
+  };
+}
+
 const indexingTransport: IndexingTransport = {
   poll: async (ids) => {
     const res = await ok(
@@ -121,6 +151,8 @@ function putFile(
   return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
+    xhr.timeout = 120_000;
+    xhr.ontimeout = () => reject(new Error("Upload Timed Out"));
     for (const [name, value] of Object.entries(headers)) {
       xhr.setRequestHeader(name, value);
     }

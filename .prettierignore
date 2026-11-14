@@ -5,3 +5,5 @@ skills-lock.json
 docs/research/
 docs/PRD.md
 evals/library/
+# Export fixtures retain the producers' HTML/CSV layout.
+packages/capture/tests/fixtures/import/

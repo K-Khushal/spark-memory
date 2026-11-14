@@ -1,0 +1,6 @@
+https://garden.test/tea
+
+http://garden.test/toast
+javascript:alert(1)
+file:///secret
+https://user:password@garden.test/private
