@@ -90,7 +90,7 @@ async function fetchHits(
  */
 export function useSearch(
   request: SearchRequest | undefined,
-  memories: Memory[],
+  wall: ReadonlyMap<string, Memory>,
   version: string,
   {
     userId,
@@ -135,7 +135,6 @@ export function useSearch(
     const shown = shownAnswer(answer, current, keepPrevious);
     if (!shown) return undefined;
     if ("failed" in shown) return "failed";
-    const wall = new Map(memories.map((m) => [m.id, m]));
     const results: Results = {
       direct: [],
       related: [],
@@ -148,7 +147,7 @@ export function useSearch(
       if (memory) results[hit.match].push({ ...memory, part: hit.part });
     }
     return results;
-  }, [answer, wanted, memories, keepPrevious]);
+  }, [answer, wanted, wall, keepPrevious]);
 }
 
 /**
@@ -160,7 +159,7 @@ export function useSearch(
 export function useMoreResults(
   request: SearchRequest | undefined,
   shown: Results | "failed" | undefined,
-  memories: Memory[]
+  wall: ReadonlyMap<string, Memory>
 ) {
   const first = shown && shown !== "failed" ? shown : undefined;
   const key = first?.key;
@@ -213,7 +212,6 @@ export function useMoreResults(
   };
 
   const extra = useMemo(() => {
-    const wall = new Map(memories.map((m) => [m.id, m]));
     const found: Results["direct"] = [];
     const related: Results["related"] = [];
     for (const hit of own?.hits ?? []) {
@@ -225,7 +223,7 @@ export function useMoreResults(
         });
     }
     return { direct: found, related };
-  }, [own, memories]);
+  }, [own, wall]);
 
   return { ...extra, canLoad, busy: !!own?.busy, load };
 }

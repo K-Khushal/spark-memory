@@ -15,6 +15,7 @@ export function select(
 ): Selection {
   if (action.type === "clear") return emptySelection;
   if (action.type === "prune") {
+    if (!state.ids.length) return state;
     const onWall = new Set(order);
     const ids = state.ids.filter((id) => onWall.has(id));
     return ids.length === state.ids.length
