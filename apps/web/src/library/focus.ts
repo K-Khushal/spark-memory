@@ -38,20 +38,14 @@ export function focusWall({ onlyIfLost = false, preventScroll = false } = {}) {
  */
 export function restoreLibraryFocus(event: Event, memoryId?: string) {
   event.preventDefault();
+  const focusedAtClose = document.activeElement;
   requestAnimationFrame(() => {
     // Search can hand directly to Memory detail or Capture. Its closing
     // scope must leave the new dialog's focus trap in charge.
     if (document.querySelector('[role="dialog"][data-state="open"]')) return;
     const active = document.activeElement;
-    // A route handoff may already have restored its own control. Do not
-    // replace that focus with the Library fallback when this scope exits.
-    if (
-      active instanceof HTMLElement &&
-      active !== document.body &&
-      active.isConnected &&
-      !active.closest('[role="dialog"]')
-    )
-      return;
+    // Closing must not override a Tab, click or another dialog's focus.
+    if (active !== document.body && active !== focusedAtClose) return;
     if (memoryId && focusMasonryKey(memoryId)) return;
     if (!focusWall()) focusDeskControl("capture");
   });
