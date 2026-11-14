@@ -225,6 +225,13 @@
       "when": 1794630000000,
       "tag": "0032_import",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794800000000,
+      "tag": "0033_assistant_activity_detail",
+      "breakpoints": true
     }
   ]
 }

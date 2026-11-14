@@ -77,7 +77,7 @@ export function LibraryPage({
 }) {
   const navigate = useNavigate();
   const library = useLibrary();
-  const { desk } = useRouteSearch({ from: "/" });
+  const { desk, memory: linked } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [activationVersion, setActivationVersion] = useState(0);
   const [activation] = useState(() => createActivation(recordActivation));
@@ -368,6 +368,33 @@ export function LibraryPage({
     setQuery("");
     setLike(undefined);
   };
+
+  // Activity links resolve through the owner-scoped single-Memory endpoint,
+  // even while later Library pages are still arriving.
+  const { loadMemory } = library;
+  useEffect(() => {
+    if (!linked) return;
+    let cancelled = false;
+    void loadMemory(linked).then(
+      (memory) => {
+        if (cancelled) return;
+        if (memory) {
+          setSearchOpen(false);
+          setVideoSeconds(undefined);
+          if (memory.kind === "image") setImageId(memory.id);
+          else if (memory.kind === "pdf") setPdf({ id: memory.id, match: {} });
+          else setOpenId(memory.id);
+        }
+        void navigate({ to: "/", search: {}, replace: true });
+      },
+      () => {
+        if (!cancelled) void navigate({ to: "/", search: {}, replace: true });
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [linked, loadMemory, navigate]);
 
   useEffect(() => {
     if (desk !== "capture" && desk !== "search") return;
