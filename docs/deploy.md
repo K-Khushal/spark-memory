@@ -20,6 +20,8 @@ cp .env.example .env
 pnpm dev        # Docker Postgres + pgvector, db:migrate, db:seed, Worker on :8787, dashboard on :5173
 ```
 
+If a local dev database applied a migration that was later renumbered, reset it with `docker compose down -v`. See [packages/db/README.md](../packages/db/README.md) for the journal ordering guide.
+
 `wrangler dev` skips Hyperdrive and connects straight to Docker Postgres through `localConnectionString`. To point it elsewhere, set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`. Sentry stays off locally.
 
 ## One-time setup
