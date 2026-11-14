@@ -87,6 +87,8 @@ export {
   type ProductEvent,
   type ProductPayload,
 } from "./lib/product-events";
+export { displayHost } from "./lib/host";
+
 export {
   keptPage,
   LINK_MAX_CHARS,

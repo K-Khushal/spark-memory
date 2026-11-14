@@ -1,5 +1,5 @@
 import { Fragment, useState, type ReactNode } from "react";
-import { IndexBadge } from "./index-state";
+import { IndexBadge, isPartly, PartlyIndexedBadge } from "./index-state";
 import { PlayIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { sourceHost } from "@spark/core";
@@ -146,6 +146,7 @@ export function tileLabel(memory: WallMemory) {
     return `${name}, ${memory.upload.step === "sending" ? "Uploading" : "Failed"}`;
   }
   if (memory.indexState === "indexing") return `${name}, Indexing`;
+  if (isPartly(memory)) return `${name}, Partly Indexed`;
   if (memory.indexState === "failed") return `${name}, Indexing Failed`;
   if (isReferenceOnly(memory)) return `${name}, Reference Only`;
   return memory.sample ? `${name}, Sample` : name;
@@ -168,7 +169,10 @@ export function MemoryTile(props: {
       Sample
     </span>
   ) : (
-    !memory.upload && (
+    !memory.upload &&
+    (isPartly(memory) ? (
+      <PartlyIndexedBadge className="absolute right-2 bottom-2" />
+    ) : (
       <IndexBadge
         memory={memory}
         onRetry={() => props.onRetryIndexing(memory)}
@@ -177,7 +181,7 @@ export function MemoryTile(props: {
         plate={!!memory.image}
         className="absolute right-2 bottom-2"
       />
-    )
+    ))
   );
   return (
     <div className={cn("h-full w-full", memory.fresh && "spark-capture-in")}>

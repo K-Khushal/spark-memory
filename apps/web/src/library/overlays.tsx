@@ -15,6 +15,8 @@ export type LibraryOverlaysProps = {
   imageQuery: ImageQueryProps;
   draft: string;
   instant: Results | "failed" | undefined;
+  onRetrySearch: () => void;
+  retryingSearch: boolean;
   onSearchOpenChange: (open: boolean) => void;
   onDraft: (value: string) => void;
   onShowOnWall: (query: string) => void;
@@ -57,6 +59,8 @@ export function LibraryOverlays({
   imageQuery,
   draft,
   instant,
+  onRetrySearch,
+  retryingSearch,
   onSearchOpenChange,
   onDraft,
   onShowOnWall,
@@ -96,6 +100,8 @@ export function LibraryOverlays({
         imageQuery={imageQuery}
         draft={draft}
         instant={instant}
+        onRetry={onRetrySearch}
+        retrying={retryingSearch}
         onOpenChange={onSearchOpenChange}
         onDraft={onDraft}
         onShowOnWall={onShowOnWall}

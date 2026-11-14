@@ -6,6 +6,7 @@ import {
   ClockIcon,
   LogOutIcon,
   PlusIcon,
+  RotateCwIcon,
   SearchIcon,
   SettingsIcon,
   Trash2Icon,
@@ -32,6 +33,8 @@ export function SearchCommand({
   draft,
   imageQuery,
   instant,
+  onRetry,
+  retrying,
   onOpenChange,
   onDraft,
   onShowOnWall,
@@ -44,6 +47,9 @@ export function SearchCommand({
   imageQuery: ImageQueryProps;
   draft: string;
   instant: Results | "failed" | undefined;
+  onRetry: () => void;
+  /** Between Try Again and the next answer. */
+  retrying: boolean;
   onOpenChange: (open: boolean) => void;
   onDraft: (value: string) => void;
   onShowOnWall: (query: string) => void;
@@ -86,11 +92,12 @@ export function SearchCommand({
     draft.trim()
   );
 
+  const failure = retrying ? "Searching Again" : "Search Is Unreachable";
   /** What the list says in place of results; the screen reader hears it from outside the listbox. */
   const note =
     (draft.trim() || visual) && instant
       ? instant === "failed"
-        ? "Search Is Unreachable"
+        ? failure
         : instant.direct.length === 0
           ? "No Direct Matches"
           : undefined
@@ -120,6 +127,7 @@ export function SearchCommand({
       </ImageQueryControls>
       <CommandList
         ref={listRef}
+        aria-busy={retrying && instant === "failed"}
         data-search-mode={
           instant && instant !== "failed" ? instant.mode : undefined
         }
@@ -138,7 +146,19 @@ export function SearchCommand({
         )}
         {draft.trim() || visual ? (
           instant === "failed" ? (
-            <ListNote>Search Is Unreachable</ListNote>
+            <>
+              <ListNote>{failure}</ListNote>
+              <CommandGroup>
+                <CommandItem
+                  value="__retry"
+                  aria-disabled={retrying || undefined}
+                  onSelect={() => !retrying && onRetry()}
+                >
+                  <RotateCwIcon className="size-4 text-ink-muted" aria-hidden />
+                  Try Again
+                </CommandItem>
+              </CommandGroup>
+            </>
           ) : instant &&
             instant.direct.length + instant.related.length === 0 ? (
             <ListNote>No Direct Matches</ListNote>

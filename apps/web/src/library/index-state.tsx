@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { RotateCwIcon } from "lucide-react";
-import type { IndexFailure } from "@spark/core";
+import { isPartlyIndexed, type IndexFailure } from "@spark/core";
 import { Button, cn, Switch } from "@spark/ui";
 import type { Memory } from "./library-actions";
 
@@ -80,6 +80,31 @@ export function IndexBadge({
           <RotateCwIcon className="size-3.5" aria-hidden />
         </button>
       )}
+    </span>
+  );
+}
+
+/** A PDF past the Free allowance, Searchable by its first pages only. */
+export const isPartly = (memory: Memory) =>
+  memory.kind === "pdf" &&
+  memory.indexState === "searchable" &&
+  isPartlyIndexed(memory.pages);
+
+/**
+ * "Partly Indexed" on a PDF's tile, where the Index state badge sits once
+ * it is Searchable. Quiet: the same plate as the other badges over imagery,
+ * with no dot and no colour, because nothing is wrong.
+ */
+export function PartlyIndexedBadge({ className }: { className?: string }) {
+  return (
+    <span
+      data-theme="dark"
+      className={cn(
+        "inline-flex h-7 items-center rounded-chip bg-canvas/80 px-2 text-xs font-medium whitespace-nowrap text-ink",
+        className
+      )}
+    >
+      Partly Indexed
     </span>
   );
 }

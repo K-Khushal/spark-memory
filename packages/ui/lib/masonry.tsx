@@ -28,6 +28,19 @@ export type MasonryHandle = { focus: (which: "first" | "last") => void };
 const FOCUS_KEY = "masonry:focus-key";
 
 /**
+ * Where each item last stood on the page, across walls, for one `glideKey`:
+ * an item that moves from one wall to another (a Direct Match that becomes
+ * Related) is a new tile in the second wall, so it glides from where the
+ * first one drew it. Cleared whenever the key changes.
+ */
+const travel: {
+  glideKey?: string;
+  at: Map<string, { wall: object; x: number; y: number }>;
+} = { at: new Map() };
+
+const TRANSLATE = /translate\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px\)/;
+
+/**
  * Asks whichever wall holds the item `key` to scroll to it and focus it, once
  * it renders. False when no wall has it (it was deleted, or filtered out).
  */
@@ -68,6 +81,8 @@ type MasonryProps<T> = {
    * a move, not a swap. A resize, a new key or reduced motion never glides.
    */
   glideKey?: string;
+  /** False holds the glide for now (the wall glides only when a Memory is moved on purpose). */
+  glide?: boolean;
   onOpen?: (index: number) => void;
   onPreview?: (index: number) => void;
   /**
@@ -99,6 +114,7 @@ export function Masonry<T>({
   label,
   className,
   glideKey,
+  glide: gliding = true,
   onOpen,
   onPreview,
   onEdge,
@@ -234,6 +250,7 @@ export function Masonry<T>({
   // Where each rendered item stood, for the glide (FLIP on the transform).
   // Positions can settle a render after `items` change (measuring), so a
   // change keeps the glide open briefly.
+  const wall = useRef({});
   const placed = useRef({
     items,
     glideKey,
@@ -249,22 +266,60 @@ export function Masonry<T>({
     const openUntil =
       same && before.items !== items ? now + 100 : before.openUntil;
     const glide =
+      gliding &&
       same &&
       now < openUntil &&
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const at = new Map<string, string>();
+    const timing = {
+      duration: DURATION.small,
+      easing: `cubic-bezier(${EASING.out.join(",")})`,
+    };
+    if (glideKey !== undefined && travel.glideKey !== glideKey) {
+      travel.glideKey = glideKey;
+      travel.at.clear();
+    }
+    const origin = el.getBoundingClientRect();
+    const [pageX, pageY] = [
+      origin.left + window.scrollX,
+      origin.top + window.scrollY,
+    ];
     for (const tile of el.querySelectorAll<HTMLElement>(
       ":scope > [data-key]"
     )) {
+      const key = tile.dataset.key!;
       const to = tile.style.transform;
-      at.set(tile.dataset.key!, to);
-      const from = before.at.get(tile.dataset.key!);
+      at.set(key, to);
+      const from = before.at.get(key);
       if (glide && from && from !== to) {
-        tile.animate([{ transform: from }, { transform: to }], {
-          duration: DURATION.small,
-          easing: `cubic-bezier(${EASING.out.join(",")})`,
-        });
+        tile.animate([{ transform: from }, { transform: to }], timing);
       }
+      const offset = TRANSLATE.exec(to);
+      if (glideKey === undefined || !offset) continue;
+      const here = {
+        wall: wall.current,
+        x: pageX + +offset[1]!,
+        y: pageY + +offset[2]!,
+      };
+      const left = travel.at.get(key);
+      // New in this wall, and last drawn by another one close to the screen.
+      if (
+        glide &&
+        !from &&
+        left &&
+        left.wall !== wall.current &&
+        left.y > window.scrollY - window.innerHeight &&
+        left.y < window.scrollY + 2 * window.innerHeight
+      ) {
+        tile.animate(
+          [
+            { translate: `${left.x - here.x}px ${left.y - here.y}px` },
+            { translate: "0px 0px" },
+          ],
+          timing
+        );
+      }
+      travel.at.set(key, here);
     }
     placed.current = { items, glideKey, openUntil: same ? openUntil : 0, at };
   });

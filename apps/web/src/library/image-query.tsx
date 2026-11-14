@@ -218,6 +218,44 @@ export function QueryImageChip({
   );
 }
 
+/**
+ * More Like This names its source Memory the way a Library-picked image
+ * does: a chip with its thumbnail and name, beside the filters, and
+ * pressing it leaves the search.
+ */
+export function LikeSourceChip({
+  memory,
+  onClear,
+}: {
+  memory: Memory | undefined;
+  onClear: () => void;
+}) {
+  if (!memory) return null;
+  const thumbnail = memory.image?.thumbnailUrl;
+  return (
+    <FilterChip
+      aria-pressed
+      aria-label={`Remove More Like This, ${memoryName(memory) || "Memory"}`}
+      onClick={onClear}
+      className="max-w-full min-w-0"
+    >
+      {thumbnail && (
+        <img
+          className="size-6 shrink-0 rounded-chip object-cover"
+          width={24}
+          height={24}
+          alt=""
+          src={thumbnail}
+        />
+      )}
+      <span className="min-w-0 truncate" dir="auto">
+        {memoryName(memory) || "Memory"}
+      </span>
+      <XIcon className="size-4" aria-hidden />
+    </FilterChip>
+  );
+}
+
 /** Search with this Memory's stored Visual / Overview vectors, without uploading it again. */
 export function SearchByImage({
   memory,

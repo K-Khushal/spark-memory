@@ -31,8 +31,13 @@ const parts: Part[] = [
   { kind: "field", field: "tags" },
 ];
 
-/** A signed-in Library of mixed Memories, and a search that answers by its words. */
+/**
+ * A signed-in Library of mixed Memories, and a search that answers by its
+ * words. While `outage.on`, the word "boom" fails; "shift" answers its
+ * instant search with three Direct Matches and its full one, late, with two.
+ */
 async function stub(page: Page) {
+  const outage = { on: true, delay: 0 };
   await signIn(page);
   await page.request.post("/api/memories", {
     headers: { origin: new URL(page.url()).origin },
@@ -64,6 +69,8 @@ async function stub(page: Page) {
       lastSavedAt: new Date(Date.now() - i * 60_000).toISOString(),
       indexState: "searchable",
       indexError: null,
+      // The one PDF past the Free allowance of 30 pages.
+      ...(kind === "pdf" && { pages: i === 3 ? 45 : 12 }),
       categories: [i % 3 ? "Food" : "Design"],
       hasVectors: true,
       aiOptOut: false,
@@ -104,8 +111,26 @@ async function stub(page: Page) {
       page?: string;
     };
     const q = body.q.trim();
-    if (q === "boom") return route.fulfill({ status: 500, json: {} });
+    if (q === "boom" && outage.on)
+      return route.fulfill({ status: 500, json: {} });
+    if (q === "boom" && outage.delay)
+      await new Promise((done) => setTimeout(done, outage.delay));
     if (q === "slow") await new Promise((done) => setTimeout(done, 1500));
+    if (q === "shift") {
+      const full = body.mode !== "instant";
+      if (full) await new Promise((done) => setTimeout(done, 700));
+      const direct = full ? 2 : 3;
+      return route.fulfill({
+        json: {
+          results: Array.from({ length: HITS }, (_, i) => ({
+            id: memories[i]!.id,
+            match: i < direct ? "direct" : "related",
+            part: parts[i % parts.length],
+          })),
+          mode: full ? "full" : "instant",
+        },
+      });
+    }
     const empty = q === "nothing";
     const direct = q === "zero" ? 0 : 5;
     const hit = (i: number, match: "direct" | "related") => ({
@@ -130,7 +155,17 @@ async function stub(page: Page) {
   });
   await page.reload();
   await expect(page.getByRole("list", { name: "All Memories" })).toBeVisible();
+  return { outage, memories };
 }
+
+/** Screenshots for the ticket, only when asked for (FACTORY_SCREENSHOTS_DIR). */
+const ticketShot = (page: Page, name: string) =>
+  process.env.FACTORY_SCREENSHOTS_DIR
+    ? page.screenshot({
+        animations: "disabled",
+        path: `${process.env.FACTORY_SCREENSHOTS_DIR}/tui2-${name}.png`,
+      })
+    : undefined;
 
 /** ⌘K, the words, and Enter, as a person at the keyboard does it. */
 async function search(page: Page, words: string) {
@@ -232,6 +267,185 @@ test("a search that fails says so the same way in the menu and on the wall, and 
   });
   await expect(wall).toHaveAttribute("aria-busy", "false");
   await expect(wall).toHaveCSS("opacity", "1");
+});
+
+test("a search that failed offers Try Again in the menu and on the wall", async ({
+  page,
+}) => {
+  const { outage } = await stub(page);
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("boom");
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByRole("listbox").getByText("Search Is Unreachable")
+  ).toBeVisible();
+
+  // Still down: Try Again answers the same way, and the menu stays open.
+  const again = dialog.getByRole("option", { name: "Try Again" });
+  await ticketShot(page, "menu-try-again");
+  await again.click();
+  await expect(
+    dialog.getByRole("listbox").getByText("Search Is Unreachable")
+  ).toBeVisible();
+  await expect(again).toBeVisible();
+
+  // Back up: Try Again brings the results into the menu.
+  outage.on = false;
+  await again.click();
+  await expect(
+    dialog.getByRole("option", { name: /^boom|Sunset/ }).first()
+  ).toBeVisible();
+
+  // The wall: the same words and the same action.
+  outage.on = true;
+  await page.getByPlaceholder("Search…").fill("boom again");
+  await page.getByPlaceholder("Search…").fill("boom");
+  await expect(
+    dialog.getByRole("listbox").getByText("Search Is Unreachable")
+  ).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Search Is Unreachable" })
+  ).toBeVisible();
+  await ticketShot(page, "wall-try-again");
+  outage.on = false;
+  await page.getByRole("button", { name: "Try Again" }).click();
+  await expect(
+    page.getByRole("list", { name: "Direct Matches" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Search Is Unreachable" })
+  ).toHaveCount(0);
+});
+
+test("Try Again sends one instant and one full request when the menu and the wall share the failed search", async ({
+  page,
+}) => {
+  const { outage } = await stub(page);
+  const modes: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/search"))
+      modes.push((request.postDataJSON() as { mode: string }).mode);
+  });
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("boom");
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByRole("listbox").getByText("Search Is Unreachable")
+  ).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Search Is Unreachable" })
+  ).toBeVisible();
+
+  // The menu again, on the words the wall failed on.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("boom");
+  await expect(
+    dialog.getByRole("listbox").getByText("Search Is Unreachable")
+  ).toBeVisible();
+  await page.waitForTimeout(600);
+  modes.length = 0;
+  outage.on = false;
+  await dialog.getByRole("option", { name: "Try Again" }).click();
+  await expect(
+    dialog.getByRole("option", { name: /^Sunset over the dock/ })
+  ).toBeVisible();
+  await page.waitForTimeout(600);
+  expect(modes.sort()).toEqual(["full", "instant"]);
+});
+
+test("Try Again says it is searching again, and marks the menu and the wall busy until the answer lands", async ({
+  page,
+}) => {
+  const { outage } = await stub(page);
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("boom");
+  const dialog = page.getByRole("dialog");
+  const list = dialog.getByRole("listbox");
+  await expect(list.getByText("Search Is Unreachable")).toBeVisible();
+  await expect(list).toHaveAttribute("aria-busy", "false");
+
+  outage.on = false;
+  outage.delay = 1200;
+  await dialog.getByRole("option", { name: "Try Again" }).click();
+  await expect(list).toHaveAttribute("aria-busy", "true");
+  await expect(dialog.getByRole("status")).toHaveText("Searching Again");
+  await expect(list).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
+
+  // The wall.
+  outage.on = true;
+  outage.delay = 0;
+  await page.getByPlaceholder("Search…").fill("boom!");
+  await page.getByPlaceholder("Search…").fill("boom");
+  await expect(list.getByText("Search Is Unreachable")).toBeVisible();
+  await page.keyboard.press("Enter");
+  const wall = page.locator("main > div[aria-busy]");
+  await expect(
+    page.getByRole("heading", { name: "Search Is Unreachable" })
+  ).toBeVisible();
+  await expect(wall).toHaveAttribute("aria-busy", "false");
+  outage.on = false;
+  outage.delay = 1200;
+  await page.getByRole("button", { name: "Try Again" }).click();
+  await expect(wall).toHaveAttribute("aria-busy", "true");
+  // Announced from outside the busy container, or it could be held back until the busy state clears.
+  await expect(
+    page.getByRole("status").filter({ hasText: "Searching Again" })
+  ).toBeAttached();
+  // Read once, while it is busy: a retrying assertion would wait for the busy state to end.
+  expect(await wall.getByText("Searching Again").count()).toBe(0);
+  await expect(wall).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
+});
+
+test("a tile that moves from Direct to Related glides there instead of appearing", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const glides: string[] = [];
+    (window as unknown as { glides: string[] }).glides = glides;
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (keyframes, options) {
+      const first = (keyframes as Keyframe[])[0];
+      if (first && "translate" in first && this.getAttribute("aria-label"))
+        glides.push(this.getAttribute("aria-label")!);
+      return animate.call(this, keyframes, options);
+    };
+  });
+  const { memories } = await stub(page);
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("shift");
+  await expect(page.getByRole("option").first()).toBeVisible();
+  await page.keyboard.press("Enter");
+
+  // Three Direct Matches at first; the full answer, late, takes the third to Related.
+  const direct = page.getByRole("list", { name: "Direct Matches" });
+  await expect(direct.getByRole("listitem")).toHaveCount(3);
+  await expect(direct.getByRole("listitem")).toHaveCount(2, { timeout: 5000 });
+  await expect(
+    page
+      .getByRole("list", { name: "Related Matches" })
+      .getByRole("listitem")
+      .first()
+  ).toBeVisible();
+  const moved = memories[2]!.title!;
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { glides: string[] }).glides)
+    )
+    .toEqual([expect.stringContaining(moved)]);
+});
+
+test("a PDF past the Free allowance says Partly Indexed on its tile, and no other tile does", async ({
+  page,
+}) => {
+  await stub(page);
+  const wall = page.getByRole("list", { name: "All Memories" });
+  await expect(wall.getByText("Partly Indexed")).toHaveCount(1);
+  await ticketShot(page, "partly-indexed");
+  await expect(
+    wall.getByRole("listitem", { name: /, PDF, Partly Indexed$/ })
+  ).toHaveCount(1);
 });
 
 test("Show More keeps its focus while a page loads and hands it to the wall when the pages end", async ({

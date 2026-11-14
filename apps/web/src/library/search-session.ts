@@ -130,7 +130,8 @@ export function searchSession({
   fetch: (
     request: SearchRequest,
     mode: Mode,
-    signal: AbortSignal
+    signal: AbortSignal,
+    version: string
   ) => Promise<Page & { final: boolean }>;
   onAnswer: (answer: Answer | undefined) => void;
   pauseMs: number;
@@ -140,10 +141,12 @@ export function searchSession({
   scope: string;
 }) {
   let stop = () => {};
+  let last: { request: SearchRequest; version: string } | undefined;
 
   /** `version` names the Library's state (libraryVersion): a new one searches again. */
   function set(request: SearchRequest | undefined, version: string) {
     stop();
+    last = request && { request, version };
     if (!request) {
       stop = () => {};
       onAnswer(undefined);
@@ -183,7 +186,7 @@ export function searchSession({
       }
     };
     const run = (mode: Mode) =>
-      fetch(request, mode, controller.signal).then(
+      fetch(request, mode, controller.signal, version).then(
         ({ final, ...page }) => done(mode, page, final),
         () => done(mode)
       );
@@ -193,7 +196,14 @@ export function searchSession({
       return;
     }
     const pause = "like" in request ? 0 : pauseMs;
-    const timer = pause ? setTimeout(() => void run("full"), pause) : undefined;
+    const runFull = () => {
+      // The wall may have found the full answer while this waited out the pause.
+      const shared = cache.get(cacheKey);
+      if (!shared) return void run("full");
+      step.full = "ok";
+      onAnswer({ key, mode: "full", ...shared });
+    };
+    const timer = pause ? setTimeout(runFull, pause) : undefined;
     if (!pause) void run("full");
     stop = () => {
       clearTimeout(timer);
@@ -201,5 +211,12 @@ export function searchSession({
     };
   }
 
-  return { set, stop: () => stop() };
+  /** Asks again for the request last set: a failed answer is never cached, so it goes to the network. */
+  const retry = () => {
+    if (!last) return false;
+    set(last.request, last.version);
+    return true;
+  };
+
+  return { set, retry, stop: () => stop() };
 }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { FREE_ALLOWANCE } from "./allowance";
+import { displayHost } from "./host";
 
 // The WHATWG URL parser exists in every runtime Spark runs on (browsers,
 // Workers, Node); declared here because @spark/core takes no DOM lib.
@@ -167,10 +168,13 @@ export function linkFromPaste(text: string): string | undefined {
   return parse(trimmed) ? trimmed : undefined;
 }
 
-/** A Source's host as people say it: no `www.`. */
+/**
+ * A Source's host as people say it: no `www.`, and an international name
+ * in Unicode, not punycode. For display; the stored URL is untouched.
+ */
 export function sourceHost(url: string): string | undefined {
   const parsed = parse(url);
-  return parsed?.hostname.replace(/^www\./, "");
+  return parsed && displayHost(parsed.hostname.replace(/^www\./, ""));
 }
 
 /**
