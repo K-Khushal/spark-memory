@@ -22,4 +22,6 @@ pnpm install
 pnpm dev
 ```
 
+If a local dev database applied a migration that was later renumbered, reset it with `docker compose down -v`. See [packages/db/README.md](./packages/db/README.md) for the journal ordering guide.
+
 `pnpm check` runs everything CI runs. See [CLAUDE.md](./CLAUDE.md) for conventions and [docs/PLAN.md](./docs/PLAN.md) for the plan.
