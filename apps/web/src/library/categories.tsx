@@ -70,10 +70,12 @@ export function CategoryEditor({
             {label}
           </span>
         )}
-        <ChevronDownIcon
-          aria-hidden
-          className="size-4 shrink-0 text-ink-muted transition-transform duration-(--duration-press) group-open:rotate-180 motion-reduce:transition-none"
-        />
+        {!compact && (
+          <ChevronDownIcon
+            aria-hidden
+            className="size-4 shrink-0 text-ink-muted transition-transform duration-(--duration-press) group-open:rotate-180 motion-reduce:transition-none"
+          />
+        )}
       </summary>
       <div
         className={

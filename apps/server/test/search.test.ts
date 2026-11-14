@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { EMBEDDING } from "@spark/core";
 import { indexingStore, openDatabase } from "@spark/db";
 import type * as Core from "@spark/core";
@@ -521,7 +523,7 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     queues.background.sent.length = 0;
     await call(`/api/memories/${id}`, {
       method: "PATCH",
-      json: { title: "Sunset over the dock" },
+      json: { title: "Sunset over the dock", body: "Notes from the trip" },
     });
     expect(queues.background.sent).toEqual([
       {
@@ -657,60 +659,87 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
   });
 
   it("back-fills more than 200 Categories using bounded queue batches", async () => {
-    const { call } = await signedIn();
-    const { id: owner } = (await (await call("/api/me")).json()) as {
-      id: string;
-    };
-    const inserted = await sql.query(
-      `insert into memory (user_id, kind, body, index_state, vectors_space, vectors_revision, updated_at)
+    // The sweep is global: unrelated stalled Captures may consume its cron
+    // share. Give this scenario its own database, including on repeated runs.
+    const database = `category_batch_${crypto.randomUUID().replaceAll("-", "")}`;
+    await sql.query(`CREATE DATABASE "${database}"`);
+    const isolatedUrl = new URL(databaseUrl!);
+    isolatedUrl.pathname = `/${database}`;
+    const isolated = new Client({ connectionString: isolatedUrl.href });
+    const bindings = env({
+      HYPERDRIVE: { connectionString: isolatedUrl.href },
+    });
+    try {
+      await promisify(execFile)(
+        "pnpm",
+        ["--filter", "@spark/db", "db:migrate"],
+        {
+          env: { ...process.env, DATABASE_URL: isolatedUrl.href },
+          timeout: 30_000,
+        }
+      );
+      await isolated.connect();
+      const owner = crypto.randomUUID();
+      await isolated.query(
+        'insert into "user" (id, name, email) values ($1, $2, $3)',
+        [owner, "Category Test", `${owner}@example.test`]
+      );
+      const inserted = await isolated.query(
+        `insert into memory (user_id, kind, body, index_state, vectors_space, vectors_revision, updated_at)
       select $1, 'text', 'Recipe', 'searchable', 'fake-embedding@768', 1, now() - interval '20 years'
       from generate_series(1, 250) returning id`,
-      [owner]
-    );
-    const ids = inserted.rows.map((r: { id: string }) => r.id);
-    try {
-      await sql.query(
-        `insert into memory_index (memory_id, title, description, ocr_text, entities, tags, model)
+        [owner]
+      );
+      const ids = inserted.rows.map((r: { id: string }) => r.id);
+      try {
+        await isolated.query(
+          `insert into memory_index (memory_id, title, description, ocr_text, entities, tags, model)
         select id, 'Recipe', '', '', '{}', '{}', 'fake' from memory where id = any($1::uuid[])`,
-        [ids]
-      );
-      await sql.query(
-        `insert into memory_vector (memory_id, user_id, kind, model, dimensions, embedding)
+          [ids]
+        );
+        await isolated.query(
+          `insert into memory_vector (memory_id, user_id, kind, model, dimensions, embedding)
         select id, user_id, 'overview', 'fake-embedding', 768, $2::halfvec from memory where id = any($1::uuid[])`,
-        [ids, JSON.stringify([1, ...new Array(767).fill(0)])]
-      );
-      queues.background.sent.length = 0;
-      const calls = cronCalls();
-      await requeueStalled(env(), calls);
-      const sent = queues.background.sent.filter((m) =>
-        ids.includes(m.body.memoryId)
-      );
-      expect(sent).toHaveLength(250);
-      expect(10 - calls.remaining("indexing")).toBeLessThanOrEqual(10);
-      expect(10 - calls.remaining("indexing")).toBeGreaterThanOrEqual(3);
-      const before = await sql.query(
-        "select embedding::text from memory_vector where memory_id = $1",
-        [ids[0]]
-      );
-      await drain(ids[0]!);
-      expect(
-        (
-          await sql.query(
-            "select embedding::text from memory_vector where memory_id = $1",
-            [ids[0]]
-          )
-        ).rows
-      ).toEqual(before.rows);
-      expect(
-        (
-          await sql.query(
-            "select categories_version from memory where id = $1",
-            [ids[0]]
-          )
-        ).rows[0].categories_version
-      ).not.toBeNull();
+          [ids, JSON.stringify([1, ...new Array(767).fill(0)])]
+        );
+        queues.background.sent.length = 0;
+        const calls = cronCalls();
+        await requeueStalled(bindings, calls);
+        const sent = queues.background.sent.filter((m) =>
+          ids.includes(m.body.memoryId)
+        );
+        expect(sent).toHaveLength(250);
+        expect(10 - calls.remaining("indexing")).toBeLessThanOrEqual(10);
+        expect(10 - calls.remaining("indexing")).toBeGreaterThanOrEqual(3);
+        const before = await isolated.query(
+          "select embedding::text from memory_vector where memory_id = $1",
+          [ids[0]]
+        );
+        await drain(ids[0]!, bindings);
+        expect(
+          (
+            await isolated.query(
+              "select embedding::text from memory_vector where memory_id = $1",
+              [ids[0]]
+            )
+          ).rows
+        ).toEqual(before.rows);
+        expect(
+          (
+            await isolated.query(
+              "select categories_version from memory where id = $1",
+              [ids[0]]
+            )
+          ).rows[0].categories_version
+        ).not.toBeNull();
+      } finally {
+        await isolated.query("delete from memory where id = any($1::uuid[])", [
+          ids,
+        ]);
+      }
     } finally {
-      await sql.query("delete from memory where id = any($1::uuid[])", [ids]);
+      await isolated.end();
+      await sql.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
     }
   });
 

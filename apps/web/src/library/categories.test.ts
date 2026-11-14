@@ -60,6 +60,7 @@ describe("Category pending state", () => {
     );
     expect(summary({}, true)).toContain('class="sr-only"');
     expect(summary({}, true)).toContain("lucide-clock");
+    expect(summary({}, true)).not.toContain("lucide-chevron-down");
     expect(summary({ categoriesVersion: 1 }, true)).toContain("lucide-tags");
   });
   it("keeps long and non-Latin Category names in the accessible summary", () => {
