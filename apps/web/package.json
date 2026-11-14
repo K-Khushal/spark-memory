@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "playwright test",
+    "ui-tour": "UI_TOUR=1 playwright test --workers=1",
     "screenshot:admin": "ADMIN_SCREENSHOTS=1 playwright test"
   },
   "dependencies": {
