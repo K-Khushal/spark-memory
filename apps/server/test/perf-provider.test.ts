@@ -9,11 +9,18 @@ it("reports the actual local provider, including a non-fake configuration", asyn
       {},
       {
         SPARK_ENV: "local",
+        HYPERDRIVE: {
+          connectionString: "postgres://user:secret@localhost:32828/perf_spark",
+        },
         INDEXING_PROVIDER: provider,
       } as Bindings
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ provider, jevEnabled: false });
+    expect(await res.json()).toEqual({
+      provider,
+      jevEnabled: false,
+      database: "perf_spark",
+    });
   }
 });
 it("does not expose the dev provider endpoint outside local development", async () => {
@@ -34,9 +41,16 @@ it("reports enabled paid Jev rather than treating fake extraction as a safe stac
     {},
     {
       SPARK_ENV: "local",
+      HYPERDRIVE: {
+        connectionString: "postgres://user:secret@localhost:32828/perf_spark",
+      },
       INDEXING_PROVIDER: "fake",
       JEV_ENABLED: "true",
     } as Bindings
   );
-  expect(await res.json()).toEqual({ provider: "fake", jevEnabled: true });
+  expect(await res.json()).toEqual({
+    provider: "fake",
+    jevEnabled: true,
+    database: "perf_spark",
+  });
 });

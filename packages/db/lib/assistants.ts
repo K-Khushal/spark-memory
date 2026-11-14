@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { lockOwner } from "./owner";
 import type { Database } from "./client";
 
@@ -24,6 +24,8 @@ export type AssistantActivity = {
 };
 const iso = (column: string) =>
   `to_char(${column} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+/** The one Settings identity shared by all grants for an OAuth client. */
+const clientRowId = (id: string | SQL) => sql`'client:' || ${id}`;
 export type OAuthClient = { id: string; name: string; redirects: string[] };
 
 /** Only digests cross the persistence boundary. No query or Memory content is accepted here. */
@@ -58,7 +60,20 @@ export function assistantStore(db: Database) {
   };
   return {
     /** Hourly retention: keep a short replay-detection grace, never current credentials. */
-    async sweep() {
+    async sweep(batch = 500) {
+      // One owner-agnostic statement and a bounded batch per hourly invocation.
+      // OAuth refresh rotates tokens, so liveness comes from grants, not tokens.
+      await db.execute(sql`delete from assistant_activity where id in (
+        select a.id from assistant_activity a
+        where a.occurred_at <= now() - interval '90 days'
+          or (a.occurred_at <= now() - interval '30 days'
+            and not exists(select 1 from assistant_token t where t.user_id = a.user_id
+              and t.id = a.assistant_id and t.client_id is null and t.expires_at > now())
+            and not exists(select 1 from assistant_grant g where g.user_id = a.user_id
+              and ${clientRowId(sql`g.client_id`)} = a.assistant_id and g.expires_at > now()))
+        order by a.occurred_at, a.id limit ${batch}
+        for update of a skip locked
+      )`);
       await db.execute(
         sql`delete from assistant_refresh where used and (used_at is null or used_at <= now() - interval '1 minute')`
       );
@@ -258,8 +273,8 @@ export function assistantStore(db: Database) {
           (select ${sql.raw(iso("a.occurred_at"))} from assistant_activity a where a.user_id = t.user_id and a.assistant_id = t.id order by a.id desc limit 1) as "lastActiveAt"
         from assistant_token t where t.user_id = ${userId} and t.client_id is null and t.expires_at > now()
         union all
-        select 'client:' || g.client_id, c.name, g.client_id, min(g.created_at), max(g.expires_at),
-          (select ${sql.raw(iso("a.occurred_at"))} from assistant_activity a where a.user_id = g.user_id and a.assistant_id = 'client:' || g.client_id order by a.id desc limit 1)
+        select ${clientRowId(sql`g.client_id`)}, c.name, g.client_id, min(g.created_at), max(g.expires_at),
+          (select ${sql.raw(iso("a.occurred_at"))} from assistant_activity a where a.user_id = g.user_id and a.assistant_id = ${clientRowId(sql`g.client_id`)} order by a.id desc limit 1)
           from assistant_grant g join assistant_client c on c.id = g.client_id
           where g.user_id = ${userId} and g.expires_at > now() group by g.user_id, g.client_id, c.name
         order by "createdAt", id`)
@@ -309,7 +324,7 @@ export function assistantStore(db: Database) {
       resultCount: number,
       memoryId: string | null = null
     ) {
-      const rowId = access.clientId ? `client:${access.clientId}` : access.id;
+      const rowId = access.clientId ? clientRowId(access.clientId) : access.id;
       await ownedWrite(access.userId, async (tx) => {
         await tx.execute(sql`insert into assistant_activity(user_id, client_id, assistant_id, assistant, tool, result_count, memory_id)
         select ${access.userId}, ${access.clientId}, ${rowId}, ${access.name}, ${tool}, ${resultCount},

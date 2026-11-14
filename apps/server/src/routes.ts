@@ -35,6 +35,9 @@ export const routes = new Hono<AppEnv>()
     return c.json({
       provider: c.env.INDEXING_PROVIDER ?? null,
       jevEnabled: c.env.JEV_ENABLED === "true",
+      database: decodeURIComponent(
+        new URL(c.env.HYPERDRIVE.connectionString).pathname.slice(1)
+      ),
     });
   })
   // Public: what the sign-in screen offers.

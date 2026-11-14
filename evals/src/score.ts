@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { directScore, formatDirectScore } from "./judging";
+import { directScore, formatDirectScore, leaveOneOut } from "./judging";
 import type { Report, SearchOutcome } from "./run";
 
 export type Tally = { total: number; top1: number; top5: number };
@@ -38,17 +38,27 @@ export function worstOf(runs: SearchOutcome[][]): SearchOutcome[] {
 export const Baseline = z.object({
   /** The most the top-1 or top-5 rate may fall (0.02 = two points) before the gate fails. */
   tolerance: z.number().min(0).max(1),
+  directPrecision: z.number().min(0).max(1),
+  directPrecisionTolerance: z.number().min(0).max(1),
   ranks: z.record(z.string(), z.number().int().positive().nullable()),
 });
 export type Baseline = z.infer<typeof Baseline>;
 
 export const DEFAULT_TOLERANCE = 0.02;
 
+/** Same held-out score as eval:tune with fake providers: freeze meaningless distances. */
+const heldOutPrecision = (outcomes: SearchOutcome[]) => {
+  const held = leaveOneOut(outcomes, { freeze: ["directDistance"] });
+  return held.direct ? held.directRight / held.direct : 0;
+};
+
 export const toBaseline = (
   outcomes: SearchOutcome[],
   tolerance = DEFAULT_TOLERANCE
 ): Baseline => ({
   tolerance,
+  directPrecision: heldOutPrecision(outcomes),
+  directPrecisionTolerance: DEFAULT_TOLERANCE,
   ranks: Object.fromEntries(outcomes.map((o) => [o.id, o.rank])),
 });
 
@@ -95,6 +105,15 @@ export function compare(outcomes: SearchOutcome[], baseline: Baseline) {
         `${label} fell from ${pct(before, total)} to ${pct(now, total)} (${before} to ${now} of ${total} searches; tolerance ${(baseline.tolerance * 100).toFixed(1)} points)`
       );
     }
+  }
+  const precision = heldOutPrecision(known);
+  if (
+    baseline.directPrecision - precision >
+    baseline.directPrecisionTolerance
+  ) {
+    messages.push(
+      `Direct-match precision fell from ${(baseline.directPrecision * 100).toFixed(1)}% to ${(precision * 100).toFixed(1)}% (leave-one-out; tolerance ${(baseline.directPrecisionTolerance * 100).toFixed(1)} points)`
+    );
   }
   const lost = known
     .filter((o) => {

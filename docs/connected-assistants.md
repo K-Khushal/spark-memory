@@ -69,3 +69,9 @@ Real Claude Code and Codex checks need your own signed-in clients; the SDK hands
 5. Repeat with a personal access token where supported, and remove it afterward.
 
 Already returned data cannot be recalled. Original-file URLs already issued retain the existing download expiry (at most two hours). Activity records omit queries and Memory content (an opened Memory is kept as its id only); account deletion removes all credentials and activity. Library export includes `connected-assistants.json` with metadata only.
+
+## Activity retention
+
+The hourly sweep removes activity older than 90 days. For assistants with no active personal token or OAuth grant (revoked or expired), it removes calls older than 30 days. OAuth token rotation does not shorten retention while the grant remains active. Historical calls without an attributable assistant follow the 30-day limit.
+
+Each invocation deletes at most 500 eligible calls across all owners, oldest first, in one database statement; remaining calls wait for the next hour. It uses the existing database connection and no additional queue or storage subrequests, keeping the hourly cron within its subrequest budget. Reconnecting an OAuth client makes that client's retained activity active again.

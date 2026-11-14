@@ -1,6 +1,6 @@
 // `pnpm --filter @spark/evals eval [--check | --update-baseline | --real] [--json file]`
 //   (default)          fake providers, print the report
-//   --check            fake providers, fail when top-1 or top-5 fell below baseline.json
+//   --check            fake providers, fail when ranks or held-out Direct precision fall below baseline.json
 //   --update-baseline  fake providers, write baseline.json (do it on purpose, in the PR)
 //   --detail           also write evals/local/detail.json (queries and titles: git-ignored, local only)
 //   --tune             also print the thresholds that best split Direct from Related Matches (JUDGING.thresholds)

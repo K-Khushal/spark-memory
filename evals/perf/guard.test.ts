@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { perfDatabaseUrl, requireFakeIndexing } from "./guard";
+import {
+  perfDatabaseUrl,
+  requireFakeIndexing,
+  requireWorkerDatabase,
+} from "./guard";
 
 const safe = "postgres://spark:spark@localhost:32828/perf_spark";
 describe("performance database guard", () => {
@@ -59,4 +63,10 @@ it("refuses a preflight that omits the Jev setting", () => {
 
 it("never falls back to the .env database when the explicit opt-in is missing", () => {
   expect(() => perfDatabaseUrl(undefined, safe)).toThrow("PERF_DATABASE_URL");
+});
+
+it("refuses missing or mismatched Worker databases before sign-in", () => {
+  for (const name of [undefined, "spark", "perf_other"])
+    expect(() => requireWorkerDatabase(safe, name)).toThrow("database");
+  expect(() => requireWorkerDatabase(safe, "perf_spark")).not.toThrow();
 });

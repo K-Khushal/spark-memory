@@ -71,8 +71,7 @@ export const mcp = new Hono<AppEnv>()
         names.includes(call.data.params.name as (typeof names)[number])
           ? call.data.params.name
           : "unknown";
-      let resultCount = 0;
-      let opened = null as string | null;
+      let recorded = false;
       try {
         const perUser = c.env.SEARCH_LIMITER;
         if (
@@ -110,7 +109,13 @@ export const mcp = new Hono<AppEnv>()
         ) => {
           const kept = memories.filter((m) => m !== undefined);
           const data = await Promise.all(kept.map((m) => forClient(files, m)));
-          resultCount = data.length;
+          await store.record(
+            access,
+            tool,
+            data.length,
+            tool === "get_memory" ? (kept[0]?.id ?? null) : null
+          );
+          recorded = true;
           return {
             content: [
               {
@@ -143,7 +148,6 @@ export const mcp = new Hono<AppEnv>()
           },
           async ({ id }) => {
             const found = await library.get(id);
-            if (found) opened = id;
             return answer([found]);
           }
         );
@@ -169,7 +173,7 @@ export const mcp = new Hono<AppEnv>()
           await server.close();
         }
       } finally {
-        if (call.success) await store.record(access, tool, resultCount, opened);
+        if (call.success && !recorded) await store.record(access, tool, 0);
       }
     } finally {
       await close();

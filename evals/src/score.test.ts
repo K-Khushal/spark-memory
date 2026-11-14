@@ -124,7 +124,14 @@ describe("gate holes", () => {
   it("fails an empty comparison, so no search can pass for lack of searches", () => {
     expect(compare([], baseline).ok).toBe(false);
     expect(compare([outcome("x", 1)], baseline).ok).toBe(false);
-    expect(compare([], { tolerance: 0.02, ranks: {} }).ok).toBe(false);
+    expect(
+      compare([], {
+        tolerance: 0.02,
+        directPrecision: 0,
+        directPrecisionTolerance: 0.02,
+        ranks: {},
+      }).ok
+    ).toBe(false);
   });
 
   it("still allows extra searches, reported as new", () => {
@@ -164,5 +171,43 @@ describe("formatReport", () => {
     });
     expect(text).not.toContain(secret);
     expect(JSON.stringify(Object.keys(outcome("a", 1)))).not.toContain("query");
+  });
+});
+
+describe("Direct-match precision gate", () => {
+  const run = ["a", "b", "c"].map((id) => ({
+    ...outcome(id, 1),
+    judged: [
+      {
+        id: "hit",
+        relevant: true,
+        match: "related" as const,
+        matched: ["keyword" as const],
+        distance: null,
+        score: 1,
+      },
+    ],
+  }));
+  it("gates held-out precision even when current Direct labels disagree", () => {
+    const baseline = toBaseline(run);
+    const wrong = run.map((o) => ({
+      ...o,
+      judged: o.judged.map((r) => ({ ...r, relevant: false })),
+    }));
+    expect(compare(wrong, baseline).messages.join("\n")).toMatch(
+      /Direct-match precision/
+    );
+  });
+  it("allows a held-out precision drop within its own tolerance", () => {
+    const baseline = {
+      ...toBaseline(run),
+      directPrecision: 1,
+      directPrecisionTolerance: 1,
+    };
+    const wrong = run.map((o) => ({
+      ...o,
+      judged: o.judged.map((r) => ({ ...r, relevant: false })),
+    }));
+    expect(compare(wrong, baseline).ok).toBe(true);
   });
 });
