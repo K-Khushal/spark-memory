@@ -25,7 +25,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
   type Ref,
 } from "react";
 import {
@@ -48,7 +47,14 @@ import {
 import { startAnalytics, track } from "../analytics";
 import { authClient, endSession, type AppSession } from "../auth";
 import { ShareTarget } from "../pwa/share-target";
-import { DeskSearchField, DeskSidebar, focusDeskControl } from "../shell";
+import {
+  Centred,
+  DeskSearchField,
+  DeskSidebar,
+  focusDeskControl,
+  SkipLink,
+} from "../shell";
+import { useStickyInset } from "../sticky-inset";
 import { productMetrics } from "./product-metrics";
 import { createActivation } from "./activation";
 import { Onboarding, recordActivation } from "./onboarding";
@@ -79,6 +85,8 @@ export function LibraryPage({
   admin: boolean;
 }) {
   const navigate = useNavigate();
+  const bar = useRef<HTMLDivElement>(null);
+  useStickyInset(bar);
   const library = useLibrary(session.user.id);
   const { desk, memory: linked } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
@@ -520,6 +528,7 @@ export function LibraryPage({
         }
       }}
     >
+      <SkipLink />
       <DeskSidebar
         filtered={filtering}
         email={session.user.email}
@@ -554,16 +563,23 @@ export function LibraryPage({
         }
       />
 
-      <main className="min-w-0 flex-1 pb-32">
-        <div className="sticky top-0 z-20 border-b border-line bg-canvas md:hidden">
-          <div className="flex items-center gap-2 px-4 py-2">
+      <main
+        id="content"
+        tabIndex={-1}
+        className="min-w-0 flex-1 pb-32 outline-none"
+      >
+        <div
+          ref={bar}
+          className="sticky top-0 z-20 border-b border-line bg-canvas md:hidden"
+        >
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2">
             <Wordmark />
             {admin && (
               <Link to="/admin" className="text-sm text-ink-muted">
                 Admin
               </Link>
             )}
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-56">
               <DeskSearchField
                 label={searchLabel}
                 active={searching}
@@ -612,13 +628,13 @@ export function LibraryPage({
         )}
 
         {library.state === "failed" ? (
-          <Centred title="Library Is Unreachable">
+          <Centred title="Library Is Unreachable" level={2}>
             <Button variant="outline" onClick={library.retry}>
               Try Again
             </Button>
           </Centred>
         ) : library.state === "loading" ? null : !library.memories.length ? (
-          <Centred title="No Memories Yet">
+          <Centred title="No Memories Yet" level={2}>
             <div className="flex flex-wrap justify-center gap-2">
               <Button variant="primary" className="h-10" onClick={openPasteBox}>
                 <PlusIcon aria-hidden /> Capture
@@ -760,18 +776,6 @@ export function LibraryPage({
 
 function Wordmark() {
   return <span className="font-display text-md font-semibold">Spark</span>;
-}
-
-/** A whole-wall message with one way forward. */
-function Centred({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="grid min-h-[calc(100dvh-3.5rem)] place-items-center p-4 md:min-h-dvh">
-      <div className="flex flex-col items-center gap-5">
-        <h2 className="font-display text-lg font-semibold">{title}</h2>
-        {children}
-      </div>
-    </div>
-  );
 }
 
 /** What a tile can ask of the Library: Try Again or Delete for an upload, Retry for Indexing, fresh URLs for a broken image. */

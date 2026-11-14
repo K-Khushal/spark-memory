@@ -74,17 +74,20 @@ export const SPRING = {
 /** Radius in px, by hierarchy: smaller things get smaller corners. */
 export const RADIUS = { chip: 6, control: 8, tile: 12, panel: 16 } as const;
 
-/** Type scale in px (size and line height); DESIGN.md → Typography. */
+/**
+ * Type scale in px (size and line height); DESIGN.md → Typography. Steps from
+ * 22px up also track -0.02em.
+ */
 export const TYPE_SCALE = {
   "2xs": { size: 11, leading: 16 },
   xs: { size: 12, leading: 16 },
   sm: { size: 13, leading: 20 },
   base: { size: 15, leading: 24 },
   md: { size: 17, leading: 26 },
-  lg: { size: 22, leading: 30 },
-  xl: { size: 28, leading: 34 },
-  "2xl": { size: 40, leading: 44 },
-  "3xl": { size: 56, leading: 58 },
+  lg: { size: 22, leading: 30, tracking: -0.02 },
+  xl: { size: 28, leading: 34, tracking: -0.02 },
+  "2xl": { size: 40, leading: 44, tracking: -0.02 },
+  "3xl": { size: 56, leading: 58, tracking: -0.02 },
 } as const;
 
 /** Surfaces, text and lines: the tokens that must stay neutral. */

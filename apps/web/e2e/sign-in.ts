@@ -1,14 +1,11 @@
 import { expect, type Page } from "@playwright/test";
 
-/** Signs a person in with an email code from the local dev outbox; returns their address. */
-export async function signIn(
-  page: Page,
-  address?: string,
-  returnTo?: string
-): Promise<string> {
-  // The widget is a third-party boundary. Use Cloudflare's public test
-  // token so smoke tests exercise real Spark sign-in without depending on
-  // the challenge iframe's availability in this sandbox.
+/**
+ * The widget is a third-party boundary. Use Cloudflare's public test token so
+ * smoke tests exercise real Spark sign-in without depending on the challenge
+ * iframe's availability in this sandbox.
+ */
+export async function stubTurnstile(page: Page) {
   await page.route(
     "https://challenges.cloudflare.com/turnstile/v0/api.js**",
     (route) =>
@@ -28,11 +25,13 @@ export async function signIn(
     })();`,
       })
   );
-  const email =
-    address ??
-    `smoke-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
-  // Each test signs in from its own address, so the per-IP limit on sending
-  // codes (3 a minute) never trips when tests run side by side.
+}
+
+/**
+ * Each test signs in from its own address, so the per-IP limit on sending
+ * codes (3 a minute) never trips when tests run side by side.
+ */
+export async function fromOwnAddress(page: Page) {
   const octet = () => Math.floor(Math.random() * 254) + 1;
   const ip = `10.${octet()}.${octet()}.${octet()}`;
   await page.route("**/api/**", (route) =>
@@ -40,6 +39,19 @@ export async function signIn(
       headers: { ...route.request().headers(), "cf-connecting-ip": ip },
     })
   );
+}
+
+/** Signs a person in with an email code from the local dev outbox; returns their address. */
+export async function signIn(
+  page: Page,
+  address?: string,
+  returnTo?: string
+): Promise<string> {
+  await stubTurnstile(page);
+  const email =
+    address ??
+    `smoke-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
+  await fromOwnAddress(page);
 
   await page.goto(returnTo ?? "/");
   await expect(page).toHaveURL(/\/sign-in(?:\?|$)/);

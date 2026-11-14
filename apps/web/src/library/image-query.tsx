@@ -127,8 +127,7 @@ export function ImageQueryControls({
         type="file"
         accept="image/jpeg,image/png,image/webp"
         aria-label="Query Image File"
-        className="sr-only"
-        tabIndex={-1}
+        hidden
         onChange={(event) => {
           void pick(event.target.files?.[0]);
           event.target.value = "";

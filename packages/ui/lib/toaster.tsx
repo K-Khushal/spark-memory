@@ -21,9 +21,11 @@ export function Toaster(props: ToasterProps) {
         } as CSSProperties
       }
       toastOptions={{
+        // Sonner sizes its text in px; rem keeps a toast in step with larger text.
         classNames: {
+          toast: "!text-sm",
           actionButton:
-            "!bg-canvas !text-ink !font-medium !rounded-chip !h-7 !px-2.5",
+            "!bg-canvas !text-ink !text-sm !font-medium !rounded-chip !h-7 !px-2.5",
         },
       }}
       {...props}

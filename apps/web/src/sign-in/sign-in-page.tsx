@@ -144,8 +144,9 @@ export function SignInPage({
   };
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-canvas px-4 py-12">
-      <div className="flex w-full max-w-[22rem] flex-col gap-6">
+    <main className="grid min-h-dvh grid-cols-[minmax(0,1fr)] place-items-center bg-canvas px-4 py-12">
+      {/* Buttons wrap at large text sizes instead of widening the page. */}
+      <div className="flex w-full max-w-[22rem] flex-col gap-6 [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-11 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:py-2 [&_[data-slot=button]]:whitespace-normal">
         {step === "email" ? (
           <>
             <Title>Sign In to Spark</Title>
@@ -248,7 +249,7 @@ export function SignInPage({
               </InputOTP>
               <ErrorLine error={error} />
             </div>
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Button
                 variant="quiet"
                 className="-ml-3"
@@ -276,6 +277,8 @@ export function SignInPage({
           ref={turnstile}
           siteKey={options.turnstileSiteKey}
           options={{ appearance: "interaction-only", size: "flexible" }}
+          // Its own 300px minimum is wider than a 320px screen's column.
+          style={{ minWidth: "min(300px, 100%)" }}
         />
       </div>
     </main>
@@ -283,11 +286,7 @@ export function SignInPage({
 }
 
 function Title({ children }: { children: ReactNode }) {
-  return (
-    <h1 className="font-display text-xl font-semibold tracking-[-0.02em]">
-      {children}
-    </h1>
-  );
+  return <h1 className="font-display text-xl font-semibold">{children}</h1>;
 }
 
 /** The step's one error, right under its field. Read out when it appears. */

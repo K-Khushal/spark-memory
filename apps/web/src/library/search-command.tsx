@@ -86,6 +86,16 @@ export function SearchCommand({
     draft.trim()
   );
 
+  /** What the list says in place of results; the screen reader hears it from outside the listbox. */
+  const note =
+    (draft.trim() || visual) && instant
+      ? instant === "failed"
+        ? "Search Is Unreachable"
+        : instant.direct.length === 0
+          ? "No Direct Matches"
+          : undefined
+      : undefined;
+
   return (
     <CommandDialog
       onCloseAutoFocus={restoreLibraryFocus}
@@ -212,16 +222,23 @@ export function SearchCommand({
           </>
         )}
       </CommandList>
+      <div role="status" className="sr-only">
+        {note}
+      </div>
     </CommandDialog>
   );
 }
 
-/** A line in the ⌘K list where results would be. */
+/**
+ * A line in the ⌘K list where results would be. A listbox may hold only
+ * options and groups, so it is drawn here and read out by the live region
+ * after the list (`note` below).
+ */
 function ListNote({ children }: { children: string }) {
   return (
-    <p role="status" className="py-6 text-center text-sm text-ink-muted">
+    <div aria-hidden className="py-6 text-center text-sm text-ink-muted">
       {children}
-    </p>
+    </div>
   );
 }
 
