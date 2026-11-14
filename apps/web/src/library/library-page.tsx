@@ -499,12 +499,11 @@ export function LibraryPage({
     : visual
       ? "Image"
       : query || "Search";
-  const clearSearchClick = searching
-    ? () => {
-        metrics.cleared();
-        clearSearch();
-      }
-    : undefined;
+  const leaveSearch = () => {
+    metrics.cleared();
+    clearSearch();
+  };
+  const clearSearchClick = searching ? leaveSearch : undefined;
 
   return (
     <div
@@ -557,10 +556,7 @@ export function LibraryPage({
               layout="sidebar"
               leading={
                 <>
-                  <LikeSourceChip
-                    memory={like}
-                    onClear={() => setLike(undefined)}
-                  />
+                  <LikeSourceChip memory={like} onClear={leaveSearch} />
                   <QueryImageChip {...queryImage} />
                 </>
               }
@@ -615,10 +611,7 @@ export function LibraryPage({
               layout="row"
               leading={
                 <>
-                  <LikeSourceChip
-                    memory={like}
-                    onClear={() => setLike(undefined)}
-                  />
+                  <LikeSourceChip memory={like} onClear={leaveSearch} />
                   <QueryImageChip {...queryImage} />
                 </>
               }
@@ -668,7 +661,7 @@ export function LibraryPage({
           </Centred>
         ) : (
           <div
-            aria-busy={pending}
+            aria-busy={pending || wallSearch.retrying}
             className={cn(
               "p-4 transition-opacity md:p-6",
               // A slow answer dims what is shown; a quick one never does.
@@ -945,6 +938,10 @@ function SearchResults({
         >
           Search Is Unreachable
         </h2>
+        {/* Always mounted, so screen readers hear Try Again begin. */}
+        <div role="status" className="sr-only">
+          {retrying ? "Searching Again" : ""}
+        </div>
         <Button
           variant="outline"
           // Not `disabled`: that would drop the focus it holds.

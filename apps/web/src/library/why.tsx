@@ -25,20 +25,28 @@ const KIND_WHY: Record<string, string> = {
   text: "Note",
 };
 
-const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+/** The characters of `text` as people count them: whole graphemes, else whole code points where `Intl.Segmenter` is missing. */
+function characters(text: string): Iterable<string> {
+  if (typeof Intl.Segmenter !== "function") return text;
+  const segments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  return (function* () {
+    for (const { segment } of segments.segment(text)) yield segment;
+  })();
+}
 
 /**
  * The first `max` characters of `text` as people count them: whole
  * graphemes, so text without spaces (Chinese, Japanese, emoji with
- * joiners) never ends mid-character, as a plain `slice` can.
+ * joiners) never ends mid-character, as a plain `slice` can. Without
+ * `Intl.Segmenter` it counts code points, which never splits a surrogate pair.
  */
 export function clip(text: string, max: number) {
   if (text.length <= max) return text;
   let end = 0;
   let count = 0;
-  for (const { segment } of graphemes.segment(text)) {
+  for (const character of characters(text)) {
     if (++count > max) break;
-    end += segment.length;
+    end += character.length;
   }
   return text.slice(0, end);
 }

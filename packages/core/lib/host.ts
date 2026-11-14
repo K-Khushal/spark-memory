@@ -1,22 +1,24 @@
+/** Letters of the Latin script, with the digits and hyphens every script shares. */
+const LATIN = /^[\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]+$/u;
+
 /**
  * A hostname as people read it: `xn--` labels decoded to Unicode (RFC 3492),
  * for display only. The stored URL and every filter keep the ASCII form.
- * A label that mixes Latin with Cyrillic or Greek stays as it was, so a
- * lookalike domain never reads as the real one.
+ * Only Latin names are decoded: a label stays punycode unless every
+ * character in it is Latin (or shared, like digits), and nothing is decoded
+ * under a TLD that is not Latin, so a Cyrillic or Greek lookalike never
+ * reads as the real host.
  */
 export function displayHost(hostname: string): string {
-  return hostname
-    .split(".")
-    .map((label) => {
-      if (!/^xn--/i.test(label)) return label;
-      const decoded = decode(label.slice(4));
-      return decoded && !mixesScripts(decoded) ? decoded : label;
-    })
-    .join(".");
+  const labels = hostname.split(".");
+  const decoded = labels.map((label) => {
+    if (!/^xn--/i.test(label)) return label;
+    const unicode = decode(label.slice(4));
+    return unicode && LATIN.test(unicode) ? unicode : label;
+  });
+  // A TLD still in punycode is not Latin (or not valid): decode nothing.
+  return /^xn--/i.test(decoded.at(-1)!) ? hostname : decoded.join(".");
 }
-
-const mixesScripts = (label: string) =>
-  /[a-z]/i.test(label) && /[Ͱ-ϿЀ-ӿ]/.test(label);
 
 const BASE = 36;
 const T_MIN = 1;

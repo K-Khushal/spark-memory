@@ -326,3 +326,21 @@ describe("retry", () => {
     expect(s.session.retry()).toBe(false);
   });
 });
+
+describe("sharing the wall's answer", () => {
+  it("takes a full answer another session cached while it waited out the pause, instead of asking again", async () => {
+    const cache = new Map<string, Page>();
+    const s = setup(300, { cache });
+    s.session.set({ query: "purple" }, "v1");
+    await settle();
+    s.find("instant", "purple").answer(["a"]);
+    await settle();
+    // The wall, in its own session, got the full answer meanwhile.
+    cache.set("ana|v1|q:purple", {
+      hits: [{ id: "b", match: "direct", part: null }],
+    });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(s.pending.filter((p) => p.mode === "full")).toEqual([]);
+    expect(s.ids()).toEqual(["full", ["b"]]);
+  });
+});

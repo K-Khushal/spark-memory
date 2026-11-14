@@ -93,6 +93,40 @@ test("finds a Memory by meaning, says what matched, and finds More Like This", a
   await expect(moreLikeThis).toHaveCount(0);
 });
 
+test("removing the More Like This chip leaves the whole search, filters included", async ({
+  page,
+}) => {
+  await signIn(page);
+  await capture(page, "Sunset over the dock");
+  await capture(page, "Dusk by the port");
+
+  // A filter is on when More Like This starts, and stays on behind it.
+  const notes = page.getByRole("button", { name: "Notes" }).first();
+  await notes.click();
+  await expect(notes).toHaveAttribute("aria-pressed", "true");
+  await page
+    .getByRole("list", { name: "Filtered Memories" })
+    .getByRole("listitem", { name: "Sunset over the dock" })
+    .click();
+  await page.getByRole("button", { name: "More Like This" }).click();
+  await expect(
+    page.getByRole("list", { name: "More Like This" })
+  ).toBeVisible();
+
+  await page
+    .getByRole("button", { name: /^Remove More Like This/ })
+    .first()
+    .click();
+  await expect(page.getByRole("list", { name: "More Like This" })).toHaveCount(
+    0
+  );
+  await expect(page.getByRole("list", { name: "All Memories" })).toBeVisible();
+  await expect(notes).toHaveAttribute("aria-pressed", "false");
+  await expect(
+    page.getByRole("list", { name: "Filtered Memories" })
+  ).toHaveCount(0);
+});
+
 test("a search run again after leaving the Library sees what was Indexed meanwhile", async ({
   page,
   baseURL,

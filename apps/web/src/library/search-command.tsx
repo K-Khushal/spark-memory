@@ -92,11 +92,12 @@ export function SearchCommand({
     draft.trim()
   );
 
+  const failure = retrying ? "Searching Again" : "Search Is Unreachable";
   /** What the list says in place of results; the screen reader hears it from outside the listbox. */
   const note =
     (draft.trim() || visual) && instant
       ? instant === "failed"
-        ? "Search Is Unreachable"
+        ? failure
         : instant.direct.length === 0
           ? "No Direct Matches"
           : undefined
@@ -126,6 +127,7 @@ export function SearchCommand({
       </ImageQueryControls>
       <CommandList
         ref={listRef}
+        aria-busy={retrying && instant === "failed"}
         data-search-mode={
           instant && instant !== "failed" ? instant.mode : undefined
         }
@@ -145,7 +147,7 @@ export function SearchCommand({
         {draft.trim() || visual ? (
           instant === "failed" ? (
             <>
-              <ListNote>Search Is Unreachable</ListNote>
+              <ListNote>{failure}</ListNote>
               <CommandGroup>
                 <CommandItem
                   value="__retry"

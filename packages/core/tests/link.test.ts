@@ -80,10 +80,9 @@ describe("sourceHost", () => {
     expect(sourceHost("nonsense")).toBeUndefined();
   });
 
-  it("shows an international host in Unicode and stores it unchanged", () => {
+  it("shows an international Latin host in Unicode and stores it unchanged", () => {
     expect(sourceHost("https://www.münchen.de/karte")).toBe("münchen.de");
-    expect(sourceHost("https://xn--wgv71a119e.jp/a")).toBe("日本語.jp");
-    expect(sourceHost("https://пример.рф/")).toBe("пример.рф");
+    expect(sourceHost("https://bücher.de/")).toBe("bücher.de");
     // The key the Library files it under is still ASCII, whatever was pasted.
     expect(normaliseUrl("https://münchen.de/karte")).toContain(
       "xn--mnchen-3ya.de"
@@ -92,18 +91,42 @@ describe("sourceHost", () => {
       normaliseUrl("https://münchen.de/karte")
     );
   });
+
+  it("keeps punycode for any other script, so a lookalike never reads as the real host", () => {
+    // All Cyrillic: reads as "apple" in many fonts.
+    expect(sourceHost("https://аррӏе.com/")).toBe("xn--80ak6aa92e.com");
+    // Latin "a" beside a Cyrillic "ԁ".
+    expect(sourceHost("https://aԁ.com/")).toBe("xn--a-64b.com");
+    expect(sourceHost("https://日本語.jp/")).toBe("xn--wgv71a119e.jp");
+  });
 });
 
 describe("displayHost", () => {
-  it("decodes punycode labels and leaves the rest alone", () => {
-    expect(displayHost("xn--bcher-kva.example")).toBe("bücher.example");
-    expect(displayHost("shop.xn--r8jz45g.jp")).toBe("shop.例え.jp");
+  it("decodes Latin labels and leaves the rest alone", () => {
+    expect(displayHost("xn--bcher-kva.de")).toBe("bücher.de");
+    expect(displayHost("xn--mnchen-3ya.de")).toBe("münchen.de");
+    expect(displayHost("shop.xn--bcher-kva.example")).toBe(
+      "shop.bücher.example"
+    );
     expect(displayHost("nytimes.com")).toBe("nytimes.com");
   });
 
-  it("keeps punycode for a lookalike that mixes Latin with Cyrillic, and for junk", () => {
-    // "аpple.com" with a Cyrillic а.
+  it("keeps punycode for a label that is not wholly Latin", () => {
+    expect(displayHost("xn--80ak6aa92e.com")).toBe("xn--80ak6aa92e.com");
+    expect(displayHost("xn--a-64b.com")).toBe("xn--a-64b.com");
     expect(displayHost("xn--pple-43d.com")).toBe("xn--pple-43d.com");
+    expect(displayHost("xn--r8jz45g.jp")).toBe("xn--r8jz45g.jp");
+  });
+
+  it("keeps the whole host as punycode under a TLD that is not Latin", () => {
+    expect(displayHost("xn--e1afmkfd.xn--p1ai")).toBe("xn--e1afmkfd.xn--p1ai");
+    // Even a Latin label beside a Cyrillic TLD.
+    expect(displayHost("xn--bcher-kva.xn--p1ai")).toBe(
+      "xn--bcher-kva.xn--p1ai"
+    );
+  });
+
+  it("keeps punycode that does not decode", () => {
     expect(displayHost("xn--")).toBe("xn--");
     expect(displayHost("xn--!!.com")).toBe("xn--!!.com");
   });

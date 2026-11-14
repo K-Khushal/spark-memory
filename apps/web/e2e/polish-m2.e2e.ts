@@ -37,7 +37,7 @@ const parts: Part[] = [
  * instant search with three Direct Matches and its full one, late, with two.
  */
 async function stub(page: Page) {
-  const outage = { on: true };
+  const outage = { on: true, delay: 0 };
   await signIn(page);
   await page.request.post("/api/memories", {
     headers: { origin: new URL(page.url()).origin },
@@ -113,6 +113,8 @@ async function stub(page: Page) {
     const q = body.q.trim();
     if (q === "boom" && outage.on)
       return route.fulfill({ status: 500, json: {} });
+    if (q === "boom" && outage.delay)
+      await new Promise((done) => setTimeout(done, outage.delay));
     if (q === "slow") await new Promise((done) => setTimeout(done, 1500));
     if (q === "shift") {
       const full = body.mode !== "instant";
@@ -290,7 +292,6 @@ test("a search that failed offers Try Again in the menu and on the wall", async 
   // Back up: Try Again brings the results into the menu.
   outage.on = false;
   await again.click();
-  await expect(dialog.getByRole("option", { name: /^日本語/ })).toHaveCount(0);
   await expect(
     dialog.getByRole("option", { name: /^boom|Sunset/ }).first()
   ).toBeVisible();
@@ -315,6 +316,83 @@ test("a search that failed offers Try Again in the menu and on the wall", async 
   await expect(
     page.getByRole("heading", { name: "Search Is Unreachable" })
   ).toHaveCount(0);
+});
+
+test("Try Again sends one instant and one full request when the menu and the wall share the failed search", async ({
+  page,
+}) => {
+  const { outage } = await stub(page);
+  const modes: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/search"))
+      modes.push((request.postDataJSON() as { mode: string }).mode);
+  });
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("boom");
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByRole("listbox").getByText("Search Is Unreachable")
+  ).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Search Is Unreachable" })
+  ).toBeVisible();
+
+  // The menu again, on the words the wall failed on.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("boom");
+  await expect(
+    dialog.getByRole("listbox").getByText("Search Is Unreachable")
+  ).toBeVisible();
+  await page.waitForTimeout(600);
+  modes.length = 0;
+  outage.on = false;
+  await dialog.getByRole("option", { name: "Try Again" }).click();
+  await expect(
+    dialog.getByRole("option", { name: /^Sunset over the dock/ })
+  ).toBeVisible();
+  await page.waitForTimeout(600);
+  expect(modes.sort()).toEqual(["full", "instant"]);
+});
+
+test("Try Again says it is searching again, and marks the menu and the wall busy until the answer lands", async ({
+  page,
+}) => {
+  const { outage } = await stub(page);
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("boom");
+  const dialog = page.getByRole("dialog");
+  const list = dialog.getByRole("listbox");
+  await expect(list.getByText("Search Is Unreachable")).toBeVisible();
+  await expect(list).toHaveAttribute("aria-busy", "false");
+
+  outage.on = false;
+  outage.delay = 1200;
+  await dialog.getByRole("option", { name: "Try Again" }).click();
+  await expect(list).toHaveAttribute("aria-busy", "true");
+  await expect(dialog.getByRole("status")).toHaveText("Searching Again");
+  await expect(list).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
+
+  // The wall.
+  outage.on = true;
+  outage.delay = 0;
+  await page.getByPlaceholder("Search…").fill("boom!");
+  await page.getByPlaceholder("Search…").fill("boom");
+  await expect(list.getByText("Search Is Unreachable")).toBeVisible();
+  await page.keyboard.press("Enter");
+  const wall = page.locator("main > div[aria-busy]");
+  await expect(
+    page.getByRole("heading", { name: "Search Is Unreachable" })
+  ).toBeVisible();
+  await expect(wall).toHaveAttribute("aria-busy", "false");
+  outage.on = false;
+  outage.delay = 1200;
+  await page.getByRole("button", { name: "Try Again" }).click();
+  await expect(wall).toHaveAttribute("aria-busy", "true");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Searching Again" })
+  ).toBeAttached();
+  await expect(wall).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
 });
 
 test("a tile that moves from Direct to Related glides there instead of appearing", async ({

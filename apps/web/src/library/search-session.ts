@@ -130,7 +130,8 @@ export function searchSession({
   fetch: (
     request: SearchRequest,
     mode: Mode,
-    signal: AbortSignal
+    signal: AbortSignal,
+    version: string
   ) => Promise<Page & { final: boolean }>;
   onAnswer: (answer: Answer | undefined) => void;
   pauseMs: number;
@@ -185,7 +186,7 @@ export function searchSession({
       }
     };
     const run = (mode: Mode) =>
-      fetch(request, mode, controller.signal).then(
+      fetch(request, mode, controller.signal, version).then(
         ({ final, ...page }) => done(mode, page, final),
         () => done(mode)
       );
@@ -195,7 +196,14 @@ export function searchSession({
       return;
     }
     const pause = "like" in request ? 0 : pauseMs;
-    const timer = pause ? setTimeout(() => void run("full"), pause) : undefined;
+    const runFull = () => {
+      // The wall may have found the full answer while this waited out the pause.
+      const shared = cache.get(cacheKey);
+      if (!shared) return void run("full");
+      step.full = "ok";
+      onAnswer({ key, mode: "full", ...shared });
+    };
+    const timer = pause ? setTimeout(runFull, pause) : undefined;
     if (!pause) void run("full");
     stop = () => {
       clearTimeout(timer);

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { SearchChips } from "@spark/core";
 import { toast } from "@spark/ui";
 import { api } from "../api";
+import { sharedFlight, type Flight } from "./shared-flight";
 import {
   requestKey,
   searchCache,
@@ -58,11 +59,30 @@ export const FULL_SEARCH_PAUSE_MS = 350;
 
 const byId = api.api.memories[":id"];
 
-async function fetchHits(
+type Fetched = Page & { final: boolean };
+
+/** Searches in the air, shared by the menu and the wall when both ask the same thing at once. */
+const flights = new Map<string, Flight<Fetched>>();
+
+/** `version` names the Library's state (libraryVersion): a request is only shared within one. */
+const fetchHits = (
+  request: SearchRequest,
+  mode: Mode,
+  signal: AbortSignal,
+  version: string
+): Promise<Fetched> =>
+  sharedFlight(
+    flights,
+    `${version}|${mode}|${requestKey(request)}`,
+    (own) => sendSearch(request, mode, own),
+    signal
+  );
+
+async function sendSearch(
   request: SearchRequest,
   mode: Mode,
   signal: AbortSignal
-): Promise<Page & { final: boolean }> {
+): Promise<Fetched> {
   const init = { init: { signal } };
   const res =
     "like" in request
