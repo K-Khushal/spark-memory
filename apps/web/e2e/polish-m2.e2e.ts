@@ -389,9 +389,12 @@ test("Try Again says it is searching again, and marks the menu and the wall busy
   outage.delay = 1200;
   await page.getByRole("button", { name: "Try Again" }).click();
   await expect(wall).toHaveAttribute("aria-busy", "true");
+  // Announced from outside the busy container, or it could be held back until the busy state clears.
   await expect(
     page.getByRole("status").filter({ hasText: "Searching Again" })
   ).toBeAttached();
+  // Read once, while it is busy: a retrying assertion would wait for the busy state to end.
+  expect(await wall.getByText("Searching Again").count()).toBe(0);
   await expect(wall).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
 });
 

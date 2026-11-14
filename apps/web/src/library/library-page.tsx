@@ -623,6 +623,11 @@ export function LibraryPage({
           )}
         </div>
         <h1 className="sr-only">Library</h1>
+        {/* Outside the busy wall below, or a screen reader may hold it back
+            until the busy state clears. Always mounted, so Try Again is heard. */}
+        <div role="status" className="sr-only">
+          {first === "failed" && wallSearch.retrying ? "Searching Again" : ""}
+        </div>
         {library.state === "ready" && (
           <Onboarding
             activationVersion={activationVersion}
@@ -938,10 +943,6 @@ function SearchResults({
         >
           Search Is Unreachable
         </h2>
-        {/* Always mounted, so screen readers hear Try Again begin. */}
-        <div role="status" className="sr-only">
-          {retrying ? "Searching Again" : ""}
-        </div>
         <Button
           variant="outline"
           // Not `disabled`: that would drop the focus it holds.

@@ -126,6 +126,20 @@ describe("displayHost", () => {
     );
   });
 
+  it("judges the TLD on the last non-empty label, and keeps a trailing dot", () => {
+    expect(displayHost("xn--bcher-kva.de.")).toBe("bücher.de.");
+    expect(displayHost("xn--bcher-kva.de")).toBe("bücher.de");
+    expect(displayHost("xn--bcher-kva.xn--p1ai.")).toBe(
+      "xn--bcher-kva.xn--p1ai."
+    );
+    expect(displayHost("xn--bcher-kva.xn--p1ai")).toBe(
+      "xn--bcher-kva.xn--p1ai"
+    );
+    expect(sourceHost("https://xn--bcher-kva.xn--p1ai./a")).toBe(
+      "xn--bcher-kva.xn--p1ai."
+    );
+  });
+
   it("keeps punycode that does not decode", () => {
     expect(displayHost("xn--")).toBe("xn--");
     expect(displayHost("xn--!!.com")).toBe("xn--!!.com");

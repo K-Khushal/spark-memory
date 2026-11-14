@@ -16,8 +16,10 @@ export function displayHost(hostname: string): string {
     const unicode = decode(label.slice(4));
     return unicode && LATIN.test(unicode) ? unicode : label;
   });
-  // A TLD still in punycode is not Latin (or not valid): decode nothing.
-  return /^xn--/i.test(decoded.at(-1)!) ? hostname : decoded.join(".");
+  // A TLD still in punycode is not Latin (or not valid): decode nothing. The
+  // TLD is the last label that is not empty, so a trailing dot changes nothing.
+  const tld = decoded.findLast((label) => label !== "");
+  return tld && /^xn--/i.test(tld) ? hostname : decoded.join(".");
 }
 
 const BASE = 36;
