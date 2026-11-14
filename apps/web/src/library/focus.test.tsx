@@ -124,7 +124,11 @@ it("restores when the element focused at close time still holds focus", async ()
   await frame();
   await frame();
   const atClose = document.createElement("button");
-  host.append(atClose);
+  const closingDialog = document.createElement("div");
+  closingDialog.setAttribute("role", "dialog");
+  closingDialog.setAttribute("data-state", "closed");
+  closingDialog.append(atClose);
+  host.append(closingDialog);
   atClose.focus();
   await act(async () => restoreLibraryFocus(new Event("close"), "second"));
   await frame();
@@ -142,4 +146,16 @@ it("leaves a newly focused control alone during the second frame", async () => {
   control.focus();
   await frame();
   expect(document.activeElement).toBe(control);
+});
+
+it("preserves a route handoff that focused its control before the close callback", async () => {
+  await closeViewer();
+  await frame();
+  await frame();
+  const next = host.querySelector<HTMLElement>('[data-key="second"]')!;
+  await act(async () => next.focus());
+  await act(async () => restoreLibraryFocus(new Event("close"), "first"));
+  await frame();
+  await frame();
+  expect(document.activeElement).toBe(next);
 });

@@ -46,6 +46,15 @@ export function restoreLibraryFocus(event: Event, memoryId?: string) {
     const active = document.activeElement;
     // Closing must not override a Tab, click or another dialog's focus.
     if (active !== document.body && active !== focusedAtClose) return;
+    // A route handoff may already have restored its own control before the
+    // close callback ran. That focus belongs to the destination as well.
+    if (
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      active.isConnected &&
+      !active.closest('[role="dialog"]')
+    )
+      return;
     if (memoryId && focusMasonryKey(memoryId)) return;
     if (!focusWall()) focusDeskControl("capture");
   });
