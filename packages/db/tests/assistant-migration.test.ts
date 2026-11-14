@@ -35,7 +35,9 @@ afterAll(async () => {
   if (close) await close();
   if (control) {
     try {
-      await control.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+      // pool.end() can resolve before Postgres observes every socket close.
+      // DROP waits for normal disconnects; FORCE can emit an idle-client error.
+      await control.query(`DROP DATABASE IF EXISTS "${name}"`);
     } finally {
       await control.end();
     }
