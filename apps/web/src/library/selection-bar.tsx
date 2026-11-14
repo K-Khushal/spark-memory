@@ -8,7 +8,7 @@ import {
   FilterChip,
 } from "@spark/ui";
 
-/** One bar: count and actions arrive together in one short rise (none under reduced motion) and leave at once. */
+/** One bar: keyboard selection and its actions appear and leave at once. */
 export function SelectionBar({
   count,
   ownNames,
@@ -65,7 +65,7 @@ export function SelectionBar({
       <div
         role="region"
         aria-label="Selection"
-        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-1 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay motion-safe:animate-in motion-safe:duration-180 motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 md:left-60"
+        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-1 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay md:left-60"
       >
         <span className="px-2 tabular-nums">
           {count.toLocaleString()} Selected
@@ -112,7 +112,7 @@ export function SelectionBar({
               <FilterChip
                 key={name}
                 title={name}
-                className="min-h-11 max-w-full"
+                className="h-auto min-h-11 max-w-full py-2"
                 aria-pressed={categories.includes(name)}
                 disabled={
                   !categories.includes(name) &&
@@ -126,7 +126,7 @@ export function SelectionBar({
                   )
                 }
               >
-                <span className="truncate" dir="auto">
+                <span className="min-w-0 wrap-anywhere text-start" dir="auto">
                   {name}
                 </span>
               </FilterChip>

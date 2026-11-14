@@ -95,7 +95,7 @@ function Gauge({
   const value = text(meter);
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span id={id} className="text-sm">
           {label}
         </span>
@@ -150,14 +150,14 @@ function Largest({
               key={row.id}
               className="flex min-h-12 items-center gap-3 border-b border-line py-1 last:border-b-0"
             >
-              <span dir="auto" className="min-w-0 flex-1 truncate text-sm">
+              <span dir="auto" className="min-w-0 flex-1 wrap-anywhere text-sm">
                 {name}
               </span>
               <span className="text-sm text-ink-muted tabular">{size}</span>
               <Button
                 variant="quiet"
                 size="icon"
-                className="-mr-2"
+                className="md:-mr-2"
                 aria-label={`Delete ${name}, ${size}`}
                 onClick={() => setAsked(row)}
               >
@@ -173,12 +173,15 @@ function Largest({
           if (!open && !pending) setAsked(undefined);
         }}
       >
-        <DialogContent className="max-w-md p-6" aria-describedby={undefined}>
+        <DialogContent
+          className="max-h-[calc(100dvh-2rem)] max-w-md overflow-y-auto p-6"
+          aria-describedby={undefined}
+        >
           <div className="flex flex-col gap-5">
             <DialogTitle className="pr-8 wrap-anywhere">
               {asked ? `Delete ${nameOf(asked)}?` : "Delete?"}
             </DialogTitle>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 variant="quiet"
                 disabled={pending}

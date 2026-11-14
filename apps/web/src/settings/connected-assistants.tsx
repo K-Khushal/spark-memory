@@ -137,10 +137,10 @@ export function ConnectedAssistants() {
           {assistants.map((a) => (
             <li
               key={a.id}
-              className="flex min-h-14 min-w-0 items-center gap-2 border-b border-line py-1 last:border-b-0"
+              className="flex min-h-14 min-w-0 flex-wrap items-center gap-2 border-b border-line py-1 last:border-b-0"
             >
-              <div className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-sm" dir="auto">
+              <div className="flex min-w-0 basis-full flex-col sm:flex-1 sm:basis-auto">
+                <span className="wrap-anywhere text-sm" dir="auto">
                   {a.name}
                 </span>
                 <span className="text-xs text-ink-muted tabular">
@@ -158,7 +158,7 @@ export function ConnectedAssistants() {
               <Button
                 variant="quiet"
                 size="sm"
-                className="-mr-3"
+                className="md:-mr-3"
                 disabled={pending}
                 aria-label={`Revoke ${a.name}`}
                 onClick={() => setConfirming(a)}
@@ -242,12 +242,15 @@ export function ConnectedAssistants() {
         open={!!confirming}
         onOpenChange={(open) => open || pending || setConfirming(undefined)}
       >
-        <DialogContent className="max-w-md p-6" aria-describedby={undefined}>
+        <DialogContent
+          className="max-h-[calc(100dvh-2rem)] max-w-md overflow-y-auto p-6"
+          aria-describedby={undefined}
+        >
           <div className="flex flex-col gap-5">
             <DialogTitle className="pr-8 wrap-anywhere" dir="auto">
               Revoke {confirming?.name}
             </DialogTitle>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 variant="quiet"
                 disabled={pending}

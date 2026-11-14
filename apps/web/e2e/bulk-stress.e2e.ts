@@ -40,10 +40,10 @@ test("selection survives long text, narrow screens, reduced motion and virtualis
     ).toBeDisabled();
     await page.keyboard.press("Escape");
   }
-  await nav.getByRole("button", { name: "1,000 Rows", exact: true }).click();
+  await nav.getByRole("button", { name: "10,000 Rows", exact: true }).click();
   await wall.getByRole("listitem").first().focus();
   await page.keyboard.press("Control+a");
-  await expect(bar).toContainText("1,000 Selected");
+  await expect(bar).toContainText("10,000 Selected");
   expect(await wall.getByRole("listitem").count()).toBeLessThan(100);
   await page.keyboard.press("Escape");
   await expect(bar).toHaveCount(0);

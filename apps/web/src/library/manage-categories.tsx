@@ -111,9 +111,9 @@ export function ManageCategories({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           aria-describedby={undefined}
-          className="flex max-h-[min(36rem,calc(100dvh-2rem))] flex-col gap-4 p-5"
+          className="flex max-h-[min(36rem,calc(100dvh-2rem))] flex-col gap-4 overflow-y-auto p-5"
         >
-          <DialogTitle>Categories</DialogTitle>
+          <DialogTitle className="shrink-0 pr-8">Categories</DialogTitle>
           <CategoriesManager state={state} actions={actions} />
         </DialogContent>
       </Dialog>
@@ -231,8 +231,12 @@ function NameForm({
   };
 
   return (
-    <form onSubmit={send} className="flex flex-col gap-2" onKeyDown={keys}>
-      <div className="flex items-center gap-2">
+    <form
+      onSubmit={send}
+      className="flex shrink-0 flex-col gap-2"
+      onKeyDown={keys}
+    >
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           aria-label={label}
           aria-describedby={problem ? messageId : undefined}
@@ -243,7 +247,7 @@ function NameForm({
           placeholder={placeholder}
           value={name}
           dir="auto"
-          className="aria-invalid:border-line-strong"
+          className="basis-32 flex-1 aria-invalid:border-line-strong"
           onChange={(event) => {
             setName(event.target.value);
             setRefused(undefined);
@@ -313,8 +317,8 @@ function CategoryRow({
     );
   }
   return (
-    <li className="flex h-10 items-center gap-1 rounded-control pl-2">
-      <span className="min-w-0 flex-1 truncate text-sm" dir="auto">
+    <li className="flex min-h-10 shrink-0 items-center gap-1 rounded-control py-1 pl-2">
+      <span className="min-w-0 flex-1 wrap-anywhere text-sm" dir="auto">
         {category.name}
       </span>
       <Button
@@ -355,10 +359,10 @@ function ConfirmDelete({
     <DialogContent
       role="alertdialog"
       aria-describedby={described}
-      className="flex max-w-sm flex-col gap-4 p-5"
+      className="flex max-h-[calc(100dvh-2rem)] max-w-sm flex-col gap-4 overflow-y-auto p-5"
       closeLabel="Close"
     >
-      <DialogTitle className="pr-8 break-words" dir="auto">
+      <DialogTitle className="pr-8 wrap-anywhere" dir="auto">
         Delete {category.name}
       </DialogTitle>
       <p id={described} className="text-sm">
@@ -366,7 +370,7 @@ function ConfirmDelete({
           ? "No Memories have it."
           : `${count} ${count === 1 ? "Memory loses" : "Memories lose"} it. No Memory is deleted.`}
       </p>
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         {failed && (
           <span role="alert" className="mr-auto text-sm">
             {PROBLEM_LABELS.failed}

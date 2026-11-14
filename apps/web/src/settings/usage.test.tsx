@@ -181,7 +181,7 @@ describe("naming a Memory in the list (worst case)", () => {
     expect(nameOf(row(over))).toBe(name);
   });
 
-  it("keeps a very long title on one truncating line, set by its own direction", async () => {
+  it("keeps the full title and delete action named in its own direction", async () => {
     await show(
       usage({
         storage: {
@@ -192,7 +192,10 @@ describe("naming a Memory in the list (worst case)", () => {
       })
     );
     const title = host.querySelector("li span")!;
-    expect(title.className).toContain("truncate");
+    expect(title.textContent).toBe("x".repeat(400));
+    expect(host.querySelector("button")?.getAttribute("aria-label")).toContain(
+      "x".repeat(400)
+    );
     expect(title.getAttribute("dir")).toBe("auto");
     expect(host.querySelector("li")?.textContent).toContain("1023 MB");
   });

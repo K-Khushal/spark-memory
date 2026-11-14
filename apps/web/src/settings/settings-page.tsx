@@ -72,13 +72,13 @@ export function SettingsPage({
             Settings
           </span>
         </div>
-        <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12">
+        <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12 [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-9 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:py-2 [&_[data-slot=button]]:whitespace-normal">
           <h1 className="sr-only font-display text-xl font-semibold tracking-[-0.02em] md:not-sr-only">
             Settings
           </h1>
           {/* Nothing until both have loaded, so nothing moves under the pointer. */}
           {failed ? (
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <span className="text-sm text-ink-muted">
                 Spark Is Unreachable
               </span>
@@ -257,16 +257,18 @@ function SessionRow({
   const active = lastActive(session.lastActiveAt);
   return (
     <li className="flex min-h-12 items-center gap-3 border-b border-line py-1 last:border-b-0">
-      <span className="min-w-0 flex-1 truncate text-sm">{session.device}</span>
+      <span className="min-w-0 flex-1 wrap-anywhere text-sm" dir="auto">
+        {session.device}
+      </span>
       {session.current ? (
-        <span className="text-sm text-ink-muted">This Device</span>
+        <span className="shrink-0 text-sm text-ink-muted">This Device</span>
       ) : (
         <>
           <span className="text-sm text-ink-muted tabular">{active}</span>
           <Button
             variant="quiet"
             size="sm"
-            className="-mr-3"
+            className="md:-mr-3"
             aria-label={`Sign Out ${session.device}, ${active}`}
             onClick={onRevoke}
           >
@@ -296,7 +298,7 @@ function Export({ account }: { account: Account }) {
   return (
     <div
       ref={box}
-      className="flex items-center gap-3"
+      className="flex flex-wrap items-center gap-3"
       onFocus={() => (hadFocus.current = true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
@@ -378,12 +380,15 @@ function DeleteAccount({
           if (!next) setTyped("");
         }}
       >
-        <DialogContent className="max-w-md p-6" aria-describedby={undefined}>
+        <DialogContent
+          className="max-h-[calc(100dvh-2rem)] max-w-md overflow-y-auto p-6"
+          aria-describedby={undefined}
+        >
           <form
             onSubmit={(e) => void submit(e)}
             className="flex flex-col gap-5"
           >
-            <DialogTitle className="pr-8">
+            <DialogTitle className="pr-8 wrap-anywhere">
               Delete Your Account and Every Memory
             </DialogTitle>
             <div className="flex flex-col gap-2">
@@ -403,7 +408,7 @@ function DeleteAccount({
                 spellCheck={false}
               />
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="button"
                 variant="quiet"
@@ -415,7 +420,7 @@ function DeleteAccount({
               <Button
                 type="submit"
                 variant="primary"
-                className="min-w-36"
+                className="h-auto min-h-9 max-w-full py-2 whitespace-normal sm:min-w-36"
                 disabled={!matches || pending}
               >
                 {pending && <Spinner />}
