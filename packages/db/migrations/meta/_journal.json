@@ -260,6 +260,27 @@
       "when": 1794800000004,
       "tag": "0037_category_prototypes",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794800000005,
+      "tag": "0038_browse_cursor_seek",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794800000006,
+      "tag": "0039_assistant_revocation",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794800000007,
+      "tag": "0040_gather_retry",
+      "breakpoints": true
     }
   ]
 }

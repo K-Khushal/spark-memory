@@ -171,6 +171,7 @@ const failed = (reason: IndexFailure) => ({
  * a model) and what gathering found, for Indexing to read.
  */
 const linkColumns = {
+  gatherRetried: memory.gatherRetried,
   sourceUrl: memory.sourceUrlNormalised,
   gathered: sql<boolean>`${memory.metadata} is not null and (${memory.kind} <> 'video' or ${memory.metadata}->'video' is not null)`,
   transcript: sql<
@@ -553,6 +554,7 @@ export function indexingStore(db: Database) {
         contentHash?: string;
         /** The Source was never shown to be public: no Deep fetch (Gathered.refused). */
         refused?: boolean;
+        transient?: boolean;
       }
     ) {
       const write = async (hash: string | null) => {
@@ -567,6 +569,7 @@ export function indexingStore(db: Database) {
               then ${JSON.stringify(gathered.metadata)}::jsonb || ${memory.metadata}
               else coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(gathered.metadata)}::jsonb end`,
             body: gathered.text,
+            gatherRetryAt: sql`case when ${gathered.transient ?? false} and ${memory.kind} = 'link' and not ${memory.gatherRetried} then now() + interval '24 hours' else null end`,
             preservation: sql`case when ${memory.kind} = 'video' then 'reference_only' when ${gathered.text}::text is not null then 'preserved' else 'reference_only' end`,
             contentHash: sql`case when exists (
               select 1 from memory o where o.user_id = ${memory.userId}
@@ -611,6 +614,8 @@ export function indexingStore(db: Database) {
       // reel that gets one cannot also be queued to fetch the video.
       if (
         !gathered.refused &&
+        !gathered.transient &&
+        !row.gatherRetried &&
         !(row.sourceUrl && instagramReel(row.sourceUrl)) &&
         isThin({ kind, text: row.body, metadata: metadata ?? {} }) &&
         !(kind === "video" && aiOptOut)
@@ -631,7 +636,7 @@ export function indexingStore(db: Database) {
     /**
      * Searchable, with what was found (null: AI opt-out, nothing was sent)
      * and its vectors, kept only if the text they were made from has not
-     * been edited since (else the hourly sweep makes them again).
+     * been edited since (else the pending edit message makes them again).
      */
     async complete(
       claim: Claim,
@@ -1034,6 +1039,7 @@ export function indexingStore(db: Database) {
      * final step holds too.
      */
     async recordCall(call: {
+      id?: string;
       userId: string;
       /** Null for a search query's embedding. */
       memoryId: string | null;
@@ -1049,24 +1055,45 @@ export function indexingStore(db: Database) {
       await db.transaction(async (tx) => {
         await lockOwner(tx, call.userId);
         const ownerNamed = sql`exists (select 1 from ${user} where ${user.id} = ${call.userId}) and not exists (select 1 from ${accountDeletion} where ${accountDeletion.userId} = ${call.userId})`;
-        await tx.insert(aiCall).values({
-          userId: sql`case when ${ownerNamed} then ${call.userId} else ${ANONYMISED_USER} end`,
-          memoryId: sql`case when ${ownerNamed} then ${call.memoryId}::uuid else null end`,
-          memoryGeneration: sql`case when ${ownerNamed} then ${call.memoryGeneration ?? null}::uuid else null end`,
-          day: today,
-          provider: call.provider,
-          model: call.model,
-          inputTokens: call.usage.inputTokens,
-          outputTokens: call.usage.outputTokens,
-          costMicros: call.costMicros,
-          estimated: call.estimated ?? false,
-        });
+        const [previous] = call.id
+          ? await tx
+              .select()
+              .from(aiCall)
+              .where(eq(aiCall.id, call.id))
+              .for("update")
+          : [];
+        const day = previous?.day ?? today;
+        const costDelta = call.costMicros - (previous?.costMicros ?? 0);
+        await tx
+          .insert(aiCall)
+          .values({
+            ...(call.id && { id: call.id }),
+            userId: sql`case when ${ownerNamed} then ${call.userId} else ${ANONYMISED_USER} end`,
+            memoryId: sql`case when ${ownerNamed} then ${call.memoryId}::uuid else null end`,
+            memoryGeneration: sql`case when ${ownerNamed} then ${call.memoryGeneration ?? null}::uuid else null end`,
+            day,
+            provider: call.provider,
+            model: call.model,
+            inputTokens: call.usage.inputTokens,
+            outputTokens: call.usage.outputTokens,
+            costMicros: call.costMicros,
+            estimated: call.estimated ?? false,
+          })
+          .onConflictDoUpdate({
+            target: aiCall.id,
+            set: {
+              inputTokens: call.usage.inputTokens,
+              outputTokens: call.usage.outputTokens,
+              costMicros: call.costMicros,
+              estimated: call.estimated ?? false,
+            },
+          });
         await tx
           .insert(spendDay)
           .values({
-            day: today,
+            day,
             provider: call.provider,
-            costMicros: call.costMicros,
+            costMicros: costDelta,
           })
           .onConflictDoUpdate({
             target: [spendDay.day, spendDay.provider],
@@ -1075,6 +1102,29 @@ export function indexingStore(db: Database) {
             },
           });
       });
+    },
+
+    /** One recovery Gather for a Source that was down, through the ordinary queue. */
+    async retryGather(limit = 100) {
+      const rows = await db.execute<{
+        id: string;
+        run: number;
+        generation: string;
+        priority: "background";
+      }>(sql`
+        with due as (
+          select id from memory where gather_retry_at <= now()
+            and not gather_retried and kind = 'link' and preservation = 'reference_only'
+            and not sample and not over_allowance and not ai_opt_out
+            and index_state <> 'indexing' and not exists (select 1 from account_deletion d where d.user_id = memory.user_id)
+          order by gather_retry_at, id limit ${Math.max(0, Math.min(limit, 100))} for update skip locked
+        ) update memory m set gather_retry_at = null, gather_retried = true,
+          metadata = null, index_state = 'indexing', index_error = null,
+          index_run = index_run + 1, index_priority = 'background', index_lease_until = null
+        from due where m.id = due.id
+        returning m.id, m.index_run as run, m.index_generation as generation, 'background'::text as priority
+      `);
+      return rows.rows;
     },
 
     /**

@@ -277,6 +277,27 @@ describe("the Jev judge", () => {
     return { model: "jev-1.14.0", judge } satisfies JudgeClient;
   };
 
+  it("persists an estimate before Jev starts, even if its call never settles", async () => {
+    const spend = budget();
+    const jev: JudgeClient = {
+      model: "jev-1.14.0",
+      judge: async () => {
+        expect(spend.calls).toEqual([
+          expect.objectContaining({ estimated: true }),
+        ]);
+        throw new Error("worker stopped");
+      },
+    };
+    await expect(
+      jevMatchJudge({
+        client: jev,
+        describe: texts({ a: "x" }),
+        userId: "u",
+        spend,
+      }).judge("q", candidates("a"), signal())
+    ).rejects.toThrow("worker stopped");
+  });
+
   it("rules Direct at or above its threshold, and bills the input tokens", async () => {
     const spend = budget();
     const jev = client([JUDGING.jevThreshold, JUDGING.jevThreshold - 0.01]);
@@ -296,6 +317,7 @@ describe("the Jev judge", () => {
       expect.anything()
     );
     expect(spend.calls).toEqual([
+      expect.objectContaining({ estimated: true }),
       expect.objectContaining({
         provider: "jev",
         memoryId: null,

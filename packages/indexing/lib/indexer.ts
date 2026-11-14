@@ -83,6 +83,8 @@ export type PendingMemory = MemoryContent & {
   categoriesGeneration?: number;
   /** A link Memory: false until its Source has been gathered (once). */
   gathered?: boolean;
+  /** The single automatic recovery Gather must not fan out into retries. */
+  gatherRetried?: boolean;
   /** Storage keys of an image Memory's files. */
   image?: {
     key: string;
@@ -210,7 +212,7 @@ export type IndexStore = {
    */
   saveGathered(
     claim: Claim,
-    gathered: Omit<Gathered, "transient">
+    gathered: Gathered
   ): Promise<
     | (Pick<
         PendingMemory,
@@ -248,6 +250,8 @@ export type IndexStore = {
 
 /** One AI call and what it cost, for the admin page and the budget. */
 export type AiCall = {
+  /** Stable receipt identity when reserving and reconciling a provider cost. */
+  id?: string;
   userId: string;
   /** Null for a search query's embedding. */
   memoryId: string | null;
@@ -851,10 +855,14 @@ export function createIndexer({
           // moved on, or AI opt-out been switched on, while the page loaded.
           thirdParty: () => store.isCurrent(claim),
         });
-        if (transient && job.attempt < INDEXING.maxAttempts) {
+        if (
+          transient &&
+          !work.gatherRetried &&
+          job.attempt < INDEXING.maxAttempts
+        ) {
           return { result: "retry", delaySeconds: backoffSeconds(job.attempt) };
         }
-        const saved = await store.saveGathered(work, found);
+        const saved = await store.saveGathered(work, { ...found, transient });
         if (!saved) return { result: "skipped" };
         work = { ...work, ...saved };
       }

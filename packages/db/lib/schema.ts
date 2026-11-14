@@ -133,6 +133,8 @@ export const memory = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     sample: boolean("sample").default(false).notNull(),
+    gatherRetryAt: timestamp("gather_retry_at", { withTimezone: true }),
+    gatherRetried: boolean("gather_retried").notNull().default(false),
     /**
      * Captured past the Free allowance's Captures a day (migrations/0027): kept
      * and keyword-findable, with no AI work for good. Every path that would
@@ -259,6 +261,9 @@ export const memory = pgTable(
     searchTsv: tsvector("search_tsv"),
   },
   (t) => [
+    index("memory_gather_retry")
+      .on(t.gatherRetryAt)
+      .where(sql`${t.gatherRetryAt} is not null`),
     index("memory_user_captured_idx").on(
       t.userId,
       t.capturedAt.desc(),
@@ -865,3 +870,18 @@ export const categoryRun = pgTable("category_run", {
     .notNull()
     .defaultNow(),
 });
+
+/** Durable revocation time after credentials are deleted. Written by DB triggers. */
+export const assistantRevocation = pgTable(
+  "assistant_revocation",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    assistantId: text("assistant_id").notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.assistantId] })]
+);

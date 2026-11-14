@@ -1711,6 +1711,8 @@ export function openLibrary(
      * again, as a new run; the caller enqueues it.
      */
     async setAiOptOut(id: string, on: boolean): Promise<Memory | undefined> {
+      const refetch = sql`${memory.kind} = 'video' and not ${memory.sample} and not ${memory.overAllowance}
+        and ${memory.sourceUrlNormalised} !~ '^https://(www[.])?instagram[.]com/'`;
       await db.transaction(async (tx) => {
         // Turning it on takes back what a model decided, Categories included.
         if (on) await lockCategories(tx, userId);
@@ -1737,6 +1739,15 @@ export function openLibrary(
                 }
               : {
                   aiOptOut: false,
+                  // A video's provider-backed Deep fetch may have been stopped
+                  // by opt-out, or its transcript removed. Give it a new run.
+                  deepFetchState: sql`case when ${refetch} then 'queued' else ${memory.deepFetchState} end`,
+                  deepFetchRun: sql`${memory.deepFetchRun} + (case when ${refetch} then 1 else 0 end)`,
+                  deepFetchAttempts: sql`case when ${refetch} then 0 else ${memory.deepFetchAttempts} end`,
+                  deepFetchDueAt: sql`case when ${refetch} then now() else ${memory.deepFetchDueAt} end`,
+                  deepFetchLeaseUntil: sql`case when ${refetch} then null else ${memory.deepFetchLeaseUntil} end`,
+                  deepFetchToken: sql`case when ${refetch} then null else ${memory.deepFetchToken} end`,
+                  deepFetchError: sql`case when ${refetch} then null else ${memory.deepFetchError} end`,
                   ...restartIndexing,
                   indexState: sql`case when ${memory.sample} or ${memory.overAllowance} then 'searchable' else 'indexing' end`,
                 }

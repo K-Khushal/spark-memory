@@ -73,6 +73,12 @@ it.skipIf(!databaseUrl)(
       expect((await store.activity(otherId)).activity).toHaveLength(0);
       await store.revoke(userId, `client:${clientId}`);
       await store.sweep();
+      // Revocation starts the grace period; old calls remain for thirty days.
+      expect((await store.activity(userId)).activity).toHaveLength(1);
+      await db.execute(
+        sql`update assistant_revocation set revoked_at = now() - interval '31 days' where user_id = ${userId}`
+      );
+      await store.sweep();
       expect((await store.activity(userId)).activity).toHaveLength(0);
     } finally {
       await db.execute(

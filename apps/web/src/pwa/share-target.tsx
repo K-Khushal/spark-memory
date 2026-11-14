@@ -53,8 +53,8 @@ export function ShareTarget({ library }: { library: ShareLibrary }) {
       notify,
       live: () => live,
       ask: (unsure) => live && setAsked(unsure),
-      fail: retry,
-    }).catch(retry);
+      fail: () => live && retry(),
+    }).catch(() => live && retry());
     return () => {
       live = false;
     };

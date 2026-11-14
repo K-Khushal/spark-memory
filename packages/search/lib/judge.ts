@@ -67,18 +67,17 @@ export function jevMatchJudge({
     recordCall(call: AiCall): Promise<void>;
   };
 }): MatchJudge {
-  const record = (inputTokens: number, estimated?: boolean) =>
-    spend
-      .recordCall({
-        userId,
-        memoryId: null,
-        provider: "jev",
-        model: client.model,
-        usage: { inputTokens, outputTokens: 0 },
-        costMicros: jevCostMicros(client.model, inputTokens),
-        ...(estimated && { estimated }),
-      })
-      .catch(() => console.error("search: judging cost not recorded"));
+  const record = (id: string, inputTokens: number, estimated = false) =>
+    spend.recordCall({
+      id,
+      userId,
+      memoryId: null,
+      provider: "jev",
+      model: client.model,
+      usage: { inputTokens, outputTokens: 0 },
+      costMicros: jevCostMicros(client.model, inputTokens),
+      ...(estimated && { estimated }),
+    });
   return {
     async judge(query, candidates, signal) {
       const [spent, limit, texts] = await Promise.all([
@@ -96,15 +95,15 @@ export function jevMatchJudge({
       // The deadline passed while the texts and budget were read: no call
       // was made, so nothing may be recorded as spent.
       signal.throwIfAborted();
-      let reply;
-      try {
-        reply = await client.judge(query, sent, signal);
-      } catch (error) {
-        // It may still have been billed: count the most it could have cost.
-        await record(jevTokenEstimate(query + sent.join("")), true);
-        throw error;
-      }
-      await record(reply.inputTokens);
+      const id = crypto.randomUUID();
+      // Persist before starting the billable call: a timeout can end the Worker.
+      // If persistence fails, do not spend. A successful reply reconciles this row.
+      await record(id, jevTokenEstimate(query + sent.join("")), true);
+      signal.throwIfAborted();
+      const reply = await client.judge(query, sent, signal);
+      await record(id, reply.inputTokens).catch(() =>
+        console.error("search: judging estimate not reconciled")
+      );
       // A question Jev left unanswered is not ruled on: the thresholds stand.
       return new Map(
         sendable.flatMap((c, i): [string, Verdict][] => {

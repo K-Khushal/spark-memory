@@ -355,6 +355,28 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
     expect(row!.estimated).toBe(true);
   });
 
+  it("reconciles a reserved provider receipt without counting its cost twice", async () => {
+    const id = crypto.randomUUID();
+    const call = {
+      id,
+      userId: ana,
+      memoryId: null,
+      provider: "jev" as const,
+      model: "jev-1.14.0",
+      usage: { inputTokens: 1000, outputTokens: 0 },
+      costMicros: 42,
+    };
+    await store().recordCall({ ...call, estimated: true });
+    await store().recordCall({ ...call, costMicros: 21, estimated: false });
+    await store().recordCall({ ...call, costMicros: 21, estimated: false });
+    const rows = await db
+      .select()
+      .from(schema.aiCall)
+      .where(eq(schema.aiCall.id, id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ costMicros: 21, estimated: false });
+  });
+
   it("adds up AI spend per day atomically, and keeps each call per Memory", async () => {
     const before = await store().spentTodayMicros();
     const memory = await capture("Costly");
