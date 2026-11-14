@@ -81,6 +81,31 @@ function clear(at: Spot, message: string) {
 }
 
 /**
+ * The wall's columns as it drew them: each tile's `data-index`, grouped by the
+ * lane it sits in (its x offset) and ordered by height. This is the model the
+ * arrow keys walk, read from the page so the test does not share the code's
+ * own arithmetic.
+ */
+async function wallColumns(page: Page): Promise<number[][]> {
+  return page.evaluate(() => {
+    const lanes = new Map<number, { index: number; y: number }[]>();
+    for (const tile of document.querySelectorAll<HTMLElement>(
+      'main [role="list"] > [data-index]'
+    )) {
+      const [x, y] = [...tile.style.transform.matchAll(/(-?[\d.]+)px/g)].map(
+        (m) => Number(m[1])
+      );
+      const lane = lanes.get(x!) ?? [];
+      lane.push({ index: Number(tile.dataset.index), y: y! });
+      lanes.set(x!, lane);
+    }
+    return [...lanes.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([, tiles]) => tiles.sort((a, b) => a.y - b.y).map((t) => t.index));
+  });
+}
+
+/**
  * Presses the first of `keys` that moves focus: the bottom tile of a column has
  * nothing below it, so a wall of several columns goes sideways there. Fails
  * when none moves it. Returns the tile focus landed on.
@@ -156,18 +181,52 @@ for (const screen of SCREENS) {
       expect(up.index).toBe(right.index);
       const left = await move(page, "ArrowLeft", up);
       expect(left.index).toBe(origin.index);
-      // Down the first column to its end: each step is a new tile, lower.
-      let last = left;
-      for (let step = 0; step < COUNT; step++) {
+      // Down the longest column, tile by tile. The expected order is read
+      // from where the wall drew its tiles (same lane, by height), before any
+      // key is pressed, so a skipped neighbour or an early stop fails.
+      const columns = await wallColumns(page);
+      expect(
+        columns.flat().length,
+        "every tile is drawn, so the column model is whole"
+      ).toBe(COUNT);
+      const column = columns.reduce((a, b) => (b.length > a.length ? b : a));
+      expect(column.length, "a column worth walking").toBeGreaterThanOrEqual(3);
+      await page.locator(`main [data-index="${column[0]}"]`).focus();
+      let here = await spot(page);
+      expect(here.index).toBe(column[0]);
+      for (let k = 1; k < column.length; k++) {
         await page.keyboard.press("ArrowDown");
-        await page.waitForTimeout(150);
-        const next = await spot(page);
-        if (next.index === last.index) break;
-        expect(next.top, `column step ${step}`).toBeGreaterThan(last.top - 1);
-        clear(next, `column step ${step}`);
-        last = next;
+        await expect
+          .poll(async () => (await spot(page)).index, {
+            message: `ArrowDown ${k} lands on tile ${column[k]}`,
+          })
+          .toBe(column[k]);
+        here = await spot(page);
+        expect(here.label.startsWith(named(COUNT - 1 - column[k]!))).toBe(true);
+        clear(here, `column ArrowDown ${k}`);
       }
-      expect(last.index).not.toBe(origin.index);
+      // The last tile of the column has nothing below it: focus stays.
+      expect(here.index).toBe(column.at(-1));
+      await page.keyboard.press("ArrowDown");
+      await page.waitForTimeout(300);
+      expect((await spot(page)).index, "ArrowDown at the column's end").toBe(
+        column.at(-1)
+      );
+      // And back up, each step to the tile it came from, to the first.
+      for (let k = column.length - 2; k >= 0; k--) {
+        await page.keyboard.press("ArrowUp");
+        await expect
+          .poll(async () => (await spot(page)).index, {
+            message: `ArrowUp to tile ${column[k]}`,
+          })
+          .toBe(column[k]);
+        clear(await spot(page), `column ArrowUp to ${k}`);
+      }
+      await page.keyboard.press("ArrowUp");
+      await page.waitForTimeout(300);
+      expect((await spot(page)).index, "ArrowUp at the column's start").toBe(
+        column[0]
+      );
     });
 
     test("Space and Shift+arrows select what the focus crosses", async ({
