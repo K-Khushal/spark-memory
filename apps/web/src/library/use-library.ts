@@ -1,6 +1,6 @@
 import { createApiClient } from "@spark/api-client";
 import type { ImageCapture } from "@spark/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "@spark/ui";
 import { api } from "../api";
@@ -300,7 +300,15 @@ export function useLibrary(owner: string) {
     };
   }, [actions]);
 
+  /** Resolve a linked Memory independently of the paginated wall. */
+  const loadMemory = useCallback(async (id: string) => {
+    const memory = await transport.get(id);
+    if (memory) setMemories((all) => mergeNewestFirst(all, [memory]));
+    return memory;
+  }, []);
+
   return {
+    loadMemory,
     memories,
     async setCategories(memory: Memory, categories: string[]) {
       try {

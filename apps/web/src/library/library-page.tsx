@@ -8,7 +8,7 @@ import {
   type ImageQueryProps,
 } from "./image-query";
 import type { SearchChips } from "@spark/core";
-import { isWordless } from "./search-session";
+import { isWordless, requestKey } from "./search-session";
 import {
   KIND_LABELS,
   LibraryFilters,
@@ -55,6 +55,7 @@ import { Onboarding, recordActivation } from "./onboarding";
 import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
 import { LibraryOverlaysHost } from "./overlays-host";
 import { pdfMatch, type PdfMatch } from "./pdf-match";
+import { focusWall } from "./focus";
 import { MOD, useFileDrop } from "./shortcuts";
 import { useLibrary, type Memory, type WallMemory } from "./use-library";
 import {
@@ -79,7 +80,7 @@ export function LibraryPage({
 }) {
   const navigate = useNavigate();
   const library = useLibrary(session.user.id);
-  const { desk } = useRouteSearch({ from: "/" });
+  const { desk, memory: linked } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [activationVersion, setActivationVersion] = useState(0);
   const [activation] = useState(() => createActivation(recordActivation));
@@ -155,6 +156,33 @@ export function LibraryPage({
     [first, more.direct, more.related]
   );
   const searching = !!visual || !!like || !!query || filtering;
+  /** The results on the wall answer an earlier search: the new answer is still on its way. */
+  const pending =
+    searching &&
+    first !== "failed" &&
+    (!first || first.key !== requestKey(request));
+  /**
+   * Until when focus goes to the results once they land: Enter in ⌘K
+   * replaces the wall, and the tile that held focus goes with it.
+   */
+  const focusResults = useRef(0);
+  useEffect(() => {
+    if (!results || pending || performance.now() > focusResults.current) return;
+    const frame = requestAnimationFrame(() => {
+      focusResults.current = 0;
+      focusWall({ onlyIfLost: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [results, pending]);
+  /** Set by Show More, so focus is not lost when its last page lands. */
+  const pagingFocus = useRef(false);
+  const paging = more.canLoad || more.busy;
+  useEffect(() => {
+    if (paging || !pagingFocus.current) return;
+    pagingFocus.current = false;
+    // Where Show More was: not a jump to the top of a long wall.
+    focusWall({ onlyIfLost: true, preventScroll: true });
+  }, [paging]);
   const categories = useOwnCategories({
     onRenamed: (from, to) => {
       library.categoryRenamed(from, to);
@@ -342,6 +370,7 @@ export function LibraryPage({
       !!previousSearch.current && previousSearch.current !== trimmed
     );
     previousSearch.current = trimmed;
+    focusResults.current = performance.now() + 10_000;
     setQuery(trimmed);
     setLike(undefined);
     setSearchOpen(false);
@@ -377,6 +406,33 @@ export function LibraryPage({
     setQuery("");
     setLike(undefined);
   };
+
+  // Activity links resolve through the owner-scoped single-Memory endpoint,
+  // even while later Library pages are still arriving.
+  const { loadMemory } = library;
+  useEffect(() => {
+    if (!linked) return;
+    let cancelled = false;
+    void loadMemory(linked).then(
+      (memory) => {
+        if (cancelled) return;
+        if (memory) {
+          setSearchOpen(false);
+          setVideoSeconds(undefined);
+          if (memory.kind === "image") setImageId(memory.id);
+          else if (memory.kind === "pdf") setPdf({ id: memory.id, match: {} });
+          else setOpenId(memory.id);
+        }
+        void navigate({ to: "/", search: {}, replace: true });
+      },
+      () => {
+        if (!cancelled) void navigate({ to: "/", search: {}, replace: true });
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [linked, loadMemory, navigate]);
 
   useEffect(() => {
     if (desk !== "capture" && desk !== "search") return;
@@ -474,7 +530,7 @@ export function LibraryPage({
         searchLabel={searchLabel}
         searchActive={searching}
         searchImageControl={
-          <ImageQueryControls {...queryImage} showChip={false} compact />
+          <ImageQueryControls {...queryImage} showChip={false} />
         }
         onClearSearch={clearSearchClick}
         filters={
@@ -505,11 +561,7 @@ export function LibraryPage({
                 label={searchLabel}
                 active={searching}
                 imageControl={
-                  <ImageQueryControls
-                    {...queryImage}
-                    showChip={false}
-                    compact
-                  />
+                  <ImageQueryControls {...queryImage} showChip={false} />
                 }
                 onSearch={openSearch}
                 onClear={clearSearchClick}
@@ -574,7 +626,16 @@ export function LibraryPage({
             </div>
           </Centred>
         ) : (
-          <div className="p-4 md:p-6">
+          <div
+            aria-busy={pending}
+            className={cn(
+              "p-4 transition-opacity md:p-6",
+              // A slow answer dims what is shown; a quick one never does.
+              pending
+                ? "opacity-60 delay-300 duration-(--duration-press)"
+                : "opacity-100 duration-(--duration-press)"
+            )}
+          >
             {/* Until a search's first answer lands, the wall stays as it was. */}
             {searching && results ? (
               <SearchResults
@@ -594,12 +655,18 @@ export function LibraryPage({
                 tiles={tiles}
               />
             )}
-            {more.canLoad && (
+            {paging && (
               <div className="mt-6 flex justify-center">
                 <Button
                   variant="outline"
-                  disabled={more.busy}
-                  onClick={() => void more.load()}
+                  // Not `disabled`: that would drop the focus it holds.
+                  aria-disabled={more.busy}
+                  className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                  onClick={() => {
+                    if (more.busy) return;
+                    pagingFocus.current = true;
+                    void more.load();
+                  }}
                 >
                   Show More
                 </Button>
@@ -827,7 +894,10 @@ function SearchResults({
   if (!results) return null;
   if (results === "failed") {
     return (
-      <h2 className="text-sm font-medium text-ink-muted">
+      <h2
+        tabIndex={-1}
+        className="text-sm font-medium text-ink-muted outline-none"
+      >
         Search Is Unreachable
       </h2>
     );

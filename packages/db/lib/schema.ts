@@ -775,14 +775,24 @@ export const assistantActivity = pgTable(
     clientId: text("client_id").references(() => assistantClient.id, {
       onDelete: "set null",
     }),
+    /** The Settings row it belongs to: a personal token's id, or `client:<id>`. */
+    assistantId: text("assistant_id"),
     assistant: text("assistant").notNull(),
     tool: text("tool").notNull(),
+    /** The Memory `get_memory` opened; its title is looked up when shown, so deleting it blanks the row. */
+    memoryId: uuid("memory_id").references(() => memory.id, {
+      onDelete: "set null",
+    }),
     occurredAt: timestamp("occurred_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
     resultCount: integer("result_count").notNull(),
   },
-  (t) => [index("assistant_activity_owner").on(t.userId, t.occurredAt)]
+  (t) => [
+    index("assistant_activity_owner").on(t.userId, t.occurredAt),
+    index("assistant_activity_assistant").on(t.userId, t.assistantId, t.id),
+    index("assistant_activity_memory").on(t.memoryId),
+  ]
 );
 
 /** A digest-only receipt survives code consumption so replay can revoke its credentials. */

@@ -8,9 +8,11 @@ it("runs Import after existing migrations and the reserved 0029 through 0031 mig
       "utf8"
     )
   ) as { entries: { tag: string; when: number }[] };
-  const imported = journal.entries.find(
+  const importIndex = journal.entries.findIndex(
     (entry) => entry.tag === "0032_import"
-  )!;
+  );
+  expect(importIndex).toBeGreaterThanOrEqual(0);
+  const imported = journal.entries[importIndex]!;
   expect(imported.when).toBe(1794630000000);
   for (const when of [
     1794610000000,
@@ -18,9 +20,9 @@ it("runs Import after existing migrations and the reserved 0029 through 0031 mig
     1794530000000,
     1794572552722,
     1794574105192,
-    ...journal.entries
-      .filter((entry) => entry !== imported)
-      .map((entry) => entry.when),
+    ...journal.entries.slice(0, importIndex).map((entry) => entry.when),
   ])
     expect(imported.when).toBeGreaterThan(when);
+  for (const entry of journal.entries.slice(importIndex + 1))
+    expect(entry.when).toBeGreaterThan(imported.when);
 });
