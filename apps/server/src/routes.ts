@@ -29,6 +29,14 @@ export const routes = new Hono<AppEnv>()
       503
     );
   })
+  // Benchmark preflight only: report configuration without contacting a provider.
+  .get("/dev/indexing-provider", (c) => {
+    if (c.env.SPARK_ENV !== "local") return c.notFound();
+    return c.json({
+      provider: c.env.INDEXING_PROVIDER ?? null,
+      jevEnabled: c.env.JEV_ENABLED === "true",
+    });
+  })
   // Public: what the sign-in screen offers.
   .get("/sign-in-options", (c) =>
     c.json({
