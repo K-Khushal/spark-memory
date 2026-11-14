@@ -1,0 +1,441 @@
+import { expect, type BrowserContext, type Page } from "@playwright/test";
+import {
+  mkdirSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { resolve } from "node:path";
+import type { Memory } from "../src/library/use-library";
+import { signIn } from "./sign-in";
+import { pageSvg, SHAPES, sceneSvg } from "./ui-tour-fixtures";
+
+// The harness behind ui-tour.screenshots.ts: where files go, how a step is
+// shot in every theme and width, the index.md it leaves behind, and the
+// network doubles that give the Library a fixed set of Memories.
+
+export const OUT = resolve(process.env.UI_TOUR_OUT ?? "test-results/ui-tour");
+export const VIDEOS = resolve(OUT, "videos");
+
+export const SIZES = [
+  { width: 1440, height: 900 },
+  { width: 390, height: 844 },
+] as const;
+export const THEMES = ["light", "dark"] as const;
+export type Theme = (typeof THEMES)[number];
+
+type Entry = {
+  n: number;
+  slug: string;
+  line: string;
+  section: string;
+  files: { name: string; theme: Theme; width: number }[];
+  error?: string;
+};
+const entries: Entry[] = [];
+const videoEntries: { name: string; line: string }[] = [];
+let counter = 0;
+let section = "";
+
+/** Clears what an earlier tour left (only its own files), so the folder is this run's alone. */
+export function prepareOut() {
+  mkdirSync(VIDEOS, { recursive: true });
+  for (const file of readdirSync(OUT))
+    if (/^\d\d-.*\.png$/.test(file) || file === "index.md")
+      rmSync(resolve(OUT, file));
+  for (const file of readdirSync(VIDEOS))
+    if (file.endsWith(".webm")) rmSync(resolve(VIDEOS, file));
+}
+
+export const setSection = (name: string) => {
+  section = name;
+};
+export const failures = () => entries.filter((e) => e.error);
+export const recordVideo = (name: string, line: string) =>
+  videoEntries.push({ name, line });
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** Waits for fonts, layout and every finite animation, so a shot is the settled state. */
+export async function settle(page: Page) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise<void>((done) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => done()))
+    );
+    // A stuck animation must not stall the tour: wait for the rest, then go on.
+    await Promise.race([
+      Promise.allSettled(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+          .map((a) => a.finished)
+      ),
+      new Promise((done) => setTimeout(done, 600)),
+    ]);
+  });
+  await page.waitForTimeout(120);
+}
+
+export async function resetView(page: Page) {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({
+    colorScheme: "light",
+    reducedMotion: "no-preference",
+  });
+}
+
+/**
+ * One screen and state, shot in light and dark at 1440x900 and 390x844.
+ * `run` reaches the state; the shots follow. A step that throws is logged and
+ * the tour goes on, so one broken screen never hides the rest (the test fails
+ * at the end naming it).
+ */
+export async function step(
+  page: Page,
+  slug: string,
+  line: string,
+  run: () => Promise<void>,
+  options: { fullPage?: boolean; recover?: () => Promise<void> } = {}
+) {
+  const entry: Entry = { n: ++counter, slug, line, section, files: [] };
+  entries.push(entry);
+  mkdirSync(OUT, { recursive: true });
+  try {
+    await resetView(page);
+    await run();
+    for (const size of SIZES) {
+      await page.setViewportSize(size);
+      for (const theme of THEMES) {
+        await page.emulateMedia({ colorScheme: theme });
+        await settle(page);
+        const name = `${pad(entry.n)}-${slug}-${theme}-${size.width}.png`;
+        await page.screenshot({
+          path: resolve(OUT, name),
+          animations: "disabled",
+          fullPage: options.fullPage ?? false,
+        });
+        entry.files.push({ name, theme, width: size.width });
+      }
+    }
+  } catch (error) {
+    entry.error = String(error instanceof Error ? error.message : error).split(
+      "\n"
+    )[0];
+    console.log(`ui-tour: ${pad(entry.n)} ${slug} failed: ${entry.error}`);
+  } finally {
+    await resetView(page).catch(() => {});
+    await (options.recover ?? (() => page.keyboard.press("Escape")))().catch(
+      () => {}
+    );
+  }
+}
+
+/** Writes index.md from what the steps shot, and checks every file is there and not blank. */
+export function writeIndex() {
+  const sections = [...new Set(entries.map((e) => e.section))];
+  const lines = [
+    "# Spark UI tour",
+    "",
+    "Every screen and state in light and dark at 1440x900 and 390x844. Files are `NN-screen-state-theme-width.png`; the same NN is the same screen and state in all four.",
+    "",
+  ];
+  for (const name of sections) {
+    lines.push(`## ${name}`, "");
+    for (const e of entries.filter((x) => x.section === name)) {
+      if (e.error) {
+        lines.push(`- ${pad(e.n)}-${e.slug}: NOT CAPTURED (${e.error})`);
+        continue;
+      }
+      for (const f of e.files)
+        lines.push(
+          `- \`${f.name}\`: ${e.line} (${f.theme}, ${f.width === 1440 ? "desktop 1440x900" : "phone 390x844"})`
+        );
+    }
+    lines.push("");
+  }
+  if (videoEntries.length) {
+    lines.push("## Videos", "");
+    for (const v of videoEntries)
+      lines.push(`- \`videos/${v.name}\`: ${v.line}`);
+    lines.push("");
+  }
+  writeFileSync(resolve(OUT, "index.md"), lines.join("\n"));
+  const missing = entries
+    .flatMap((e) => e.files)
+    .filter((f) => !existsSync(resolve(OUT, f.name)))
+    .map((f) => f.name);
+  const missingVideos = videoEntries
+    .filter((v) => !existsSync(resolve(VIDEOS, v.name)))
+    .map((v) => v.name);
+  return { missing: [...missing, ...missingVideos] };
+}
+
+// ---------------------------------------------------------------------------
+// The Library double.
+
+export type Mock = {
+  memories: Memory[];
+  /** Delay before the Library answers, ms (the loading state). */
+  delay: number;
+  /** The Library, or search, is unreachable. */
+  listFails: boolean;
+  searchFails: boolean;
+  /** Direct and related ids for a query (lower case), set by the tour. */
+  answers: Record<string, { direct: string[]; related?: string[] }>;
+  /** What Get Started reports; unset leaves it to the real server. */
+  onboarding?: Record<string, unknown>;
+};
+
+const KIND_OF: Record<string, string[]> = {
+  image: ["image"],
+  pdf: ["pdf"],
+  video: ["video"],
+  link: ["link", "social_post"],
+  note: ["text"],
+};
+
+/**
+ * Serves `mock.memories` as the whole Library and answers search from it:
+ * chips filter for real, words match through `mock.answers`. Edits and
+ * deletes succeed and change nothing, so a step never needs the real API.
+ */
+export async function installLibrary(context: BrowserContext, mock: Mock) {
+  await context.route(/\/tour\/image-(\d+)\.svg$/, (route) => {
+    const index = Number(/image-(\d+)/.exec(route.request().url())![1]);
+    const shape = SHAPES[index % SHAPES.length]!;
+    return route.fulfill({
+      contentType: "image/svg+xml",
+      body: sceneSvg(index, shape.w, shape.h),
+    });
+  });
+  await context.route(/\/tour\/page-(\d+)\.svg$/, (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: pageSvg(Number(/page-(\d+)/.exec(route.request().url())![1])),
+    })
+  );
+  await context.route(
+    (url) => url.pathname === "/api/onboarding",
+    (route) =>
+      mock.onboarding && route.request().method() === "GET"
+        ? route.fulfill({ json: mock.onboarding })
+        : route.fallback()
+  );
+  await context.route(
+    (url) =>
+      url.pathname.startsWith("/api/memories") ||
+      url.pathname === "/api/search",
+    async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const path = url.pathname;
+      const method = request.method();
+      const byId = (id: string) => mock.memories.find((m) => m.id === id);
+
+      if (path === "/api/memories" && method === "GET") {
+        if (mock.delay) await new Promise((r) => setTimeout(r, mock.delay));
+        if (mock.listFails) return route.fulfill({ status: 503, json: {} });
+        const ids = url.searchParams.get("ids");
+        return route.fulfill({
+          json: {
+            memories: ids
+              ? ids.split(",").flatMap((id) => byId(id) ?? [])
+              : mock.memories,
+            unfinished: [],
+          },
+        });
+      }
+      if (path === "/api/search" && method === "POST") {
+        if (mock.searchFails) return route.fulfill({ status: 503, json: {} });
+        const body = request.postDataJSON() as {
+          q: string;
+          mode?: "instant" | "full";
+          chips?: Record<string, string>;
+        };
+        let pool = mock.memories;
+        const chips = body.chips ?? {};
+        if (chips.kind)
+          pool = pool.filter((m) =>
+            (KIND_OF[chips.kind!] ?? []).includes(
+              m.kind === "link" &&
+                /x\.com|tiktok|instagram/.test(m.sourceUrl ?? "")
+                ? "social_post"
+                : m.kind === "text"
+                  ? "text"
+                  : m.kind
+            )
+          );
+        if (chips.category)
+          pool = pool.filter((m) => m.categories.includes(chips.category!));
+        if (chips.source)
+          pool = pool.filter((m) =>
+            (m.sourceUrl ?? "").includes(chips.source!)
+          );
+        if (chips.colour || chips.when) pool = pool.slice(0, 9);
+        const q = body.q.trim().toLowerCase();
+        if (!q)
+          return route.fulfill({
+            json: {
+              results: pool.map((m) => ({
+                id: m.id,
+                match: "direct",
+                part: chips.kind
+                  ? { kind: "filter", field: "kind", value: chips.kind }
+                  : chips.category
+                    ? {
+                        kind: "filter",
+                        field: "category",
+                        value: chips.category,
+                      }
+                    : null,
+              })),
+            },
+          });
+        const answer = Object.entries(mock.answers).find(([key]) =>
+          q.startsWith(key)
+        )?.[1];
+        if (!answer) return route.fulfill({ json: { results: [] } });
+        const inPool = (id: string) => pool.some((m) => m.id === id);
+        const direct = answer.direct.filter(inPool);
+        const related =
+          body.mode === "full" ? (answer.related ?? []).filter(inPool) : [];
+        const part = (id: string) => {
+          const m = byId(id)!;
+          if (m.kind === "image") return { kind: "field", field: "title" };
+          if (m.kind === "pdf")
+            return { kind: "field", field: "title", page: 3 };
+          return m.title?.toLowerCase().includes(q.split(" ")[0]!)
+            ? { kind: "field", field: "title" }
+            : {
+                kind: "passage",
+                field: "body",
+                start: 0,
+                end: Math.min(40, m.body?.length ?? 0),
+              };
+        };
+        return route.fulfill({
+          json: {
+            mode: body.mode ?? "instant",
+            results: [
+              ...direct.map((id) => ({ id, match: "direct", part: part(id) })),
+              ...related.map((id) => ({
+                id,
+                match: "related",
+                part: { kind: "overview" },
+              })),
+            ],
+          },
+        });
+      }
+      const similar = /^\/api\/memories\/([0-9a-f-]{36})\/similar$/.exec(path);
+      if (similar && method === "GET")
+        return route.fulfill({
+          json: {
+            results: mock.memories
+              .filter((m) => m.id !== similar[1] && m.hasVectors)
+              .slice(3, 12)
+              .map((m) => ({
+                id: m.id,
+                match: "direct",
+                part: { kind: "visual" },
+              })),
+          },
+        });
+      const pages = /^\/api\/memories\/([^/]+)\/pages$/.exec(path);
+      if (pages && method === "GET")
+        return route.fulfill({
+          json: {
+            pages: Array.from({ length: 30 }, (_, i) => ({
+              page: i + 1,
+              url: `/tour/page-${i + 1}.svg`,
+              width: 612,
+              height: 792,
+            })),
+          },
+        });
+      const one = /^\/api\/memories\/([0-9a-f-]{36})$/.exec(path);
+      if (one && byId(one[1]!)) {
+        const memory = byId(one[1]!)!;
+        if (method === "GET") return route.fulfill({ json: memory });
+        if (method === "PATCH")
+          return route.fulfill({
+            json: {
+              ...memory,
+              ...request.postDataJSON(),
+              revision: memory.revision + 1,
+            },
+          });
+        if (method === "DELETE") return route.fulfill({ status: 204 });
+      }
+      if (path === "/api/memories/bulk" && method === "POST")
+        return route.fulfill({ json: { results: [] } });
+      return route.fallback();
+    }
+  );
+}
+
+/** Onboarding finished, so Get Started is gone from the wall. */
+export const FINISHED = {
+  step: "done",
+  paused: true,
+  samplesSeeded: false,
+  firstSuccessfulSearchAt: "2026-11-10T09:00:00.000Z",
+};
+
+/**
+ * Signs in as a new person, so onboarding, Settings and usage start empty.
+ * (A deleted address stays refused, so each run takes a new one; the label
+ * leads, because the sidebar cuts the address short.)
+ */
+export async function signInFresh(page: Page, label: string) {
+  return signIn(page, `tour.${label}.demo.account.${Date.now()}@example.com`);
+}
+
+/** The first tile whose accessible name starts with `name`. */
+export const tile = (page: Page, name: string) =>
+  page
+    .getByRole("list", { name: "All Memories" })
+    .getByRole("listitem", { name: new RegExp("^" + escapeRegExp(name)) })
+    .first();
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export async function expectNoOverflow(page: Page) {
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth
+    )
+  ).toBe(true);
+}
+
+/** A ring that follows the pointer and shrinks while a button is down, for the videos. */
+export async function withCursor(page: Page) {
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      const ring = document.createElement("div");
+      ring.style.cssText =
+        "position:fixed;z-index:2147483647;pointer-events:none;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;border:2px solid #FF3B30;background:rgba(255,59,48,.18);transition:transform 80ms ease-out;left:-50px;top:-50px";
+      document.body.append(ring);
+      const place = (event: MouseEvent) => {
+        ring.style.left = event.clientX + "px";
+        ring.style.top = event.clientY + "px";
+      };
+      document.addEventListener("mousemove", place, true);
+      document.addEventListener(
+        "mousedown",
+        (e) => {
+          place(e);
+          ring.style.transform = "scale(0.7)";
+        },
+        true
+      );
+      document.addEventListener(
+        "mouseup",
+        () => (ring.style.transform = "scale(1)"),
+        true
+      );
+    });
+  });
+}
