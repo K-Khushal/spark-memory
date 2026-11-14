@@ -267,4 +267,3 @@ AS $$
   FROM ranked r
   ORDER BY place
 $$;
-
