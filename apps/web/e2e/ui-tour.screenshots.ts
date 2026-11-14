@@ -254,18 +254,6 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
   mock.listFails = false;
 
   // Filters and Categories.
-  const sidebar = page.getByRole("complementary");
-  const filter = async (group: string, name: string) => {
-    const phone = (page.viewportSize()?.width ?? 1440) < 768;
-    void phone;
-    await page
-      .getByRole("list", { name: group })
-      .getByRole("button", { name })
-      .first()
-      .click();
-  };
-  void sidebar;
-  void filter;
   await step(
     page,
     "filter-kind-images",

@@ -9,7 +9,7 @@ import {
 import { resolve } from "node:path";
 import type { Memory } from "../src/library/use-library";
 import { signIn } from "./sign-in";
-import { pageSvg, sceneSvg } from "./ui-tour-fixtures";
+import { pageSvg, SHAPES, sceneSvg } from "./ui-tour-fixtures";
 
 // The harness behind ui-tour.screenshots.ts: where files go, how a step is
 // shot in every theme and width, the index.md it leaves behind, and the
@@ -204,17 +204,10 @@ const KIND_OF: Record<string, string[]> = {
 export async function installLibrary(context: BrowserContext, mock: Mock) {
   await context.route(/\/tour\/image-(\d+)\.svg$/, (route) => {
     const index = Number(/image-(\d+)/.exec(route.request().url())![1]);
-    const shape = [
-      [1200, 800],
-      [800, 1000],
-      [1000, 1000],
-      [1600, 900],
-      [700, 1100],
-      [1200, 900],
-    ][index % 6]!;
+    const shape = SHAPES[index % SHAPES.length]!;
     return route.fulfill({
       contentType: "image/svg+xml",
-      body: sceneSvg(index, shape[0]!, shape[1]!),
+      body: sceneSvg(index, shape.w, shape.h),
     });
   });
   await context.route(/\/tour\/page-(\d+)\.svg$/, (route) =>
@@ -404,10 +397,10 @@ export async function signInFresh(page: Page, label: string) {
 export const tile = (page: Page, name: string) =>
   page
     .getByRole("list", { name: "All Memories" })
-    .getByRole("listitem", { name: new RegExp("^" + escape(name)) })
+    .getByRole("listitem", { name: new RegExp("^" + escapeRegExp(name)) })
     .first();
 
-export const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export async function expectNoOverflow(page: Page) {
   expect(

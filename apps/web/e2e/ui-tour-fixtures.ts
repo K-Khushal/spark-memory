@@ -96,7 +96,7 @@ export function pageSvg(n: number, title = "Garden Report") {
 }
 
 type Shape = { w: number; h: number };
-const SHAPES: Shape[] = [
+export const SHAPES: Shape[] = [
   { w: 1200, h: 800 },
   { w: 800, h: 1000 },
   { w: 1000, h: 1000 },
