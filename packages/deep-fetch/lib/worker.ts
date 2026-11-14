@@ -3,6 +3,7 @@ import {
   DEEP_FETCH,
   engineFor,
   FREE_ALLOWANCE,
+  INDEXING,
   MIN_PRESERVED_CHARS,
   modelCostMicros,
   retryDelaySeconds,
@@ -80,8 +81,8 @@ export type DeepFetchJobStore = {
 
 /** The daily AI budget and its ledger (structurally @spark/db's `indexingStore`). */
 export type DeepFetchAi = {
-  spentTodayMicros(): Promise<number>;
-  dailyBudgetMicros(): Promise<number>;
+  /** Holds a call's estimated cost first; false when no budget is left for it. */
+  reserve(input: { userId: string; micros: number }): Promise<boolean>;
   recordCall(call: {
     userId: string;
     memoryId: string;
@@ -162,9 +163,18 @@ export function createDeepFetchWorker({
       // The free tier is spent: the next window, never a charge (ADR-0010).
       return wait(window.secondsToNext);
     }
+    // Sending a video's audio to a model costs money: held for the longest
+    // video first, past the person's share or the daily budget it waits.
     if (
       engine === "media" &&
-      (await ai.spentTodayMicros()) >= (await ai.dailyBudgetMicros())
+      !(await ai.reserve({
+        userId: claim.userId,
+        micros: modelCostMicros(INDEXING.models.gemini, {
+          inputTokens: FREE_ALLOWANCE.videoTranscriptMaxMinutes * 60 * 32,
+          outputTokens: 20_000,
+          audio: true,
+        }),
+      }))
     ) {
       return wait(secondsToNextUtcDay(now()));
     }

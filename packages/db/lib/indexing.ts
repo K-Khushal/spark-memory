@@ -14,6 +14,8 @@ import {
   type ProviderName,
   type TranscriptSegment,
   type VideoMetadata,
+  OWNER_BUDGET_SHARE_DEFAULT,
+  ownerBudgetMicros,
 } from "@spark/core";
 import { readDailyBudgetMicros } from "./admin";
 import type { Database } from "./client";
@@ -126,6 +128,9 @@ const workDueIn = (space: string) =>
 /** Today in UTC, by the database's clock: the day the budget counts. */
 const today = sql`(now() at time zone 'utc')::date`;
 
+/** How long a hold for a call that never recorded its cost keeps counting (past a call's 5-minute lease). */
+const RESERVATION_MINUTES = 6;
+
 /** Longer than any one message's provider calls take. */
 const LEASE_MINUTES = 5;
 /** Free to take: never leased, the lease ran out, or it was for an older run. */
@@ -192,7 +197,18 @@ const allStored = sql`not exists (select 1 from memory_file f where f.memory_id 
  * not the one loaded, so duplicate or late messages are harmless. No
  * transaction is held across an AI call: each write is its own.
  */
-export function indexingStore(db: Database) {
+export function indexingStore(
+  db: Database,
+  {
+    ownerBudgetShare = OWNER_BUDGET_SHARE_DEFAULT,
+    budget = () => readDailyBudgetMicros(db),
+  }: {
+    /** One person's share of the daily budget (the Worker's `AI_OWNER_BUDGET_PERCENT`). */
+    ownerBudgetShare?: number;
+    /** The daily budget; the admin's setting unless a test sets one. */
+    budget?: () => Promise<number>;
+  } = {}
+) {
   /** An image Memory's original and thumbnail keys, for a model to read. */
   async function imageOf(id: string) {
     const files = await db
@@ -986,7 +1002,54 @@ export function indexingStore(db: Database) {
     },
 
     /** The admin's daily budget, or the config default when they have not set one. */
-    dailyBudgetMicros: () => readDailyBudgetMicros(db),
+    dailyBudgetMicros: budget,
+
+    /**
+     * Holds `micros` (an estimate) for a call about to be made, or says no
+     * (false): the person has spent their share of today's budget, or, with
+     * `global`, everyone together have spent all of it. Spend and holds are
+     * read and the hold is written under one lock, so parallel calls cannot
+     * all pass the limit; each call then records its real cost, which uses
+     * up one of the person's holds (`recordCall`). A hold nobody used stops
+     * counting after a few minutes. Work that is never held back by the
+     * global budget (a new Capture's first Indexing) passes `global: false`
+     * and is still held to the person's share.
+     */
+    async reserve(input: {
+      userId: string;
+      micros: number;
+      global?: boolean;
+    }): Promise<boolean> {
+      const limit = await budget();
+      // What the hold adds counts too, so the last call cannot overshoot; a
+      // free call still needs room (one micro), so a spent budget stops it.
+      const held = Math.max(1, Math.ceil(input.micros));
+      const ownerCap = ownerBudgetMicros(limit, ownerBudgetShare);
+      return db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtext('ai-spend')::bigint)`
+        );
+        await tx.execute(
+          sql`delete from ai_reservation where created_at <= now() - interval '1 hour'`
+        );
+        const { rowCount } = await tx.execute(sql`
+          insert into ai_reservation (user_id, micros)
+          select ${input.userId}, ${held}
+          where (select coalesce(sum(cost_micros), 0) from ai_call
+                  where user_id = ${input.userId} and day = ${today})
+              + (select coalesce(sum(micros), 0) from ai_reservation
+                  where user_id = ${input.userId}
+                    and created_at > now() - make_interval(mins => ${RESERVATION_MINUTES}))
+              + ${held} <= ${ownerCap}
+            and (${input.global === false}
+              or (select coalesce(sum(cost_micros), 0) from spend_day where day = ${today})
+               + (select coalesce(sum(micros), 0) from ai_reservation
+                   where created_at > now() - make_interval(mins => ${RESERVATION_MINUTES}))
+               + ${held} <= ${limit})
+          and exists (select 1 from "user" where id = ${input.userId})`);
+        return rowCount === 1;
+      });
+    },
 
     /**
      * Claims the first time this Memory became Searchable. One update wins
@@ -1101,6 +1164,10 @@ export function indexingStore(db: Database) {
               costMicros: sql`${spendDay.costMicros} + excluded.cost_micros`,
             },
           });
+        // The cost is real now: it replaces the person's oldest hold.
+        await tx.execute(sql`delete from ai_reservation where id = (
+          select id from ai_reservation where user_id = ${call.userId}
+          order by created_at limit 1 for update skip locked)`);
       });
     },
 

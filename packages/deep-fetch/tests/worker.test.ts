@@ -100,8 +100,7 @@ describe.skipIf(!databaseUrl)("Deep fetch job", () => {
     const worker = createDeepFetchWorker({
       store: store(),
       ai: {
-        spentTodayMicros: async () => over.spent ?? 0,
-        dailyBudgetMicros: async () => 1_000_000,
+        reserve: async () => (over.spent ?? 0) < 1_000_000,
         recordCall: async (call) => {
           recorded.push(call);
           await indexing.recordCall(call);

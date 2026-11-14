@@ -215,8 +215,14 @@ describe.skipIf(!databaseUrl)("Captures in the Free allowance", () => {
       throw new Error("not created");
     }
     const largest = await library.largest(5);
-    expect(largest.map((m) => m.id)).toEqual([big.memory.id, small.memory.id]);
+    // Text takes storage too, so the note with no files is named, last.
+    expect(largest.map((m) => m.id)).toEqual([
+      big.memory.id,
+      small.memory.id,
+      text.memory.id,
+    ]);
     expect(largest[0]).toMatchObject({ kind: "image", bytes: 9300 });
+    expect(largest[2]).toMatchObject({ kind: "text", bytes: 8 });
   });
 
   describe("a reel's copy (#20)", () => {

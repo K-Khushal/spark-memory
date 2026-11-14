@@ -54,8 +54,10 @@ function spend(spent = 0) {
   const calls: AiCall[] = [];
   return {
     calls,
-    spentTodayMicros: async (): Promise<number> => spent,
-    dailyBudgetMicros: async () => INDEXING.dailyBudgetMicros,
+    reserve: async (_input: {
+      userId: string;
+      micros: number;
+    }): Promise<boolean> => spent < INDEXING.dailyBudgetMicros,
     recordCall: async (call: AiCall): Promise<void> => {
       calls.push(call);
     },
@@ -128,6 +130,36 @@ describe("search", () => {
     }
   });
 
+  it("holds the query's cost before the provider call, so parallel searches cannot all pass a spent budget", async () => {
+    const order: string[] = [];
+    const { search, budget, model } = setup();
+    const holds: { userId: string; micros: number }[] = [];
+    budget.reserve = async (input) => {
+      order.push("hold");
+      holds.push(input);
+      return true;
+    };
+    model!.embed.mockImplementation(async () => {
+      order.push("embed");
+      return {
+        vectors: [[0, 1, 0]],
+        usage: { textTokens: 10, imageTokens: 0 },
+      };
+    });
+    await search.search("purple dashboard", "full");
+    expect(order).toEqual(["hold", "embed"]);
+    expect(holds[0]!.micros).toBeGreaterThan(0);
+    expect(holds[0]!.userId).toMatch(/^u\d+$/);
+    // The person's share spent: no call is made, and search still answers.
+    const refused = setup();
+    refused.budget.reserve = async () => false;
+    await expect(refused.search.search("purple", "full")).resolves.toEqual({
+      results: [],
+      mode: "instant",
+    });
+    expect(refused.model!.embed).not.toHaveBeenCalled();
+  });
+
   it("falls back to keyword search when anything in the vector leg fails", async () => {
     const failures: {
       label: string;
@@ -152,7 +184,7 @@ describe("search", () => {
       {
         label: "reading the budget",
         tweak: ({ budget }) =>
-          (budget.spentTodayMicros = async () => {
+          (budget.reserve = async () => {
             throw new Error("database down");
           }),
       },

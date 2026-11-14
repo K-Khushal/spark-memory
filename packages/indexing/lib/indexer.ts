@@ -134,7 +134,7 @@ export type EmbedMemory = EmbedSource & {
 };
 
 /** A loaded Memory and the id it was loaded by. */
-type Work = PendingMemory & { memoryId: string };
+type Work = PendingMemory & { memoryId: string; priority?: Priority };
 
 export type Extraction = { output: IndexingOutput; model: string };
 
@@ -246,6 +246,17 @@ export type IndexStore = {
   /** The effective daily budget (the admin's setting, or the config default). */
   dailyBudgetMicros(): Promise<number>;
   recordCall(call: AiCall): Promise<void>;
+  /**
+   * Holds an estimate of a call's cost before it is made, or says no: the
+   * person has spent their share of today's budget, or (with `global`)
+   * everyone together have spent all of it. The call's `recordCall` then
+   * replaces the hold, so parallel calls cannot overshoot the budget.
+   */
+  reserve(input: {
+    userId: string;
+    micros: number;
+    global?: boolean;
+  }): Promise<boolean>;
 };
 
 /** One AI call and what it cost, for the admin page and the budget. */
@@ -276,6 +287,19 @@ export type IndexOutcome =
 class InvalidOutput extends Error {}
 /** The run moved on (an edit, Retry or AI opt-out) before a provider call. */
 class Superseded extends Error {}
+/** No budget is left for the call (the person's share, or everyone's): wait for the next UTC day. */
+class OverBudget extends Error {}
+
+/** About three characters a token: an overestimate, which is what a hold should be. */
+const heldTextTokens = (chars: number) => Math.ceil(chars / 3);
+/** Tokens one image or page image is held at. */
+const HELD_IMAGE_TOKENS = 1_600;
+/** Output tokens a normal Extraction is held at. */
+const HELD_OUTPUT_TOKENS = 2_000;
+/** Audio tokens a second of video sound is held at (Gemini counts 32). */
+const HELD_AUDIO_TOKENS_PER_SECOND = 32;
+/** What a Category's call (a prototype embedding, or Jev) is held at, in micro-dollars. */
+export const HELD_CATEGORY_MICROS = 500;
 
 const costMicros = (model: string, { inputTokens, outputTokens }: Usage) => {
   const [input, output] = INDEXING.pricesMicrosPerMTokens[model] ?? [0, 0];
@@ -384,10 +408,41 @@ export function createIndexer({
       .recordCall(call)
       .catch(() => console.error("indexing: AI call cost not recorded"));
 
+  /**
+   * Holds the cost of a call about to be made (see `IndexStore.reserve`).
+   * A new Capture's first run is never held back by the global budget, only
+   * by the person's share of it.
+   */
+  const hold = (work: Claim & { priority?: Priority }, micros: number) =>
+    store.reserve({
+      userId: work.userId,
+      micros,
+      global: work.priority !== "fresh",
+    });
+
   /** One provider call for the Memory loaded as `memoryId`, recorded with its cost. */
   async function ask(provider: Provider, work: Work, request: ExtractRequest) {
     // AI opt-out switched on (or an edit, or Retry) since loading: stop here.
     if (!(await store.isCurrent(work))) throw new Superseded();
+    const images = (request.image ? 1 : 0) + (request.pages?.length ?? 0);
+    const chars =
+      request.system.length +
+      request.user.length +
+      (request.correction
+        ? request.correction.previous.length + request.correction.errors.length
+        : 0);
+    if (
+      !(await hold(
+        work,
+        costMicros(provider.model, {
+          inputTokens: heldTextTokens(chars) + images * HELD_IMAGE_TOKENS,
+          outputTokens: request.pages
+            ? INDEXING.scanMaxOutputTokens
+            : HELD_OUTPUT_TOKENS,
+        })
+      ))
+    )
+      throw new OverBudget();
     let reply;
     try {
       reply = await provider.extract(request);
@@ -466,6 +521,7 @@ export function createIndexer({
         revision: number;
         image?: ImageKeys;
         pdf?: PdfKeys;
+        priority?: Priority;
       },
     current: () => Promise<boolean>,
     loaded?: Visual[]
@@ -493,6 +549,15 @@ export function createIndexer({
         visuals
       );
       if (!(await current())) throw new Superseded();
+      // No budget left for it: no vectors now; the hourly sweep makes them later.
+      const held = { textTokens: 0, imageTokens: 0 };
+      for (const input of inputs) {
+        if ("text" in input)
+          held.textTokens += heldTextTokens(input.text.length);
+        else held.imageTokens += HELD_IMAGE_TOKENS;
+      }
+      if (!(await hold(work, embedCostMicros(embedder.model, held))))
+        return undefined;
       try {
         const { vectors, usage } = await embedder.embed(inputs);
         await record(usage);
@@ -589,7 +654,7 @@ export function createIndexer({
           ))
         : await store.load(job.memoryId, job.run, job.generation);
     if (!loaded) return { result: "skipped" };
-    const work = { ...loaded, memoryId: job.memoryId };
+    const work = { ...loaded, memoryId: job.memoryId, priority: job.priority };
     try {
       const outcome =
         "found" in work
@@ -656,6 +721,18 @@ export function createIndexer({
         // Asked again right before the call: AI opt-out may have been
         // switched on, or the reel replaced, while the video was read.
         if (!(await store.isCurrent(work))) return { result: "skipped" };
+        const seconds = Math.ceil(copy.video.duration);
+        if (
+          !(await hold(
+            work,
+            modelCostMicros(transcriber.model, {
+              inputTokens: seconds * HELD_AUDIO_TOKENS_PER_SECOND + 1_000,
+              outputTokens: heldTextTokens(FREE_ALLOWANCE.textMaxChars),
+              audio: true,
+            })
+          ))
+        )
+          return pausedUntilTomorrow();
         try {
           const { segments, usage } = await transcriber.transcribe(
             { bytes, mime: copy.video.mime },
@@ -729,11 +806,15 @@ export function createIndexer({
     ]);
     return spent >= limit;
   };
+  const pausedUntilTomorrow = (): IndexOutcome => ({
+    result: "paused",
+    delaySeconds: secondsToNextUtcDay(now()),
+  });
   const overBudget = async (
     job: IndexJob
   ): Promise<IndexOutcome | undefined> =>
     job.priority === "background" && (await budgetSpent())
-      ? { result: "paused", delaySeconds: secondsToNextUtcDay(now()) }
+      ? pausedUntilTomorrow()
       : undefined;
 
   /**
@@ -742,6 +823,7 @@ export function createIndexer({
    */
   async function assignCategories(
     work: Claim & {
+      priority?: Priority;
       revision: number;
       categoriesStale?: boolean;
       ownCategories?: string[];
@@ -776,7 +858,8 @@ export function createIndexer({
         }),
         ...(jev && { jev }),
         ...(work.ownCategories && { own: work.ownCategories }),
-        allow: async () => !(await budgetSpent()) && (await current()),
+        allow: async () =>
+          (await hold(work, HELD_CATEGORY_MICROS)) && (await current()),
         record: (call) => recordCall({ ...callOf(work), ...call }),
       });
       if (categories) {
@@ -947,6 +1030,7 @@ export function createIndexer({
         return { result: written ? "searchable" : "skipped" };
       } catch (error) {
         if (error instanceof Superseded) return { result: "skipped" };
+        if (error instanceof OverBudget) return pausedUntilTomorrow();
         if (error instanceof InvalidOutput) seen.add("invalid");
         else if (error instanceof ProviderError && error.kind === "unsupported")
           seen.add("unsupported");

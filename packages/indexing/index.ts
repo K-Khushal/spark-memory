@@ -14,6 +14,7 @@ export {
   type Indexer,
   type PendingMemory,
   type Priority,
+  HELD_CATEGORY_MICROS,
 } from "./lib/indexer";
 export {
   ProviderError,

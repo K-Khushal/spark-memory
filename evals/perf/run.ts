@@ -128,7 +128,11 @@ try {
   const library = openLibrary(db, userId, {
     vectorsSpace: embeddingSpace(embedder.model, embedder.dimensions),
   });
-  const store = indexingStore(db);
+  // The daily AI budget protects users, not this throwaway Library.
+  const store = indexingStore(db, {
+    budget: async () => Number.MAX_SAFE_INTEGER,
+    ownerBudgetShare: 1,
+  });
   const indexer = createIndexer({
     store,
     providers: [fakeProvider()],

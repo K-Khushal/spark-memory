@@ -429,6 +429,10 @@ const PDF_REFUSALS: Partial<Record<ImageRefusal | ServerRefusal, string>> = {
   unreadable: "PDF Can't Be Read",
 };
 
+/** The title of the toast for a Capture the Free allowance refuses: a file, text or a link. */
+export const allowanceRefusal = (reason: "storage_full" | "captures_full") =>
+  REFUSALS[reason];
+
 const REFUSALS: Record<ImageRefusal | ServerRefusal, string> = {
   // The server could not accept what the browser made of it: retrying won't help.
   invalid: "Image Can't Be Captured",

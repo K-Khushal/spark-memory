@@ -51,6 +51,7 @@ async function userPartFor(body: string) {
     ...noEmbedding,
     spentTodayMicros: async () => 0,
     dailyBudgetMicros: async () => 1_000_000,
+    reserve: async () => true,
     recordCall: async () => {},
   };
   await createIndexer({
@@ -209,6 +210,7 @@ describe("provider calls", () => {
       ...noEmbedding,
       spentTodayMicros: async () => 0,
       dailyBudgetMicros: async () => 1_000_000,
+      reserve: async () => true,
       recordCall: async (call) => {
         calls.push(call);
       },
@@ -251,6 +253,7 @@ describe("provider calls", () => {
       ...noEmbedding,
       spentTodayMicros: async () => 0,
       dailyBudgetMicros: async () => 1_000_000,
+      reserve: async () => true,
       recordCall: async (call) => {
         calls.push(call);
       },

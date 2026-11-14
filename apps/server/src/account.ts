@@ -15,6 +15,7 @@ import { deviceName } from "./devices";
 import { fileStore } from "./files";
 import { json, noStore } from "./memories";
 import { sameOrigin } from "./origin";
+import { rateLimited } from "./rate-limit";
 
 /** The signed-in person's account, for every route below. */
 const withAccount = createMiddleware<
@@ -76,23 +77,31 @@ export const account = new Hono<AppEnv>()
     });
   })
   /** Signs one other device out. */
-  .delete("/account/sessions/:handle", async (c) => {
-    const handle = c.req.param("handle");
-    const sessions = await c.var.account.sessions();
-    for (const s of sessions) {
-      if (s.id !== c.var.sessionId && (await handleOf(s.id)) === handle) {
-        await c.var.account.revokeSession(s.id);
-        return c.body(null, 204);
+  .delete(
+    "/account/sessions/:handle",
+    rateLimited("EDIT_LIMITER"),
+    async (c) => {
+      const handle = c.req.param("handle");
+      const sessions = await c.var.account.sessions();
+      for (const s of sessions) {
+        if (s.id !== c.var.sessionId && (await handleOf(s.id)) === handle) {
+          await c.var.account.revokeSession(s.id);
+          return c.body(null, 204);
+        }
       }
+      return c.json(notFound, 404);
     }
-    return c.json(notFound, 404);
-  })
+  )
   /** Signs every device out, this one included. */
-  .post("/account/sign-out-everywhere", async (c) => {
-    await signOutHere(c);
-    await c.var.account.revokeAllSessions();
-    return c.body(null, 204);
-  })
+  .post(
+    "/account/sign-out-everywhere",
+    rateLimited("EDIT_LIMITER"),
+    async (c) => {
+      await signOutHere(c);
+      await c.var.account.revokeAllSessions();
+      return c.body(null, 204);
+    }
+  )
   .get("/account/export", async (c) =>
     c.json({ export: shown(await c.var.account.export()) })
   )
@@ -109,7 +118,7 @@ export const account = new Hono<AppEnv>()
     return c.redirect(url, 302);
   })
   /** Starts building a ZIP of the whole Library in the background. */
-  .post("/account/export", async (c) => {
+  .post("/account/export", rateLimited("EDIT_LIMITER"), async (c) => {
     const result = await c.var.account.requestExport();
     if ("refused" in result) {
       return c.json({ ok: false, error: result.refused } as const, 409);
@@ -125,19 +134,24 @@ export const account = new Hono<AppEnv>()
    * typed their address. Signed out everywhere at once; the account job
    * removes the rest (src/account-jobs.ts).
    */
-  .delete("/account", json(AccountDeletion), async (c) => {
-    if (!confirmsDeletion(c.req.valid("json").email, c.var.user.email)) {
-      return c.json({ ok: false, error: "invalid" } as const, 400);
+  .delete(
+    "/account",
+    rateLimited("EDIT_LIMITER"),
+    json(AccountDeletion),
+    async (c) => {
+      if (!confirmsDeletion(c.req.valid("json").email, c.var.user.email)) {
+        return c.json({ ok: false, error: "invalid" } as const, 400);
+      }
+      await signOutHere(c);
+      await c.var.account.requestDeletion();
+      // Their recent search queries, as vectors, go from this isolate now.
+      forgetQueryVectors(c.var.user.id);
+      await c.env.ACCOUNT_QUEUE.send({ kind: "delete", userId: c.var.user.id })
+        // The hourly sweep sends it again.
+        .catch(() => console.error("account: deletion not sent"));
+      return c.body(null, 204);
     }
-    await signOutHere(c);
-    await c.var.account.requestDeletion();
-    // Their recent search queries, as vectors, go from this isolate now.
-    forgetQueryVectors(c.var.user.id);
-    await c.env.ACCOUNT_QUEUE.send({ kind: "delete", userId: c.var.user.id })
-      // The hourly sweep sends it again.
-      .catch(() => console.error("account: deletion not sent"));
-    return c.body(null, 204);
-  });
+  );
 
 /** An export as the browser sees it; once ready, it downloads from /account/export/download. */
 function shown(found: LibraryExport | undefined) {

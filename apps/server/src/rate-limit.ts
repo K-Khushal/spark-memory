@@ -1,5 +1,6 @@
+import type { Context, Env } from "hono";
 import { createMiddleware } from "hono/factory";
-import type { AppEnv, RateLimiter } from "./env";
+import type { AppEnv, Bindings, RateLimiter } from "./env";
 import type { UserVariables } from "./auth";
 
 /**
@@ -10,8 +11,18 @@ import type { UserVariables } from "./auth";
  */
 export const RATE_LIMIT_PERIOD_SECONDS = 60;
 
-/** The two bindings a route can be limited by. */
-export type Limiter = "CAPTURE_LIMITER" | "SEARCH_LIMITER";
+/**
+ * The bindings a route can be limited by. Capture and search are the busy
+ * ones; EDIT covers every other write to the Library (an edit rewrites the
+ * Memory's words), OPT_OUT the AI opt-out toggle (turning it off starts
+ * Indexing again) and IMAGE_SEARCH a search by image (a paid embedding).
+ */
+export type Limiter =
+  | "CAPTURE_LIMITER"
+  | "SEARCH_LIMITER"
+  | "EDIT_LIMITER"
+  | "OPT_OUT_LIMITER"
+  | "IMAGE_SEARCH_LIMITER";
 
 /**
  * Per signed-in person, after auth: 429 with Retry-After once the person's
@@ -21,13 +32,24 @@ export type Limiter = "CAPTURE_LIMITER" | "SEARCH_LIMITER";
  */
 export const rateLimited = (name: Limiter) =>
   createMiddleware<AppEnv & { Variables: UserVariables }>(async (c, next) => {
-    const limiter: RateLimiter | undefined = c.env[name];
-    if (limiter) {
-      const { success } = await limiter.limit({ key: c.var.user.id });
-      if (!success) {
-        c.header("Retry-After", String(RATE_LIMIT_PERIOD_SECONDS));
-        return c.json({ ok: false, error: "rate_limited" } as const, 429);
-      }
-    }
-    return next();
+    const refused = await limitExceeded(c, c.env, c.var.user.id, name);
+    return refused ?? next();
   });
+
+/**
+ * For a route that knows only after reading its body which limit applies:
+ * the 429 answer once the person's count is spent, else undefined.
+ */
+export async function limitExceeded<E extends Env>(
+  c: Context<E>,
+  env: Bindings,
+  userId: string,
+  name: Limiter
+) {
+  const limiter: RateLimiter | undefined = env[name];
+  if (!limiter) return undefined;
+  const { success } = await limiter.limit({ key: userId });
+  if (success) return undefined;
+  c.header("Retry-After", String(RATE_LIMIT_PERIOD_SECONDS));
+  return c.json({ ok: false, error: "rate_limited" } as const, 429);
+}

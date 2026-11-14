@@ -123,6 +123,8 @@ Set each with `cd apps/server && npx wrangler secret put <NAME> --env dev`, then
 | `POSTHOG_KEY`          | no       | PostHog project API key (starts with `phc_`). Unset means product events are not sent. See Product events below.                                   |
 | `JINA_API_KEY`         | no       | jina.ai → API key; raises Jina Reader's rate limit. Used only when `LINK_READER` is `"jina"`                                                       |
 
+The optional var `AI_OWNER_BUDGET_PERCENT` (1 to 100, default 20) sets how much of the daily AI budget one person may spend; see Free allowance and rate limits.
+
 A social provider turns on only when both its client id and secret are set; otherwise its button is hidden.
 
 ## Memory files
@@ -196,7 +198,23 @@ The Deep fetch queue (`spark-deepfetch-<env>`) is in `wrangler.jsonc`; create it
 
 ## Free allowance and rate limits
 
-Captures a day, Deep fetches a day and storage are counted in Postgres (`usage_day`, `memory_file`): nothing to set up. Per-person rate limits use Cloudflare's Rate Limiting binding (`CAPTURE_LIMITER`, `SEARCH_LIMITER` in `apps/server/wrangler.jsonc`, with namespace ids 2001/2002 for dev and 3001/3002 for production; they must stay unique in the Cloudflare account). It needs no secret. If a deploy is refused because the account's plan lacks the binding, remove the `ratelimits` block for that environment: a Worker without the bindings does not limit, and the daily counts still hold. See [docs/research/rate-limits.md](./research/rate-limits.md).
+Captures a day, Deep fetches a day and storage are counted in Postgres (`usage_day`, `memory_file`): nothing to set up. Per-person rate limits use Cloudflare's Rate Limiting binding (`CAPTURE_LIMITER`, `SEARCH_LIMITER`, `EDIT_LIMITER`, `OPT_OUT_LIMITER` and `IMAGE_SEARCH_LIMITER` in `apps/server/wrangler.jsonc`, with namespace ids 2001 to 2005 for dev and 3001 to 3005 for production; they must stay unique in the Cloudflare account). It needs no secret. If a deploy is refused because the account's plan lacks the binding, remove the `ratelimits` block for that environment: a Worker without the bindings does not limit, and the daily counts still hold. See [docs/research/rate-limits.md](./research/rate-limits.md).
+
+### What counts, and what is held back
+
+Text counts toward the 1 GB of storage with the files (a Memory's body, title and Capture note; Samples never count), and a save that no longer fits is refused with `storage_full` (413). Past the day's 100 Captures a text or link is still kept, partly Indexed, but only `keptPerDay` (50) more a UTC day (`usage_day.kept`); then it is refused with `captures_full` (429, `Retry-After` to the next UTC midnight), the same answers a file gets. An all-at-once import keeps what is over the day's Captures within the same 50, and the rest waits for the next day. One Memory writes at most 4,000 typo-matching words (`memory_word`), earliest first.
+
+Every write to the Library that is not a Capture shares `EDIT_LIMITER` (60 a minute per person: edits, bulk changes, Retry, Deep fetch Try Again, categories, onboarding, account actions). `OPT_OUT_LIMITER` (10 a minute) guards the AI opt-out toggle, because turning it off starts Indexing again. A search by image is a paid embedding and has its own `IMAGE_SEARCH_LIMITER` (30 a minute) apart from text search's 600.
+
+### AI spend per person
+
+The daily AI budget (Admin, $1 unless changed) is global; each person may spend `AI_OWNER_BUDGET_PERCENT` of it (a Worker var, 1 to 100, default 20; anything else is ignored). Every AI call first holds its estimated cost against that share (`ai_reservation`; and, for background work and search, against the global budget too) under one lock, and `recordCall` replaces the hold with the real cost. A call that is refused waits: Indexing pauses until the next UTC day and search falls back to keywords. A new Capture's first run is never held back by the global budget, but it is held to the person's share, and so is the first run after turning AI opt-out off. A hold nobody used (a call that failed before it was billed) stops counting after six minutes. The hold includes what it adds, so the last call cannot overshoot the share.
+
+## Security headers
+
+`apps/web/public/_headers` gives every dashboard asset `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy` and `Cross-Origin-Opener-Policy`, and a `Content-Security-Policy-Report-Only`. The policy is Report-Only for now: the browser console shows what it would have blocked and nothing is blocked. **After one release** with no violations from the real app, rename the header to `Content-Security-Policy` in that file to enforce it. `frame-ancestors` is ignored in Report-Only mode, so `X-Frame-Options` covers clickjacking until then.
+
+`wrangler dev` applies the file too (`curl -I http://localhost:8787/`). When `index.html`'s inline theme script changes, put its new SHA-256 in the policy: `apps/web/src/security-headers.test.ts` fails until you do. PostHog or Sentry hosts outside `*.posthog.com` and `*.ingest.sentry.io` need adding to `connect-src`. Zod's one-time `new Function` probe appears as a `'unsafe-eval'` violation in Report-Only; it falls back when blocked, so enforcing needs no change for it. The headers do not apply to the Worker's `/api` responses (JSON with `no-store`; the OAuth consent pages carry their own policy). HSTS is set at the Cloudflare zone (`max-age=31536000; includeSubDomains`), not here.
 
 ## Admin
 

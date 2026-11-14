@@ -11,7 +11,7 @@ import {
 import type { Database } from "./client";
 import { importJob, importItem, memory, memoryFile, usageDay } from "./schema";
 import { deletionRequested, lockOwner } from "./owner";
-import { takeDailyCapture } from "./capture-allowance";
+import { takeDailyCapture, takeDailyKeep } from "./capture-allowance";
 
 export type ImportJob = typeof importJob.$inferSelect;
 /** One owner's durable, bounded import. No network calls while a transaction is open. */
@@ -408,7 +408,13 @@ export function openImports(db: Database, userId: string) {
               now.toISOString().slice(0, 10),
               FREE_ALLOWANCE.capturesPerDay - IMPORT_RESERVE
             );
-            if (!allowed && job.spread) {
+            // A job that is not spread out keeps what is over today's Captures
+            // (partly Indexed), up to today's keeps; the rest waits for tomorrow.
+            const kept =
+              !allowed &&
+              !job.spread &&
+              (await takeDailyKeep(tx, userId, now.toISOString().slice(0, 10)));
+            if (!allowed && !kept) {
               await tx.delete(memory).where(eq(memory.id, created.id));
               const next = new Date(now);
               next.setUTCHours(24, 0, 0, 0);
@@ -422,7 +428,7 @@ export function openImports(db: Database, userId: string) {
                 dueAt: next.toISOString(),
               };
             }
-            if (!allowed)
+            if (kept)
               await tx
                 .update(memory)
                 .set({ overAllowance: true, indexState: "searchable" })

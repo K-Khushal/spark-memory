@@ -28,6 +28,20 @@ const iso = (column: string) =>
 const clientRowId = (id: string | SQL) => sql`'client:' || ${id}`;
 export type OAuthClient = { id: string; name: string; redirects: string[] };
 
+/**
+ * `POST /api/oauth/register` is anonymous, so what it creates is bounded: a
+ * registration no grant claims within `unclaimedHours` is swept, at most
+ * `maxUnclaimed` wait at once, and one source may register `perSourcePerDay`.
+ */
+export const REGISTRATION_LIMITS = {
+  unclaimedHours: 24,
+  maxUnclaimed: 1_000,
+  perSourcePerMinute: 10,
+  perSourcePerDay: 50,
+} as const;
+const MINUTE_MS = 60_000;
+const DAY_MS = 86_400_000;
+
 /** Only digests cross the persistence boundary. No query or Memory content is accepted here. */
 export function assistantStore(db: Database) {
   const ownedWrite = <T>(
@@ -58,7 +72,31 @@ export function assistantStore(db: Database) {
       sql`insert into assistant_refresh(digest, grant_id) values (${input.refreshDigest}, ${input.grantId})`
     );
   };
+  /**
+   * Registrations nobody claimed (no grant was ever issued) after their
+   * window, and the registration counters of sources long gone: one bounded
+   * batch each. A client with a live code is kept until the code expires.
+   * Clients with grants are never touched.
+   */
+  async function sweepRegistrations(batch: number) {
+    const { rowCount } =
+      await db.execute(sql`delete from assistant_client where id in (
+      select c.id from assistant_client c
+      where c.claimed_at is null
+        and c.created_at <= now() - make_interval(hours => ${REGISTRATION_LIMITS.unclaimedHours})
+        and not exists(select 1 from assistant_code k where k.client_id = c.id)
+      order by c.created_at, c.id limit ${batch}
+      for update of c skip locked
+    )`);
+    await db.execute(sql`delete from rate_limit where id in (
+      select id from rate_limit where key like 'mcp-register%'
+        and last_request < floor(extract(epoch from now()) * 1000) - ${2 * DAY_MS}
+      limit ${batch}
+    )`);
+    return rowCount ?? 0;
+  }
   return {
+    sweepRegistrations,
     /** Hourly retention: keep a short replay-detection grace, never current credentials. */
     async sweep(batch = 500) {
       // One owner-agnostic statement and a bounded batch per hourly invocation.
@@ -84,21 +122,53 @@ export function assistantStore(db: Database) {
       await db.execute(
         sql`delete from assistant_code_use where expires_at <= now()`
       );
+      await sweepRegistrations(batch);
     },
+    /**
+     * One atomic upsert per window, so parallel requests cannot pass a limit
+     * together: a minute window, then a longer one per source (a digest).
+     */
     async allowRegistration(key: string) {
-      return (
+      const within = async (window: string, ms: number, limit: number) =>
         (
-          await db.execute(sql`insert into rate_limit (id, key, count, last_request) values (${crypto.randomUUID()}, ${key}, 1, floor(extract(epoch from now()) * 1000))
-        on conflict (key) do update set count = case when rate_limit.last_request < floor(extract(epoch from now()) * 1000) - 60000 then 1 else rate_limit.count + 1 end,
-        last_request = case when rate_limit.last_request < floor(extract(epoch from now()) * 1000) - 60000 then floor(extract(epoch from now()) * 1000) else rate_limit.last_request end
-        where rate_limit.count < 10 or rate_limit.last_request < floor(extract(epoch from now()) * 1000) - 60000 returning id`)
-        ).rowCount === 1
+          await db.execute(sql`insert into rate_limit (id, key, count, last_request) values (${crypto.randomUUID()}, ${window}, 1, floor(extract(epoch from now()) * 1000))
+        on conflict (key) do update set count = case when rate_limit.last_request < floor(extract(epoch from now()) * 1000) - ${ms} then 1 else rate_limit.count + 1 end,
+        last_request = case when rate_limit.last_request < floor(extract(epoch from now()) * 1000) - ${ms} then floor(extract(epoch from now()) * 1000) else rate_limit.last_request end
+        where rate_limit.count < ${limit} or rate_limit.last_request < floor(extract(epoch from now()) * 1000) - ${ms} returning id`)
+        ).rowCount === 1;
+      return (
+        (await within(
+          key,
+          MINUTE_MS,
+          REGISTRATION_LIMITS.perSourcePerMinute
+        )) &&
+        (await within(
+          `${key}:day`,
+          DAY_MS,
+          REGISTRATION_LIMITS.perSourcePerDay
+        ))
       );
     },
-    async register(client: OAuthClient) {
-      await db.execute(
-        sql`insert into assistant_client(id, name, redirects) values (${client.id}, ${client.name}, ${JSON.stringify(client.redirects)}::jsonb)`
-      );
+    /**
+     * Saves an anonymous registration, false while `maxUnclaimed` are
+     * waiting for a grant. The count and the insert share one lock, so
+     * parallel registrations cannot all pass it.
+     */
+    async register(
+      client: OAuthClient,
+      maxUnclaimed: number = REGISTRATION_LIMITS.maxUnclaimed
+    ) {
+      return db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtext('assistant-register')::bigint)`
+        );
+        const { rowCount } =
+          await tx.execute(sql`insert into assistant_client(id, name, redirects)
+          select ${client.id}, ${client.name}, ${JSON.stringify(client.redirects)}::jsonb
+          where (select count(*) from assistant_client where claimed_at is null
+            and created_at > now() - make_interval(hours => ${REGISTRATION_LIMITS.unclaimedHours})) < ${maxUnclaimed}`);
+        return rowCount === 1;
+      });
     },
     async client(id: string) {
       return (
@@ -182,6 +252,10 @@ export function assistantStore(db: Database) {
           )
         ).rows[0]!.count;
         if (count >= 20) return "limit" as const;
+        // The first grant claims the registration: it is no longer swept.
+        await tx.execute(
+          sql`update assistant_client set claimed_at = coalesce(claimed_at, now()) where id = ${row.clientId}`
+        );
         await tx.execute(
           sql`insert into assistant_grant(id, user_id, client_id, resource) values (${input.id}, ${row.userId}, ${row.clientId}, ${row.resource})`
         );

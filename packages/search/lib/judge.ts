@@ -62,8 +62,8 @@ export function jevMatchJudge({
   describe: (ids: string[], chars: number) => Promise<Map<string, string>>;
   userId: string;
   spend: {
-    spentTodayMicros(): Promise<number>;
-    dailyBudgetMicros(): Promise<number>;
+    /** Holds the call's estimated cost first; false when no budget is left for it. */
+    reserve(input: { userId: string; micros: number }): Promise<boolean>;
     recordCall(call: AiCall): Promise<void>;
   };
 }): MatchJudge {
@@ -80,18 +80,19 @@ export function jevMatchJudge({
     });
   return {
     async judge(query, candidates, signal) {
-      const [spent, limit, texts] = await Promise.all([
-        spend.spentTodayMicros(),
-        spend.dailyBudgetMicros(),
-        describe(
-          candidates.map((c) => c.id),
-          JUDGING.jevCandidateChars
-        ),
-      ]);
-      if (spent >= limit) return new Map();
+      const texts = await describe(
+        candidates.map((c) => c.id),
+        JUDGING.jevCandidateChars
+      );
       const sendable = candidates.filter((c) => texts.get(c.id));
       if (!sendable.length) return new Map();
       const sent = sendable.map((c) => texts.get(c.id)!);
+      // Held before the call: no budget left, or the person's share is spent.
+      const held = jevCostMicros(
+        client.model,
+        jevTokenEstimate(query + sent.join(""))
+      );
+      if (!(await spend.reserve({ userId, micros: held }))) return new Map();
       // The deadline passed while the texts and budget were read: no call
       // was made, so nothing may be recorded as spent.
       signal.throwIfAborted();

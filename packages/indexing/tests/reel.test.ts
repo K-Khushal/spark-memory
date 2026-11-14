@@ -118,6 +118,7 @@ function setup(
     writeVectors: async () => false,
     spentTodayMicros: async () => 0,
     dailyBudgetMicros: async () => INDEXING.dailyBudgetMicros,
+    reserve: async () => true,
     recordCall: async (call: { provider: string }) => {
       state.calls.push(call);
     },

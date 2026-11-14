@@ -122,6 +122,8 @@ function memoryStore(
     writeVectors: async () => false,
     spentTodayMicros: async () => store.spent,
     dailyBudgetMicros: async () => store.budget,
+    reserve: async ({ global }: { micros: number; global?: boolean }) =>
+      global === false || store.spent < store.budget,
     recordCall: async (call: { provider: string; costMicros: number }) => {
       store.calls.push(call);
       store.spent += call.costMicros;
@@ -352,6 +354,57 @@ describe("index(job)", () => {
       readFile: noFiles,
     });
     expect(await fresh.index(job())).toEqual({ result: "searchable" });
+  });
+
+  it("holds each call's cost before making it, a fresh run against the person's share only", async () => {
+    for (const priority of ["fresh", "background"] as const) {
+      const gemma = scripted("workers-ai", json());
+      const store = memoryStore(textMemory());
+      const holds: { micros: number; global?: boolean }[] = [];
+      const order: string[] = [];
+      store.reserve = async (input) => {
+        order.push("hold");
+        holds.push(input);
+        return true;
+      };
+      vi.mocked(gemma.extract).mockImplementation(async () => {
+        order.push("call");
+        return { text: json(), usage: { inputTokens: 10, outputTokens: 5 } };
+      });
+      const indexer = createIndexer({
+        store,
+        providers: [gemma],
+        readFile: noFiles,
+      });
+      expect(await indexer.index(job({ priority }))).toEqual({
+        result: "searchable",
+      });
+      expect(order).toEqual(["hold", "call"]);
+      expect(holds).toHaveLength(1);
+      expect(holds[0]!.micros).toBeGreaterThan(0);
+      // Only a new Capture's first run is never held back by the global budget.
+      expect(holds[0]!.global, priority).toBe(priority !== "fresh");
+    }
+  });
+
+  it("pauses to the next UTC day when a hold is refused, even a fresh run, and makes no call", async () => {
+    const gemma = scripted("workers-ai", json());
+    const store = memoryStore(textMemory());
+    store.reserve = async () => false;
+    const at = new Date("2026-11-11T20:00:00Z");
+    const indexer = createIndexer({
+      store,
+      providers: [gemma],
+      readFile: noFiles,
+      now: () => at,
+    });
+    expect(await indexer.index(job())).toEqual({
+      result: "paused",
+      delaySeconds: 4 * 3600,
+    });
+    expect(gemma.extract).not.toHaveBeenCalled();
+    expect(store.failed).toEqual([]);
+    expect(store.released).toBe(1);
   });
 
   it("pauses at the budget the store reports, including one below the default", async () => {

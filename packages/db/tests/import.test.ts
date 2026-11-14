@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
+import { FREE_ALLOWANCE } from "@spark/core";
 import {
   openDatabase,
   openImports,
@@ -133,6 +134,40 @@ it.skipIf(!process.env.DATABASE_URL)(
       title: "Tea",
       capturedAt: new Date("2021-01-01T00:00:00.000Z"),
     });
+  }
+);
+it.skipIf(!process.env.DATABASE_URL)(
+  "keeps an all-at-once import's links past the allowance only up to the daily keeps, then waits for tomorrow",
+  async () => {
+    const jobs = openImports(db, owner),
+      id = crypto.randomUUID();
+    // Today's Captures are used and one keep is left.
+    await db.execute(
+      sql`insert into usage_day (user_id, day, captures, kept)
+          values (${owner}, (now() at time zone 'utc')::date, ${FREE_ALLOWANCE.capturesPerDay}, ${FREE_ALLOWANCE.keptPerDay - 1})
+          on conflict (user_id, day) do update set captures = excluded.captures, kept = excluded.kept`
+    );
+    await jobs.create({ id, total: 2, spread: false });
+    await jobs.append(id, {
+      offset: 0,
+      items: [
+        { url: "https://allowance.test/keep-1" },
+        { url: "https://allowance.test/keep-2" },
+      ],
+    });
+    await jobs.action(id, "start");
+    const now = new Date();
+    // The first takes the last keep. The second waits for the next UTC day.
+    await jobs.step(id, now);
+    const waiting = await jobs.step(id, new Date(now.getTime() + 61_000));
+    expect(waiting).toMatchObject({ dueAt: expect.any(String) });
+    expect(await jobs.get(id)).toMatchObject({ state: "running", done: 1 });
+    const urls = (await openLibrary(db, owner).list())!.memories.map(
+      (m) => m.sourceUrl
+    );
+    expect(urls).toContain("https://allowance.test/keep-1");
+    expect(urls).not.toContain("https://allowance.test/keep-2");
+    await jobs.action(id, "cancel");
   }
 );
 it.skipIf(!process.env.DATABASE_URL)(

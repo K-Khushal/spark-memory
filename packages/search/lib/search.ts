@@ -135,6 +135,9 @@ function remember(key: string, vector: number[], now: number) {
 
 const thresholds = thresholdJudge();
 
+/** Tokens an image query is held at before its real count is known. */
+const IMAGE_QUERY_HELD_TOKENS = 1_600;
+
 /**
  * Splits results into Direct and Related Matches, keeping their order.
  * Only the first `JUDGING.window` results of a search with words can be
@@ -235,9 +238,12 @@ export function createSearch<R extends Hit>({
   embedder?: Embedder;
   /** The budget breaker's side of the database (`indexingStore`). */
   spend: {
-    spentTodayMicros(): Promise<number>;
-    /** The admin's daily budget, else the default. */
-    dailyBudgetMicros(): Promise<number>;
+    /**
+     * Holds a call's estimated cost before it is made, false when the
+     * person's share of today's budget, or all of it, is spent (the hold
+     * is replaced by `recordCall`, so parallel searches cannot overshoot).
+     */
+    reserve(input: { userId: string; micros: number }): Promise<boolean>;
     recordCall(call: AiCall): Promise<void>;
   };
   /** Jev's judge of Direct Matches (ADR-0008); without one, thresholds decide. */
@@ -271,11 +277,12 @@ export function createSearch<R extends Hit>({
     purgesAtStart: number
   ): Promise<number[] | undefined> {
     if (!embedder) return undefined;
-    const [spent, limit] = await Promise.all([
-      spend.spentTodayMicros(),
-      spend.dailyBudgetMicros(),
-    ]);
-    if (spent >= limit) return undefined;
+    const held = embedCostMicros(embedder.model, {
+      // About three characters a token, never fewer than the query's own.
+      textTokens: Math.ceil(queryText(query).length / 3) + 8,
+      imageTokens: 0,
+    });
+    if (!(await spend.reserve({ userId, micros: held }))) return undefined;
     // Bookkeeping after the call: if it fails, the vector (already paid
     // for) is still used. Only the category is logged.
     const record = (textTokens: number, estimated?: boolean) =>
@@ -340,11 +347,12 @@ export function createSearch<R extends Hit>({
       const pending = imageInFlight.get(key);
       if (pending) return await pending;
       const run = async () => {
-        const [spent, budget] = await Promise.all([
-          spend.spentTodayMicros(),
-          spend.dailyBudgetMicros(),
-        ]);
-        if (spent >= budget) throw new Error("image_search_budget");
+        const held = embedCostMicros(embedder!.model, {
+          textTokens: 0,
+          imageTokens: IMAGE_QUERY_HELD_TOKENS,
+        });
+        if (!(await spend.reserve({ userId, micros: held })))
+          throw new Error("image_search_budget");
         const record = async (
           textTokens: number,
           imageTokens: number,

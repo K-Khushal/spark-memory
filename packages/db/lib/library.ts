@@ -1,4 +1,4 @@
-import { takeDailyCapture } from "./capture-allowance";
+import { takeDailyCapture, takeDailyKeep } from "./capture-allowance";
 import { searchHistory } from "./search-history";
 import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -340,15 +340,22 @@ export type SearchOptions = {
 
 /** `unknownCategory`: a name that is neither built-in nor one of the owner's own. */
 export type EditResult =
-  Memory | { stale: true } | { unknownCategory: true } | undefined;
+  | Memory
+  | { stale: true }
+  | { unknownCategory: true }
+  | { refused: "storage_full" }
+  | undefined;
 
 export type CaptureResult =
-  { created: boolean; memory: Memory } | { conflict: true };
+  | { created: boolean; memory: Memory }
+  | { conflict: true }
+  | { refused: CaptureRefusal };
 
 /** `duplicate`: the existing Memory moved to the top. */
 export type LinkCaptureResult =
   | { created: boolean; duplicate?: true; indexAgain?: true; memory: Memory }
-  | { conflict: true };
+  | { conflict: true }
+  | { refused: CaptureRefusal };
 
 export type Page = { memories: Memory[]; next?: string };
 
@@ -423,6 +430,28 @@ async function queueRemovals(
     .onConflictDoNothing();
 }
 
+/** What a Memory's text takes in the database: body, title and Capture note, in bytes. */
+const textBytes = sql`(octet_length(coalesce(${memory.body}, '')) + octet_length(coalesce(${memory.title}, '')) + octet_length(coalesce(${memory.captureNote}, '')))`;
+
+/** Thrown inside a transaction to roll it back and answer a refusal. */
+class Refusal extends Error {
+  constructor(readonly reason: CaptureRefusal) {
+    super(reason);
+  }
+}
+
+/** Runs a transaction that may throw a Refusal: the answer is `{ refused }`, nothing was written. */
+async function refusing<T>(
+  work: () => Promise<T>
+): Promise<T | { refused: CaptureRefusal }> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof Refusal) return { refused: error.reason };
+    throw error;
+  }
+}
+
 /**
  * One user's Library (GLOSSARY.md). The only way to reach the memory table:
  * every query is scoped to `userId` here, so no route can forget to.
@@ -460,44 +489,63 @@ export function openLibrary(
       changes.body === undefined
         ? sql`false`
         : sql`${memory.body} is distinct from ${changes.body} and not ${memory.aiOptOut} and not ${memory.sample} and not ${memory.overAllowance}`;
+    const writesText =
+      changes.body !== undefined ||
+      changes.title !== undefined ||
+      changes.captureNote !== undefined;
     // One transaction: new text and the end of the old text's vectors
     // (they would match it, and point into the new text) land together.
-    const row = await db.transaction(async (tx) => {
-      // Choosing Categories goes through the Categories lock, before the Memory's row.
-      if (changes.categories) await lockCategories(tx, userId);
-      const [edited] = await tx
-        .update(memory)
-        .set({
-          ...changes,
-          ...(changes.categories && { categoriesLocked: true }),
-          ...(textChanged && { revision: sql`${memory.revision} + 1` }),
-          indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
-          indexRun: sql`${memory.indexRun} + (${reindex})::int`,
-          indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
-          // A fix to a Capture still on its first, fresh run stays first in
-          // line; any later edit is background work.
-          indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
-          vectorsSpace: sql`case when ${reindex} then null else ${memory.vectorsSpace} end`,
-          vectorsRevision: sql`case when ${reindex} then null else ${memory.vectorsRevision} end`,
-        })
-        .where(
-          and(
-            owned(id),
-            // Only a text Memory has text to edit.
-            changes.body === undefined ? undefined : eq(memory.kind, "text"),
-            revision === undefined ? undefined : eq(memory.revision, revision)
+    const edited = await refusing(() =>
+      db.transaction(async (tx) => {
+        // Text that grows is checked against storage under the owner's lock
+        // (taken before the Categories lock, as everywhere else).
+        if (writesText) await lockOwner(tx, userId);
+        const before = writesText ? await textBytesOf(tx, id) : 0;
+        // Choosing Categories goes through the Categories lock, before the Memory's row.
+        if (changes.categories) await lockCategories(tx, userId);
+        const [done] = await tx
+          .update(memory)
+          .set({
+            ...changes,
+            ...(changes.categories && { categoriesLocked: true }),
+            ...(textChanged && { revision: sql`${memory.revision} + 1` }),
+            indexState: sql`case when ${reindex} then 'indexing' else ${memory.indexState} end`,
+            indexRun: sql`${memory.indexRun} + (${reindex})::int`,
+            indexError: sql`case when ${reindex} then null else ${memory.indexError} end`,
+            // A fix to a Capture still on its first, fresh run stays first in
+            // line; any later edit is background work.
+            indexPriority: sql`case when ${reindex} and not (${memory.indexState} = 'indexing' and ${memory.indexPriority} = 'fresh') then 'background' else ${memory.indexPriority} end`,
+            vectorsSpace: sql`case when ${reindex} then null else ${memory.vectorsSpace} end`,
+            vectorsRevision: sql`case when ${reindex} then null else ${memory.vectorsRevision} end`,
+          })
+          .where(
+            and(
+              owned(id),
+              // Only a text Memory has text to edit.
+              changes.body === undefined ? undefined : eq(memory.kind, "text"),
+              revision === undefined ? undefined : eq(memory.revision, revision)
+            )
           )
-        )
-        .returning({ ...columns, vectorsSpace: memory.vectorsSpace });
-      if (!edited) return undefined;
-      const { vectorsSpace, ...shown } = edited;
-      // Vectors always come with their space: none means none are kept.
-      if (vectorsSpace === null) {
-        await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
-      }
-      return shown;
-    });
-    if (row) return row;
+          .returning({ ...columns, vectorsSpace: memory.vectorsSpace });
+        if (!done) return undefined;
+        // An edit may shrink text when storage is full, never grow it.
+        if (
+          writesText &&
+          (await textBytesOf(tx, id)) > before &&
+          (await usedStorage(tx)) > FREE_ALLOWANCE.storageBytes
+        ) {
+          throw new Refusal("storage_full");
+        }
+        const { vectorsSpace, ...shown } = done;
+        // Vectors always come with their space: none means none are kept.
+        if (vectorsSpace === null) {
+          await tx.delete(memoryVector).where(eq(memoryVector.memoryId, id));
+        }
+        return shown;
+      })
+    );
+    if (edited && "refused" in edited) return { refused: "storage_full" };
+    if (edited) return edited;
     const now = revision === undefined ? undefined : await get(id);
     return now && (changes.body === undefined || now.kind === "text")
       ? { stale: true }
@@ -518,7 +566,7 @@ export function openLibrary(
     tx: Pick<Database, "select">,
     except?: string
   ): Promise<number> {
-    const [[files], [copies]] = await Promise.all([
+    const [[files], [copies], [text]] = await Promise.all([
       tx
         .select({ bytes: sql<string>`coalesce(sum(${memoryFile.bytes}), 0)` })
         .from(memoryFile)
@@ -541,8 +589,33 @@ export function openLibrary(
             sql`(${memoryCopy.storedAt} is not null or ${memoryCopy.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
           )
         ),
+      // Text counts too: a body, title and note take the shared database.
+      tx
+        .select({ bytes: sql<string>`coalesce(sum(${textBytes}), 0)` })
+        .from(memory)
+        .where(
+          and(
+            eq(memory.userId, userId),
+            // Samples are never counted (GLOSSARY.md).
+            eq(memory.sample, false),
+            except === undefined ? undefined : ne(memory.id, except)
+          )
+        ),
     ]);
-    return Number(files?.bytes ?? 0) + Number(copies?.bytes ?? 0);
+    return (
+      Number(files?.bytes ?? 0) +
+      Number(copies?.bytes ?? 0) +
+      Number(text?.bytes ?? 0)
+    );
+  }
+
+  /** What one Memory's text takes (octet_length reads the size without loading the value). */
+  async function textBytesOf(tx: Pick<Database, "select">, id: string) {
+    const [row] = await tx
+      .select({ bytes: sql<string>`coalesce(sum(${textBytes}), 0)` })
+      .from(memory)
+      .where(owned(id));
+    return Number(row?.bytes ?? 0);
   }
 
   /**
@@ -558,6 +631,24 @@ export function openLibrary(
     indexState: "searchable",
     overAllowance: true,
   } as const;
+
+  /**
+   * Pays for a new text or link Memory (already inserted, under the owner's
+   * lock) or throws a Refusal that rolls it back: no storage left, else one
+   * of today's Captures, else one of today's keeps (partly Indexed), else
+   * the daily limit. Text counts toward storage, and keeps are capped per
+   * UTC day, so past the allowance nothing grows without bound.
+   */
+  async function chargeText(
+    tx: Pick<Database, "insert" | "select">
+  ): Promise<"paid" | "kept"> {
+    if ((await usedStorage(tx)) > FREE_ALLOWANCE.storageBytes) {
+      throw new Refusal("storage_full");
+    }
+    if (await takeCapture(tx)) return "paid";
+    if (await takeDailyKeep(tx, userId, today)) return "kept";
+    throw new Refusal("captures_full");
+  }
 
   /**
    * A file Memory (image or PDF) created before its files are uploaded,
@@ -961,33 +1052,37 @@ export function openLibrary(
     async capture(input: TextCapture): Promise<CaptureResult> {
       const parsed = TextCapture.parse(input);
       const { id, body, title, captureNote } = parsed;
-      const saved = await db.transaction(async (tx) => {
-        const [row] = await tx
-          .insert(memory)
-          .values({
-            id,
-            userId,
-            kind: "text",
-            sourceUrl: parsed.source?.url,
-            metadata: parsed.source
-              ? { selectionContext: parsed.source.context }
-              : undefined,
-            body,
-            title,
-            captureNote,
-            indexPriority: "fresh",
-            productAnalytics: parsed.productAnalytics === true,
-          })
-          .onConflictDoNothing({ target: memory.id })
-          .returning(columns);
-        if (!row || (await takeCapture(tx))) return row;
-        const [kept] = await tx
-          .update(memory)
-          .set(partlyIndexed)
-          .where(owned(row.id))
-          .returning(columns);
-        return kept;
-      });
+      const saved = await refusing(() =>
+        db.transaction(async (tx) => {
+          await lockOwner(tx, userId);
+          const [row] = await tx
+            .insert(memory)
+            .values({
+              id,
+              userId,
+              kind: "text",
+              sourceUrl: parsed.source?.url,
+              metadata: parsed.source
+                ? { selectionContext: parsed.source.context }
+                : undefined,
+              body,
+              title,
+              captureNote,
+              indexPriority: "fresh",
+              productAnalytics: parsed.productAnalytics === true,
+            })
+            .onConflictDoNothing({ target: memory.id })
+            .returning(columns);
+          if (!row || (await chargeText(tx)) === "paid") return row;
+          const [kept] = await tx
+            .update(memory)
+            .set(partlyIndexed)
+            .where(owned(row.id))
+            .returning(columns);
+          return kept;
+        })
+      );
+      if (saved && "refused" in saved) return saved;
       if (saved) return { created: true, memory: saved };
       const existing = id ? await get(id) : undefined;
       return existing
@@ -1007,37 +1102,41 @@ export function openLibrary(
       const { id, url, captureNote, productAnalytics } = parsed;
       const kept = parsed.page ? keptPage(parsed.page) : undefined;
       const normalised = normaliseUrl(url)!;
-      const row = await db.transaction(async (tx) => {
-        const [inserted] = await tx
-          .insert(memory)
-          .values({
-            id,
-            userId,
-            kind: isVideoUrl(url) ? "video" : "link",
-            sourceUrl: url,
-            sourceUrlNormalised: normalised,
-            captureNote,
-            preservation:
-              !isVideoUrl(url) && kept?.text ? "preserved" : "reference_only",
-            ...(kept && {
-              metadata: kept.metadata,
-              body: isVideoUrl(url) ? null : kept.text,
-            }),
-            indexPriority: "fresh",
-            productAnalytics: productAnalytics === true,
-          })
-          .onConflictDoNothing()
-          .returning(columns);
-        // Past today's Captures the link is still kept (GLOSSARY.md, Free
-        // allowance): with what the browser sent, and no Gather or AI.
-        if (!inserted || (await takeCapture(tx))) return inserted;
-        const [limited] = await tx
-          .update(memory)
-          .set(partlyIndexed)
-          .where(owned(inserted.id))
-          .returning(columns);
-        return limited;
-      });
+      const row = await refusing(() =>
+        db.transaction(async (tx) => {
+          await lockOwner(tx, userId);
+          const [inserted] = await tx
+            .insert(memory)
+            .values({
+              id,
+              userId,
+              kind: isVideoUrl(url) ? "video" : "link",
+              sourceUrl: url,
+              sourceUrlNormalised: normalised,
+              captureNote,
+              preservation:
+                !isVideoUrl(url) && kept?.text ? "preserved" : "reference_only",
+              ...(kept && {
+                metadata: kept.metadata,
+                body: isVideoUrl(url) ? null : kept.text,
+              }),
+              indexPriority: "fresh",
+              productAnalytics: productAnalytics === true,
+            })
+            .onConflictDoNothing()
+            .returning(columns);
+          // Past today's Captures the link is still kept (GLOSSARY.md, Free
+          // allowance): with what the browser sent, and no Gather or AI.
+          if (!inserted || (await chargeText(tx)) === "paid") return inserted;
+          const [limited] = await tx
+            .update(memory)
+            .set(partlyIndexed)
+            .where(owned(inserted.id))
+            .returning(columns);
+          return limited;
+        })
+      );
+      if (row && "refused" in row) return row;
       if (row) return { created: true, memory: row };
       if (id) {
         const [taken] = await db
@@ -1077,6 +1176,13 @@ export function openLibrary(
         const filled = await db.transaction(async (tx) => {
           await lockOwner(tx, userId);
           if (await deletionRequested(tx, userId)) return undefined;
+          // No storage left: the page stays a Reference without its text.
+          if (
+            (await usedStorage(tx)) +
+              new TextEncoder().encode(kept.text ?? "").length >
+            FREE_ALLOWANCE.storageBytes
+          )
+            return undefined;
           // Captured over the limit: the text is free to keep (and findable),
           // but it never starts the AI work that Capture did not pay for.
           const [flag] = await tx
@@ -1462,6 +1568,11 @@ export function openLibrary(
           select memory_id, bytes from memory_copy
             where stored_at is not null
               or created_at > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})
+          union all
+          select id, octet_length(coalesce(body, '')) + octet_length(coalesce(title, ''))
+              + octet_length(coalesce(capture_note, ''))
+            from memory where user_id = ${userId} and not sample
+              and coalesce(body, title, capture_note) is not null
         ) t
         join memory m on m.id = t.memory_id
         where m.user_id = ${userId}

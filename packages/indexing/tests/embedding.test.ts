@@ -98,6 +98,8 @@ function store({
     fail: async () => true,
     spentTodayMicros: async () => spentNow,
     dailyBudgetMicros: async () => limit,
+    reserve: async ({ global }: { global?: boolean }) =>
+      global === false || spentNow < limit,
     recordCall: async (call: {
       costMicros: number;
       estimated?: boolean;

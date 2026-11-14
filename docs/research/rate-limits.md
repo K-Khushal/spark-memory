@@ -12,7 +12,7 @@ Checked 13 November 2026 against Cloudflare's [Rate Limiting page](https://devel
 
 ## What Spark does
 
-- Two bindings per environment (`CAPTURE_LIMITER`, `SEARCH_LIMITER`), keyed by the **signed-in user's id** after auth (Cloudflare advises against IP keys). Namespaces 1001/1002 locally, 2001/2002 dev, 3001/3002 production.
+- Five bindings per environment (`CAPTURE_LIMITER` 60 a minute, `SEARCH_LIMITER` 600, `EDIT_LIMITER` 60 for every other Library write, `OPT_OUT_LIMITER` 10 for the AI opt-out toggle, `IMAGE_SEARCH_LIMITER` 30 for search by image), keyed by the **signed-in user's id** after auth (Cloudflare advises against IP keys). Namespaces 1001 to 1005 locally, 2001 to 2005 dev, 3001 to 3005 production.
 - **Capture**: 60 a minute across the four Capture routes (text, link, image, PDF) and the screenshot upload. A file Capture is two or three calls, and the daily Capture count (100) is the real limit.
 - **Search**: 600 a minute across `POST /api/search` and More Like This. Instant search runs on every keystroke, so a fast typist is around 10 a second at worst; this leaves room for held keys and repeated searches.
 - A binding that is not set (local `wrangler dev`, tests) does not limit. Tests fake the binding at its interface.

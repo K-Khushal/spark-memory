@@ -111,6 +111,7 @@ function memoryStore(memory: PendingMemory) {
     writeVectors: async () => false,
     spentTodayMicros: async () => 0,
     dailyBudgetMicros: async () => INDEXING.dailyBudgetMicros,
+    reserve: async () => true,
     recordCall: async () => {},
   };
   return store satisfies IndexStore;

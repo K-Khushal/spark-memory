@@ -288,7 +288,12 @@ export async function runEvals({
       vectorsSpace:
         embedder && embeddingSpace(embedder.model, embedder.dimensions),
     });
-    const store = indexingStore(db);
+    // The daily AI budget protects users, not this throwaway Library: a
+    // search or run held back by it would quietly score the wrong thing.
+    const store = indexingStore(db, {
+      budget: async () => Number.MAX_SAFE_INTEGER,
+      ownerBudgetShare: 1,
+    });
     const files = new Map<string, Uint8Array>();
     const sampleOf = new Map<string, string>();
     const jobs: { memoryId: string; run: number }[] = [];
@@ -380,12 +385,7 @@ export async function runEvals({
       find: (query, options) =>
         library.search(query, { ...options, excludeSamples: true }),
       embedder,
-      // The daily AI budget protects users, not this throwaway Library: a
-      // search that fell back to keywords would quietly score the wrong thing.
-      spend: {
-        ...store,
-        dailyBudgetMicros: async () => Number.MAX_SAFE_INTEGER,
-      },
+      spend: store,
     });
     const outcomes: SearchOutcome[] = [];
     for (const c of searches) {
@@ -453,10 +453,7 @@ export async function runEvals({
               find: (query, options) =>
                 library.search(query, { ...options, excludeSamples: true }),
               embedder: embedderToUse,
-              spend: {
-                ...store,
-                dailyBudgetMicros: async () => Number.MAX_SAFE_INTEGER,
-              },
+              spend: store,
               ...(judge && { judge }),
             }),
           embedder!,

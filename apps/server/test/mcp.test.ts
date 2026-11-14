@@ -1011,3 +1011,51 @@ describe.skipIf(!databaseUrl)("Connected assistants activity", () => {
     ).toEqual([]);
   });
 });
+
+// Registration is anonymous, so what it stores is bounded (SEC-1).
+describe.skipIf(!databaseUrl)("anonymous OAuth registration limits", () => {
+  const register = (redirects: string[], call = newClient()) =>
+    call("/api/oauth/register", {
+      method: "POST",
+      json: { client_name: "Bounded", redirect_uris: redirects },
+    });
+
+  it("accepts up to four short redirect URIs and refuses more or longer ones", async () => {
+    const uris = (n: number) =>
+      Array.from({ length: n }, (_, i) => `https://example.test/cb${i}`);
+    expect((await register(uris(4))).status).toBe(201);
+    expect((await register(uris(5))).status).toBe(400);
+    const long = `https://example.test/${"a".repeat(512 - "https://example.test/".length)}`;
+    expect(long).toHaveLength(512);
+    expect((await register([long])).status).toBe(201);
+    expect((await register([`${long}a`])).status).toBe(400);
+  });
+
+  it("answers 429 with Retry-After while the unclaimed registrations fill the global cap", async () => {
+    const fixture = new Client({ connectionString: databaseUrl });
+    await fixture.connect();
+    const filler = `fill-${crypto.randomUUID()}`;
+    try {
+      await fixture.query(
+        `insert into assistant_client(id, name, redirects)
+         select $1 || g, 'filler', '[]'::jsonb from generate_series(1, 1000) g`,
+        [filler]
+      );
+      const refused = await register(["https://example.test/cb"]);
+      expect(refused.status).toBe(429);
+      expect(refused.headers.get("retry-after")).toBe("3600");
+      expect(await refused.json()).toEqual({ error: "rate_limited" });
+      // A claimed integration is not one of them.
+      await fixture.query(
+        `update assistant_client set claimed_at = now() where id like $1`,
+        [`${filler}%`]
+      );
+      expect((await register(["https://example.test/cb"])).status).toBe(201);
+    } finally {
+      await fixture.query(`delete from assistant_client where id like $1`, [
+        `${filler}%`,
+      ]);
+      await fixture.end();
+    }
+  });
+});

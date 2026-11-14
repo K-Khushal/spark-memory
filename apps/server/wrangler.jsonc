@@ -48,6 +48,7 @@
   // docs/research/rate-limits.md). Period is 10 or 60 seconds; namespace ids are unique per
   // account, so each environment has its own. Capture: 60 a minute (a Capture is two or
   // three calls). Search: 600 a minute, so instant search on every keystroke never trips it.
+  // Edit (every other Library write): 60. AI opt-out: 10. Image search: 30.
   "ratelimits": [
     {
       "name": "CAPTURE_LIMITER",
@@ -58,6 +59,21 @@
       "name": "SEARCH_LIMITER",
       "namespace_id": "1002",
       "simple": { "limit": 600, "period": 60 },
+    },
+    {
+      "name": "EDIT_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 60, "period": 60 },
+    },
+    {
+      "name": "OPT_OUT_LIMITER",
+      "namespace_id": "1004",
+      "simple": { "limit": 10, "period": 60 },
+    },
+    {
+      "name": "IMAGE_SEARCH_LIMITER",
+      "namespace_id": "1005",
+      "simple": { "limit": 30, "period": 60 },
     },
   ],
 
@@ -159,6 +175,21 @@
           "namespace_id": "2002",
           "simple": { "limit": 600, "period": 60 },
         },
+        {
+          "name": "EDIT_LIMITER",
+          "namespace_id": "2003",
+          "simple": { "limit": 60, "period": 60 },
+        },
+        {
+          "name": "OPT_OUT_LIMITER",
+          "namespace_id": "2004",
+          "simple": { "limit": 10, "period": 60 },
+        },
+        {
+          "name": "IMAGE_SEARCH_LIMITER",
+          "namespace_id": "2005",
+          "simple": { "limit": 30, "period": 60 },
+        },
       ],
       "triggers": { "crons": ["17 * * * *"] },
       // Workers AI: Gemma 4, first in the Indexing chain (ADR-0005).
@@ -245,6 +276,21 @@
           "name": "SEARCH_LIMITER",
           "namespace_id": "3002",
           "simple": { "limit": 600, "period": 60 },
+        },
+        {
+          "name": "EDIT_LIMITER",
+          "namespace_id": "3003",
+          "simple": { "limit": 60, "period": 60 },
+        },
+        {
+          "name": "OPT_OUT_LIMITER",
+          "namespace_id": "3004",
+          "simple": { "limit": 10, "period": 60 },
+        },
+        {
+          "name": "IMAGE_SEARCH_LIMITER",
+          "namespace_id": "3005",
+          "simple": { "limit": 30, "period": 60 },
         },
       ],
       "triggers": { "crons": ["17 * * * *"] },

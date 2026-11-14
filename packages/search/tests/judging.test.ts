@@ -30,8 +30,7 @@ const budget = (spent = 0) => {
   const calls: AiCall[] = [];
   return {
     calls,
-    spentTodayMicros: async () => spent,
-    dailyBudgetMicros: async () => INDEXING.dailyBudgetMicros,
+    reserve: async () => spent < INDEXING.dailyBudgetMicros,
     recordCall: async (call: AiCall) => void calls.push(call),
   };
 };

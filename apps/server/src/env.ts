@@ -49,6 +49,9 @@ export type Bindings = {
    */
   CAPTURE_LIMITER?: RateLimiter;
   SEARCH_LIMITER?: RateLimiter;
+  EDIT_LIMITER?: RateLimiter;
+  OPT_OUT_LIMITER?: RateLimiter;
+  IMAGE_SEARCH_LIMITER?: RateLimiter;
 
   /** Queues (wrangler.jsonc): fresh Captures and Retry, and background re-indexing. */
   INDEX_QUEUE: IndexQueue;
@@ -98,6 +101,11 @@ export type Bindings = {
   POSTHOG_HOST?: string;
   /** Var: "true" only once that project's billing is confirmed; Gemini stays out otherwise. */
   GEMINI_PAID_TIER?: string;
+  /**
+   * Var, optional: the percent (1 to 100) of the daily AI budget one person
+   * may spend. Default 20, so one account cannot drain the budget for all.
+   */
+  AI_OWNER_BUDGET_PERCENT?: string;
   /**
    * Var: "jina" lets gathering a pasted link ask Jina Reader for pages that
    * need a browser. A third party sees the link, so it is off unless set

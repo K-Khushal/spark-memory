@@ -27,7 +27,7 @@ async function person() {
 }
 async function note(library: ReturnType<typeof openLibrary>, body: string) {
   const r = await library.capture({ body });
-  if ("conflict" in r) throw new Error("conflict");
+  if ("conflict" in r || "refused" in r) throw new Error("not saved");
   return r.memory.id;
 }
 
