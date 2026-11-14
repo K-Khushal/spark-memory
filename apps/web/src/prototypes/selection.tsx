@@ -7,7 +7,14 @@ import {
 } from "../library/selection";
 import { SelectionBar } from "../library/selection-bar";
 
-const states = ["Demo", "Worst Case", "Empty", "One", "1,000 Rows"] as const;
+const states = [
+  "Demo",
+  "Worst Case",
+  "Empty",
+  "One",
+  "1,000 Rows",
+  "10,000 Rows",
+] as const;
 const titles = [
   "J",
   "दादी की रेसिपी 🌿",
@@ -24,9 +31,11 @@ export default function SelectionPrototype() {
       ? 0
       : state === "One"
         ? 1
-        : state === "1,000 Rows"
-          ? 1000
-          : 8;
+        : state === "10,000 Rows"
+          ? 10_000
+          : state === "1,000 Rows"
+            ? 1000
+            : 8;
   const rows = Array.from({ length: count }, (_, n) => ({
     id: String(n),
     title:

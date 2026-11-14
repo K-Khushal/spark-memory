@@ -80,13 +80,21 @@ export function ShareTarget({ library }: { library: ShareLibrary }) {
       // Closing leaves the share held: it asks again the next time Spark opens.
       onOpenChange={(open) => !open && setAsked((all) => all.slice(1))}
     >
-      <DialogContent>
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        aria-describedby={undefined}
+      >
         <div className="flex flex-col gap-4 p-5">
-          <DialogTitle>Capture This Share?</DialogTitle>
-          <p className="line-clamp-6 text-sm [overflow-wrap:anywhere] whitespace-pre-wrap text-ink-muted">
+          <DialogTitle className="pr-8">Capture This Share?</DialogTitle>
+          <p
+            role="region"
+            aria-label="Shared Text"
+            tabIndex={0}
+            className="max-h-[40dvh] overflow-y-auto overscroll-contain rounded-chip text-sm whitespace-pre-wrap wrap-anywhere text-ink-muted"
+          >
             {next && previewOf(next.share)}
           </p>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => answer(false)}>
               Discard
             </Button>

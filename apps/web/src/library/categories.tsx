@@ -48,10 +48,12 @@ export function CategoryEditor({
         aria-label={`Categories: ${memory.categories.join(", ")}`}
         className="flex min-h-8 cursor-pointer items-center justify-between gap-2 rounded-chip focus-visible:outline-2 focus-visible:outline-ring"
       >
-        <span className="min-w-0">{memory.categories.join(", ")}</span>
+        <span className="min-w-0 wrap-anywhere" dir="auto">
+          {memory.categories.join(", ")}
+        </span>
         <ChevronDownIcon
           aria-hidden
-          className="size-4 shrink-0 text-ink-muted transition-transform duration-(--duration-press) group-open:rotate-180"
+          className="size-4 shrink-0 text-ink-muted transition-transform duration-(--duration-press) group-open:rotate-180 motion-reduce:transition-none"
         />
       </summary>
       <div className="flex flex-wrap gap-2 py-2">
@@ -63,10 +65,10 @@ export function CategoryEditor({
               !selected.includes(name) && selected.length >= MAX_CATEGORIES
             }
             disabled={state === "saving"}
-            className="max-w-full aria-disabled:opacity-50"
+            className="h-auto min-h-8 max-w-full py-1 aria-disabled:opacity-50"
             onClick={() => toggle(name)}
           >
-            <span className="truncate" dir="auto">
+            <span className="min-w-0 wrap-anywhere text-start" dir="auto">
               {name}
             </span>
           </FilterChip>
