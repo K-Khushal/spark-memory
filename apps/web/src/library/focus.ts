@@ -1,3 +1,4 @@
+import { focusMasonryKey } from "@spark/ui";
 import { focusDeskControl } from "../shell";
 
 /**
@@ -31,8 +32,11 @@ export function focusWall({ onlyIfLost = false, preventScroll = false } = {}) {
 /** Dialogs opened by shortcuts have no Radix trigger to return focus to.
  * A deleted tile or a closed Search row is also gone. Restore to the wall's
  * roving tab stop, else the results heading, else Capture, after the closing focus scope exits.
+ * Pass `memoryId` for a dialog that was opened on a Memory: focus goes to
+ * that Memory's tile (scrolling to it if the wall moved while the dialog was
+ * open), and only when it is gone to the fallback above.
  */
-export function restoreLibraryFocus(event: Event) {
+export function restoreLibraryFocus(event: Event, memoryId?: string) {
   event.preventDefault();
   requestAnimationFrame(() => {
     // Search can hand directly to Memory detail or Capture. Its closing
@@ -48,6 +52,7 @@ export function restoreLibraryFocus(event: Event) {
       !active.closest('[role="dialog"]')
     )
       return;
+    if (memoryId && focusMasonryKey(memoryId)) return;
     if (!focusWall()) focusDeskControl("capture");
   });
 }

@@ -25,6 +25,18 @@ type MasonryTile = {
 /** What a parent can ask of a wall: put focus on its first or last tile. */
 export type MasonryHandle = { focus: (which: "first" | "last") => void };
 
+const FOCUS_KEY = "masonry:focus-key";
+
+/**
+ * Asks whichever wall holds the item `key` to scroll to it and focus it, once
+ * it renders. False when no wall has it (it was deleted, or filtered out).
+ */
+export function focusMasonryKey(key: string): boolean {
+  const request = { key, handled: false };
+  document.dispatchEvent(new CustomEvent(FOCUS_KEY, { detail: request }));
+  return request.handled;
+}
+
 export type MasonrySelection = {
   ids: readonly string[];
   choose: (id: string, mode: "toggle" | "range") => void;
@@ -174,15 +186,40 @@ export function Masonry<T>({
 
   useEffect(() => virtualizer.measure(), [virtualizer, colWidth, lanes, items]);
 
-  const focusIndex = (index: number) => {
+  const focusIndex = (index: number, patient = false) => {
     setActive(index);
     virtualizer.scrollToIndex(index, { align: "auto" });
-    requestAnimationFrame(() =>
-      ref.current
-        ?.querySelector<HTMLElement>(`[data-index="${index}"]`)
-        ?.focus({ preventScroll: true })
-    );
+    // After a long scroll the tile is not drawn for a few frames: wait for it.
+    let frames = patient ? 30 : 1;
+    const focusWhenDrawn = () => {
+      const tile = ref.current?.querySelector<HTMLElement>(
+        `[data-index="${index}"]`
+      );
+      if (tile) tile.focus({ preventScroll: true });
+      else if (--frames > 0) requestAnimationFrame(focusWhenDrawn);
+    };
+    requestAnimationFrame(focusWhenDrawn);
   };
+
+  const focusKey = useRef<(key: string) => boolean>(() => false);
+  useLayoutEffect(() => {
+    focusKey.current = (key) => {
+      const index = items.findIndex((item) => getKey(item) === key);
+      if (index < 0) return false;
+      focusIndex(index, true);
+      return true;
+    };
+  });
+  useEffect(() => {
+    const onRequest = (event: Event) => {
+      const request = (event as CustomEvent<{ key: string; handled: boolean }>)
+        .detail;
+      if (!request.handled && focusKey.current(request.key))
+        request.handled = true;
+    };
+    document.addEventListener(FOCUS_KEY, onRequest);
+    return () => document.removeEventListener(FOCUS_KEY, onRequest);
+  }, []);
 
   useImperativeHandle(handle, () => ({
     focus: (which) => focusIndex(which === "first" ? 0 : items.length - 1),

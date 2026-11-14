@@ -107,13 +107,16 @@ export function SearchCommand({
       onValueChange={setHighlight}
     >
       <ImageQueryControls {...imageQuery}>
-        <CommandInput
-          value={draft}
-          onValueChange={onDraft}
-          onKeyDown={forgetHighlighted}
-          placeholder="Search…"
-          className="pr-10 text-[1rem] md:text-md"
-        />
+        {(imageButton) => (
+          <CommandInput
+            value={draft}
+            onValueChange={onDraft}
+            onKeyDown={forgetHighlighted}
+            placeholder="Search…"
+            className="text-[1rem] md:text-md"
+            trailing={imageButton}
+          />
+        )}
       </ImageQueryControls>
       <CommandList
         ref={listRef}

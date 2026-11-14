@@ -146,7 +146,7 @@ export function SignInPage({
   return (
     <main className="grid min-h-dvh grid-cols-[minmax(0,1fr)] place-items-center bg-canvas px-4 py-12">
       {/* Buttons wrap at large text sizes instead of widening the page. */}
-      <div className="flex w-full max-w-[22rem] flex-col gap-6 [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-11 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:py-2 [&_[data-slot=button]]:whitespace-normal">
+      <div className="flex w-full max-w-[22rem] flex-col gap-6 [--button-min:2.75rem] wrapping-buttons">
         {step === "email" ? (
           <>
             <Title>Sign In to Spark</Title>

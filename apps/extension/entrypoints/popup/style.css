@@ -92,6 +92,9 @@ textarea {
   background: var(--canvas);
   border: 1px solid var(--line-strong);
 }
+textarea::placeholder {
+  color: var(--ink-muted);
+}
 :focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;

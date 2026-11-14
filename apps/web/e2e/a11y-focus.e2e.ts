@@ -220,7 +220,9 @@ for (const screen of SCREENS) {
             message: `ArrowUp to tile ${column[k]}`,
           })
           .toBe(column[k]);
-        clear(await spot(page), `column ArrowUp to ${k}`);
+        here = await spot(page);
+        expect(here.label.startsWith(named(COUNT - 1 - column[k]!))).toBe(true);
+        clear(here, `column ArrowUp to ${k}`);
       }
       await page.keyboard.press("ArrowUp");
       await page.waitForTimeout(300);

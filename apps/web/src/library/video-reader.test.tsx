@@ -98,3 +98,32 @@ it("keeps the transcript to one Tab stop, moved by the arrow keys", async () => 
     host.remove();
   }
 });
+
+it.each([
+  ["unavailable", "Transcript Unavailable"],
+  ["over_allowance", "Transcript Unavailable, Over 60 Minutes"],
+] as const)(
+  "says why a %s transcript is missing, in one line",
+  async (state, line) => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          <VideoReader
+            memory={{
+              sourceUrl: "https://example.com/reel",
+              video: { transcriptState: state, transcript: [] },
+              description: null,
+            }}
+          />
+        )
+      );
+      expect(host.textContent).toContain(line);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  }
+);

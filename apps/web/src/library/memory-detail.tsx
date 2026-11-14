@@ -1,6 +1,7 @@
 import { SearchByImage } from "./image-query";
 import { CategoryEditor, type CategoryEdit } from "./categories";
 import { restoreLibraryFocus } from "./focus";
+import { TitleField } from "./title-field";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { RotateCwIcon, Trash2Icon } from "lucide-react";
 import { FREE_ALLOWANCE } from "@spark/core";
@@ -124,7 +125,7 @@ function Fields({
     () => edit?.fields ?? textOf(memory)
   );
   const bodyField = useRef<HTMLTextAreaElement>(null);
-  const titleField = useRef<HTMLInputElement>(null);
+  const titleField = useRef<HTMLTextAreaElement>(null);
   const autosave = useRef<ReturnType<typeof setTimeout>>(undefined);
   const closing = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -160,7 +161,7 @@ function Fields({
 
   return (
     <DialogContent
-      onCloseAutoFocus={restoreLibraryFocus}
+      onCloseAutoFocus={(event) => restoreLibraryFocus(event, id)}
       aria-describedby={undefined}
       // Focus the dialog, not the title: focusing the title would select it.
       onOpenAutoFocus={(e) => {
@@ -171,10 +172,10 @@ function Fields({
       className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col gap-3 overflow-y-auto p-4 sm:p-6 [&_label]:whitespace-normal"
     >
       <DialogTitle className="sr-only">Memory</DialogTitle>
-      <input
+      <TitleField
         ref={titleField}
         value={shown.title}
-        onChange={(e) => change({ ...shown, title: e.target.value })}
+        onChange={(title) => change({ ...shown, title })}
         maxLength={FREE_ALLOWANCE.titleMaxChars}
         // A link with no title of its own goes by its host, as on the wall.
         placeholder={
@@ -182,9 +183,7 @@ function Fields({
             ? memoryName(memory) || "Title"
             : "Title"
         }
-        aria-label="Title"
-        dir="auto"
-        className="mr-8 min-h-11 min-w-0 shrink-0 rounded-chip bg-transparent text-ellipsis font-display text-lg font-semibold text-ink placeholder:text-ink-muted"
+        className="mr-8"
       />
       {memory.kind === "video" ? (
         <VideoReader memory={memory} seconds={seconds} />

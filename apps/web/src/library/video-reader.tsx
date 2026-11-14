@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { PlayIcon } from "lucide-react";
 import {
+  FREE_ALLOWANCE,
   formatTimestamp,
   sourceHost,
   videoTimestamp,
@@ -114,7 +115,7 @@ export function VideoReader({
         <>
           <p className="text-sm text-ink-muted">
             {memory.video?.transcriptState === "over_allowance"
-              ? "Over 60 Minutes"
+              ? `Transcript Unavailable, Over ${FREE_ALLOWANCE.videoTranscriptMaxMinutes} Minutes`
               : "Transcript Unavailable"}
           </p>
           {memory.description && (

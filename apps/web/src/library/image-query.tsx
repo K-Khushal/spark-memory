@@ -95,10 +95,10 @@ const keepKeys = (event: KeyboardEvent<HTMLElement>) => {
 
 /**
  * Search By Image for both search surfaces: paste and drop anywhere on it,
- * and the button that picks a file. With a field as `children` (the ⌘K
- * input) the button sits inside that field's row, and the chip appears
- * below only once there is an image; without one (the wall's field)
- * it is the button alone.
+ * and the button that picks a file. With `children` (the ⌘K input) the
+ * button is handed to the field's trailing slot, and the chip appears below
+ * only once there is an image; without it (the wall's field) it is the
+ * button alone.
  */
 export function ImageQueryControls({
   value,
@@ -109,7 +109,8 @@ export function ImageQueryControls({
   showChip = true,
 }: ImageQueryProps & {
   showChip?: boolean;
-  children?: ReactNode;
+  /** Draws the search field, with the picker button for its trailing slot. */
+  children?: (button: ReactNode) => ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -167,14 +168,7 @@ export function ImageQueryControls({
         }
       }}
     >
-      {children ? (
-        <div className="relative">
-          {children}
-          <div className="absolute top-2.5 right-3">{button}</div>
-        </div>
-      ) : (
-        button
-      )}
+      {children ? children(button) : button}
       {showChip && (value || busy) && (
         <div
           className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2"
