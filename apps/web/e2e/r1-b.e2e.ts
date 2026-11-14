@@ -94,8 +94,10 @@ test("First-use action has no competing empty-state primary", async ({
   await expect(
     page.getByRole("button", { name: "Continue", exact: true })
   ).toBeVisible();
+  const empty = page.getByRole("heading", { name: "No Memories Yet" });
+  await expect(empty).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "No Memories Yet" })
+    empty.locator("..").getByRole("button", { name: /Capture/ })
   ).toBeHidden();
 });
 

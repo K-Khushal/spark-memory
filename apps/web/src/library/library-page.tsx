@@ -667,7 +667,7 @@ export function LibraryPage({
         ) : library.state === "loading" && !library.memories.length ? (
           <LibrarySkeleton />
         ) : !library.memories.length ? (
-          <div className="peer-has-[section_[aria-busy]]:hidden">
+          <div className="peer-has-[section_[aria-busy]]:[&_button]:hidden">
             <Centred title="No Memories Yet" level={2}>
               <div className="flex flex-wrap justify-center gap-2">
                 <Button
