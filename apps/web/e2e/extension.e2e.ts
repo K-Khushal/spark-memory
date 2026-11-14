@@ -62,7 +62,9 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     await expect(popup.getByRole("status")).toHaveText(
       /Saved|Already in Your Library/
     );
-    await popup.getByLabel("Capture Note").fill("For the windowsill");
+    await popup
+      .getByLabel("Capture Note", { exact: true })
+      .fill("For the windowsill");
     await popup.getByRole("button", { name: "Add Capture Note" }).click();
     await expect(
       popup.getByRole("button", { name: "Saved", exact: true })
@@ -328,7 +330,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
       }
     await popup.setViewportSize({ width: 320, height: 900 });
     await popup
-      .getByLabel("Capture Note")
+      .getByLabel("Capture Note", { exact: true })
       .fill("نور الهدى 王秀英 🦊 ".repeat(50).slice(0, 500));
     await popup.evaluate(() => {
       document.body.dir = "rtl";

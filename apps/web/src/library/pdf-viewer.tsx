@@ -292,7 +292,7 @@ function useOpenAt(
 }
 
 /** One page image at the column's width, its box sized before it loads. */
-function PageView({
+export function PageView({
   page,
   passage,
   eager,
@@ -316,24 +316,33 @@ function PageView({
           <mark>{passage}</mark>
         </figcaption>
       )}
-      <img
-        src={page.url}
-        alt={`Page ${page.page}`}
-        width={page.width}
-        height={page.height}
-        loading={eager ? "eager" : "lazy"}
-        decoding="async"
-        draggable={false}
-        onError={() => {
-          setUnreadable(true);
-          onBroken();
-        }}
-        onLoad={() => setUnreadable(false)}
-        className={cn(
-          "h-auto w-full rounded-tile bg-surface select-none",
-          unreadable && "invisible"
-        )}
-      />
+      <div
+        // A page that will not load keeps its sheet and its label; only the
+        // image hides.
+        role={unreadable ? "img" : undefined}
+        aria-label={unreadable ? `Page ${page.page}` : undefined}
+        style={{ aspectRatio: `${page.width} / ${page.height}` }}
+        className="w-full overflow-hidden rounded-tile bg-surface"
+      >
+        <img
+          src={page.url}
+          alt={`Page ${page.page}`}
+          width={page.width}
+          height={page.height}
+          loading={eager ? "eager" : "lazy"}
+          decoding="async"
+          draggable={false}
+          onError={() => {
+            setUnreadable(true);
+            onBroken();
+          }}
+          onLoad={() => setUnreadable(false)}
+          className={cn(
+            "block size-full select-none",
+            unreadable && "invisible"
+          )}
+        />
+      </div>
     </figure>
   );
 }

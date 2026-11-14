@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { SearchIcon } from "lucide-react";
@@ -57,8 +57,12 @@ export function CommandDialog({
 
 export function CommandInput({
   className,
+  trailing,
   ...props
-}: ComponentProps<typeof CommandPrimitive.Input>) {
+}: ComponentProps<typeof CommandPrimitive.Input> & {
+  /** A control at the end of the field's row, such as Search By Image. */
+  trailing?: ReactNode;
+}) {
   return (
     <div className="flex h-14 items-center gap-3 border-b border-line px-4">
       <SearchIcon className="size-5 shrink-0 text-ink-muted" aria-hidden />
@@ -69,6 +73,7 @@ export function CommandInput({
         )}
         {...props}
       />
+      {trailing}
     </div>
   );
 }

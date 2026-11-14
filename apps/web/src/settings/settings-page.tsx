@@ -92,7 +92,7 @@ export function SettingsPage({
             </Button>
           </Centred>
         ) : (
-          <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12 [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-9 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:py-2 [&_[data-slot=button]]:whitespace-normal">
+          <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12 wrapping-buttons">
             <h1 className="sr-only font-display text-xl font-semibold md:not-sr-only">
               Settings
             </h1>

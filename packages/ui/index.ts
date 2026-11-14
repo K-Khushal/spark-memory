@@ -15,6 +15,7 @@ export {
 export { Toaster, toast } from "./lib/toaster";
 export {
   Masonry,
+  focusMasonryKey,
   type MasonrySelection,
   type MasonryHandle,
 } from "./lib/masonry";

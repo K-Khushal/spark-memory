@@ -22,7 +22,7 @@ const labels = {
 function Popup() {
   const [result, setResult] = useState<State>({ state: "saving" });
   const [note, setNote] = useState("");
-  const [noteState, setNoteState] = useState("Add Capture Note");
+  const [noteState, setNoteState] = useState("Add");
   async function capture() {
     setResult({ state: "saving" });
     try {
@@ -94,20 +94,24 @@ function Popup() {
             }
           }}
         >
-          <label htmlFor="note">Capture Note</label>
           <textarea
-            id="note"
             name="captureNote"
+            aria-label="Capture Note"
+            placeholder="Capture Note"
             dir="auto"
             maxLength={500}
             rows={3}
             value={note}
             onChange={(event) => {
               setNote(event.target.value);
-              setNoteState("Add Capture Note");
+              setNoteState("Add");
             }}
           />
-          <button disabled={!note.trim() || noteState === "Saving"}>
+          <button
+            // The visible word is short; the name says what is added.
+            aria-label={noteState === "Add" ? "Add Capture Note" : undefined}
+            disabled={!note.trim() || noteState === "Saving"}
+          >
             {noteState}
           </button>
         </form>

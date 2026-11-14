@@ -186,3 +186,19 @@
 @utility tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * A container whose Buttons may wrap their label onto several lines (a
+ * screen read at 320px with 200% text): they grow instead of clipping and
+ * never outgrow the container. The minimum height is `--button-min`
+ * (36px), set on the container for a taller target.
+ */
+@utility wrapping-buttons {
+  & [data-slot="button"] {
+    height: auto;
+    min-height: var(--button-min, 2.25rem);
+    max-width: 100%;
+    padding-block: calc(var(--spacing) * 2);
+    white-space: normal;
+  }
+}
