@@ -400,6 +400,21 @@ describe.skipIf(!databaseUrl)("Deep fetch store", () => {
     expect(await row(m.id)).toMatchObject({ deepFetchState: "unavailable" });
   });
 
+  it("queues a thin video again when AI opt-out is switched off", async () => {
+    const m = await link("https://www.youtube.com/watch?v=abcdefghijk");
+    await library().setAiOptOut(m.id, true);
+    await db
+      .update(schema.memory)
+      .set({
+        metadata: { video: { transcript: [], transcriptState: "unavailable" } },
+        deepFetchState: "done",
+      })
+      .where(eq(schema.memory.id, m.id));
+    await library().setAiOptOut(m.id, false);
+    const pending = await deepFetchStore(db).pending(m.id, m.indexGeneration);
+    expect(pending).toMatchObject({ memoryId: m.id, run: 1 });
+  });
+
   it("stops cleanly when Deep fetch no longer applies", async () => {
     const m = await gathered("https://stop1.test/", { text: null });
     const { claim } = (await store().claim(m.id, m.indexGeneration, 0))!;

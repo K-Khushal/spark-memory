@@ -66,7 +66,11 @@ export function assistantStore(db: Database) {
       await db.execute(sql`delete from assistant_activity where id in (
         select a.id from assistant_activity a
         where a.occurred_at <= now() - interval '90 days'
-          or (a.occurred_at <= now() - interval '30 days'
+          or (greatest((select r.revoked_at from assistant_revocation r
+              where r.user_id = a.user_id and r.assistant_id = a.assistant_id),
+              (select max(t.expires_at) from assistant_token t where t.user_id = a.user_id and t.id = a.assistant_id),
+              (select max(g.expires_at) from assistant_grant g where g.user_id = a.user_id and ${clientRowId(sql`g.client_id`)} = a.assistant_id),
+              a.occurred_at) <= now() - interval '30 days'
             and not exists(select 1 from assistant_token t where t.user_id = a.user_id
               and t.id = a.assistant_id and t.client_id is null and t.expires_at > now())
             and not exists(select 1 from assistant_grant g where g.user_id = a.user_id

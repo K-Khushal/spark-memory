@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { LinkCapture } from "@spark/core";
 import {
   indexingStore,
@@ -39,6 +39,49 @@ describe.skipIf(!databaseUrl)("link Memories", () => {
     if (!("memory" in result)) throw new Error("conflict");
     return result;
   };
+  it("re-gathers an unavailable Source once after twenty-four hours", async () => {
+    const { memory: m } = await link({ url: "https://retry-source.test/down" });
+    await store().saveGathered(await claimOf(m.id), {
+      metadata: {},
+      text: null,
+      transient: true,
+    });
+    await db
+      .update(schema.memory)
+      .set({ indexState: "searchable" })
+      .where(eq(schema.memory.id, m.id));
+    expect(await store().retryGather()).toEqual([]);
+    await db.execute(
+      sql`update memory set gather_retry_at = now() - interval '1 minute' where id = ${m.id}`
+    );
+    await db
+      .update(schema.memory)
+      .set({ overAllowance: true })
+      .where(eq(schema.memory.id, m.id));
+    expect(await store().retryGather()).toEqual([]);
+    await db
+      .update(schema.memory)
+      .set({ overAllowance: false, aiOptOut: true })
+      .where(eq(schema.memory.id, m.id));
+    expect(await store().retryGather()).toEqual([]);
+    await db
+      .update(schema.memory)
+      .set({ aiOptOut: false })
+      .where(eq(schema.memory.id, m.id));
+    const [retry] = await store().retryGather();
+    expect(retry).toMatchObject({
+      id: m.id,
+      run: m.indexRun + 1,
+      priority: "background",
+    });
+    await store().saveGathered(await claimOf(m.id), {
+      metadata: {},
+      text: null,
+      transient: true,
+    });
+    expect(await store().retryGather()).toEqual([]);
+  });
+
   it("resurfaces the same video with its latest playback Source", async () => {
     const first = await link({
       url: "https://www.youtube.com/watch?v=extension-round1&t=10s",

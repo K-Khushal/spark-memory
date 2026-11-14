@@ -275,6 +275,18 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
     // delayed message): only fresh work, which the budget never holds, goes.
     const spent =
       (await store.spentTodayMicros()) >= (await store.dailyBudgetMicros());
+    const recovery = spent
+      ? []
+      : await store.retryGather(calls?.remaining("indexing") ?? 100);
+    for (const { id, run, generation, priority } of recovery) {
+      if (calls && !calls.take("indexing")) break;
+      await enqueue(env, {
+        id,
+        indexRun: run,
+        indexGeneration: generation,
+        indexPriority: priority,
+      });
+    }
     const room = calls?.remaining("indexing");
     // Past the budget, the limit applies to fresh work only. Filtering after
     // the limit would drop a fresh Memory sitting behind background rows.
