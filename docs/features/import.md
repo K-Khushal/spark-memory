@@ -1,0 +1,50 @@
+# Import
+
+Settings accepts Netscape HTML (Chrome, Firefox, Safari, Pocket and Raindrop), Pocket and Raindrop CSV, newline-separated URLs, images and image folders.
+
+## Boundaries and defaults
+
+- Exports are parsed in an inert browser document, following ADR-0006. Markup never enters the application's document. Titles, Tags, folder ancestry and saved dates become typed Capture data. The Worker receives batches of at most 100 entries, never an export document. A file is capped at 10 MB and 10,000 URLs. CSV supports quoted commas, quotes and newlines. Unsafe Sources and credentials are refused and counted visibly.
+- One active import per owner bounds queue load. The server persists immutable positions, loading progress, completed and skipped counts, pause, cancellation and the next eligible time. A URL's canonical dedupe, Capture count, Memory and position commit together. Parallel queue deliveries serialize on the owner/job; cancellation fences subsequent deliveries. A Capture already committed is retained.
+- By default an import waits for the next UTC day after using the day's import allowance. `IMPORT_RESERVE` is half of `FREE_ALLOWANCE.capturesPerDay` (50 today). Imports may charge only up to `capturesPerDay - IMPORT_RESERVE`; fresh Captures retain access to the full 100. Fresh Captures share that strict atomic counter and their own immediate Indexing queue. **Import All Today** retains excess links through `over_allowance`, Reference Only and keyword-searchable, with no AI work. Images always wait for allowance because they have no Source fallback.
+- A step holds a 60-second lease, carried by the next continuation. Duplicate continuations are fenced by the lease token. Allowance waits return a continuation due at the next UTC midnight. Queue delays are capped at twelve hours; early deliveries rotate the lease and delay again without Capturing. The separate durable allowance deadline lets the hourly sweep recover every due waiter immediately, while ordinary active jobs are recovered only after their lease is more than ten minutes stale. An image waiting for bytes sets its next eligible time fifteen minutes ahead and ends the delivery chain; confirming the current image wakes the job once. A durable waiting-image marker excludes missing bytes from the sweep altogether. Pending bytes do not create periodic queue deliveries, even after the wait deadline; a later confirmation still wakes the job once.
+- The import queue has one consumer and one entry per invocation. Indexing goes through the existing background queue, provider budgets and global breaker. Each delivery checkpoints before enqueueing; the existing Indexing sweep recovers lost Indexing messages. One reserved call, taken from export recovery, in the shared 40-call hourly cron budget re-enqueues due jobs when a delivery or continuation is lost. Recovery sends all due or stale jobs using one `sendBatch` cron subrequest. [Cloudflare limits batches to 100 messages](https://developers.cloudflare.com/queues/configuration/javascript-apis/), so fleets above 100 use 99 job messages plus a queued recovery cursor; subsequent pages run on the queue rather than waiting for another hourly sweep. Keyset pages share the sweep timestamp. Duplicate sweeps/messages are safe.
+- Originals selected for image imports stay in user-scoped IndexedDB on the choosing device until the existing image Capture confirms their presigned uploads. Decoding/uploading is sequential. The server tracks progress against confirmed image Captures without charging twice. New image Captures also verify the running job and manifest under the server lock, so pause and cancellation fence other tabs. A reload resumes from the same device; the choosing device must be open for pending bytes to upload. The same file IDs make retries idempotent. Cancelling clears local originals on that device and stops its active uploads. Existing Captures remain in the Library.
+- Large folders are capped at 10,000 images, 25 MB per image and 1 GB total. Unsupported files are refused before a job starts. Storage and daily allowance are still enforced on the server. Interrupted export batch uploads can re-select the same file and continue at the committed offset; cancel to replace it with a different export.
+
+## Deployment and verification
+
+Apply `0032_import.sql` after the existing migrations; its journal `when` is `1794630000000`, later than every existing journal entry. Main includes `0028_custom_categories`; numbering by timestamp reserves `0029` for #14 (`1794572552722`) and `0030`/`0031` for #34 (`1794610000000`/`1794610000001`). Renumber at merge time if necessary while preserving timestamp order. Create `spark-import-dev` and `spark-import-prod` queues before deploying. Bindings and single-consumer configuration are in each Wrangler environment. No additional secrets are needed.
+
+Run `pnpm check` with a migrated Postgres database, `pnpm --filter @spark/evals eval:check`, and `pnpm --filter @spark/web exec playwright test import.e2e.ts`. The feature smoke covers reload, pause, resume, cancel, image uploads, and worst-case progress counts. `IMPORT_SCREENSHOTS` saves 1440/390 light/dark captures. Its test-only fixture picker exercises Demo, Worst Case, Empty and Complete at the real API boundary, including 320px, RTL and 200% text size.
+
+## Review scope
+
+Implementation-agent standards and spec review against origin/main and issue #29: no nested agents were launched because this task is itself an implementation sub-agent. Public parser fixtures, public DB job interfaces against real Postgres, and a fake queue binding are the test seams. The shared daily Capture primitive is used by both imports and ordinary Captures.
+
+The feature uses about 1,400 non-test lines including schema, queue wiring and image recovery. The extra code beyond the approximate 1,000-line target supports durable image originals and the shared allowance path rather than a second upload implementation.
+
+Interface review covers Settings → Import, including loading, paused, cancelled, completed, error and empty states. React, the existing Button, native file inputs, native progress, Tailwind and Spark tokens are used. No custom motion was added. The better-interface owning skills (`better-accessibility`, `better-layout`, `better-writing`, `better-typography`, `better-colors`, `better-ui`) are absent from this checkout, so those skill-specific domains are **Not reviewed**; this is not a claim of a holistic better-interface approval. Web Interface Guidelines and break-ui checks were applied separately. The existing design, token contrast tests, keyboard smoke and rendered screenshots provide the available evidence.
+
+### Standards review
+
+The public boundaries are `@spark/capture/import`, `openImports`, and the Worker routes/queue. DB/schema imports stay private to the package; app code imports package entry points. Capture allowance logic is shared rather than copied. No content-bearing logs, network calls under locks, added colors or decorative motion were found. A review finding that import recovery could exceed the cron subrequest budget was fixed by reserving one call from export recovery within the existing 40-call allocation.
+
+### Spec review
+
+All requested parser families, original dates, folder/Tag metadata, canonical duplicate skipping, persistent owner-scoped jobs, progress controls, image Capture reuse, allowance and background budget paths are implemented. The browser intentionally remains responsible for uploading not-yet-uploaded image originals; server progress survives reload and the choosing device resumes from IndexedDB. An implementation review found CSV titles containing HTML could change format detection; a failing regression test now passes after detecting HTML only at the document start and parsing it in an inert template.
+
+### Interface findings and coverage
+
+Web Interface Guidelines review: progress now uses Spark tokens for its track and value; controls have accessible names, keyboard activation and existing focus styles. Counts use locale formatting and tabular numerals. Live announcements are limited to state changes and errors; counters and the progress bar are outside the live region. No actionable source findings remain. Break-ui fixtures cover empty, one, 10,000 entries, complete and paused states; the test-only picker changes API fixture data rather than production markup. The fields rendered by Import are bounded state labels, counters (0–10,000), loading counts, supported-file errors and fixed button labels; imported user titles and filenames are never interpolated into this control surface. Any rendered verification failure is recorded in the PR; absent better-interface domain skills remain unreviewed as noted above.
+
+| Domain        | Evidence Inspected                                   | Result                                           |
+| ------------- | ---------------------------------------------------- | ------------------------------------------------ |
+| Accessibility | Controls, live region, native inputs, progress       | Not reviewed: `better-accessibility` unavailable |
+| Layout        | Settings/Import and Playwright viewport fixtures     | Not reviewed: `better-layout` unavailable        |
+| Writing       | DESIGN.md, GLOSSARY.md, fixed labels and error copy  | Not reviewed: `better-writing` unavailable       |
+| Typography    | Existing type tokens and locale-formatted counters   | Not reviewed: `better-typography` unavailable    |
+| Color         | Existing Spark tokens and token tests                | Not reviewed: `better-colors` unavailable        |
+| UI Polish     | Existing Button, progress controls, no custom motion | Not reviewed: `better-ui` unavailable            |
+
+Verdict: **Approve for the separate available source checks only**; the six better-interface owning domains above remain Not Reviewed. Rendered break-ui verification and broader smoke outcomes are listed explicitly in the PR evidence.

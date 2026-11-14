@@ -103,6 +103,8 @@ const side = z.number().int().positive().max(100_000);
  * the Preserved copy, kept for duplicate detection later.
  */
 export const ImageCapture = z.object({
+  background: z.boolean().optional(),
+  importJobId: z.uuid().optional(),
   sourceUrl: z
     .string()
     .max(100_000)

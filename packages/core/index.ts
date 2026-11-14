@@ -162,3 +162,12 @@ export {
   prototypeOf,
   type CategoryNameProblem,
 } from "./lib/categories";
+export {
+  IMPORT_LIMITS,
+  IMPORT_RESERVE,
+  ImportItem,
+  ImportEntry,
+  ImportBatch,
+  ImportCreate,
+  ImportAction,
+} from "./lib/import";

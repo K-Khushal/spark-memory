@@ -186,8 +186,9 @@ export function ConnectedAssistants() {
         <label htmlFor="assistant-name" className="text-sm text-ink-muted">
           Assistant Name
         </label>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Input
+            className="flex-1 basis-40"
             id="assistant-name"
             name="assistant-name"
             value={name}
