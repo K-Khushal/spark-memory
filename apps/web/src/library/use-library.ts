@@ -343,7 +343,11 @@ export function useLibrary(owner: string) {
     async syncCategories() {
       const fresh = new Map<
         string,
-        { categories: string[]; categoriesLocked: boolean }
+        {
+          categories: string[];
+          categoriesLocked: boolean;
+          categoriesVersion: number | null;
+        }
       >();
       try {
         let after: string | undefined;
@@ -366,6 +370,7 @@ export function useLibrary(owner: string) {
                 ...m,
                 categories: now.categories,
                 categoriesLocked: now.categoriesLocked,
+                categoriesVersion: now.categoriesVersion,
               }
             : m;
         })

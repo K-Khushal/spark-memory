@@ -607,7 +607,8 @@ export const memories = new Hono<AppEnv>()
       await enqueue(c.env, result);
     } else if (
       (changes.title !== undefined || changes.captureNote !== undefined) &&
-      result.indexState === "searchable" &&
+      (result.indexState === "searchable" ||
+        result.indexState === "indexing") &&
       !result.aiOptOut
     ) {
       // Its vectors read the title and note: made again once typing stops.

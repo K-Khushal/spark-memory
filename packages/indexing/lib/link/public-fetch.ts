@@ -36,6 +36,7 @@ export type Refusal =
   | "not_permitted"
   | "content_type"
   | "status"
+  | "refused"
   /** These may pass: the Source or the network is down for now. */
   | "unavailable"
   | "timeout"
@@ -292,7 +293,11 @@ export async function publicFetch(
       const down = res.status >= 500 || res.status === 429;
       return {
         ok: false,
-        reason: down ? "unavailable" : "status",
+        reason: down
+          ? "unavailable"
+          : res.status === 401 || res.status === 403
+            ? "refused"
+            : "status",
         confirmed: true,
       };
     }

@@ -25,6 +25,8 @@ export function CategoryEditor({
   const [selected, setSelected] = useState<string[]>(memory.categories);
   const [state, setState] = useState<"idle" | "saving" | "failed">("idle");
   const own = useOwnCategoryNames();
+  const pending = memory.categoriesVersion === null && !memory.categoriesLocked;
+  const label = pending ? "Categorising" : memory.categories.join(", ");
   if (!onSave) return null;
   const toggle = (name: string) =>
     setSelected((now) =>
@@ -45,11 +47,14 @@ export function CategoryEditor({
       }}
     >
       <summary
-        aria-label={`Categories: ${memory.categories.join(", ")}`}
+        aria-label={`Categories: ${label}`}
         className="flex min-h-8 cursor-pointer items-center justify-between gap-2 rounded-chip focus-visible:outline-2 focus-visible:outline-ring"
       >
-        <span className="min-w-0 wrap-anywhere" dir="auto">
-          {memory.categories.join(", ")}
+        <span
+          className={`min-w-0 wrap-anywhere${pending ? " text-ink-muted" : ""}`}
+          dir="auto"
+        >
+          {label}
         </span>
         <ChevronDownIcon
           aria-hidden

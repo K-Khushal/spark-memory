@@ -347,6 +347,7 @@ export function libraryActions({
         deepFetch: null,
         categories: ["Other"],
         categoriesLocked: false,
+        categoriesVersion: null,
         revision: 1,
         capturedAt: now,
         lastSavedAt: now,

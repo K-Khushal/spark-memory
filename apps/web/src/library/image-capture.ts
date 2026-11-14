@@ -388,6 +388,7 @@ export function imageCapture({
       deepFetch: null,
       categories: ["Other"],
       categoriesLocked: false,
+      categoriesVersion: null,
       revision: 1,
       capturedAt: now,
       lastSavedAt: now,

@@ -239,7 +239,8 @@ export function createGatherer({
     // Only a Source shown to be public (it answered, or every address on
     // the way checked public) is ever named to a third party. A failed
     // name lookup proves nothing: the link waits for another attempt.
-    const confirmed = page.ok || page.confirmed === true;
+    const refused = !page.ok && page.reason === "refused";
+    const confirmed = !refused && (page.ok || page.confirmed === true);
     const transient = !page.ok && isTransient(page.reason);
 
     const host = new URL(url).hostname;

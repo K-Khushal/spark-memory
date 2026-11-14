@@ -1,16 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { EMBEDDING } from "@spark/core";
+import { indexingStore, openDatabase } from "@spark/db";
 import type * as Core from "@spark/core";
 import { queryVectorsCached } from "@spark/search";
 import * as Search from "@spark/search";
 import * as Sentry from "@sentry/cloudflare";
 import { ProviderError } from "@spark/indexing";
+import { cronCalls } from "../src/cron-budget";
 import { requeueStalled } from "../src/indexing";
 import {
   newClient,
   databaseUrl,
   drain,
+  deliver,
   env,
   fakeTurnstile,
   postSearch,
@@ -499,6 +502,94 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     expect((await search(call, "twilight", "full"))[0]?.id).toBe(id);
   });
 
+  it("queues a title edited during Indexing and embeds the latest revision", async () => {
+    const { call } = await signedIn();
+    const response = await call("/api/memories", {
+      method: "POST",
+      json: { body: "Notes from the trip" },
+    });
+    const { id } = (await response.json()) as { id: string };
+    const connection = openDatabase(databaseUrl!);
+    const store = indexingStore(connection.db);
+    const loaded = (await store.load(id))!;
+    const claim = {
+      memoryId: id,
+      userId: loaded.userId,
+      generation: loaded.generation,
+      run: loaded.run,
+    };
+    queues.background.sent.length = 0;
+    await call(`/api/memories/${id}`, {
+      method: "PATCH",
+      json: { title: "Sunset over the dock" },
+    });
+    expect(queues.background.sent).toEqual([
+      {
+        body: {
+          memoryId: id,
+          generation: expect.any(String),
+          priority: "background",
+          task: "embed",
+        },
+        delaySeconds: EMBEDDING.editDelaySeconds,
+      },
+    ]);
+    // If the delayed job arrives before Indexing finishes it must stay on the queue.
+    const message = queues.background.sent[0]!.body;
+    queues.background.sent.length = 0;
+    const early = await deliver(queues.background.name, message, 1);
+    expect(early.ack).toHaveBeenCalled();
+    expect(early.retry).not.toHaveBeenCalled();
+    expect(queues.background.sent).toContainEqual({
+      body: message,
+      delaySeconds: EMBEDDING.editDelaySeconds,
+    });
+    // The in-flight run finishes with the revision it loaded before the edit.
+    try {
+      expect(
+        await store.complete(
+          claim,
+          {
+            output: {
+              title: "Trip Notes",
+              description: "Notes from the trip",
+              ocrText: "",
+              entities: [],
+              tags: [],
+              language: "en",
+            },
+            model: "fake",
+          },
+          {
+            model: "fake-embedding",
+            dimensions: 768,
+            revision: loaded.revision,
+            vectors: [
+              { kind: "overview", embedding: [1, ...new Array(767).fill(0)] },
+            ],
+          }
+        )
+      ).toBe(true);
+    } finally {
+      await connection.close();
+    }
+    expect(
+      (
+        await sql.query("select vectors_revision from memory where id = $1", [
+          id,
+        ])
+      ).rows[0].vectors_revision
+    ).toBeNull();
+    await drain(id);
+    await deliver(queues.background.name, message, 2);
+    expect((await search(call, "twilight", "full"))[0]?.id).toBe(id);
+    const revisions = await sql.query(
+      "select revision, vectors_revision from memory where id = $1",
+      [id]
+    );
+    expect(revisions.rows[0].vectors_revision).toBe(revisions.rows[0].revision);
+  });
+
   it("falls back to keyword search when the embedding provider is down or answers nonsense", async () => {
     const { call } = await signedIn();
     const id = await capture(call, "Sunset over the dock");
@@ -563,6 +654,64 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     );
     expect(res.status).toBe(204);
     expect(queryVectorsCached(userId)).toBe(0);
+  });
+
+  it("back-fills more than 200 Categories using bounded queue batches", async () => {
+    const { call } = await signedIn();
+    const { id: owner } = (await (await call("/api/me")).json()) as {
+      id: string;
+    };
+    const inserted = await sql.query(
+      `insert into memory (user_id, kind, body, index_state, vectors_space, vectors_revision, updated_at)
+      select $1, 'text', 'Recipe', 'searchable', 'fake-embedding@768', 1, now() - interval '20 years'
+      from generate_series(1, 250) returning id`,
+      [owner]
+    );
+    const ids = inserted.rows.map((r: { id: string }) => r.id);
+    try {
+      await sql.query(
+        `insert into memory_index (memory_id, title, description, ocr_text, entities, tags, model)
+        select id, 'Recipe', '', '', '{}', '{}', 'fake' from memory where id = any($1::uuid[])`,
+        [ids]
+      );
+      await sql.query(
+        `insert into memory_vector (memory_id, user_id, kind, model, dimensions, embedding)
+        select id, user_id, 'overview', 'fake-embedding', 768, $2::halfvec from memory where id = any($1::uuid[])`,
+        [ids, JSON.stringify([1, ...new Array(767).fill(0)])]
+      );
+      queues.background.sent.length = 0;
+      const calls = cronCalls();
+      await requeueStalled(env(), calls);
+      const sent = queues.background.sent.filter((m) =>
+        ids.includes(m.body.memoryId)
+      );
+      expect(sent).toHaveLength(250);
+      expect(10 - calls.remaining("indexing")).toBeLessThanOrEqual(10);
+      expect(10 - calls.remaining("indexing")).toBeGreaterThanOrEqual(3);
+      const before = await sql.query(
+        "select embedding::text from memory_vector where memory_id = $1",
+        [ids[0]]
+      );
+      await drain(ids[0]!);
+      expect(
+        (
+          await sql.query(
+            "select embedding::text from memory_vector where memory_id = $1",
+            [ids[0]]
+          )
+        ).rows
+      ).toEqual(before.rows);
+      expect(
+        (
+          await sql.query(
+            "select categories_version from memory where id = $1",
+            [ids[0]]
+          )
+        ).rows[0].categories_version
+      ).not.toBeNull();
+    } finally {
+      await sql.query("delete from memory where id = any($1::uuid[])", [ids]);
+    }
   });
 
   it("re-embeds, hourly, Memories whose vectors are missing or stale", async () => {

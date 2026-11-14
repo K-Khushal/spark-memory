@@ -111,7 +111,7 @@ const ownerDueGeneration = sql`coalesce((select r.due_generation from category_r
  * Not locked by the user, and not categorised at this revision by this
  * version of the categoriser, nor since the owner's newest Category.
  */
-export const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version} or coalesce(${memory.categoriesGeneration}, 0) < ${ownerDueGeneration}))`;
+export const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRun} is distinct from ${memory.indexRun} or ${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version} or coalesce(${memory.categoriesGeneration}, 0) < ${ownerDueGeneration}))`;
 /** What the hourly sweep and `embed` jobs pick up: vectors or Categories to make. */
 const workDueIn = (space: string) =>
   sql`(${vectorsStaleIn(space)} or ${categoriesStale})`;
@@ -383,6 +383,7 @@ export function indexingStore(db: Database) {
             categories,
             categoriesRevision: revision,
             categoriesVersion: CATEGORISING.version,
+            categoriesRun: claim.run,
             categoriesGeneration,
           })
           .where(
@@ -678,6 +679,15 @@ export function indexingStore(db: Database) {
         .set(lease())
         .where(and(claimed(claim), eq(memory.revision, revision), embeddable))
         .returning({ id: memory.id });
+      return !!row;
+    },
+
+    /** A delayed title edit arrived before its initial Indexing completed. */
+    async waitingForIndexing(target: IndexMessageTarget) {
+      const [row] = await db
+        .select({ id: memory.id })
+        .from(memory)
+        .where(and(named(target), indexing, eq(memory.aiOptOut, false)));
       return !!row;
     },
 

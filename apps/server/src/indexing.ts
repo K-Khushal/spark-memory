@@ -184,6 +184,21 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
             delaySeconds: backoffSeconds(message.attempts),
           };
         }
+        // A title may be edited while the initial run still owns the lease.
+        // Keep that delayed embed job alive; its eventual write checks revision.
+        if (
+          task === "embed" &&
+          outcome.result === "skipped" &&
+          (await store.waitingForIndexing({ memoryId, generation }))
+        ) {
+          // Waiting for another run is not a failed attempt. A slow initial
+          // run must not exhaust this job's retry limit and defer it an hour.
+          await env.REINDEX_QUEUE.send(message.body, {
+            delaySeconds: EMBEDDING.editDelaySeconds,
+          });
+          message.ack();
+          return;
+        }
         if (outcome.result === "retry") {
           message.retry({ delaySeconds: outcome.delaySeconds });
         } else if (outcome.result === "paused") {
@@ -281,15 +296,30 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
     if (embedRoom === 0) return;
     const stale = await store.staleVectors(
       embeddingSpace(embedder.model, embedder.dimensions),
-      embedRoom !== undefined && embedRoom < EMBEDDING.sweepBatch
-        ? embedRoom
-        : EMBEDDING.sweepBatch
+      Math.min(embedRoom ?? 10, 10) * QUEUE_BATCH
     );
     let embedded = 0;
-    for (const { id, generation } of stale) {
+    // One Queue subrequest can send 100 jobs. Category-only jobs reuse their
+    // stored Overview; the consumer still checks the daily budget per job.
+    for (let i = 0; i < stale.length; i += QUEUE_BATCH) {
       if (calls && !calls.take("indexing")) break;
-      await enqueueEmbed(env, { id, indexGeneration: generation });
-      embedded += 1;
+      const batch = stale.slice(i, i + QUEUE_BATCH);
+      try {
+        await env.REINDEX_QUEUE.sendBatch(
+          batch.map(({ id, generation }) => ({
+            body: {
+              memoryId: id,
+              generation,
+              priority: "background",
+              task: "embed",
+            },
+          }))
+        );
+        embedded += batch.length;
+      } catch {
+        console.error("indexing: embed batch enqueue failed");
+        break;
+      }
     }
     if (embedded) console.log(`indexing: re-embedding ${embedded}`);
   } finally {

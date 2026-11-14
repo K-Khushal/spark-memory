@@ -148,6 +148,8 @@ export const memory = pgTable(
     categoriesRevision: integer("categories_revision"),
     /** `CATEGORISING.version` of the categoriser that chose them; null before any did. */
     categoriesVersion: integer("categories_version"),
+    /** Indexing run that assigned the Categories; superseded runs are stale. */
+    categoriesRun: integer("categories_run"),
     /** `category_run.generation` of the person's Categories it was categorised under; null before any. */
     categoriesGeneration: integer("categories_generation"),
     /**

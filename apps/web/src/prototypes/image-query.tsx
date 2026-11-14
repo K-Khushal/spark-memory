@@ -31,6 +31,7 @@ const memory = (title: string, index: number): Memory => ({
   revision: 1,
   categories: [],
   categoriesLocked: false,
+  categoriesVersion: null,
   deepFetch: null,
   aiOptOut: false,
   indexError: null,

@@ -100,6 +100,7 @@ const baseColumns = {
   revision: memory.revision,
   categories: memory.categories,
   categoriesLocked: memory.categoriesLocked,
+  categoriesVersion: memory.categoriesVersion,
   /** For queue messages only; routes leave these out of answers. */
   indexRun: memory.indexRun,
   indexGeneration: memory.indexGeneration,

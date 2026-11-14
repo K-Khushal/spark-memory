@@ -261,7 +261,7 @@ describe("publicFetch refuses what is not the public web", () => {
     });
     expect(await publicFetch("https://a.test/4", opts)).toEqual({
       ok: false,
-      reason: "status",
+      reason: "refused",
       confirmed: true,
     });
   });
