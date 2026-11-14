@@ -107,13 +107,15 @@ The `better-interface` umbrella was read. Its six owning skills
 `better-colors`, `better-ui`) are absent from the installed project skill set.
 Those six formal domain reviews are **Not Reviewed**; the concrete checks above
 come from Impeccable, Web Interface Guidelines, break-ui and the keyboard pass.
-No holistic approval is claimed for unavailable skills.
+No holistic approval is claimed for unavailable skills. The installed Impeccable
+launcher also lacks its documented `audit-storage` command; this file retains
+the audit report instead.
 
 ## 5. Code Review
 
-Fixed point: `origin/main` at implementation start (`0467df1`). Review uses the
-final branch diff against that base. As the implementation sub-agent, this task
-is reviewed in-thread; no nested review agents are started.
+Fixed point: `origin/main` (`8bc1338`), merged after implementation. Review uses
+`git diff origin/main...HEAD` and `git log origin/main..HEAD --oneline`. As the
+implementation sub-agent, this task is reviewed in-thread; no nested review agents are started.
 
 Standards: token colours and existing components retained; no package boundary,
 API, schema, allowance, auth, search, or mutation logic changes. Layout changes
@@ -130,3 +132,21 @@ reviews when those skills are installed; physical Android installation/share
 sheet and hardware keyboard/hover feel still need real-device verification.
 These are verification limitations, not known unfixed UI defects. No issues
 were created, per the cook brief.
+
+## 6. Validation
+
+- `pnpm check`: passed (typecheck, lint, boundaries, formatting, default unit
+  suite and builds). The default invocation skips tests requiring a DB URL.
+- Real Postgres: `DATABASE_URL=… pnpm --filter @spark/db test
+--no-file-parallelism`: 318 passed, including the new migration journal check.
+- Full Playwright smoke with the isolated stack and `DATABASE_URL`: 73 passed,
+  eight existing opt-in tests skipped. All six new polish cases passed.
+- Impeccable mechanical detector: no findings (`[]`).
+- 32 before and 32 after screenshots saved at the requested artifact path.
+
+A DB-enabled `pnpm check` exposed a pre-existing test-isolation race: parallel
+screenshot and reel-copy tests both drain the global object-removal queue,
+occasionally consuming one another's fixtures. Running the DB files sequentially
+passes all 318 tests. Follow up on that shared-fixture isolation independently;
+no DB or backend source was changed for this UI task. An earlier smoke invocation
+without `DATABASE_URL` was corrected before the successful full run.
