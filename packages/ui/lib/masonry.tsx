@@ -203,11 +203,20 @@ export function Masonry<T>({
   useEffect(() => virtualizer.measure(), [virtualizer, colWidth, lanes, items]);
 
   const focusIndex = (index: number, patient = false) => {
+    const focusedAtRequest = document.activeElement;
     setActive(index);
     virtualizer.scrollToIndex(index, { align: "auto" });
     // After a long scroll the tile is not drawn for a few frames: wait for it.
     let frames = patient ? 30 : 1;
     const focusWhenDrawn = () => {
+      // A deferred restore must yield to focus moved since the request,
+      // including while waiting for a virtualised tile to render.
+      if (
+        patient &&
+        document.activeElement !== document.body &&
+        document.activeElement !== focusedAtRequest
+      )
+        return;
       const tile = ref.current?.querySelector<HTMLElement>(
         `[data-index="${index}"]`
       );
