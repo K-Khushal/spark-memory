@@ -197,7 +197,13 @@ export function AdminPage({ session }: { session: AppSession }) {
               >
                 Daily Spend
               </h2>
-              <div className="mt-3 overflow-x-auto">
+              {/* A sideways-scrolling table must take the keyboard (2.1.1). */}
+              <div
+                role="region"
+                aria-labelledby="daily-spend"
+                tabIndex={0}
+                className="mt-3 overflow-x-auto"
+              >
                 <table
                   aria-labelledby="daily-spend"
                   className="w-full text-left text-sm"
@@ -239,7 +245,12 @@ export function AdminPage({ session }: { session: AppSession }) {
               <h2 id="usage" className="font-display text-md font-semibold">
                 Usage
               </h2>
-              <div className="mt-3 overflow-x-auto">
+              <div
+                role="region"
+                aria-labelledby="usage"
+                tabIndex={0}
+                className="mt-3 overflow-x-auto"
+              >
                 <table
                   aria-labelledby="usage"
                   className="w-full text-left text-sm"

@@ -209,7 +209,10 @@ test("a search that fails says so the same way in the menu and on the wall, and 
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("boom");
   await expect(
-    page.getByRole("dialog").getByText("Search Is Unreachable")
+    page
+      .getByRole("dialog")
+      .getByRole("listbox")
+      .getByText("Search Is Unreachable")
   ).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(

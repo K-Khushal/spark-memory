@@ -11,19 +11,27 @@ popup. Performance is part B (another branch). Earlier passes (#9, #23, #15,
 
 `apps/web/e2e/a11y.e2e.ts` runs axe (`@axe-core/playwright`, tags `wcag2a`,
 `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`; that includes colour contrast and
-target size 2.5.8) on every screen and state below, in both themes, after fades and
-slides finish. It is part of the default Playwright suite, so a new violation
-fails CI. It found **no violations** in the existing screens: the earlier passes
-had cleared them. Two false alarms came from scanning mid-fade (a toast and a
-dialog), which the scan now waits out.
+target size 2.5.8) over the whole matrix **light/dark × 1440/390**: four cells,
+each with one test per area (signed out, Library, Settings, Admin) that signs in
+once and walks every state with shared seeding. Scans wait for fades and slides
+to finish (axe reads colour mid-fade as low contrast). Toasts stack and fade on
+their own timers, so they are left out of the walk and scanned once, still and
+alone. It is part of the default Playwright suite, so a new violation fails CI.
 
-Covered: sign-in (email, code), offline page, new Library with Get Started, wall
-(text, link, image, PDF), Capture, ⌘K with results, results on the wall, Search
-with No Direct Matches, Memory detail, Categories, bulk selection bar and
-Categories picker, image viewer, PDF viewer, link reader, Settings (also with
-full meters, a paused import, a Connected Assistant), Delete Account, Connection
-Guide, Admin, the share confirmation, the phone layout, and (with
-`EXTENSION_E2E=1`, a local build) the extension popup.
+States per cell: sign-in (email, code), offline page; new Library with Get
+Started; wall (note, list, link, image, PDF, video); Capture; ⌘K with instant
+results, with a query image, with a note, failing; results on the wall, by
+image, with No Direct Matches, failing; Memory detail and More Like This; image,
+PDF, link and video viewers; Categories; bulk bar and Categories picker; the
+Library that cannot load; Settings, its two dialogs, full meters with a paused
+import and an Assistant, Settings that cannot load; the share confirmation;
+Admin, Admin that cannot load. With `EXTENSION_E2E=1` and a local build, the
+extension popup in both themes.
+
+The first scan found nothing on the screens the earlier passes covered. The wider
+matrix found two real defects, both fixed: a `role="status"` note inside the ⌘K
+listbox (a listbox may hold only options and groups), and Admin's sideways-scrolling
+tables, which the keyboard could not reach.
 
 ## 2. Impeccable Audit
 
@@ -39,18 +47,20 @@ Guide, Admin, the share confirmation, the phone layout, and (with
 The mechanical detector returned `[]` on `apps/web/src`, `packages/ui/lib`,
 `apps/extension/entrypoints` and on the rendered sign-in page.
 
-| Priority | Location                   | Finding                                                                                                               | Resolution                                                                          |
-| -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| P1       | Wall, arrow keys (2.4.11)  | The wall's top offset went stale when Get Started mounted above it: arrow-key focus landed ~175px below the viewport  | `Masonry` also watches the page body; test walks 24 tiles on a phone                |
-| P1       | Phone sticky bars (2.4.11) | Focused tiles and controls could sit under the sticky top bar                                                         | `useStickyInset` keeps `scroll-padding-top` at the bar's height; `Masonry` reads it |
-| P1       | Every page (2.4.1)         | A dozen Tab stops of sidebar before the content                                                                       | `Skip To Content`, visible only on focus, first Tab stop                            |
-| P1       | Sign-in at 320px, 200%     | `Continue with Email` could not wrap and Turnstile's 300px minimum widened the page by 59px                           | Buttons wrap, column is `minmax(0, 1fr)`, Turnstile minimum is `min(300px, 100%)`   |
-| P1       | Phone search bar, 200%     | Searching squashed the field and overlapped the icons (14px of sideways scroll)                                       | The bar wraps; the field keeps a 14rem basis                                        |
-| P2       | Settings, Search           | Hidden file inputs were `sr-only`, so a screen reader met each picker twice                                           | `hidden`, as Capture already did                                                    |
-| P2       | Type                       | 22px headings tracked 0 while 28px ones tracked -0.02em; DESIGN.md says 22px and up                                   | `--text-{lg,xl,2xl,3xl}--letter-spacing` from `TYPE_SCALE`; literals removed        |
-| P2       | Errors                     | Library, Admin, Settings and the app each drew "Unreachable" differently; Admin had no `main` while failed or loading | One `Centred` in the shell; Admin's `main` wraps every state                        |
-| P2       | Toasts at large text       | Sonner's px font stayed 13px while the page grew                                                                      | `text-sm` (rem) on the toast and its action                                         |
-| P3       | Code step caret            | The fake caret blinked under reduced motion                                                                           | `motion-reduce:animate-none`                                                        |
+| Priority | Location                           | Finding                                                                                                               | Resolution                                                                          |
+| -------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| P1       | Wall, arrow keys (2.4.11)          | The wall's top offset went stale when Get Started mounted above it: arrow-key focus landed ~175px below the viewport  | `Masonry` also watches the page body; test walks 24 tiles on a phone                |
+| P1       | Phone sticky bars (2.4.11)         | Focused tiles and controls could sit under the sticky top bar                                                         | `useStickyInset` keeps `scroll-padding-top` at the bar's height; `Masonry` reads it |
+| P1       | Every page (2.4.1)                 | A dozen Tab stops of sidebar before the content                                                                       | `Skip To Content`, visible only on focus, first Tab stop                            |
+| P1       | Sign-in at 320px, 200%             | `Continue with Email` could not wrap and Turnstile's 300px minimum widened the page by 59px                           | Buttons wrap, column is `minmax(0, 1fr)`, Turnstile minimum is `min(300px, 100%)`   |
+| P1       | Phone search bar, 200%             | Searching squashed the field and overlapped the icons (14px of sideways scroll)                                       | The bar wraps; the field keeps a 14rem basis                                        |
+| P2       | Settings, Search                   | Hidden file inputs were `sr-only`, so a screen reader met each picker twice                                           | `hidden`, as Capture already did                                                    |
+| P2       | Type                               | 22px headings tracked 0 while 28px ones tracked -0.02em; DESIGN.md says 22px and up                                   | `--text-{lg,xl,2xl,3xl}--letter-spacing` from `TYPE_SCALE`; literals removed        |
+| P2       | Errors                             | Library, Admin, Settings and the app each drew "Unreachable" differently; Admin had no `main` while failed or loading | One `Centred` in the shell; Admin's `main` wraps every state                        |
+| P2       | Toasts at large text               | Sonner's px font stayed 13px while the page grew                                                                      | `text-sm` (rem) on the toast and its action                                         |
+| P1       | ⌘K, with a query image or no match | A `role="status"` note sat inside the listbox (axe `aria-required-children`)                                          | The list draws the note `aria-hidden`; one live region after the list reads it      |
+| P1       | Admin at 390px (2.1.1)             | The two sideways-scrolling tables could not take focus (axe `scrollable-region-focusable`)                            | Named `region`s with `tabIndex={0}`                                                 |
+| P3       | Code step caret                    | The fake caret blinked under reduced motion                                                                           | `motion-reduce:animate-none`                                                        |
 
 Positive findings retained: one tab stop per wall, roving focus, named icon
 buttons, Escape and focus return in every dialog, 44px touch targets on the
