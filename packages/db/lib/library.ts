@@ -1529,12 +1529,12 @@ export function openLibrary(
               or created_at > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})
           union all
           select id, octet_length(coalesce(body, '')) + octet_length(coalesce(title, ''))
-              + octet_length(coalesce(capture_note, ''))
+              + octet_length(coalesce(capture_note, '')) + octet_length(coalesce(metadata::text, ''))
               + coalesce((select octet_length(i.title) + octet_length(i.description) + octet_length(i.ocr_text)
                   + octet_length(array_to_string(i.entities, ' ')) + octet_length(array_to_string(i.tags, ' '))
                   from memory_index i where i.memory_id = memory.id), 0)
             from memory where user_id = ${userId} and not sample
-              and (coalesce(body, title, capture_note) is not null
+              and (coalesce(body, title, capture_note, metadata::text) is not null
                 or exists (select 1 from memory_index i where i.memory_id = memory.id))
         ) t
         join memory m on m.id = t.memory_id

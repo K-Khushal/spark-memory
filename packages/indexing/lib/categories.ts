@@ -10,6 +10,7 @@ import {
   prototypeOf,
 } from "@spark/core";
 import { embedCostMicros, type Embedder } from "./embedder";
+import { ProviderError } from "./provider";
 import type { AiCall } from "./indexer";
 
 /** The third-party seam (ADR-0008): tests fake it, `jevCategories` is the real one. */
@@ -225,6 +226,23 @@ export async function prepareCategoryPrototypes({
           { timeoutMs: 10_000 }
         );
       } catch (error) {
+        if (error instanceof ProviderError && error.estimate) {
+          // Lost after it was sent: it may be billed, so the most it could
+          // have cost is recorded against the hold (not given back).
+          const { inputTokens, imageTokens = 0 } = error.estimate;
+          await record({
+            provider: embedder.name,
+            model: embedder.model,
+            usage: { inputTokens, outputTokens: 0 },
+            costMicros: embedCostMicros(embedder.model, {
+              textTokens: Math.max(0, inputTokens - imageTokens),
+              imageTokens,
+            }),
+            estimated: true,
+            reservation: held.reservation,
+          }).catch(() => {});
+        }
+        // Whatever is not settled (it could not have been billed) goes back.
         await held.release().catch(() => {});
         throw error;
       }

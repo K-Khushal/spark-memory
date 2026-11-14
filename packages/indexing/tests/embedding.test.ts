@@ -517,7 +517,7 @@ describe("Gemini Embedding", () => {
       embedder(hang as typeof fetch).embed([{ text: "abcd" }], {
         timeoutMs: 10,
       })
-    ).rejects.toMatchObject({ kind: "failed", estimate: { inputTokens: 1 } });
+    ).rejects.toMatchObject({ kind: "failed", estimate: { inputTokens: 4 } });
     // With an image, its tokens are said apart: they are priced apart.
     await expect(
       embedder(hang as typeof fetch).embed(
@@ -529,8 +529,44 @@ describe("Gemini Embedding", () => {
       )
     ).rejects.toMatchObject({
       kind: "failed",
-      estimate: { inputTokens: 1 + 258, imageTokens: 258 },
+      estimate: { inputTokens: 4 + 258, imageTokens: 258 },
     });
+  });
+
+  it("settles a lost or unreported call at the same upper bound a hold uses: UTF-8 bytes, cut at the input limit", async () => {
+    const hindi = "यह एक नींबू का टार्ट है ".repeat(40);
+    const long = "नमस्ते ".repeat(5000);
+    const inputs = [{ text: hindi }, { text: long }];
+    const bound =
+      Math.min(maxTokens(hindi), EMBEDDING.maxInputTokens) +
+      Math.min(maxTokens(long), EMBEDDING.maxInputTokens);
+    // Characters ÷ 4 would be a fraction of this.
+    expect(bound).toBeGreaterThan((hindi.length + long.length) / 4 + 1000);
+    const hang = (_: unknown, init?: RequestInit) =>
+      new Promise<Response>((_, reject) =>
+        init?.signal?.addEventListener("abort", () => reject(new Error()))
+      );
+    await expect(
+      geminiEmbedding({
+        apiKey: "k",
+        paidTier: true,
+        dimensions: 3,
+        fetch: hang as typeof fetch,
+      }).embed(inputs, { timeoutMs: 10 })
+    ).rejects.toMatchObject({ estimate: { inputTokens: bound } });
+    // A reply with vectors but no usage is counted at the same bound.
+    const { usage } = await geminiEmbedding({
+      apiKey: "k",
+      paidTier: true,
+      dimensions: 3,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            embeddings: [{ values: [1, 0, 0] }, { values: [0, 1, 0] }],
+          })
+        ),
+    }).embed(inputs);
+    expect(usage).toEqual({ textTokens: bound, imageTokens: 0 });
   });
 
   it("turns a reply it cannot read or trust into a failure that may still be billed", async () => {
@@ -558,7 +594,7 @@ describe("Gemini Embedding", () => {
       ).rejects.toMatchObject({
         name: "ProviderError",
         kind: "failed",
-        estimate: { inputTokens: 1 },
+        estimate: { inputTokens: 4 },
       });
     }
     // A body that times out while it is read.

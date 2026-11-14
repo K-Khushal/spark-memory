@@ -29,8 +29,8 @@ const indexBytes = (found: IndexText) =>
 
 /**
  * Storage in use: files and reel copies (uploads still in their window
- * too), and every Memory's text: body, title, note and what Indexing
- * found. Samples take none. Optionally not one Memory's (`except`: all of
+ * too), and every Memory's text: body, title, note, its metadata (a page's
+ * description, a video's transcript) and what Indexing found. Samples take none. Optionally not one Memory's (`except`: all of
  * it) or not its text alone (`exceptText`, to replace it). Call it under
  * the owner's lock (`lockOwner`) when a decision rests on the answer.
  */
@@ -50,7 +50,7 @@ export async function usedStorageBytes(
         where m.user_id = ${userId} and ${skip("m")}
           and (c.stored_at is not null or c.created_at > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS})))
     + (select coalesce(sum(octet_length(coalesce(m.body, '')) + octet_length(coalesce(m.title, ''))
-          + octet_length(coalesce(m.capture_note, ''))), 0) from memory m
+          + octet_length(coalesce(m.capture_note, '')) + octet_length(coalesce(m.metadata::text, ''))), 0) from memory m
         where m.user_id = ${userId} and not m.sample and ${skip("m")} and ${skipText})
     + (select coalesce(sum(octet_length(i.title) + octet_length(i.description) + octet_length(i.ocr_text)
           + octet_length(array_to_string(i.entities, ' ')) + octet_length(array_to_string(i.tags, ' '))), 0)
@@ -60,6 +60,31 @@ export async function usedStorageBytes(
   return Number(rows[0]?.bytes ?? 0);
 }
 
+/** The bytes of a Memory's metadata as the database keeps it (jsonb as text). */
+export const metadataBytes = (metadata: unknown): number =>
+  metadata === null || metadata === undefined
+    ? 0
+    : bytesOf(JSON.stringify(metadata));
+
+/**
+ * A video's metadata with its transcript left out, as the database keeps a
+ * video whose transcript there was no room for (`over_allowance`). Anything
+ * else in the metadata is returned as it is.
+ */
+export function withoutTranscript<M extends { video?: object }>(
+  metadata: M
+): M {
+  if (!metadata.video) return metadata;
+  return {
+    ...metadata,
+    video: {
+      ...metadata.video,
+      transcript: [],
+      transcriptState: "over_allowance",
+    },
+  };
+}
+
 /** What `memoryId`'s text takes now, by part. */
 async function currentText(tx: Tx, memoryId: string) {
   const { rows } = await tx.execute<{
@@ -67,10 +92,14 @@ async function currentText(tx: Tx, memoryId: string) {
     title: string;
     note: string;
     found: string;
+    metabytes: string;
+    metadata: unknown;
   }>(sql`select
       octet_length(coalesce(m.body, ''))::text as body,
       octet_length(coalesce(m.title, ''))::text as title,
       octet_length(coalesce(m.capture_note, ''))::text as note,
+      octet_length(coalesce(m.metadata::text, ''))::text as metabytes,
+      m.metadata as metadata,
       coalesce((select octet_length(i.title) + octet_length(i.description) + octet_length(i.ocr_text)
         + octet_length(array_to_string(i.entities, ' ')) + octet_length(array_to_string(i.tags, ' '))
         from memory_index i where i.memory_id = m.id), 0)::text as found
@@ -81,6 +110,8 @@ async function currentText(tx: Tx, memoryId: string) {
     title: Number(row?.title ?? 0),
     note: Number(row?.note ?? 0),
     found: Number(row?.found ?? 0),
+    metadata: row?.metadata ?? null,
+    metabytes: Number(row?.metabytes ?? 0),
   };
 }
 
@@ -103,6 +134,8 @@ export async function textFits(
     body?: string | null;
     title?: string | null;
     captureNote?: string | null;
+    /** What the metadata will be (or, given the current metadata, a function of it). */
+    metadata?: unknown | ((current: unknown) => unknown);
     found?: IndexText | null;
   }
 ): Promise<boolean> {
@@ -114,6 +147,13 @@ export async function textFits(
     (after.body === undefined ? now.body : bytesOf(after.body)) +
     (after.title === undefined ? now.title : bytesOf(after.title)) +
     (after.captureNote === undefined ? now.note : bytesOf(after.captureNote)) +
+    (after.metadata === undefined
+      ? now.metabytes
+      : metadataBytes(
+          typeof after.metadata === "function"
+            ? (after.metadata as (current: unknown) => unknown)(now.metadata)
+            : after.metadata
+        )) +
     (after.found === undefined
       ? now.found
       : after.found === null

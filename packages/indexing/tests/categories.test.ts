@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CATEGORY_NAMES, type Category } from "@spark/core";
+import {
+  CATEGORY_NAMES,
+  maxTokens,
+  prototypeOf,
+  type Category,
+} from "@spark/core";
 import {
   categorise,
+  geminiEmbedding,
   jevCategories,
+  prepareCategoryPrototypes,
+  ProviderError,
   type CategoryClient,
   type Embedder,
 } from "../index";
@@ -158,6 +166,93 @@ describe("categorise", () => {
       ).toBeUndefined();
       expect(h.released).toBe(1);
       expect(calls).toEqual([]);
+    });
+
+    it("records a lost call's most against its hold, so a call that may be billed is never given back uncounted", async () => {
+      const lost = embedder("holds-lost");
+      lost.embed = async () => {
+        throw new ProviderError("failed", {
+          inputTokens: 700,
+          outputTokens: 0,
+          imageTokens: 0,
+        });
+      };
+      const h = holds();
+      const recorded: Record<string, unknown>[] = [];
+      expect(
+        await categorise({
+          text: "tart",
+          vector: toward("Recipe"),
+          embedder: lost,
+          allow: yes,
+          hold: h.hold,
+          record: async (call) => void recorded.push(call),
+        })
+      ).toBeUndefined();
+      // The bug: the hold was released and nothing was recorded.
+      expect(recorded).toEqual([
+        expect.objectContaining({
+          reservation: "hold-1",
+          estimated: true,
+          usage: { inputTokens: 700, outputTokens: 0 },
+        }),
+      ]);
+      expect(h.released).toBe(1);
+      // A failure that could not have been billed (rate limit) records nothing.
+      const refused = embedder("holds-refused-429");
+      refused.embed = async () => {
+        throw new ProviderError("overflow");
+      };
+      const h2 = holds();
+      const recorded2: unknown[] = [];
+      await categorise({
+        text: "tart",
+        vector: toward("Recipe"),
+        embedder: refused,
+        allow: yes,
+        hold: h2.hold,
+        record: async (call) => void recorded2.push(call),
+      });
+      expect(recorded2).toEqual([]);
+      expect(h2.released).toBe(1);
+    });
+
+    it("counts a prototype call that timed out at the bytes of the names it sent, in any language", async () => {
+      const hang = (_: unknown, init?: RequestInit) =>
+        new Promise<Response>((_, reject) =>
+          init?.signal?.addEventListener("abort", () => reject(new Error()))
+        );
+      const real = geminiEmbedding({
+        apiKey: "k",
+        paidTier: true,
+        dimensions: CATEGORY_NAMES.length,
+        model: "holds-multilingual-prototypes",
+        fetch: hang as typeof fetch,
+      });
+      const own = ["नींबू के टार्ट की रेसिपी", "ガーデニングの記録"];
+      const h = holds();
+      const recorded: { usage: { inputTokens: number } }[] = [];
+      await prepareCategoryPrototypes({
+        embedder: {
+          ...real,
+          embed: (inputs) => real.embed(inputs, { timeoutMs: 10 }),
+        },
+        own,
+        allow: yes,
+        hold: h.hold,
+        record: async (call) => void recorded.push(call as never),
+      });
+      const names = [...CATEGORY_NAMES, ...own];
+      const bound = names.reduce(
+        (n, name) => n + maxTokens(prototypeOf(name)),
+        0
+      );
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0]!.usage.inputTokens).toBe(bound);
+      expect(bound).toBeGreaterThan(
+        names.reduce((n, name) => n + prototypeOf(name).length, 0) / 4
+      );
+      expect(h.released).toBe(1);
     });
 
     it("holds Jev's call at an upper bound by its UTF-8 bytes, and settles then releases it", async () => {

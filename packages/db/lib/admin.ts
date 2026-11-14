@@ -123,7 +123,7 @@ export function openAdmin(db: Database) {
             or f.created_at > now() - make_interval(hours => ${sql.raw(String(UPLOAD_WINDOW_HOURS))}))
       ) + (
         select coalesce(sum(octet_length(coalesce(m.body, '')) + octet_length(coalesce(m.title, ''))
-          + octet_length(coalesce(m.capture_note, ''))), 0) from memory m
+          + octet_length(coalesce(m.capture_note, '')) + octet_length(coalesce(m.metadata::text, ''))), 0) from memory m
         where m.user_id = ${ownerId} and not m.sample
       ) + (
         select coalesce(sum(octet_length(i.title) + octet_length(i.description) + octet_length(i.ocr_text)

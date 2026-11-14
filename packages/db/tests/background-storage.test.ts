@@ -269,6 +269,102 @@ describe.skipIf(!databaseUrl)("background text and storage", () => {
     expect(Number(used[0]!.n)).toBe(Buffer.byteLength(PAGE));
   });
 
+  it("counts a Memory's metadata, a video's transcript in it, toward storage", async () => {
+    const { id, library } = await person();
+    const claim = await indexing(id, "video", { url: "https://meta.test/v" });
+    const before = await library.usedStorage();
+    await db.execute(
+      sql`update memory set metadata = ${JSON.stringify({
+        video: {
+          transcript: [{ seconds: 1, text: PAGE }],
+          transcriptState: "available",
+        },
+      })}::jsonb where id = ${claim.memoryId}`
+    );
+    expect((await library.usedStorage()) - before).toBeGreaterThanOrEqual(
+      Buffer.byteLength(PAGE)
+    );
+  });
+
+  it("leaves a video's transcript out of what Gather keeps when storage is full, keeping the rest of its metadata", async () => {
+    const { id } = await person();
+    await fillUpTo(id, 400);
+    const claim = await indexing(id, "video", { url: "https://full.test/yt" });
+    await store().saveGathered(claim, {
+      metadata: {
+        title: "Basil in a minute",
+        video: {
+          duration: 60,
+          transcript: [{ seconds: 1, text: PAGE }],
+          transcriptState: "available",
+        },
+      },
+      text: null,
+    });
+    const after = await row(claim.memoryId);
+    expect(after).toMatchObject({
+      body: null,
+      indexState: "searchable",
+      overAllowance: true,
+      metadata: {
+        title: "Basil in a minute",
+        video: {
+          duration: 60,
+          transcript: [],
+          transcriptState: "over_allowance",
+        },
+      },
+    });
+    expect(JSON.stringify(after.metadata)).not.toContain("six hours");
+  });
+
+  it("keeps a video's transcript from Gather, as before, when there is room", async () => {
+    const { id } = await person();
+    const claim = await indexing(id, "video", { url: "https://roomy.test/yt" });
+    await store().saveGathered(claim, {
+      metadata: {
+        video: {
+          transcript: [{ seconds: 1, text: "Plants need sunlight." }],
+          transcriptState: "available",
+        },
+      },
+      text: null,
+    });
+    expect((await row(claim.memoryId)).metadata).toMatchObject({
+      video: { transcriptState: "available" },
+    });
+  });
+
+  it("counts a Deep fetch's transcript in the metadata as well as the body: room for the body alone is not enough", async () => {
+    const { id } = await person();
+    const token = crypto.randomUUID();
+    const claimRow = await indexing(id, "video", {
+      url: "https://deep-full.test/v",
+    });
+    await db.execute(
+      sql`update memory set index_state = 'searchable', deep_fetch_state = 'running',
+          deep_fetch_token = ${token}, deep_fetch_lease_until = now() + interval '5 minutes'
+          where id = ${claimRow.memoryId}`
+    );
+    // Room for the transcript once (as the body), not twice (body and metadata).
+    await fillUpTo(id, Buffer.byteLength(PAGE) + 300);
+    const done = await deepFetchStore(db).done(
+      { ...claimRow, token, run: 0 },
+      {
+        text: PAGE,
+        transcript: [{ seconds: 1, text: PAGE }],
+      }
+    );
+    expect(done).toMatchObject({ reindex: false });
+    const after = await row(claimRow.memoryId);
+    expect(after).toMatchObject({
+      body: null,
+      indexState: "searchable",
+      overAllowance: true,
+    });
+    expect(JSON.stringify(after.metadata ?? {})).not.toContain("six hours");
+  });
+
   it("stores the text, as before, when there is room", async () => {
     const { id } = await person();
     const claim = await indexing(id, "link", { url: "https://roomy.test/a" });

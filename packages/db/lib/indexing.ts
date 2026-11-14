@@ -18,7 +18,7 @@ import {
   ownerBudgetMicros,
 } from "@spark/core";
 import { readDailyBudgetMicros } from "./admin";
-import { textFits } from "./storage";
+import { textFits, withoutTranscript } from "./storage";
 import type { Database } from "./client";
 import {
   ANONYMISED_USER,
@@ -367,8 +367,14 @@ export function indexingStore(
         return db.transaction(async (tx) => {
           await lockOwner(tx, claim.userId);
           // No room for it: nothing of it is kept, and the run ends partly Indexed.
+          // The transcript is kept twice (the body, and the video's metadata):
+          // both take storage.
           const fits = await textFits(tx, claim.userId, claim.memoryId, {
             body,
+            metadata: (current: unknown) => ({
+              ...((current as object | null) ?? {}),
+              video,
+            }),
           });
           const [row] = await tx
             .update(memory)
@@ -612,12 +618,20 @@ export function indexingStore(
           await lockOwner(tx, claim.userId);
           // No room for the page's text: the link is kept as Reference only,
           // with its metadata, and the run ends partly Indexed.
-          const fits =
-            gathered.text === null ||
-            (await textFits(tx, claim.userId, claim.memoryId, {
-              body: gathered.text,
-            }));
+          // The metadata counts too: a video's transcript is in it.
+          const fits = await textFits(tx, claim.userId, claim.memoryId, {
+            body: gathered.text,
+            metadata: (current: unknown) => ({
+              ...((current as object | null) ?? {}),
+              ...gathered.metadata,
+            }),
+          });
           const text = fits ? gathered.text : null;
+          // With no room the transcript is left out (over_allowance); the rest
+          // of what the page said (its title, its description) is kept.
+          const metadata = fits
+            ? gathered.metadata
+            : withoutTranscript(gathered.metadata);
           const [row] = await tx
             .update(memory)
             .set({
@@ -627,8 +641,8 @@ export function indexingStore(
               // other page the gathered metadata wins: an OG tag the page has
               // just served is fresher than text read before in-app navigation.
               metadata: sql`case when ${memory.metadata}->>'siteRead' = 'true'
-              then ${JSON.stringify(gathered.metadata)}::jsonb || ${memory.metadata}
-              else coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(gathered.metadata)}::jsonb end`,
+              then ${JSON.stringify(metadata)}::jsonb || ${memory.metadata}
+              else coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(metadata)}::jsonb end`,
               body: text,
               gatherRetryAt: sql`case when ${gathered.transient ?? false} and ${memory.kind} = 'link' and not ${memory.gatherRetried} then now() + interval '24 hours' else null end`,
               preservation: sql`case when ${memory.kind} = 'video' then 'reference_only' when ${text}::text is not null then 'preserved' else 'reference_only' end`,

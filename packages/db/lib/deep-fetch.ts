@@ -240,22 +240,34 @@ export function deepFetchStore(db: Database) {
         let full = false;
         if (found) {
           await lockOwner(tx, claim.userId);
-          const body = (
-            await tx
-              .select({ body: memory.body })
-              .from(memory)
-              .where(eq(memory.id, claim.memoryId))
-          )[0]?.body;
+          const [current] = await tx
+            .select({ body: memory.body })
+            .from(memory)
+            .where(eq(memory.id, claim.memoryId));
+          const body = current?.body;
           const bodyAfter =
-            text !== null &&
-            (body === null || (body?.length ?? 0) < text.length)
+            text !== null && (body == null || body.length < text.length)
               ? text
               : undefined;
-          const fits =
-            bodyAfter === undefined ||
-            (await textFits(tx, claim.userId, claim.memoryId, {
-              body: bodyAfter,
-            }));
+          // What is kept: the body, and the metadata with the transcript in
+          // it (as the update below merges it): both take storage.
+          const fits = await textFits(tx, claim.userId, claim.memoryId, {
+            ...(bodyAfter !== undefined && { body: bodyAfter }),
+            metadata: (existing: unknown) => {
+              const had = (existing as { video?: object } | null) ?? {};
+              return {
+                ...(found.metadata ?? {}),
+                ...had,
+                ...(found.transcript && {
+                  video: {
+                    ...((had as { video?: object }).video ?? {}),
+                    transcript: found.transcript,
+                    transcriptState: "available",
+                  },
+                }),
+              };
+            },
+          });
           if (!fits) {
             keep = undefined;
             full = true;

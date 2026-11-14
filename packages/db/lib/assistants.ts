@@ -81,20 +81,21 @@ export function assistantStore(db: Database) {
    * Clients with grants are never touched.
    */
   async function sweepRegistrations(batch: number) {
-    const { rowCount } =
-      await db.execute(sql`delete from assistant_client where id in (
+    // Materialized, so the batch is chosen once: an IN subquery with LIMIT
+    // can be planned to run again per row and delete more than `batch`.
+    const { rowCount } = await db.execute(sql`with doomed as materialized (
       select c.id from assistant_client c
       where c.claimed_at is null
         and c.created_at <= now() - make_interval(hours => ${REGISTRATION_LIMITS.unclaimedHours})
         and not exists(select 1 from assistant_code k where k.client_id = c.id)
       order by c.created_at, c.id limit ${batch}
       for update of c skip locked
-    )`);
-    await db.execute(sql`delete from rate_limit where id in (
+    ) delete from assistant_client where id in (select id from doomed)`);
+    await db.execute(sql`with old as materialized (
       select id from rate_limit where key like 'mcp-register%'
         and last_request < floor(extract(epoch from now()) * 1000) - ${2 * DAY_MS}
       limit ${batch}
-    )`);
+    ) delete from rate_limit where id in (select id from old)`);
     return rowCount ?? 0;
   }
   return {
