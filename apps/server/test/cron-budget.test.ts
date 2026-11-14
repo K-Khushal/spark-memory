@@ -13,6 +13,14 @@ describe("the hourly cron's call budget", () => {
     expect(calls.take("indexing")).toBe(true);
     expect(calls.remaining("accounts")).toBe(6);
     expect(calls.remaining("cleanup")).toBe(4);
-    expect(calls.remaining("exports")).toBe(10);
+    expect(calls.remaining("exports")).toBe(9);
+    expect(calls.remaining("imports")).toBe(1);
   });
+});
+
+it("reserves one import wake-up from exports while preserving upload cleanup", () => {
+  const calls = cronCalls();
+  expect(calls.remaining("imports")).toBe(1);
+  expect(calls.remaining("exports")).toBe(9);
+  expect(calls.remaining("uploads")).toBe(6);
 });
