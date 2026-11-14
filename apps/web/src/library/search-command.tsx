@@ -55,17 +55,19 @@ export function SearchCommand({
   const visual = imageQuery.value;
   const { recent, forget } = useRecentSearches(open);
   const listRef = useRef<HTMLDivElement>(null);
-  // The highlighted row. With nothing typed, Recent searches open on their
-  // first one (arriving after the menu opened), so Delete has something to act on.
+  // The highlighted row. With nothing typed it starts on the row Enter should
+  // take: Search By Image once there is an image, else the first Recent
+  // search (arriving after the menu opened), so Delete has something to act on.
   const [highlight, setHighlight] = useState("");
   const firstRecent = recent[0] && `recent:${recent[0].id}`;
-  const [opened, setOpened] = useState<string>();
-  const opening = open && !draft ? firstRecent : undefined;
-  if (opening !== opened) {
+  const [started, setStarted] = useState<string>();
+  const row = open && !draft ? (visual ? "__wall" : firstRecent) : undefined;
+  const start = row && `${visual?.id ?? ""}|${row}`;
+  if (start !== started) {
     // Adjusted while rendering, once per change (React's pattern for state
-    // that follows props): the first Recent search is highlighted when it arrives.
-    setOpened(opening);
-    if (opening) setHighlight(opening);
+    // that follows props).
+    setStarted(start);
+    if (row) setHighlight(row);
   }
   /** Delete or ⌘⌫ forgets the highlighted Recent search (the box is empty then, so they delete nothing else). */
   const forgetHighlighted = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -100,7 +102,7 @@ export function SearchCommand({
           onValueChange={onDraft}
           onKeyDown={forgetHighlighted}
           placeholder="Search…"
-          className="text-[1rem] md:text-md"
+          className="pr-10 text-[1rem] md:text-md"
         />
       </ImageQueryControls>
       <CommandList ref={listRef}>
@@ -115,7 +117,7 @@ export function SearchCommand({
         )}
         {draft.trim() || visual ? (
           instant === "failed" ? (
-            <ListNote>Search Unavailable</ListNote>
+            <ListNote>Search Is Unreachable</ListNote>
           ) : instant &&
             instant.direct.length + instant.related.length === 0 ? (
             <ListNote>No Direct Matches</ListNote>

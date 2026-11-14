@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Button, FilterChip, toast } from "@spark/ui";
 import { ImagePlusIcon, XIcon } from "lucide-react";
 import type { Memory } from "./use-library";
@@ -81,7 +87,19 @@ export type ImageQueryProps = {
   busy: boolean;
 };
 
-/** Shared by Search and its wall field. */
+/** Enter and the arrows act on the control, not on the palette's rows behind it. */
+const keepKeys = (event: KeyboardEvent<HTMLElement>) => {
+  if (["Enter", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key))
+    event.stopPropagation();
+};
+
+/**
+ * Search By Image for both search surfaces: paste and drop anywhere on it,
+ * and the button that picks a file. With a field as `children` (the ⌘K
+ * input) the button sits inside that field's row, and the chip appears
+ * below only once there is an image; without one (the wall's field)
+ * it is the button alone.
+ */
 export function ImageQueryControls({
   value,
   onChange,
@@ -89,15 +107,48 @@ export function ImageQueryControls({
   onFile: choose,
   busy,
   showChip = true,
-  compact = false,
 }: ImageQueryProps & {
   showChip?: boolean;
-  compact?: boolean;
   children?: ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  /** A picked file hands focus back to the field, so Enter searches by it. */
+  const pick = (file?: File) =>
+    choose(file).then(() =>
+      root.current
+        ?.querySelector<HTMLInputElement>("input:not([type=file])")
+        ?.focus()
+    );
+  const button = (
+    <div className="flex items-center" onKeyDown={keepKeys}>
+      <input
+        ref={input}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        aria-label="Query Image File"
+        className="sr-only"
+        tabIndex={-1}
+        onChange={(event) => {
+          void pick(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
+      <Button
+        variant="quiet"
+        size="icon"
+        aria-label="Image Query"
+        title="Image Query"
+        aria-busy={busy}
+        onClick={() => input.current?.click()}
+      >
+        <ImagePlusIcon aria-hidden />
+      </Button>
+    </div>
+  );
   return (
     <div
+      ref={root}
       onPaste={(event) => {
         const file = [...event.clipboardData.files][0];
         if (file) {
@@ -117,45 +168,22 @@ export function ImageQueryControls({
         }
       }}
     >
-      {children}
-      <div
-        className={
-          compact
-            ? "flex items-center"
-            : "flex min-w-0 flex-wrap items-center gap-2 px-3 py-2"
-        }
-        onKeyDown={(event) => {
-          if (
-            ["Enter", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)
-          )
-            event.stopPropagation();
-        }}
-      >
-        <input
-          ref={input}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          aria-label="Query Image File"
-          className="sr-only"
-          tabIndex={-1}
-          onChange={(event) => {
-            void choose(event.target.files?.[0]);
-            event.target.value = "";
-          }}
-        />
-        <Button
-          variant="quiet"
-          size="icon"
-          aria-label="Image Query"
-          aria-busy={busy}
-          onClick={() => input.current?.click()}
+      {children ? (
+        <div className="relative">
+          {children}
+          <div className="absolute top-2.5 right-3">{button}</div>
+        </div>
+      ) : (
+        button
+      )}
+      {showChip && (value || busy) && (
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2"
+          onKeyDown={keepKeys}
         >
-          <ImagePlusIcon aria-hidden />
-        </Button>
-        {showChip && (
           <QueryImageChip value={value} busy={busy} onChange={onChange} />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

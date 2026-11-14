@@ -149,7 +149,7 @@ export function LibraryFilters({
       className={
         layout === "sidebar"
           ? "grid grid-cols-6 gap-2 px-2"
-          : "flex shrink-0 items-center gap-1.5 px-1"
+          : "flex shrink-0 items-center gap-2 px-1"
       }
     >
       {FILTER_COLOURS.map(({ name, hex }) => {
@@ -159,7 +159,7 @@ export function LibraryFilters({
             key={name}
             hex={hex}
             name={name}
-            className="size-6"
+            className={layout === "sidebar" ? "size-6" : "size-8"}
             aria-pressed={chips.colour === colour}
             onClick={() => set("colour", colour)}
           />

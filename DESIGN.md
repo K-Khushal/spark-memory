@@ -91,7 +91,7 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 
 ## Interaction baseline
 
-- **⌘K / Ctrl K** (or `/`) opens Search from anywhere. Typing shows instant results (keywords); a pause in typing brings the full results (meaning too), which reorder what is there instead of replacing it, and nothing ever empties while a search runs. Enter puts the full results on the wall.
+- **⌘K / Ctrl K** (or `/`) opens Search from anywhere. Typing shows instant results (keywords); a pause in typing brings the full results (meaning too), which reorder what is there instead of replacing it, and nothing ever empties while a search runs. Enter puts the full results on the wall and focus on its first tile (on the heading when nothing was found). Search By Image is a button inside the field's row, with the query image's chip below it only once there is one; picking an image returns focus to the field, where Enter searches by it. A search that is slow dims the results on show after 300ms, so a quick one never flickers.
 - **More Like This** is in Memory detail and the image viewer, for a Memory that has vectors (not with AI opt-out, before its first embedding, or without the paid tier). It puts the Memories nearest in meaning and look on the wall, with "More Like This" in the search field and Clear Search to leave.
 - **⌘V / Ctrl V** outside a text field Captures the clipboard. The Capture button does the same for pointer and touch.
 - **Optimistic Capture**: the Memory lands first on the wall as Indexing, and a toast says "Captured" with **Undo**. Failed shows on the tile with a Retry.
