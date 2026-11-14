@@ -25,4 +25,4 @@ Source: [Model Context Protocol, ChatGPT Learn](https://learn.chatgpt.com/docs/e
 - Streamable HTTP server: `codex mcp add <name> --url <url>`.
 - OAuth: `codex mcp login <name>`. No config flag is needed.
 - Config file: `[mcp_servers.<name>]` in `~/.codex/config.toml` with `url`; `bearer_token_env_var` is optional and names the environment variable that holds a bearer token.
-- Not confirmed in the docs: `--bearer-token-env-var` on `codex mcp add`. [Connected assistants](../connected-assistants.md) still shows it from #34; test it before relying on it.
+- Not confirmed in the docs: `--bearer-token-env-var` on `codex mcp add`. [Connected assistants](../connected-assistants.md) uses the documented `bearer_token_env_var` config field instead.

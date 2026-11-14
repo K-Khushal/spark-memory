@@ -220,3 +220,47 @@ test("personal access token limit is labeled and revoking frees a slot", async (
     /^[A-Za-z0-9_-]{43}$/
   );
 });
+
+test("activity links open a Memory on page two before that page arrives", async ({
+  page,
+}) => {
+  await signIn(page);
+  const created = await page.request.post("/api/memories", {
+    headers: { origin: new URL(page.url()).origin },
+    data: {
+      id: crypto.randomUUID(),
+      body: "Linked Memory Beyond The First Page",
+      captureNote: null,
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const target = (await created.json()) as { id: string };
+  let release!: () => void;
+  const pendingPage = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/memories?after=page-two", async (route) => {
+    await pendingPage;
+    await route.fulfill({ json: { memories: [target], next: null } });
+  });
+  await page.route(/\/api\/memories$/, (route) =>
+    route.fulfill({
+      json: {
+        memories: Array.from({ length: 200 }, (_, i) => ({
+          ...target,
+          id: crypto.randomUUID(),
+          title: `First Page ${i}`,
+        })),
+        next: "page-two",
+      },
+    })
+  );
+  try {
+    await page.goto(`/?memory=${target.id}`);
+    await expect(page.getByRole("dialog")).toContainText(
+      "Linked Memory Beyond The First Page"
+    );
+  } finally {
+    release();
+  }
+});

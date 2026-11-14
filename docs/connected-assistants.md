@@ -27,12 +27,20 @@ Start a session and ask it to find a Memory you saved. Inspect the Source before
 
 In Settings → Connected Assistants, enter the assistant name and choose Create Token. Copy the token before choosing Done: Spark never shows it again. It expires after 90 days and can be revoked at any time. Each person may hold up to 10 active personal access tokens and 20 connected OAuth clients; revoke an assistant to free a slot. Reauthorizing a client replaces its earlier grant and credentials without consuming another slot. It can read your Library, including AI opt-out Memories; it cannot Capture, edit or delete.
 
-For Codex, provide the token through an environment variable rather than putting it in configuration:
+For Codex, add this to `~/.codex/config.toml` (the same server section as the in-app guide, with the documented bearer-token option):
+
+```toml
+[mcp_servers.spark]
+url = "https://YOUR_SPARK_HOST/api/mcp"
+bearer_token_env_var = "SPARK_MCP_TOKEN"
+```
+
+Set the token in the shell before starting Codex:
 
 ```sh
 read -rs SPARK_MCP_TOKEN
 export SPARK_MCP_TOKEN
-codex mcp add spark --url https://YOUR_SPARK_HOST/api/mcp --bearer-token-env-var SPARK_MCP_TOKEN
+codex
 ```
 
 Claude Code supports a custom Authorization header (`claude mcp add --transport http ... --header 'Authorization: Bearer ...'`). Prefer OAuth there so a long-lived credential does not enter shell history or process arguments. For other clients, configure `Authorization: Bearer TOKEN` using the client's secret storage.

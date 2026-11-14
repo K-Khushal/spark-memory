@@ -340,19 +340,32 @@ export function LibraryPage({
     setLike(undefined);
   };
 
-  // A link from elsewhere (an assistant's activity) opens that Memory once the
-  // Library has loaded, or just the wall when it is gone. Opened while
-  // rendering, once per link, then the address is cleared.
-  const [linkOpened, setLinkOpened] = useState<string>();
-  if (linked && linkOpened !== linked && library.state !== "loading") {
-    setLinkOpened(linked);
-    const found = library.memories.find((m) => m.id === linked);
-    if (found) reveal(found);
-  }
+  // Activity links resolve through the owner-scoped single-Memory endpoint,
+  // even while later Library pages are still arriving.
+  const { loadMemory } = library;
   useEffect(() => {
-    if (linked && linkOpened === linked)
-      void navigate({ to: "/", search: {}, replace: true });
-  }, [linked, linkOpened, navigate]);
+    if (!linked) return;
+    let cancelled = false;
+    void loadMemory(linked).then(
+      (memory) => {
+        if (cancelled) return;
+        if (memory) {
+          setSearchOpen(false);
+          setVideoSeconds(undefined);
+          if (memory.kind === "image") setImageId(memory.id);
+          else if (memory.kind === "pdf") setPdf({ id: memory.id, match: {} });
+          else setOpenId(memory.id);
+        }
+        void navigate({ to: "/", search: {}, replace: true });
+      },
+      () => {
+        if (!cancelled) void navigate({ to: "/", search: {}, replace: true });
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [linked, loadMemory, navigate]);
 
   useEffect(() => {
     if (desk !== "capture" && desk !== "search") return;
