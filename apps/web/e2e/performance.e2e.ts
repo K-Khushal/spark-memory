@@ -41,11 +41,13 @@ test("a completed menu search reaches the wall without another search request", 
   await expect(
     page.getByRole("option", { name: "Sunset over the dock" })
   ).toBeVisible();
+  await page.waitForLoadState("networkidle");
   expect(searches).toEqual(["instant", "full"]);
   await page.keyboard.press("Enter");
   await expect(
     page.getByRole("list", { name: "Direct Matches" }).getByRole("listitem")
   ).toHaveAccessibleName("Sunset over the dock, Overview");
+  await page.waitForLoadState("networkidle");
   expect(searches).toEqual(["instant", "full"]);
   // The same full answer is reused when Search is opened again.
   await page.keyboard.press("ControlOrMeta+k");
@@ -53,5 +55,6 @@ test("a completed menu search reaches the wall without another search request", 
     "data-search-mode",
     "full"
   );
+  await page.waitForLoadState("networkidle");
   expect(searches).toEqual(["instant", "full"]);
 });

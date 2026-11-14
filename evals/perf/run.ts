@@ -1,15 +1,25 @@
 /** Local, synthetic 10k-Library benchmark. See docs/reviews/t36b-performance.md. */
+import { existsSync, readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import { mkdir, writeFile } from "node:fs/promises";
 import { cpus } from "node:os";
 import { resolve } from "node:path";
 import { chromium, expect, type Request } from "@playwright/test";
 import { eq, sql } from "drizzle-orm";
 import { embeddingSpace } from "@spark/core";
-import { indexingStore, openLibrary, schema } from "@spark/db";
+import { indexingStore, openDatabase, openLibrary, schema } from "@spark/db";
 import { createIndexer, fakeEmbedder, fakeProvider } from "@spark/indexing";
 import { createSearch, forgetQueryVectors } from "@spark/search";
-import { openLocalDatabase } from "../src/setup";
+import { perfDatabaseUrl, requireFakeIndexing } from "./guard";
 import { percentile } from "../src/latency";
+
+// Read the explicit opt-in first. Never import setup.ts: it loads .env into process.env.
+const explicitDatabaseUrl = process.env.PERF_DATABASE_URL;
+const rootEnv = new URL("../../.env", import.meta.url);
+const devDatabaseUrl = existsSync(rootEnv)
+  ? parseEnv(readFileSync(rootEnv, "utf8")).DATABASE_URL
+  : undefined;
+const databaseUrl = perfDatabaseUrl(explicitDatabaseUrl, devDatabaseUrl);
 
 const baseURL = process.env.PERF_BASE_URL ?? "http://localhost:5173";
 if (!["localhost", "127.0.0.1"].includes(new URL(baseURL).hostname))
@@ -63,12 +73,24 @@ async function time<T>(values: number[], fn: () => Promise<T>) {
   values.push(performance.now() - start);
   return value;
 }
-const { db, close } = openLocalDatabase();
+const { db, close } = openDatabase(databaseUrl);
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ baseURL });
 const page = await context.newPage();
 let userId: string | undefined;
 try {
+  const stack = await context.request.get("/api/dev/indexing-provider", {
+    timeout: 15_000,
+  });
+  if (!stack.ok())
+    throw new Error(
+      "perf requires a local Worker exposing /api/dev/indexing-provider"
+    );
+  const config = (await stack.json()) as {
+    provider?: unknown;
+    jevEnabled?: unknown;
+  };
+  requireFakeIndexing(config.provider, config.jevEnabled);
   const address = `perf-${crypto.randomUUID()}@example.test`;
   const headers = {
     origin: baseURL,
@@ -94,7 +116,7 @@ try {
     .from(schema.user)
     .where(eq(schema.user.email, address));
   if (!owner)
-    throw new Error("stack and DATABASE_URL must use the same database");
+    throw new Error("stack and PERF_DATABASE_URL must use the same database");
   userId = owner.id;
   const embedder = fakeEmbedder();
   const library = openLibrary(db, userId, {

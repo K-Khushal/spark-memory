@@ -105,4 +105,4 @@ Copy `reports/TEMPLATE.md` to `reports/<date>.md`, paste each table in, write th
 
 ## 10k Library Performance
 
-`pnpm --filter @spark/evals perf` measures server search, browser HTTP and Search-menu latency, cached interactions and Capture → Searchable against the local fake-provider stack. It creates and removes a synthetic 10,000-Memory Library. Use a dedicated throwaway Postgres container. See [the #36 Part B report](../docs/reviews/t36b-performance.md) for commands, methodology, raw results and limitations.
+`pnpm --filter @spark/evals perf` measures server search, browser HTTP and Search-menu latency, cached interactions and Capture → Searchable against the local fake-provider stack. It creates and removes a synthetic 10,000-Memory Library. It requires explicit `PERF_DATABASE_URL` on localhost, a non-5432 port, a `perf_*` database distinct from `.env`, and a running local Worker reporting fake Indexing with Jev disabled. Use a dedicated throwaway Postgres container. See [the #36 Part B report](../docs/reviews/t36b-performance.md) for commands, methodology, raw results and limitations.

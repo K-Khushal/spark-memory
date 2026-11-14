@@ -4,22 +4,23 @@ Scope: performance only. Part A owns accessibility, visual consistency, every-sc
 
 ## Reproduce
 
-Use a throwaway local `pgvector/pgvector:pg17` container, a random host port and the local Worker (`INDEXING_PROVIDER=fake`, the default in wrangler.jsonc). Set `DATABASE_URL` and `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` to that container, then:
+Use a throwaway local `pgvector/pgvector:pg17` container, a random host port and the local Worker (`INDEXING_PROVIDER=fake`, the default in wrangler.jsonc). Create a database named `perf_spark`, then explicitly export `PERF_DATABASE_URL=postgres://spark:spark@localhost:<random-port>/perf_spark`. Set `DATABASE_URL` (migrations only) and `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` to that same URL, then:
 
 ```sh
 pnpm db:migrate
 # Separate terminals, with the same DATABASE_URL and Hyperdrive override:
 SPARK_WEB_PORT=5216 SPARK_API_PORT=8816 pnpm --filter @spark/server dev
 SPARK_WEB_PORT=5216 SPARK_API_PORT=8816 pnpm --filter @spark/web dev
-PERF_BASE_URL=http://localhost:5216 PERF_OUTPUT=/tmp/perf.json \
+PERF_DATABASE_URL="$PERF_DATABASE_URL" PERF_BASE_URL=http://localhost:5216 \
+  PERF_OUTPUT=/tmp/perf.json \
   PERF_PHASE=after pnpm --filter @spark/evals perf
 ```
 
-`PERF_PHASE` labels artifacts; it does not switch the code being measured. To reproduce the baseline at `600ed70113e40fd7e394be7e5a78c70ad7228ded`, carry the measurement script/command and SearchCommand's two data attributes onto that revision, leaving the lookup/selection changes out. The final pair used the same measurement flow on both revisions.
+`PERF_PHASE` labels artifacts; it does not switch the code being measured. To reproduce the baseline at `600ed70113e40fd7e394be7e5a78c70ad7228ded`, carry the `evals/perf` harness/command, the local provider preflight endpoint and SearchCommand's two data attributes onto that revision, leaving the lookup/selection changes out. The final pair used the same measurement flow on both revisions.
 
 `PERF_SCREENSHOT_DIR` optionally saves Search at 1440/390, light/dark. `PERF_MEMORIES` defaults to 10,000; `PERF_RUNS` defaults to 40 (minimum 20). Smaller fixture sizes are for debugging, not evidence against the 10k target. Run before and after on the same machine, with no competing check/build/test workload. Delete the container with `docker rm -fv <your-container>` when finished.
 
-The harness refuses remote URLs, creates a synthetic account through local email-code sign-in, inserts unique synthetic text Memories, and runs every Memory through the real Indexer with fake extraction and embedding. Four concurrent jobs; no paid providers. It asserts every seed job reaches Searchable. It uses the same 768-dimensional embedding space as the local Worker: one Overview and one Passage per text Memory, 20k vectors total. It analyzes the two search tables before measurement. This is a reproducible synthetic text workload, not a representative mixed-media production Library.
+The harness requires explicit `PERF_DATABASE_URL` without loading `.env` into the environment. It refuses port 5432 (including the default port), remote hosts, database names outside `perf_*`, connection query/fragment overrides, and the `.env` DATABASE_URL (including loopback aliases and different credentials for the same database). A refusal prints an exact throwaway `docker run` command and port lookup. It checks the running Worker’s local-only `/api/dev/indexing-provider` endpoint before account creation or seeding: only fake Indexing with Jev disabled is accepted, so shell configuration cannot vouch for a paid stack. It then creates a synthetic account through local email-code sign-in, inserts unique synthetic text Memories, and runs every Memory through the real Indexer with fake extraction and embedding. Four concurrent jobs; no paid providers. It asserts every seed job reaches Searchable. It uses the same 768-dimensional embedding space as the local Worker: one Overview and one Passage per text Memory, 20k vectors total. It analyzes the two search tables before measurement. This is a reproducible synthetic text workload, not a representative mixed-media production Library.
 
 Measurements are milliseconds, nearest-rank percentiles, with raw samples and machine metadata in JSON:
 
@@ -68,7 +69,7 @@ Read the issue, DESIGN.md, GLOSSARY.md, PLAN §6–8, package interfaces, ADR-00
 
 Done: reproducible local measurement, a 10k fake-Indexed fixture, browser/API/Queue timing, shared stable lookups and selection-cost reductions, and cache-handoff smoke coverage. Final code review and checks are recorded below after verification.
 
-Deferred: instant browser latency below 100ms and full UI latency below 600ms remain unmet in this local sample. Profile the HTTP/auth/connection path and test optimized production assets before selecting a server fix; no ranking change or issue creation here. Production provider/network latency, real-phone CPU and mixed-media workloads require another measurement. The Library still eagerly reads every 200-row page so search hits can resolve through local Memories; replacing that hydration model is a separate data-flow change. Whole-app axe and screen-reader checks belong to Part A.
+Deferred: instant browser latency below 100ms remains unmet. The initial development-build full UI sample also missed 600ms; the production-preview follow-up below meets that target. Profile the HTTP/auth/connection path and test optimized production assets before selecting a server fix; no ranking change or issue creation here. Production provider/network latency, real-phone CPU and mixed-media workloads require another measurement. The Library still eagerly reads every 200-row page so search hits can resolve through local Memories; replacing that hydration model is a separate data-flow change. Whole-app axe and screen-reader checks belong to Part A.
 
 ## Code Review
 
@@ -85,3 +86,36 @@ Fixed base: `origin/main` at `600ed70113e40fd7e394be7e5a78c70ad7228ded`. Standar
 - Focused Search-session/selection tests: 24 passed.
 - Cache-handoff Playwright smoke on the baseline: 1 passed. Final full-suite smoke results are recorded in the PR.
 - Before/after perf runs: each 10,000 Searchable Memories, 20,000 vectors; 40 server and HTTP samples per mode, 10 uncached UI queries, 40 cached interactions, 10 fresh Captures.
+
+## PR Review Fixes And Production Preview
+
+S1: the harness now requires `PERF_DATABASE_URL` before reading `.env`, never imports the eval setup module, and opens only the guarded URL. Pure guard tests cover missing/malformed URLs, remote hosts, implicit/explicit 5432, non-`perf_*` names, URL overrides and alias/credential variants of the `.env` database. Every refusal includes the exact throwaway container command.
+
+S2: before account creation or seeding, the harness reads the running Worker's `/api/dev/indexing-provider` endpoint. It requires fake Indexing and disabled Jev, including rejecting missing preflight fields. The endpoint returns 404 outside local development. Guard and HTTP tests cover paid/missing providers, enabled Jev and production isolation.
+
+S3: each request-count equality assertion in `performance.e2e.ts` now waits for `networkidle` (500ms of quiet) first, so delayed requests have time to appear in the count.
+
+S4: measured a fresh 10k/20k-vector Library with production assets, while keeping the same local Wrangler Worker and fake providers:
+
+```sh
+pnpm --filter @spark/web build
+SPARK_API_PORT=8816 pnpm --filter @spark/web preview --port 5216 --strictPort
+PERF_DATABASE_URL=postgres://spark:spark@localhost:32829/perf_spark \
+  PERF_BASE_URL=http://localhost:5216 PERF_PHASE=preview \
+  PERF_OUTPUT=/tmp/t36b-preview.json pnpm --filter @spark/evals perf
+```
+
+The Vite preview server proxied `/api` to the unchanged Wrangler development server. Preflight confirmed fake Indexing and disabled Jev. Raw observations: [production preview](../performance/t36b-preview.json). Same AMD EPYC VM / Node 22.23.3, still synthetic text and local fake-provider latency; no own check/test workload ran during timing.
+
+| Preview Measurement (ms)              |   n |    p50 |    p95 |
+| ------------------------------------- | --: | -----: | -----: |
+| Browser HTTP instant                  |  40 |  104.5 |  134.2 |
+| Browser HTTP full                     |  40 |  127.9 |  154.4 |
+| Browser UI instant                    |  10 |  163.4 |  198.6 |
+| Browser UI full, includes 350ms pause |  10 |  534.1 |  581.4 |
+| Cached UI                             |  40 |   51.2 |   76.4 |
+| Capture → Searchable                  |  10 | 1177.3 | 2030.7 |
+
+Cached UI script CPU was 629.4ms total for 40 changes with zero search requests. Server instant/full p95 were 40.8/76.3ms. Full UI is below 600ms in this preview sample; browser instant remains above 100ms. This tests the development-build explanation without establishing that development overhead explains the entire remaining gap. The earlier dev-build measurements and their misses remain recorded above.
+
+Review-fix validation: `pnpm check` passed with `--concurrency=2` on each Turbo task (scheduling-only root script overrides restored afterwards). The gate included 17 pure guard tests and 3 dev-provider endpoint tests. The hardened perf e2e passed against the production-preview stack: 1 passed, 6.4s test / 8.4s total. No source assertions were suppressed. The dedicated perf DB container is removed after validation and commit hooks.
