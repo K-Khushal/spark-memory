@@ -197,6 +197,7 @@ function Viewer({
               className="h-11"
             />
             <CategoryEditor
+              compact
               key={memory.id}
               memory={memory}
               onSave={onCategories}

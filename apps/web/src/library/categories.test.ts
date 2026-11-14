@@ -34,11 +34,12 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   image: null,
   ...over,
 });
-const summary = (over: Partial<Memory>) =>
+const summary = (over: Partial<Memory>, compact = false) =>
   renderToStaticMarkup(
     createElement(CategoryEditor, {
       memory: memory(over),
       onSave: async () => true,
+      compact,
     })
   ).match(/<summary[\s\S]*?<\/summary>/)?.[0];
 
@@ -52,6 +53,14 @@ describe("Category pending state", () => {
     expect(summary({ categoriesVersion: 1 })).toContain("Other");
     expect(summary({ categoriesLocked: true })).toContain("Other");
     expect(summary({ categoriesVersion: 1 })).not.toContain("Categorising");
+  });
+  it("keeps viewer controls compact while naming pending and assigned Categories", () => {
+    expect(summary({}, true)).toContain(
+      'aria-label="Categories: Categorising"'
+    );
+    expect(summary({}, true)).toContain('class="sr-only"');
+    expect(summary({}, true)).toContain("lucide-clock");
+    expect(summary({ categoriesVersion: 1 }, true)).toContain("lucide-tags");
   });
   it("keeps long and non-Latin Category names in the accessible summary", () => {
     const names = ["Design References For The Next Apartment", "旅行", "A"];
