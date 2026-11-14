@@ -41,10 +41,20 @@ async function openTile(page: Page, name: RegExp) {
   await expect(page.getByRole("dialog")).toBeVisible();
 }
 
-async function closeDialog(page: Page) {
+async function closeDialog(page: Page, returnToWall = false) {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await settle(page);
+  if (returnToWall) {
+    // Viewer close restores focus through two animation frames after unmount.
+    // Wait for that handoff before focusing another tile, or it can steal Enter.
+    await expect(
+      page
+        .getByRole("list", { name: "All Memories" })
+        .locator('[role="listitem"][tabindex="0"]')
+    ).toBeFocused();
+  } else {
+    await settle(page);
+  }
 }
 
 /** A small real PNG as the query image of a search by image. */
@@ -280,13 +290,13 @@ for (const theme of THEMES) {
       await closeDialog(page);
       await openTile(page, /Example Domain|example\.com/);
       await scanned("Link reader");
-      await closeDialog(page);
+      await closeDialog(page, true);
       await openTile(page, /Garden Film/);
       await expect(
         page.getByRole("button", { name: /^Play at/ }).first()
       ).toBeVisible();
       await scanned("Video reader");
-      await closeDialog(page);
+      await closeDialog(page, true);
 
       // Categories and bulk edit.
       await page
