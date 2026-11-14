@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { DURATION, EASING } from "@spark/ui/tokens";
 import { CATEGORY_NAMES, MAX_CATEGORIES } from "@spark/core";
 import {
   Button,
@@ -8,20 +10,38 @@ import {
   FilterChip,
 } from "@spark/ui";
 
-/** One bar: keyboard selection and its actions appear and leave at once. */
+/** One bar: pointer entry rises once; keyboard entry and every exit are immediate. */
 export function SelectionBar({
   count,
+  keyboard,
+  onHeight,
   ownNames,
   onClear,
   onDelete,
   onCategories,
 }: {
   count: number;
+  keyboard?: boolean;
+  onHeight?: (height: number) => void;
   ownNames: string[];
   onClear: () => void;
   onDelete: () => void;
   onCategories: (categories: string[]) => void;
 }) {
+  const reduced = useReducedMotion();
+  const bar = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const update = () => onHeight?.(el.getBoundingClientRect().height);
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    update();
+    return () => {
+      observer.disconnect();
+      onHeight?.(0);
+    };
+  }, [onHeight]);
   const [open, setOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [announcement, setAnnouncement] = useState("");
@@ -62,10 +82,14 @@ export function SelectionBar({
       <div role="status" aria-live="polite" className="sr-only">
         {announcement}
       </div>
-      <div
+      <motion.div
+        ref={bar}
+        initial={keyboard ? false : { opacity: 0, y: reduced ? 0 : 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: DURATION.press / 1000, ease: EASING.out }}
         role="region"
         aria-label="Selection"
-        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-1 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay md:left-60"
+        className="fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-2 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay md:left-60"
       >
         <span className="px-2 tabular-nums">
           {count.toLocaleString()} Selected
@@ -78,14 +102,7 @@ export function SelectionBar({
         >
           Delete
         </Button>
-        <Button
-          size="sm"
-          className="min-h-11"
-          variant="outline"
-          onClick={() => setOpen(true)}
-        >
-          Categories
-        </Button>
+
         <Button
           size="sm"
           className="min-h-11"
@@ -94,7 +111,15 @@ export function SelectionBar({
         >
           Clear
         </Button>
-      </div>
+        <Button
+          size="sm"
+          className="min-h-11"
+          variant="primary"
+          onClick={() => setOpen(true)}
+        >
+          Categories
+        </Button>
+      </motion.div>
       <Dialog
         open={open}
         onOpenChange={(next) => {
@@ -135,7 +160,7 @@ export function SelectionBar({
           <Button
             variant="primary"
             size="sm"
-            className="min-h-11"
+            className="min-h-11 disabled:opacity-50"
             disabled={!categories.length}
             onClick={() => {
               setOpen(false);

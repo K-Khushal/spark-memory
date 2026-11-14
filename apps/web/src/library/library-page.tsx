@@ -33,7 +33,7 @@ import {
   useNavigate,
   useSearch as useRouteSearch,
 } from "@tanstack/react-router";
-import { PlusIcon, SearchIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 import {
   Button,
   FilterChip,
@@ -71,7 +71,7 @@ import {
   type Found,
   type Results,
 } from "./use-search";
-import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
+import { whyHeight, WhyChip, whyLabel } from "./why";
 
 /**
  * The Library: sidebar (a top bar on phones) beside the masonry wall of
@@ -330,6 +330,8 @@ export function LibraryPage({
     void library.captureFiles(files);
   };
   const dropping = useFileDrop(captureFiles);
+  const [bulkHeight, setBulkHeight] = useState(0);
+  const [keyboardSelection, setKeyboardSelection] = useState(false);
   const [selected, setSelected] = useState(emptySelection);
   // Only what the wall shows can be selected: nothing while results are pending or failed.
   const wallOrder = searching
@@ -508,6 +510,8 @@ export function LibraryPage({
   return (
     <div
       className="flex min-h-dvh bg-canvas"
+      onKeyDownCapture={() => setKeyboardSelection(true)}
+      onPointerDownCapture={() => setKeyboardSelection(false)}
       onPasteCapture={(event) => {
         if (
           (event.target as HTMLElement).closest('[data-desk="search"]') &&
@@ -573,6 +577,13 @@ export function LibraryPage({
         id="content"
         tabIndex={-1}
         className="min-w-0 flex-1 pb-32 outline-none"
+        style={
+          bulkHeight
+            ? {
+                paddingBottom: `calc(${bulkHeight}px + 2rem + env(safe-area-inset-bottom))`,
+              }
+            : undefined
+        }
       >
         <div
           ref={bar}
@@ -606,7 +617,7 @@ export function LibraryPage({
               <PlusIcon aria-hidden />
             </Button>
           </div>
-          {(library.memories.length > 0 || visual || imageBusy) && (
+          {library.memories.length > 0 || visual || imageBusy ? (
             <LibraryFilters
               layout="row"
               leading={
@@ -620,7 +631,9 @@ export function LibraryPage({
               onChange={changeChips}
               manage={manage("row")}
             />
-          )}
+          ) : library.state === "loading" ? (
+            <div aria-hidden className="h-13" />
+          ) : null}
         </div>
         <h1 className="sr-only">Library</h1>
         {/* Outside the busy wall below, or a screen reader may hold it back
@@ -629,18 +642,20 @@ export function LibraryPage({
           {first === "failed" && wallSearch.retrying ? "Searching Again" : ""}
         </div>
         {library.state === "ready" && (
-          <Onboarding
-            activationVersion={activationVersion}
-            onActivated={onActivated}
-            memories={library.memories}
-            refresh={library.refreshSamples}
-            onCapture={openPasteBox}
-            onOpen={reveal}
-            onSearch={(q) => {
-              openSearch();
-              setDraft(q);
-            }}
-          />
+          <div className="peer">
+            <Onboarding
+              activationVersion={activationVersion}
+              onActivated={onActivated}
+              memories={library.memories}
+              refresh={library.refreshSamples}
+              onCapture={openPasteBox}
+              onOpen={reveal}
+              onSearch={(q) => {
+                openSearch();
+                setDraft(q);
+              }}
+            />
+          </div>
         )}
 
         {library.state === "failed" ? (
@@ -649,21 +664,25 @@ export function LibraryPage({
               Try Again
             </Button>
           </Centred>
-        ) : library.state === "loading" ? null : !library.memories.length ? (
-          <Centred title="No Memories Yet" level={2}>
-            <div className="flex flex-wrap justify-center gap-2">
-              <Button variant="primary" className="h-10" onClick={openPasteBox}>
-                <PlusIcon aria-hidden /> Capture
-                <Kbd className="hidden border-transparent bg-canvas/15 text-canvas sm:inline-flex">
-                  {MOD}V
-                </Kbd>
-              </Button>
-              <Button variant="outline" className="h-10" onClick={openSearch}>
-                <SearchIcon aria-hidden /> Search
-                <Kbd className="hidden sm:inline-flex">{MOD}K</Kbd>
-              </Button>
-            </div>
-          </Centred>
+        ) : library.state === "loading" && !library.memories.length ? (
+          <LibrarySkeleton />
+        ) : !library.memories.length ? (
+          <div className="peer-has-[section_[aria-busy]]:hidden">
+            <Centred title="No Memories Yet" level={2}>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  variant="primary"
+                  className="h-10"
+                  onClick={openPasteBox}
+                >
+                  <PlusIcon aria-hidden /> Capture
+                  <Kbd className="hidden border-transparent bg-canvas/15 text-canvas sm:inline-flex">
+                    {MOD}V
+                  </Kbd>
+                </Button>
+              </div>
+            </Centred>
+          </div>
         ) : (
           <div
             aria-busy={pending || wallSearch.retrying}
@@ -679,6 +698,8 @@ export function LibraryPage({
             {searching && results ? (
               <SearchResults
                 results={results}
+                onClearSearch={leaveSearch}
+                onClearFilters={() => setChips({})}
                 onRetry={wallSearch.retry}
                 retrying={wallSearch.retrying}
                 query={query}
@@ -719,6 +740,8 @@ export function LibraryPage({
 
       {bulkRows.length > 0 && (
         <SelectionBar
+          keyboard={keyboardSelection}
+          onHeight={setBulkHeight}
           count={bulkRows.length}
           ownNames={ownNames}
           onClear={selection.clear}
@@ -792,7 +815,10 @@ export function LibraryPage({
           </span>
         </div>
       )}
-      <Toaster />
+      <Toaster
+        offset={`calc(env(safe-area-inset-bottom) + 1rem + ${bulkHeight ? `${bulkHeight}px + 0.75rem` : "0px"})`}
+        mobileOffset={`calc(env(safe-area-inset-bottom) + 1rem + ${bulkHeight ? `${bulkHeight}px + 0.75rem` : "0px"})`}
+      />
       <ShareTarget library={library.edits} />
     </div>
   );
@@ -882,7 +908,7 @@ function ResultWall({
       items={found}
       getKey={(m) => m.id}
       getHeight={tileHeight}
-      getCaption={() => (direct === undefined ? 0 : WHY_HEIGHT)}
+      getCaption={() => (direct === undefined ? 0 : whyHeight())}
       getLabel={(m) =>
         [tileLabel(m), direct !== undefined && whyLabel(m)]
           .filter(Boolean)
@@ -914,6 +940,8 @@ function ResultWall({
 function SearchResults({
   results,
   onRetry,
+  onClearSearch,
+  onClearFilters,
   retrying,
   query,
   chips,
@@ -923,6 +951,8 @@ function SearchResults({
 }: {
   results: Results | "failed" | undefined;
   onRetry: () => void;
+  onClearSearch: () => void;
+  onClearFilters: () => void;
   retrying: boolean;
   query: string;
   chips: SearchChips;
@@ -950,7 +980,7 @@ function SearchResults({
           className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
           onClick={() => !retrying && onRetry()}
         >
-          Try Again
+          {retrying ? "Searching Again" : "Try Again"}
         </Button>
       </div>
     );
@@ -995,6 +1025,11 @@ function SearchResults({
             No Memories Match
           </Landing>
         )}
+        {!found.length && (
+          <Button className="mt-3" variant="outline" onClick={onClearFilters}>
+            Clear Filters
+          </Button>
+        )}
         <ResultWall
           label="Filtered Memories"
           found={found}
@@ -1017,6 +1052,11 @@ function SearchResults({
         >
           {results.direct.length ? "Direct Matches" : "No Direct Matches"}
         </h2>
+        {!results.direct.length && !results.related.length && (
+          <Button className="mb-3" variant="outline" onClick={onClearSearch}>
+            Clear Search
+          </Button>
+        )}
         {results.direct.length > 0 ? (
           <ResultWall
             label="Direct Matches"
@@ -1098,21 +1138,25 @@ function Narrow({
     <div
       role="group"
       aria-label="Narrow Related Matches"
-      className="flex flex-wrap gap-2"
+      className="flex flex-wrap gap-3"
     >
-      {options.kinds.map((kind) => (
-        <FilterChip key={kind} onClick={() => onChips({ ...chips, kind })}>
-          {KIND_LABELS[kind]}
-        </FilterChip>
-      ))}
-      {options.categories.map((category) => (
-        <FilterChip
-          key={category}
-          onClick={() => onChips({ ...chips, category })}
-        >
-          {category}
-        </FilterChip>
-      ))}
+      <div role="group" aria-label="Kind" className="flex flex-wrap gap-2">
+        {options.kinds.map((kind) => (
+          <FilterChip key={kind} onClick={() => onChips({ ...chips, kind })}>
+            {KIND_LABELS[kind]}
+          </FilterChip>
+        ))}
+      </div>
+      <div role="group" aria-label="Category" className="flex flex-wrap gap-2">
+        {options.categories.map((category) => (
+          <FilterChip
+            key={category}
+            onClick={() => onChips({ ...chips, category })}
+          >
+            {category}
+          </FilterChip>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1134,5 +1178,33 @@ function Landing({
     <h2 ref={ref} tabIndex={-1} className={cn("outline-none", className)}>
       {children}
     </h2>
+  );
+}
+
+/** Static loading geometry follows Masonry's 220px columns and 12px gaps. */
+function LibrarySkeleton() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), 150);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <div
+      role="status"
+      aria-label="Loading"
+      aria-busy="true"
+      className="p-4 md:p-6"
+    >
+      {visible && (
+        <div
+          aria-hidden
+          className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3"
+        >
+          {Array.from({ length: 12 }, (_, i) => (
+            <div key={i} className="h-56 rounded-tile bg-sunken" />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

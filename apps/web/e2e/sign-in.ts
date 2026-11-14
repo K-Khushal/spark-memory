@@ -80,6 +80,8 @@ export async function signIn(
     page
       .getByRole("heading", { name: "No Memories Yet" })
       .or(page.getByRole("list", { name: "All Memories" }))
+      .or(page.getByRole("region", { name: "Get Started" }))
+      .first()
   ).toBeVisible();
   return email;
 }

@@ -2,27 +2,35 @@ import { Fragment, useState, type ReactNode } from "react";
 import { IndexBadge, isPartly, PartlyIndexedBadge } from "./index-state";
 import { PlayIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
-import { sourceHost } from "@spark/core";
+import { formatTimestamp, sourceHost } from "@spark/core";
 import { cn } from "@spark/ui";
 import type { UploadState } from "./image-capture";
 import type { WallMemory } from "./use-library";
 
 // Masonry places tiles before they render, so a tile's height is worked out
-// from its text at the column's width: padding, up to 3 title lines, then
+// from its text at the column's width: padding, one title line, then
 // whole lines of text up to MAX_LINES. Character widths lean wide (wide
 // scripts count double), so text gets a line too many rather than one cut.
 // Sizes in px at a 16px root; scaled by the root font size, so a larger
 // browser text size keeps whole lines.
 const PADDING = 32;
 const GAP = 8;
-const TITLE = { charWidth: 9.6, lineHeight: 26, maxLines: 3 };
+const TITLE = { lineHeight: 26 };
 const BODY = { charWidth: 7, lineHeight: 20 };
 const MAX_LINES = 12;
 
-let remScale: number | undefined;
-const rem = () =>
-  (remScale ??=
-    parseFloat(getComputedStyle(document.documentElement).fontSize) / 16 || 1);
+// One computed-style read per frame, shared by every virtualised tile.
+let frameScale: number | undefined;
+const rem = () => {
+  if (frameScale === undefined) {
+    frameScale =
+      parseFloat(getComputedStyle(document.documentElement).fontSize) / 16 || 1;
+    requestAnimationFrame(() => {
+      frameScale = undefined;
+    });
+  }
+  return frameScale;
+};
 
 /** A tile's text: runs of blank lines fold into one, so no tile is mostly empty. */
 export const tileText = (body: string | null) =>
@@ -42,12 +50,7 @@ function lineCount(text: string, charsPerLine: number) {
 export function tileLayout(memory: WallMemory, width: number) {
   const k = rem();
   const inner = Math.max(1, width - PADDING * k);
-  const title = memory.title
-    ? Math.min(
-        TITLE.maxLines,
-        lineCount(memory.title, Math.floor(inner / (TITLE.charWidth * k)))
-      )
-    : 0;
+  const title = memory.title ? 1 : 0;
   const body = Math.min(
     MAX_LINES - title,
     lineCount(tileText(memory.body), Math.floor(inner / (BODY.charWidth * k)))
@@ -56,8 +59,10 @@ export function tileLayout(memory: WallMemory, width: number) {
     k *
     (PADDING +
       title * TITLE.lineHeight +
-      (title ? GAP : 0) +
-      body * BODY.lineHeight);
+      (title ? GAP : 40) +
+      body * BODY.lineHeight +
+      GAP +
+      24);
   return { title, body, height };
 }
 
@@ -75,10 +80,7 @@ const linkText = (memory: WallMemory) =>
 export function linkLayout(memory: WallMemory, width: number) {
   const k = rem();
   const inner = Math.max(1, width - PADDING * k);
-  const title = Math.min(
-    TITLE.maxLines,
-    lineCount(memoryName(memory), Math.floor(inner / (TITLE.charWidth * k)))
-  );
+  const title = 1;
   const text = linkText(memory);
   const body = text
     ? Math.min(
@@ -92,7 +94,8 @@ export function linkLayout(memory: WallMemory, width: number) {
       title * TITLE.lineHeight +
       (body ? GAP + body * BODY.lineHeight : 0) +
       GAP +
-      LINK.footer);
+      LINK.footer * 2 +
+      GAP);
   return { title, body, text, height };
 }
 
@@ -197,7 +200,7 @@ export function MemoryTile(props: {
 }
 
 const tileFrame =
-  "relative h-full overflow-hidden rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]";
+  "relative h-full overflow-hidden rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:shadow-raised before:opacity-0 before:transition-opacity before:duration-(--duration-press) before:ease-out [@media(hover:hover)_and_(pointer:fine)]:hover:before:opacity-100";
 
 /** An image Memory: its thumbnail over its ThumbHash, and its upload while it lasts. */
 function ImageTile({
@@ -396,17 +399,18 @@ function LinkTile({
   const layout = linkLayout(memory, width);
   const name = memoryName(memory);
   const host = hostOf(memory);
+  const duration = memory.kind === "video" && memory.video?.duration;
   return (
     <figure className="group h-full cursor-pointer">
       <div
         className={cn(
           tileFrame,
-          "flex flex-col gap-2 bg-sunken p-4 group-data-[selectable=true]/selection:pr-14 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
+          "flex flex-col gap-2 bg-sunken p-4 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
         )}
       >
         <p
-          className="shrink-0 overflow-hidden font-display text-md leading-[26px] font-medium break-words text-ink [display:-webkit-box] [-webkit-box-orient:vertical]"
-          style={{ WebkitLineClamp: layout.title }}
+          className="shrink-0 truncate pr-8 font-display text-md leading-[1.625rem] font-medium text-ink"
+          title={name}
           dir="auto"
         >
           <Highlighted text={name} query={query} />
@@ -420,14 +424,22 @@ function LinkTile({
             <Highlighted text={layout.text} query={query} />
           </p>
         )}
-        <div className="mt-auto flex h-6 shrink-0 items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-1 text-xs text-ink-muted">
+        <div className="mt-auto flex min-h-14 shrink-0 flex-col items-start justify-end gap-2">
+          <span className="flex w-full min-w-0 items-center gap-1 text-xs text-ink-muted">
             {memory.kind === "video" && (
-              <PlayIcon className="size-3 shrink-0" aria-hidden />
+              <PlayIcon className="size-4 shrink-0" aria-hidden />
             )}
             <span className="truncate" dir="ltr" translate="no">
               {host !== name && <Highlighted text={host} query={query} />}
             </span>
+            {duration && Number.isFinite(duration) && duration > 0 ? (
+              <span
+                data-theme="dark"
+                className="ml-auto shrink-0 rounded-chip bg-canvas px-1.5 text-xs text-ink tabular-nums"
+              >
+                {formatTimestamp(duration)}
+              </span>
+            ) : null}
           </span>
           {isReferenceOnly(memory) ? (
             <ReferenceOnlyBadge />
@@ -461,31 +473,29 @@ function TextTile({
   const layout = tileLayout(memory, width);
   // While a badge shows, the last line makes room for it; the height stays,
   // so nothing on the wall moves when Indexing finishes.
-  const badged = !!badge && memory.indexState !== "searchable";
-  const bodyLines = badged && layout.body > 1 ? layout.body - 1 : layout.body;
+  const bodyLines = layout.body;
   return (
     <figure className="group h-full cursor-pointer">
       <div
         className={cn(
           tileFrame,
-          "flex flex-col gap-2 bg-sunken p-4 group-data-[selectable=true]/selection:pr-14 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
+          "flex flex-col gap-2 bg-sunken p-4 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
         )}
       >
         {memory.title && (
           <p
-            className="shrink-0 overflow-hidden font-display text-md leading-[26px] font-medium break-words text-ink [display:-webkit-box] [-webkit-box-orient:vertical]"
-            style={{ WebkitLineClamp: layout.title }}
+            className="shrink-0 truncate pr-8 font-display text-md leading-[1.625rem] font-medium text-ink"
+            title={memory.title}
             dir="auto"
           >
             <Highlighted text={memory.title} query={query} />
           </p>
         )}
+        {!memory.title && <div aria-hidden className="h-8 shrink-0" />}
         <p
           className={cn(
-            "overflow-hidden text-sm break-words whitespace-pre-line [display:-webkit-box] [-webkit-box-orient:vertical]",
-            memory.title ? "text-ink-muted" : "text-ink",
-            // A single line keeps clear of the badge (pinned right, even in RTL).
-            badged && bodyLines === layout.body && "pr-24"
+            "shrink-0 overflow-hidden text-sm break-words whitespace-pre-line [display:-webkit-box] [-webkit-box-orient:vertical]",
+            memory.title ? "text-ink-muted" : "text-ink"
           )}
           style={{ WebkitLineClamp: bodyLines }}
           dir="auto"
@@ -495,7 +505,9 @@ function TextTile({
             query={query}
           />
         </p>
-        {badge}
+        <div className="relative mt-auto h-6 shrink-0 [&>span]:right-0 [&>span]:bottom-0">
+          {badge}
+        </div>
       </div>
     </figure>
   );

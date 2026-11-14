@@ -206,7 +206,7 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
   await step(
     page,
     "library-loading",
-    "Library on a slow first load: the blank canvas until the Library arrives (12 seconds in)",
+    "Library on a slow first load: static loading tiles until the Library arrives",
     async () => {
       mock.delay = 12_000;
       void page.goto("/");
@@ -277,10 +277,19 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     "Filtered to a Category",
     async () => {
       await openWall();
-      await page
-        .getByRole("list", { name: "Category" })
-        .getByRole("button", { name: "Recipe" })
-        .click();
+      const categories = page.getByRole("list", {
+        name: "Category",
+        exact: true,
+      });
+      const recipe = categories.getByRole("button", {
+        name: "Recipe",
+        exact: true,
+      });
+      if (!(await recipe.isVisible()))
+        await categories
+          .getByRole("button", { name: "More", exact: true })
+          .click();
+      await recipe.click();
       await expect(
         page.getByRole("list", { name: "Filtered Memories" })
       ).toBeVisible();
@@ -598,10 +607,19 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
         .getByRole("list", { name: "Kind" })
         .getByRole("button", { name: /PDF/ })
         .click();
-      await page
-        .getByRole("list", { name: "Category" })
-        .getByRole("button", { name: "Recipe" })
-        .click();
+      const categories = page.getByRole("list", {
+        name: "Category",
+        exact: true,
+      });
+      const recipe = categories.getByRole("button", {
+        name: "Recipe",
+        exact: true,
+      });
+      if (!(await recipe.isVisible()))
+        await categories
+          .getByRole("button", { name: "More", exact: true })
+          .click();
+      await recipe.click();
       await expect(
         page
           .getByRole("list", { name: "Kind" })
