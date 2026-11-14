@@ -51,3 +51,11 @@ export function requireFakeIndexing(provider: unknown, jevEnabled: unknown) {
       "perf requires the local Worker's INDEXING_PROVIDER=fake and disabled Jev; refusing Capture"
     );
 }
+
+/** Refuse before authentication can create a user in the wrong local stack. */
+export function requireWorkerDatabase(url: string, name: unknown) {
+  if (name !== database(url).name)
+    throw new Error(
+      "Worker database must match PERF_DATABASE_URL before sign-in"
+    );
+}

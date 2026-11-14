@@ -1,5 +1,7 @@
 {
   "tolerance": 0.02,
+  "directPrecision": 0.9545454545454546,
+  "directPrecisionTolerance": 0.02,
   "ranks": {
     "filter-photos-lavender": 1,
     "filter-screens-sidebar": 1,

@@ -10,7 +10,11 @@ import { embeddingSpace } from "@spark/core";
 import { indexingStore, openDatabase, openLibrary, schema } from "@spark/db";
 import { createIndexer, fakeEmbedder, fakeProvider } from "@spark/indexing";
 import { createSearch, forgetQueryVectors } from "@spark/search";
-import { perfDatabaseUrl, requireFakeIndexing } from "./guard";
+import {
+  perfDatabaseUrl,
+  requireFakeIndexing,
+  requireWorkerDatabase,
+} from "./guard";
 import { percentile } from "../src/latency";
 
 // Read the explicit opt-in first. Never import setup.ts: it loads .env into process.env.
@@ -89,8 +93,10 @@ try {
   const config = (await stack.json()) as {
     provider?: unknown;
     jevEnabled?: unknown;
+    database?: unknown;
   };
   requireFakeIndexing(config.provider, config.jevEnabled);
+  requireWorkerDatabase(databaseUrl, config.database);
   const address = `perf-${crypto.randomUUID()}@example.test`;
   const headers = {
     origin: baseURL,

@@ -32,6 +32,18 @@ test("a completed menu search reaches the wall without another search request", 
     if (new URL(request.url()).pathname === "/api/search")
       searches.push(request.postDataJSON().mode as string);
   });
+  const expectSettledSearches = async () => {
+    await expect
+      .poll(
+        async () => {
+          const before = searches.length;
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          return { before, after: searches.length };
+        },
+        { timeout: 2_000 }
+      )
+      .toEqual({ before: 2, after: 2 });
+  };
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("twilight harbor");
   await expect(page.getByRole("listbox")).toHaveAttribute(
@@ -41,13 +53,13 @@ test("a completed menu search reaches the wall without another search request", 
   await expect(
     page.getByRole("option", { name: "Sunset over the dock" })
   ).toBeVisible();
-  await page.waitForLoadState("networkidle");
+  await expectSettledSearches();
   expect(searches).toEqual(["instant", "full"]);
   await page.keyboard.press("Enter");
   await expect(
     page.getByRole("list", { name: "Direct Matches" }).getByRole("listitem")
   ).toHaveAccessibleName("Sunset over the dock, Overview");
-  await page.waitForLoadState("networkidle");
+  await expectSettledSearches();
   expect(searches).toEqual(["instant", "full"]);
   // The same full answer is reused when Search is opened again.
   await page.keyboard.press("ControlOrMeta+k");
@@ -55,6 +67,6 @@ test("a completed menu search reaches the wall without another search request", 
     "data-search-mode",
     "full"
   );
-  await page.waitForLoadState("networkidle");
+  await expectSettledSearches();
   expect(searches).toEqual(["instant", "full"]);
 });

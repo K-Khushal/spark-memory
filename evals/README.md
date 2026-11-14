@@ -106,3 +106,7 @@ Copy `reports/TEMPLATE.md` to `reports/<date>.md`, paste each table in, write th
 ## 10k Library Performance
 
 `pnpm --filter @spark/evals perf` measures server search, browser HTTP and Search-menu latency, cached interactions and Capture → Searchable against the local fake-provider stack. It creates and removes a synthetic 10,000-Memory Library. It requires explicit `PERF_DATABASE_URL` on localhost, a non-5432 port, a `perf_*` database distinct from `.env`, and a running local Worker reporting fake Indexing with Jev disabled. Use a dedicated throwaway Postgres container. See [the #36 Part B report](../docs/reviews/t36b-performance.md) for commands, methodology, raw results and limitations.
+
+### Direct-match precision gate
+
+`eval:check` also gates **leave-one-out** Direct-match precision using the same held-out calculation as `eval:tune`, with `directDistance` frozen for fake providers. `baseline.json` records `directPrecision` and `directPrecisionTolerance` (0.02, two percentage points), independently of the top-1/top-5 tolerance. A greater precision drop fails the check; no Direct predictions score zero rather than passing without evidence. Only baseline searches participate, including in the tuning folds. Updating the baseline records held-out precision alongside ranks; review both deliberately. This gate does not change ranking or production judging thresholds.
