@@ -200,7 +200,7 @@ export function MemoryTile(props: {
 }
 
 const tileFrame =
-  "relative h-full overflow-hidden rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:shadow-raised before:opacity-0 before:transition-opacity before:duration-(--duration-press) before:ease-out [@media(hover:hover)_and_(pointer:fine)]:hover:before:opacity-100";
+  "relative h-full rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:shadow-raised before:opacity-0 before:transition-opacity before:duration-(--duration-press) before:ease-out [@media(hover:hover)_and_(pointer:fine)]:hover:before:opacity-100";
 
 /** An image Memory: its thumbnail over its ThumbHash, and its upload while it lasts. */
 function ImageTile({
@@ -241,7 +241,7 @@ function ImageTile({
             }}
             onLoad={() => setUnreadable(false)}
             className={cn(
-              "h-full w-full object-cover",
+              "h-full w-full rounded-[inherit] object-cover",
               unreadable && "invisible",
               // Screenshots read top down: crop the bottom.
               image.height / image.width > ASPECT.max && "object-top"

@@ -135,9 +135,19 @@ test("Bulk actions clear Undo at 320px and 200% text", async ({
   const undo = page.getByRole("button", { name: "Undo", exact: true });
   await expect(bar).toBeVisible();
   await expect(undo).toBeVisible();
-  const selection = await bar.boundingBox();
+  // Sonner enters from below its final offset; compare the settled surfaces.
+  await expect
+    .poll(async () => {
+      const selection = await bar.boundingBox();
+      const toast = await undo.locator("xpath=ancestor::li").boundingBox();
+      return selection!.y - (toast!.y + toast!.height);
+    })
+    .toBeGreaterThanOrEqual(11);
   const toast = await undo.locator("xpath=ancestor::li").boundingBox();
-  expect(selection!.y - (toast!.y + toast!.height)).toBeGreaterThanOrEqual(11);
+  expect(toast!.x).toBeGreaterThanOrEqual(0);
+  expect(toast!.x + toast!.width).toBeLessThanOrEqual(320);
+  expect(toast!.y).toBeGreaterThanOrEqual(0);
+  const selection = await bar.boundingBox();
   expect(selection!.y + selection!.height).toBeLessThanOrEqual(829);
   if (evidence)
     await page.screenshot({ path: `${evidence}/bulk-undo-320-text-2.png` });

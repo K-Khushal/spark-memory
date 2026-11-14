@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { signIn, stubTurnstile, fromOwnAddress } from "./sign-in";
 import {
   installLibrary,
+  settle,
   setSection,
   step,
   tile,
@@ -194,6 +195,8 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     await page.goto("/");
     await expect(wall).toBeVisible({ timeout: 30_000 });
     await expect(wall.getByRole("listitem").first()).toBeVisible();
+    // A cached wall can paint before the shell registers its shortcuts.
+    await settle(page);
   };
   const closeAll = async () => {
     await page.keyboard.press("Escape");

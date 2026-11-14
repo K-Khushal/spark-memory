@@ -816,8 +816,12 @@ export function LibraryPage({
         </div>
       )}
       <Toaster
-        offset={`calc(env(safe-area-inset-bottom) + 1rem + ${bulkHeight ? `${bulkHeight}px + 0.75rem` : "0px"})`}
-        mobileOffset={`calc(env(safe-area-inset-bottom) + 1rem + ${bulkHeight ? `${bulkHeight}px + 0.75rem` : "0px"})`}
+        offset={{
+          bottom: `calc(env(safe-area-inset-bottom) + 1rem + ${bulkHeight ? `${bulkHeight}px + 0.75rem` : "0px"})`,
+        }}
+        mobileOffset={{
+          bottom: `calc(env(safe-area-inset-bottom) + 1rem + ${bulkHeight ? `${bulkHeight}px + 0.75rem` : "0px"})`,
+        }}
       />
       <ShareTarget library={library.edits} />
     </div>
