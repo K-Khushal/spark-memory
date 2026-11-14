@@ -18,6 +18,7 @@ import {
   ownerBudgetMicros,
 } from "@spark/core";
 import { readDailyBudgetMicros } from "./admin";
+import { textFits } from "./storage";
 import type { Database } from "./client";
 import {
   ANONYMISED_USER,
@@ -28,6 +29,7 @@ import {
 import {
   accountDeletion,
   aiCall,
+  aiReservation,
   category,
   categoryRun,
   categoryPrototype,
@@ -164,6 +166,18 @@ const claimed = ({ memoryId, userId, generation, run }: Claim) =>
     eq(memory.indexRun, run)
   );
 const indexing = eq(memory.indexState, "indexing");
+
+/**
+ * Where a Memory ends up when the owner's storage has no room for the text
+ * a background step found: kept, Searchable by what it already has, marked
+ * partly Indexed (`overAllowance`), and its run over. Never a failure.
+ */
+const partlyIndexed = {
+  indexState: "searchable",
+  indexError: null,
+  indexLeaseUntil: null,
+  overAllowance: true,
+} as const;
 
 const failed = (reason: IndexFailure) => ({
   indexState: "failed" as const,
@@ -347,20 +361,32 @@ export function indexingStore(
        * Undefined when the run moved on.
        */
       async saveTranscript(claim: Claim, video: VideoMetadata) {
-        const [row] = await db
-          .update(memory)
-          .set({
-            metadata: sql`jsonb_set(coalesce(${memory.metadata}, '{}'::jsonb), '{video}', ${JSON.stringify(video)}::jsonb)`,
-            // As for a public video: the transcript's lines are its text, so
-            // keyword search and Passage anchors read the same words.
-            body: video.transcript.map((s) => s.text).join("\n"),
-          })
-          .where(and(claimed(claim), indexing, eq(memory.kind, "video")))
-          .returning({
-            transcript: linkColumns.transcript,
-            body: memory.body,
+        // As for a public video: the transcript's lines are its text, so
+        // keyword search and Passage anchors read the same words.
+        const body = video.transcript.map((s) => s.text).join("\n");
+        return db.transaction(async (tx) => {
+          await lockOwner(tx, claim.userId);
+          // No room for it: nothing of it is kept, and the run ends partly Indexed.
+          const fits = await textFits(tx, claim.userId, claim.memoryId, {
+            body,
           });
-        return row;
+          const [row] = await tx
+            .update(memory)
+            .set(
+              fits
+                ? {
+                    metadata: sql`jsonb_set(coalesce(${memory.metadata}, '{}'::jsonb), '{video}', ${JSON.stringify(video)}::jsonb)`,
+                    body,
+                  }
+                : partlyIndexed
+            )
+            .where(and(claimed(claim), indexing, eq(memory.kind, "video")))
+            .returning({
+              transcript: linkColumns.transcript,
+              body: memory.body,
+            });
+          return fits ? row : undefined;
+        });
       },
 
       /**
@@ -539,19 +565,27 @@ export function indexingStore(
      * AI opt-out. False when the run moved on or it was kept already.
      */
     async savePdfText(claim: Claim, text: string) {
-      const rows = await db
-        .update(memory)
-        .set({ body: text })
-        .where(
-          and(
-            claimed(claim),
-            indexing,
-            eq(memory.kind, "pdf"),
-            sql`${memory.body} is null`
+      return db.transaction(async (tx) => {
+        await lockOwner(tx, claim.userId);
+        // No room for the text: the PDF is kept without it, partly Indexed,
+        // and the run ends (false, as for a text kept already).
+        const fits = await textFits(tx, claim.userId, claim.memoryId, {
+          body: text,
+        });
+        const rows = await tx
+          .update(memory)
+          .set(fits ? { body: text } : partlyIndexed)
+          .where(
+            and(
+              claimed(claim),
+              indexing,
+              eq(memory.kind, "pdf"),
+              sql`${memory.body} is null`
+            )
           )
-        )
-        .returning({ id: memory.id });
-      return rows.length > 0;
+          .returning({ id: memory.id });
+        return fits && rows.length > 0;
+      });
     },
 
     /**
@@ -573,44 +607,55 @@ export function indexingStore(
         transient?: boolean;
       }
     ) {
-      const write = async (hash: string | null) => {
-        const [row] = await db
-          .update(memory)
-          .set({
-            // What a site adapter read in the person's own browser (X, TikTok,
-            // Instagram) wins over what the web says of a login wall. For any
-            // other page the gathered metadata wins: an OG tag the page has
-            // just served is fresher than text read before in-app navigation.
-            metadata: sql`case when ${memory.metadata}->>'siteRead' = 'true'
+      const write = async (hash: string | null) =>
+        db.transaction(async (tx) => {
+          await lockOwner(tx, claim.userId);
+          // No room for the page's text: the link is kept as Reference only,
+          // with its metadata, and the run ends partly Indexed.
+          const fits =
+            gathered.text === null ||
+            (await textFits(tx, claim.userId, claim.memoryId, {
+              body: gathered.text,
+            }));
+          const text = fits ? gathered.text : null;
+          const [row] = await tx
+            .update(memory)
+            .set({
+              ...(fits ? {} : partlyIndexed),
+              // What a site adapter read in the person's own browser (X, TikTok,
+              // Instagram) wins over what the web says of a login wall. For any
+              // other page the gathered metadata wins: an OG tag the page has
+              // just served is fresher than text read before in-app navigation.
+              metadata: sql`case when ${memory.metadata}->>'siteRead' = 'true'
               then ${JSON.stringify(gathered.metadata)}::jsonb || ${memory.metadata}
               else coalesce(${memory.metadata}, '{}'::jsonb) || ${JSON.stringify(gathered.metadata)}::jsonb end`,
-            body: gathered.text,
-            gatherRetryAt: sql`case when ${gathered.transient ?? false} and ${memory.kind} = 'link' and not ${memory.gatherRetried} then now() + interval '24 hours' else null end`,
-            preservation: sql`case when ${memory.kind} = 'video' then 'reference_only' when ${gathered.text}::text is not null then 'preserved' else 'reference_only' end`,
-            contentHash: sql`case when exists (
+              body: text,
+              gatherRetryAt: sql`case when ${gathered.transient ?? false} and ${memory.kind} = 'link' and not ${memory.gatherRetried} then now() + interval '24 hours' else null end`,
+              preservation: sql`case when ${memory.kind} = 'video' then 'reference_only' when ${text}::text is not null then 'preserved' else 'reference_only' end`,
+              contentHash: sql`case when exists (
               select 1 from memory o where o.user_id = ${memory.userId}
                 and o.kind = 'link' and o.content_hash = ${hash}::text
                 and o.id <> ${memory.id}) then null else ${hash}::text end`,
-          })
-          .where(
-            and(
-              claimed(claim),
-              indexing,
-              sql`${memory.kind} in ('link', 'video')`,
-              sql`(${memory.metadata} is null or (${memory.kind} = 'video' and ${memory.metadata}->'video' is null))`
+            })
+            .where(
+              and(
+                claimed(claim),
+                indexing,
+                sql`${memory.kind} in ('link', 'video')`,
+                sql`(${memory.metadata} is null or (${memory.kind} = 'video' and ${memory.metadata}->'video' is null))`
+              )
             )
-          )
-          .returning({
-            title: memory.title,
-            body: memory.body,
-            captureNote: memory.captureNote,
-            kind: memory.kind,
-            aiOptOut: memory.aiOptOut,
-            metadata: memory.metadata,
-            ...linkColumns,
-          });
-        return row;
-      };
+            .returning({
+              title: memory.title,
+              body: memory.body,
+              captureNote: memory.captureNote,
+              kind: memory.kind,
+              aiOptOut: memory.aiOptOut,
+              metadata: memory.metadata,
+              ...linkColumns,
+            });
+          return row;
+        });
       let row;
       try {
         row = await write(gathered.contentHash ?? null);
@@ -661,12 +706,21 @@ export function indexingStore(
     ): Promise<boolean> {
       const id = claim.memoryId;
       return db.transaction(async (tx) => {
+        // What was found takes storage too: under the owner's lock, with no
+        // room for it, the Memory is kept without it, partly Indexed.
+        let fits = true;
+        if (extraction) {
+          await lockOwner(tx, claim.userId);
+          const { language: _, ...found } = extraction.output;
+          fits = await textFits(tx, claim.userId, id, { found });
+        }
         const [row] = await tx
           .update(memory)
           .set({
             indexState: "searchable",
             indexError: null,
             indexLeaseUntil: null,
+            ...(!fits && { overAllowance: true }),
             ...(extraction && { language: extraction.output.language }),
           })
           .where(
@@ -683,16 +737,18 @@ export function indexingStore(
             revision: memory.revision,
           });
         if (!row || !extraction) return !!row;
-        const { language: _, ...found } = extraction.output;
-        const values = {
-          ...found,
-          model: extraction.model,
-          indexedAt: sql`now()`,
-        };
-        await tx
-          .insert(memoryIndex)
-          .values({ memoryId: id, ...values })
-          .onConflictDoUpdate({ target: memoryIndex.memoryId, set: values });
+        if (fits) {
+          const { language: _, ...found } = extraction.output;
+          const values = {
+            ...found,
+            model: extraction.model,
+            indexedAt: sql`now()`,
+          };
+          await tx
+            .insert(memoryIndex)
+            .values({ memoryId: id, ...values })
+            .onConflictDoUpdate({ target: memoryIndex.memoryId, set: values });
+        }
         if (embedding && embedding.revision === row.revision) {
           await replaceVectors(tx, id, row.userId, embedding);
         }
@@ -1005,26 +1061,31 @@ export function indexingStore(
     dailyBudgetMicros: budget,
 
     /**
-     * Holds `micros` (an estimate) for a call about to be made, or says no
-     * (false): the person has spent their share of today's budget, or, with
-     * `global`, everyone together have spent all of it. Spend and holds are
-     * read and the hold is written under one lock, so parallel calls cannot
-     * all pass the limit; each call then records its real cost, which uses
-     * up one of the person's holds (`recordCall`). A hold nobody used stops
-     * counting after a few minutes. Work that is never held back by the
-     * global budget (a new Capture's first Indexing) passes `global: false`
-     * and is still held to the person's share.
+     * Holds `micros` (an estimate, which must be an upper bound) for a call
+     * about to be made, and returns the hold's id, or says why not:
+     * `spent` (the person has spent their share of today's budget, or, with
+     * `global`, everyone together have spent all of it: wait for the next
+     * UTC day) or `busy` (it would fit but for other calls' holds still in
+     * flight: try again soon). Spend and holds are read and the hold is
+     * written under one lock, so parallel calls cannot all pass the limit.
+     * The call then records its real cost with `recordCall({ reservation })`,
+     * which settles exactly this hold, once; `releaseHold` gives it back
+     * when no call was made. A hold nobody settled stops counting after a
+     * few minutes. Work that is never held back by the global budget (a new
+     * Capture's first Indexing) passes `global: false` and is still held to
+     * the person's share.
      */
     async reserve(input: {
       userId: string;
       micros: number;
       global?: boolean;
-    }): Promise<boolean> {
+    }): Promise<{ id: string } | { refused: "spent" | "busy" }> {
       const limit = await budget();
       // What the hold adds counts too, so the last call cannot overshoot; a
       // free call still needs room (one micro), so a spent budget stops it.
       const held = Math.max(1, Math.ceil(input.micros));
       const ownerCap = ownerBudgetMicros(limit, ownerBudgetShare);
+      const global = input.global !== false;
       return db.transaction(async (tx) => {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtext('ai-spend')::bigint)`
@@ -1032,23 +1093,55 @@ export function indexingStore(
         await tx.execute(
           sql`delete from ai_reservation where created_at <= now() - interval '1 hour'`
         );
-        const { rowCount } = await tx.execute(sql`
-          insert into ai_reservation (user_id, micros)
-          select ${input.userId}, ${held}
-          where (select coalesce(sum(cost_micros), 0) from ai_call
-                  where user_id = ${input.userId} and day = ${today})
-              + (select coalesce(sum(micros), 0) from ai_reservation
-                  where user_id = ${input.userId}
-                    and created_at > now() - make_interval(mins => ${RESERVATION_MINUTES}))
-              + ${held} <= ${ownerCap}
-            and (${input.global === false}
-              or (select coalesce(sum(cost_micros), 0) from spend_day where day = ${today})
-               + (select coalesce(sum(micros), 0) from ai_reservation
-                   where created_at > now() - make_interval(mins => ${RESERVATION_MINUTES}))
-               + ${held} <= ${limit})
-          and exists (select 1 from "user" where id = ${input.userId})`);
-        return rowCount === 1;
+        const { rows } = await tx.execute<{
+          ownerSpent: string;
+          ownerHeld: string;
+          globalSpent: string;
+          globalHeld: string;
+          present: boolean;
+        }>(sql`select
+          (select coalesce(sum(cost_micros), 0) from ai_call
+            where user_id = ${input.userId} and day = ${today}) as "ownerSpent",
+          (select coalesce(sum(micros), 0) from ai_reservation
+            where user_id = ${input.userId} and settled_at is null
+              and created_at > now() - make_interval(mins => ${RESERVATION_MINUTES})) as "ownerHeld",
+          (select coalesce(sum(cost_micros), 0) from spend_day where day = ${today}) as "globalSpent",
+          (select coalesce(sum(micros), 0) from ai_reservation
+            where settled_at is null
+              and created_at > now() - make_interval(mins => ${RESERVATION_MINUTES})) as "globalHeld",
+          exists (select 1 from "user" where id = ${input.userId}) as present`);
+        const r = rows[0]!;
+        if (!r.present) return { refused: "spent" as const };
+        const ownerSpent = Number(r.ownerSpent);
+        const globalSpent = Number(r.globalSpent);
+        // What was spent alone leaves no room: waiting for tomorrow is right.
+        if (
+          ownerSpent + held > ownerCap ||
+          (global && globalSpent + held > limit)
+        )
+          return { refused: "spent" as const };
+        // It fits but for holds in flight, which settle in seconds.
+        if (
+          ownerSpent + Number(r.ownerHeld) + held > ownerCap ||
+          (global && globalSpent + Number(r.globalHeld) + held > limit)
+        )
+          return { refused: "busy" as const };
+        const [row] = await tx
+          .insert(aiReservation)
+          .values({ userId: input.userId, micros: held })
+          .returning({ id: aiReservation.id });
+        return { id: row!.id };
       });
+    },
+
+    /** Gives a hold back unused (no call was made, or it failed before it could be billed). Safe to repeat. */
+    async releaseHold(id: string) {
+      await db
+        .update(aiReservation)
+        .set({ settledAt: sql`now()` })
+        .where(
+          and(eq(aiReservation.id, id), sql`${aiReservation.settledAt} is null`)
+        );
     },
 
     /**
@@ -1114,9 +1207,28 @@ export function indexingStore(
       costMicros: number;
       /** A guess (the call timed out with no usage), kept apart in reports. */
       estimated?: boolean;
+      /** The hold (`reserve`) this call was made under: settled with the cost, once. */
+      reservation?: string;
     }) {
       await db.transaction(async (tx) => {
         await lockOwner(tx, call.userId);
+        if (call.reservation) {
+          // Settle exactly this hold. One already settled means this cost was
+          // recorded before (a repeat): record nothing twice.
+          const held = (
+            await tx.execute<{
+              settled: boolean;
+            }>(sql`select settled_at is not null as settled
+              from ai_reservation where id = ${call.reservation} and user_id = ${call.userId} for update`)
+          ).rows[0];
+          // An id-keyed call is a reconciliation of a row already recorded: it
+          // updates that row by the difference, so repeating it is harmless.
+          if (held?.settled && !call.id) return;
+          if (held)
+            await tx.execute(
+              sql`update ai_reservation set settled_at = now() where id = ${call.reservation}`
+            );
+        }
         const ownerNamed = sql`exists (select 1 from ${user} where ${user.id} = ${call.userId}) and not exists (select 1 from ${accountDeletion} where ${accountDeletion.userId} = ${call.userId})`;
         const [previous] = call.id
           ? await tx
@@ -1164,10 +1276,6 @@ export function indexingStore(
               costMicros: sql`${spendDay.costMicros} + excluded.cost_micros`,
             },
           });
-        // The cost is real now: it replaces the person's oldest hold.
-        await tx.execute(sql`delete from ai_reservation where id = (
-          select id from ai_reservation where user_id = ${call.userId}
-          order by created_at limit 1 for update skip locked)`);
       });
     },
 

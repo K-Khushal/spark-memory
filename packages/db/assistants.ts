@@ -2,6 +2,7 @@
 export {
   assistantStore,
   REGISTRATION_LIMITS,
+  ROTATION_LIMIT_PER_HOUR,
   type Assistant,
   type AssistantAccess,
   type OAuthClient,

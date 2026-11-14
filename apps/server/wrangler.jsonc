@@ -49,6 +49,7 @@
   // account, so each environment has its own. Capture: 60 a minute (a Capture is two or
   // three calls). Search: 600 a minute, so instant search on every keystroke never trips it.
   // Edit (every other Library write): 60. AI opt-out: 10. Image search: 30.
+  // Token (OAuth token endpoint, by network address, before any database work): 60.
   "ratelimits": [
     {
       "name": "CAPTURE_LIMITER",
@@ -74,6 +75,11 @@
       "name": "IMAGE_SEARCH_LIMITER",
       "namespace_id": "1005",
       "simple": { "limit": 30, "period": 60 },
+    },
+    {
+      "name": "TOKEN_LIMITER",
+      "namespace_id": "1006",
+      "simple": { "limit": 60, "period": 60 },
     },
   ],
 
@@ -190,6 +196,11 @@
           "namespace_id": "2005",
           "simple": { "limit": 30, "period": 60 },
         },
+        {
+          "name": "TOKEN_LIMITER",
+          "namespace_id": "2006",
+          "simple": { "limit": 60, "period": 60 },
+        },
       ],
       "triggers": { "crons": ["17 * * * *"] },
       // Workers AI: Gemma 4, first in the Indexing chain (ADR-0005).
@@ -291,6 +302,11 @@
           "name": "IMAGE_SEARCH_LIMITER",
           "namespace_id": "3005",
           "simple": { "limit": 30, "period": 60 },
+        },
+        {
+          "name": "TOKEN_LIMITER",
+          "namespace_id": "3006",
+          "simple": { "limit": 60, "period": 60 },
         },
       ],
       "triggers": { "crons": ["17 * * * *"] },

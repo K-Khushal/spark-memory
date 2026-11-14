@@ -522,8 +522,8 @@ export const spendDay = pgTable(
 
 /**
  * An AI call's estimated cost, held before the call so parallel calls cannot
- * pass the daily budget together. The call's `recordCall` consumes the
- * owner's oldest one; one nobody consumed stops counting after minutes.
+ * pass the daily budget together. The call's `recordCall` settles exactly
+ * its own hold, once; one nobody settled stops counting after minutes.
  */
 export const aiReservation = pgTable(
   "ai_reservation",
@@ -534,6 +534,8 @@ export const aiReservation = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     micros: bigint("micros", { mode: "number" }).notNull(),
     createdAt: instant("created_at"),
+    /** Set once the call's real cost was recorded, or the hold was given back: it counts no more. */
+    settledAt: timestamp("settled_at", { withTimezone: true }),
   },
   (t) => [
     index("ai_reservation_owner_idx").on(t.userId, t.createdAt),
@@ -776,6 +778,9 @@ export const assistantGrant = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true })
       .default(sql`now() + interval '90 days'`)
       .notNull(),
+    /** Successful refresh rotations in the current hour (a client renews about once an hour). */
+    rotations: integer("rotations").default(0).notNull(),
+    rotationWindowAt: timestamp("rotation_window_at", { withTimezone: true }),
   },
   (t) => [index("assistant_grant_owner_client").on(t.userId, t.clientId)]
 );

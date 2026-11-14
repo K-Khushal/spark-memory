@@ -8,6 +8,11 @@ WHERE EXISTS (SELECT 1 FROM "assistant_grant" g WHERE g."client_id" = c."id")
    OR EXISTS (SELECT 1 FROM "assistant_code" k WHERE k."client_id" = c."id")
    OR EXISTS (SELECT 1 FROM "assistant_activity" a WHERE a."client_id" = c."id");
 --> statement-breakpoint
+-- A grant's refresh rotations are counted per hour (SEC-1 follow-up).
+ALTER TABLE "assistant_grant" ADD COLUMN "rotations" integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "assistant_grant" ADD COLUMN "rotation_window_at" timestamp with time zone;
+--> statement-breakpoint
 CREATE INDEX "assistant_client_unclaimed" ON "assistant_client" ("created_at") WHERE "claimed_at" IS NULL;
 --> statement-breakpoint
 
@@ -38,6 +43,7 @@ CREATE TABLE "ai_reservation" (
   "user_id" text NOT NULL,
   "micros" bigint NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "settled_at" timestamp with time zone,
   CONSTRAINT "ai_reservation_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 --> statement-breakpoint

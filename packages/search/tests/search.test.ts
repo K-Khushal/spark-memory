@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMBEDDING, INDEXING, JUDGING, SEARCH_PAGE_SIZE } from "@spark/core";
+import {
+  EMBEDDING,
+  INDEXING,
+  JUDGING,
+  SEARCH_PAGE_SIZE,
+  maxTokens,
+  type Hold,
+} from "@spark/core";
 import { ProviderError, type AiCall, type Embedder } from "@spark/indexing";
 import {
   createSearch,
@@ -57,7 +64,11 @@ function spend(spent = 0) {
     reserve: async (_input: {
       userId: string;
       micros: number;
-    }): Promise<boolean> => spent < INDEXING.dailyBudgetMicros,
+    }): Promise<Hold> =>
+      spent < INDEXING.dailyBudgetMicros
+        ? { id: "hold" }
+        : { refused: "spent" },
+    releaseHold: async (_id: string): Promise<void> => {},
     recordCall: async (call: AiCall): Promise<void> => {
       calls.push(call);
     },
@@ -137,7 +148,7 @@ describe("search", () => {
     budget.reserve = async (input) => {
       order.push("hold");
       holds.push(input);
-      return true;
+      return { id: "hold-1" };
     };
     model!.embed.mockImplementation(async () => {
       order.push("embed");
@@ -152,12 +163,33 @@ describe("search", () => {
     expect(holds[0]!.userId).toMatch(/^u\d+$/);
     // The person's share spent: no call is made, and search still answers.
     const refused = setup();
-    refused.budget.reserve = async () => false;
+    refused.budget.reserve = async () => ({ refused: "spent" });
     await expect(refused.search.search("purple", "full")).resolves.toEqual({
       results: [],
       mode: "instant",
     });
     expect(refused.model!.embed).not.toHaveBeenCalled();
+  });
+
+  it("holds the query's cost by its UTF-8 bytes, so a language of three-byte letters cannot exceed the hold", async () => {
+    const { search, budget } = setup();
+    const asked: number[] = [];
+    budget.reserve = async (input) => {
+      asked.push(input.micros);
+      return { id: "hold-1" };
+    };
+    const hindi = "नींबू का टार्ट कैसे बनाते हैं ".repeat(60);
+    await search.search(hindi, "full");
+    const sent =
+      "task: search result | query: " + hindi.trim().replace(/\s+/g, " ");
+    // $0.20 a million input tokens, a token at most a byte.
+    expect(asked[0]).toBeGreaterThanOrEqual(
+      Math.ceil((maxTokens(sent) * 200_000) / 1_000_000)
+    );
+    expect(asked[0]).toBeGreaterThan(
+      Math.ceil(((sent.length / 3) * 200_000) / 1_000_000)
+    );
+    expect(budget.calls[0]).toMatchObject({ reservation: "hold-1" });
   });
 
   it("falls back to keyword search when anything in the vector leg fails", async () => {

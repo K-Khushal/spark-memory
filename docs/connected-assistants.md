@@ -70,6 +70,10 @@ Real Claude Code and Codex checks need your own signed-in clients; the SDK hands
 
 Already returned data cannot be recalled. Original-file URLs already issued retain the existing download expiry (at most two hours). Activity records omit queries and Memory content (an opened Memory is kept as its id only); account deletion removes all credentials and activity. Library export includes `connected-assistants.json` with metadata only.
 
+## Token endpoint limits
+
+`POST /api/oauth/token` is limited per network address (60 a minute) before any database work. One grant may rotate its refresh token 20 times an hour (a client renews about once); past that the answer is 429 `slow_down` with `Retry-After`, the refresh token is not spent, and it works again once the hour passes. Only successful rotations count.
+
 ## Registration limits
 
 `POST /api/oauth/register` needs no sign-in, so what it stores is bounded. A registration takes at most 4 redirect URIs of 512 characters. One source (by IP) may register 10 a minute and 50 a day. At most 1,000 registrations can wait for a first grant at once; past that the answer is 429 with `Retry-After`. A registration that no grant claims within 24 hours is deleted by the hourly sweep (at most 500 a run, with the activity cleanup below); one with a grant is never deleted this way, so an active connection survives. A client that registered and was revoked keeps its registration.

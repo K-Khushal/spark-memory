@@ -259,7 +259,8 @@ describe.skipIf(!url)("Categories", () => {
       spentTodayMicros: async () => Number.MAX_SAFE_INTEGER,
       // The first call (Extraction) is held; the share is spent after it, so
       // neither the vectors nor Jev are asked for.
-      reserve: async () => ++holds <= 1,
+      reserve: async () =>
+        ++holds <= 1 ? { id: "hold" } : { refused: "spent" as const },
     } as typeof real;
     await indexer(embedder(), client, broke)(job(m.id, 1));
     expect(client.calls).toEqual([]);

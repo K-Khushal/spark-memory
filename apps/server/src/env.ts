@@ -52,6 +52,8 @@ export type Bindings = {
   EDIT_LIMITER?: RateLimiter;
   OPT_OUT_LIMITER?: RateLimiter;
   IMAGE_SEARCH_LIMITER?: RateLimiter;
+  /** Per network address, not person: the anonymous OAuth token endpoint. */
+  TOKEN_LIMITER?: RateLimiter;
 
   /** Queues (wrangler.jsonc): fresh Captures and Retry, and background re-indexing. */
   INDEX_QUEUE: IndexQueue;

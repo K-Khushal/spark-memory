@@ -41,6 +41,7 @@ export {
 } from "./lib/allowance";
 export {
   INDEXING,
+  maxTokens,
   modelCostMicros,
   EMBEDDING,
   embeddingSpace,
@@ -74,6 +75,7 @@ export {
   DAILY_BUDGET_KEY,
   DAILY_BUDGET_MAX_MICROS,
   OWNER_BUDGET_SHARE_DEFAULT,
+  type Hold,
   budgetPaused,
   effectiveDailyBudgetMicros,
   ownerBudgetMicros,

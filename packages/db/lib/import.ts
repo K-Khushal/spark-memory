@@ -12,6 +12,7 @@ import type { Database } from "./client";
 import { importJob, importItem, memory, memoryFile, usageDay } from "./schema";
 import { deletionRequested, lockOwner } from "./owner";
 import { takeDailyCapture, takeDailyKeep } from "./capture-allowance";
+import { bytesOf, roomFor } from "./storage";
 
 export type ImportJob = typeof importJob.$inferSelect;
 /** One owner's durable, bounded import. No network calls while a transaction is open. */
@@ -383,6 +384,14 @@ export function openImports(db: Database, userId: string) {
         let target;
         let skipped = !!duplicate;
         if (!duplicate) {
+          // The title and note take storage like any text. With no room for
+          // them (checked under the owner's lock, held for this step) the link
+          // is still kept, without them, partly Indexed: an import never fails.
+          const roomy = await roomFor(
+            tx,
+            userId,
+            bytesOf(input.title) + bytesOf(input.captureNote)
+          );
           // Insert first: concurrent fresh Captures can win the canonical URL.
           const [created] = await tx
             .insert(memory)
@@ -392,8 +401,9 @@ export function openImports(db: Database, userId: string) {
               preservation: "reference_only",
               sourceUrl: input.url,
               sourceUrlNormalised: normalised,
-              title: input.title,
-              captureNote: input.captureNote,
+              ...(roomy
+                ? { title: input.title, captureNote: input.captureNote }
+                : { overAllowance: true, indexState: "searchable" as const }),
               capturedAt: input.savedAt ? new Date(input.savedAt) : now,
               lastSavedAt: input.savedAt ? new Date(input.savedAt) : now,
               indexPriority: "background",
@@ -433,7 +443,8 @@ export function openImports(db: Database, userId: string) {
                 .update(memory)
                 .set({ overAllowance: true, indexState: "searchable" })
                 .where(eq(memory.id, created.id));
-            else target = created;
+            // Without room for its title and note it was kept partly Indexed above.
+            else if (roomy) target = created;
           }
         }
         const done = job.done + (skipped ? 0 : 1),

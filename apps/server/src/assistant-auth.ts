@@ -9,7 +9,7 @@ import { sameOrigin } from "./origin";
 import { digest, opaque, resourceFor } from "./mcp";
 import { assistantPage, escapeHtml as esc } from "./assistant-pages";
 import type { AppEnv } from "./env";
-import { rateLimited } from "./rate-limit";
+import { ipLimited, rateLimited } from "./rate-limit";
 
 const redirectUri = z
   .string()
@@ -88,6 +88,8 @@ const registeredRedirect = (redirects: string[], actual: string) =>
 const COOKIE = "spark-assistant-consent";
 
 export const assistantAuth = new Hono<AppEnv>()
+  // Before anything that touches the database: a refused call costs none.
+  .use("/oauth/token", ipLimited("TOKEN_LIMITER"))
   .use("*", bodyLimit({ maxSize: 16_384 }))
   .use("*", async (c, next) => {
     c.header("Cache-Control", "private, no-store");
@@ -145,7 +147,7 @@ export const assistantAuth = new Hono<AppEnv>()
       refreshDigest: await digest(refresh),
       id: crypto.randomUUID(),
     };
-    let ok: boolean | "limit" = false;
+    let ok: boolean | "limit" | "slow" = false;
     if (form.grant_type === "refresh_token") {
       const parsed = renewal.safeParse(form);
       if (parsed.success)
@@ -180,6 +182,12 @@ export const assistantAuth = new Hono<AppEnv>()
           resource: "",
         });
       }
+    }
+    // A grant renewing far more often than a client does: slow down, and keep
+    // the refresh token, which was not spent.
+    if (ok === "slow") {
+      c.header("Retry-After", "600");
+      return c.json({ error: "slow_down" }, 429);
     }
     if (ok === "limit")
       return c.json(

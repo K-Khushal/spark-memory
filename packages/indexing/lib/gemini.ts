@@ -14,7 +14,7 @@ import {
   type Provider,
 } from "./provider";
 
-const MAX_OUTPUT_TOKENS = 4096;
+const MAX_OUTPUT_TOKENS = INDEXING.maxOutputTokens;
 /** An image at Gemini 3's default (high) media resolution (docs/research/enrichment.md). */
 const IMAGE_TOKENS = 1120;
 

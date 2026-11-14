@@ -40,6 +40,8 @@ export const REGISTRATION_LIMITS = {
   perSourcePerDay: 50,
 } as const;
 const MINUTE_MS = 60_000;
+/** Successful refresh rotations one grant may make in an hour (a client renews about once). */
+export const ROTATION_LIMIT_PER_HOUR = 20;
 const DAY_MS = 86_400_000;
 
 /** Only digests cross the persistence boundary. No query or Memory content is accepted here. */
@@ -302,6 +304,15 @@ export function assistantStore(db: Database) {
           );
           return false;
         }
+        // Only successful rotations are counted, before the token is spent, so
+        // a client slowed down can come back with the same refresh token.
+        const counted = await tx.execute(sql`update assistant_grant set
+            rotations = case when rotation_window_at is null or rotation_window_at <= now() - interval '1 hour' then 1 else rotations + 1 end,
+            rotation_window_at = case when rotation_window_at is null or rotation_window_at <= now() - interval '1 hour' then now() else rotation_window_at end
+          where id = ${row.grantId}
+            and (rotation_window_at is null or rotation_window_at <= now() - interval '1 hour' or rotations < ${ROTATION_LIMIT_PER_HOUR})
+          returning id`);
+        if (counted.rowCount !== 1) return "slow" as const;
         await tx.execute(
           sql`update assistant_refresh set used = true, used_at = now() where digest = ${input.digest}`
         );

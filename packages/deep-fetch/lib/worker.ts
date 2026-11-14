@@ -9,12 +9,16 @@ import {
   retryDelaySeconds,
   secondsToNextUtcDay,
   type DeepFetchEngine,
+  type Hold,
   type DeepFetchFailure,
   type LinkMetadata,
   type MemoryKind,
   type TranscriptSegment,
 } from "@spark/core";
 import type { DeepFetch, Fetched } from "./engine";
+
+/** How long a job waits when only other calls' holds stand in the way. */
+const BUSY_RETRY_SECONDS = 120;
 
 /** The attempt a store handed out: every write names it. */
 export type Claim = {
@@ -81,9 +85,12 @@ export type DeepFetchJobStore = {
 
 /** The daily AI budget and its ledger (structurally @spark/db's `indexingStore`). */
 export type DeepFetchAi = {
-  /** Holds a call's estimated cost first; false when no budget is left for it. */
-  reserve(input: { userId: string; micros: number }): Promise<boolean>;
+  /** Holds a call's cost (an upper bound) first; refused when no budget is left for it. */
+  reserve(input: { userId: string; micros: number }): Promise<Hold>;
+  releaseHold(id: string): Promise<void>;
   recordCall(call: {
+    /** The hold this call was made under: settled with its cost. */
+    reservation?: string;
     userId: string;
     memoryId: string;
     memoryGeneration: string;
@@ -164,21 +171,33 @@ export function createDeepFetchWorker({
       return wait(window.secondsToNext);
     }
     // Sending a video's audio to a model costs money: held for the longest
-    // video first, past the person's share or the daily budget it waits.
-    if (
-      engine === "media" &&
-      !(await ai.reserve({
+    // video, at what the request can cost at most (its audio, and every
+    // output token it allows). The share spent waits for tomorrow; only
+    // other calls' holds in the way, a couple of minutes.
+    let held: string | undefined;
+    if (engine === "media") {
+      const hold = await ai.reserve({
         userId: claim.userId,
         micros: modelCostMicros(INDEXING.models.gemini, {
-          inputTokens: FREE_ALLOWANCE.videoTranscriptMaxMinutes * 60 * 32,
-          outputTokens: 20_000,
+          inputTokens:
+            FREE_ALLOWANCE.videoTranscriptMaxMinutes *
+              60 *
+              DEEP_FETCH.audioTokensPerSecond +
+            DEEP_FETCH.mediaPromptTokens,
+          outputTokens: DEEP_FETCH.mediaMaxOutputTokens,
           audio: true,
         }),
-      }))
-    ) {
-      return wait(secondsToNextUtcDay(now()));
+      });
+      if ("refused" in hold)
+        return wait(
+          hold.refused === "busy"
+            ? BUSY_RETRY_SECONDS
+            : secondsToNextUtcDay(now())
+        );
+      held = hold.id;
     }
     if (!(await store.takeSlot(claim.userId))) {
+      if (held) await ai.releaseHold(held).catch(() => {});
       return wait(secondsToNextUtcDay(now()));
     }
 
@@ -191,9 +210,13 @@ export function createDeepFetchWorker({
     if (result.seconds > 0) {
       await store.addSeconds(engine, window.key, result.seconds);
     }
-    for (const usage of result.usage ?? []) {
+    // The first call's cost settles the hold; a result with no call gives it back.
+    if (held && !result.usage?.length)
+      await ai.releaseHold(held).catch(() => {});
+    for (const [n, usage] of (result.usage ?? []).entries()) {
       await ai
         .recordCall({
+          ...(n === 0 && held && { reservation: held }),
           userId: claim.userId,
           memoryId: claim.memoryId,
           memoryGeneration: claim.generation,

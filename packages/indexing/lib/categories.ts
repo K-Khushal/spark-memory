@@ -4,7 +4,9 @@ import {
   chooseCategories,
   cosine,
   embeddingSpace,
+  EMBEDDING,
   INDEXING,
+  maxTokens,
   prototypeOf,
 } from "@spark/core";
 import { embedCostMicros, type Embedder } from "./embedder";
@@ -32,9 +34,9 @@ const MAX_PROTOTYPES = 2000;
 const prototypeKey = (space: string, name: string) =>
   `${space}\0${CATEGORISING.version}\0${name}`;
 
-/** About three characters a token, plus the question and the Category names. */
+/** At most one token a UTF-8 byte of what is sent, plus the question and the Category names. */
 export const jevTokenEstimate = (text: string) =>
-  Math.ceil(Math.min(text.length, INDEXING.maxInputChars) / 3) + 800;
+  maxTokens(text.slice(0, INDEXING.maxInputChars)) + 800;
 
 export const jevCostMicros = (model: string, inputTokens: number) =>
   Math.ceil(
@@ -43,13 +45,36 @@ export const jevCostMicros = (model: string, inputTokens: number) =>
   );
 
 /**
+ * A hold on one billable call's cost, taken right before the call: the
+ * call's cost goes to `record` with `reservation`, which settles it; a hold
+ * the call did not use is given back with `release` (safe after settling).
+ */
+export type CallHold = {
+  reservation?: string;
+  release: () => Promise<void>;
+};
+
+/** Up to this many Category prototypes are embedded in one call. */
+const prototypeHold = (embedder: Embedder, names: readonly string[]) =>
+  embedCostMicros(embedder.model, {
+    textTokens: names.reduce(
+      (n, name) =>
+        n + Math.min(maxTokens(prototypeOf(name)), EMBEDDING.maxInputTokens),
+      0
+    ),
+    imageTokens: 0,
+  });
+
+/**
  * Up to three Categories for one Memory, or undefined when none could be
  * decided now (budget spent, Memory changed, every method failed): the
  * Memory then keeps its old ones and is tried again later.
  *
  * `allow` is asked right before each outside call: it is false once the
- * run has moved on, AI opt-out is on or the daily budget is spent, so
- * nothing is sent for it. Jev, when configured, goes first; if it fails
+ * run has moved on or AI opt-out is on, so nothing is sent for it. `hold`
+ * is asked only when a billable call is about to be made (never to look),
+ * with that call's cost as an upper bound; no hold (budget, or the share
+ * spent) means no call, and the Memory is tried again later. Jev, when configured, goes first; if it fails
  * once (no retry), the Memory's own embedding is compared with the
  * Categories' prototypes instead.
  */
@@ -60,6 +85,7 @@ export async function categorise({
   jev,
   own = [],
   allow,
+  hold,
   record,
   loadPrototypes,
   savePrototypes,
@@ -80,15 +106,25 @@ export async function categorise({
   /** The owner's own Category names, beside the built-ins and no one else's. */
   own?: readonly string[];
   allow: () => Promise<boolean>;
+  hold: (micros: number) => Promise<CallHold | undefined>;
   record: (
     call: Pick<
       AiCall,
-      "provider" | "model" | "usage" | "costMicros" | "estimated"
+      | "provider"
+      | "model"
+      | "usage"
+      | "costMicros"
+      | "estimated"
+      | "reservation"
     >
   ) => Promise<void>;
 }): Promise<string[] | undefined> {
   const names = [...CATEGORY_NAMES, ...own];
-  if (jev && (await allow())) {
+  const jevHold =
+    jev && (await allow())
+      ? await hold(jevCostMicros(jev.model, jevTokenEstimate(text)))
+      : undefined;
+  if (jev && jevHold) {
     let reply;
     try {
       reply = await jev.classify(text, names);
@@ -101,6 +137,7 @@ export async function categorise({
         usage: { inputTokens, outputTokens: 0 },
         costMicros: jevCostMicros(jev.model, inputTokens),
         estimated: true,
+        reservation: jevHold.reservation,
       }).catch(() => {});
     }
     if (reply) {
@@ -109,7 +146,11 @@ export async function categorise({
         model: jev.model,
         usage: { inputTokens: reply.inputTokens, outputTokens: 0 },
         costMicros: jevCostMicros(jev.model, reply.inputTokens),
+        reservation: jevHold.reservation,
       }).catch(() => {});
+    }
+    await jevHold.release().catch(() => {});
+    if (reply) {
       // Warm the persisted fallback during ordinary Indexing, even when Jev
       // answered: the cron is intentionally unable to call any provider.
       if (savePrototypes)
@@ -117,6 +158,7 @@ export async function categorise({
           embedder,
           own,
           allow,
+          hold,
           record,
           loadPrototypes,
           savePrototypes,
@@ -128,6 +170,7 @@ export async function categorise({
     embedder,
     own,
     allow,
+    hold,
     record,
     loadPrototypes,
     savePrototypes,
@@ -144,12 +187,19 @@ export async function prepareCategoryPrototypes({
   embedder,
   own = [],
   allow,
+  hold,
   record,
   loadPrototypes,
   savePrototypes,
 }: Pick<
   Parameters<typeof categorise>[0],
-  "embedder" | "own" | "allow" | "record" | "loadPrototypes" | "savePrototypes"
+  | "embedder"
+  | "own"
+  | "allow"
+  | "hold"
+  | "record"
+  | "loadPrototypes"
+  | "savePrototypes"
 >): Promise<Record<string, number[]> | undefined> {
   const names = [...CATEGORY_NAMES, ...own];
   if (!(await allow())) return undefined;
@@ -165,10 +215,20 @@ export async function prepareCategoryPrototypes({
   try {
     if (missing.length) {
       if (!(await allow())) return undefined;
-      const { vectors, usage } = await embedder.embed(
-        missing.map((name) => ({ text: prototypeOf(name) })),
-        { timeoutMs: 10_000 }
-      );
+      // Held only now, right before the one call that bills.
+      const held = await hold(prototypeHold(embedder, missing));
+      if (!held) return undefined;
+      let embedded;
+      try {
+        embedded = await embedder.embed(
+          missing.map((name) => ({ text: prototypeOf(name) })),
+          { timeoutMs: 10_000 }
+        );
+      } catch (error) {
+        await held.release().catch(() => {});
+        throw error;
+      }
+      const { vectors, usage } = embedded;
       await record({
         provider: embedder.name,
         model: embedder.model,
@@ -177,7 +237,9 @@ export async function prepareCategoryPrototypes({
           outputTokens: 0,
         },
         costMicros: embedCostMicros(embedder.model, usage),
+        reservation: held.reservation,
       });
+      await held.release().catch(() => {});
       if (prototypes.size + missing.length > MAX_PROTOTYPES) prototypes.clear();
       missing.forEach((name, i) =>
         prototypes.set(prototypeKey(space, name), vectors[i] ?? [])

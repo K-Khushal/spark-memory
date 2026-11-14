@@ -1,6 +1,7 @@
 import { takeDailyCapture, takeDailyKeep } from "./capture-allowance";
+import { UPLOAD_WINDOW_HOURS, usedStorageBytes } from "./storage";
 import { searchHistory } from "./search-history";
-import { and, asc, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
   BulkMemories,
@@ -208,7 +209,7 @@ type NewFile = Omit<FileUpload, "key"> & {
  * Uploads that have not finished count towards storage for this long (so
  * parallel Captures cannot overfill it), and are swept after it.
  */
-export const UPLOAD_WINDOW_HOURS = 24;
+export { UPLOAD_WINDOW_HOURS };
 
 /**
  * A presigned PUT lives this long (apps/server/src/files.ts). An unfinished
@@ -562,52 +563,10 @@ export function openLibrary(
    * one Memory's. A reel's copy (#20) takes storage while it exists, as every
    * file does, though it is temporary and never a Capture.
    */
-  async function usedStorage(
-    tx: Pick<Database, "select">,
+  const usedStorage = (
+    tx: Pick<Database, "execute">,
     except?: string
-  ): Promise<number> {
-    const [[files], [copies], [text]] = await Promise.all([
-      tx
-        .select({ bytes: sql<string>`coalesce(sum(${memoryFile.bytes}), 0)` })
-        .from(memoryFile)
-        .innerJoin(memory, eq(memory.id, memoryFile.memoryId))
-        .where(
-          and(
-            eq(memory.userId, userId),
-            except === undefined ? undefined : ne(memory.id, except),
-            sql`(${memoryFile.storedAt} is not null or ${memoryFile.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
-          )
-        ),
-      tx
-        .select({ bytes: sql<string>`coalesce(sum(${memoryCopy.bytes}), 0)` })
-        .from(memoryCopy)
-        .innerJoin(memory, eq(memory.id, memoryCopy.memoryId))
-        .where(
-          and(
-            eq(memory.userId, userId),
-            except === undefined ? undefined : ne(memory.id, except),
-            sql`(${memoryCopy.storedAt} is not null or ${memoryCopy.createdAt} > now() - make_interval(hours => ${UPLOAD_WINDOW_HOURS}))`
-          )
-        ),
-      // Text counts too: a body, title and note take the shared database.
-      tx
-        .select({ bytes: sql<string>`coalesce(sum(${textBytes}), 0)` })
-        .from(memory)
-        .where(
-          and(
-            eq(memory.userId, userId),
-            // Samples are never counted (GLOSSARY.md).
-            eq(memory.sample, false),
-            except === undefined ? undefined : ne(memory.id, except)
-          )
-        ),
-    ]);
-    return (
-      Number(files?.bytes ?? 0) +
-      Number(copies?.bytes ?? 0) +
-      Number(text?.bytes ?? 0)
-    );
-  }
+  ): Promise<number> => usedStorageBytes(tx, userId, { except });
 
   /** What one Memory's text takes (octet_length reads the size without loading the value). */
   async function textBytesOf(tx: Pick<Database, "select">, id: string) {
@@ -640,7 +599,7 @@ export function openLibrary(
    * UTC day, so past the allowance nothing grows without bound.
    */
   async function chargeText(
-    tx: Pick<Database, "insert" | "select">
+    tx: Pick<Database, "insert" | "execute">
   ): Promise<"paid" | "kept"> {
     if ((await usedStorage(tx)) > FREE_ALLOWANCE.storageBytes) {
       throw new Refusal("storage_full");
@@ -1571,8 +1530,12 @@ export function openLibrary(
           union all
           select id, octet_length(coalesce(body, '')) + octet_length(coalesce(title, ''))
               + octet_length(coalesce(capture_note, ''))
+              + coalesce((select octet_length(i.title) + octet_length(i.description) + octet_length(i.ocr_text)
+                  + octet_length(array_to_string(i.entities, ' ')) + octet_length(array_to_string(i.tags, ' '))
+                  from memory_index i where i.memory_id = memory.id), 0)
             from memory where user_id = ${userId} and not sample
-              and coalesce(body, title, capture_note) is not null
+              and (coalesce(body, title, capture_note) is not null
+                or exists (select 1 from memory_index i where i.memory_id = memory.id))
         ) t
         join memory m on m.id = t.memory_id
         where m.user_id = ${userId}

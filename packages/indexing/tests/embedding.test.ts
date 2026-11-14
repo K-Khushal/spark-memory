@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMBEDDING, INDEXING, JUDGING } from "@spark/core";
+import {
+  EMBEDDING,
+  INDEXING,
+  JUDGING,
+  maxTokens,
+  type Hold,
+} from "@spark/core";
 import {
   createIndexer,
   embeddingInputs,
@@ -98,8 +104,16 @@ function store({
     fail: async () => true,
     spentTodayMicros: async () => spentNow,
     dailyBudgetMicros: async () => limit,
-    reserve: async ({ global }: { global?: boolean }) =>
-      global === false || spentNow < limit,
+    reserve: async ({
+      global,
+    }: {
+      micros?: number;
+      global?: boolean;
+    }): Promise<Hold> =>
+      global === false || spentNow < limit
+        ? { id: "hold" }
+        : { refused: "spent" },
+    releaseHold: async () => {},
     recordCall: async (call: {
       costMicros: number;
       estimated?: boolean;
@@ -139,6 +153,39 @@ const paidExtraction: Provider = {
 };
 
 describe("embedding in the Indexing pipeline", () => {
+  it("holds the embedding at an upper bound by UTF-8 bytes, so a language of three-byte letters cannot exceed it", async () => {
+    const hindi = "यह एक नींबू का टार्ट है और बहुत स्वादिष्ट भी। ".repeat(80);
+    const s = store({ memory: { ...pending, body: hindi } });
+    const holds: number[] = [];
+    s.reserve = async (input) => {
+      holds.push(input.micros ?? 0);
+      return { id: "hold-e" };
+    };
+    const embedder = stubEmbedder();
+    const { index } = createIndexer({
+      store: s,
+      providers: [fakeProvider()],
+      embedder,
+      readFile: noFiles,
+    });
+    expect(await index(indexJob)).toEqual({ result: "searchable" });
+    // holds[0] is the Extraction's; the embedding's is the last.
+    const inputs = embedder.seen[0]!;
+    const bytes = inputs.reduce(
+      (n, input) =>
+        "text" in input ? n + Math.min(maxTokens(input.text), 8192) : n,
+      0
+    );
+    const atMost = Math.ceil((bytes * 200_000) / 1_000_000);
+    const guess = Math.ceil(
+      (inputs.reduce((n, i) => ("text" in i ? n + i.text.length : n), 0) / 3) *
+        0.2
+    );
+    expect(holds.at(-1)).toBeGreaterThanOrEqual(atMost);
+    expect(holds.at(-1)).toBeGreaterThan(guess);
+    expect(s.calls.at(-1)).toMatchObject({ reservation: "hold-e" });
+  });
+
   it("embeds after Extraction and writes the vectors with the result, at the revision it read", async () => {
     const s = store();
     const embedder = stubEmbedder();

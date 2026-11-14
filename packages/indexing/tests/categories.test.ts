@@ -31,6 +31,7 @@ function embedder(model: string): Embedder & { calls: number } {
 const toward = (...names: Category[]) =>
   CATEGORY_NAMES.map((n) => (names.includes(n) ? 1 : 0));
 const yes = async () => true;
+const grant = async () => ({ release: async () => {} });
 const calls: { provider?: string }[] = [];
 const record = async (call: { provider?: string }) => void calls.push(call);
 afterEach(() => {
@@ -48,6 +49,7 @@ describe("categorise", () => {
         vector: toward("Recipe"),
         embedder: e,
         allow: async () => allowed,
+        hold: grant,
         record,
         loadPrototypes: async () => {
           allowed = false;
@@ -56,6 +58,134 @@ describe("categorise", () => {
       })
     ).toBeUndefined();
     expect(e.calls).toBe(0);
+  });
+
+  describe("holds", () => {
+    /** A hold maker that remembers what was asked and what was given back. */
+    const holds = () => {
+      const log = {
+        asked: [] as number[],
+        released: 0,
+        refuse: false,
+      };
+      return Object.assign(log, {
+        hold: async (micros: number) => {
+          log.asked.push(micros);
+          return log.refuse
+            ? undefined
+            : {
+                reservation: `hold-${log.asked.length}`,
+                release: async () => void log.released++,
+              };
+        },
+      });
+    };
+    const stored = Object.fromEntries(
+      CATEGORY_NAMES.map((name, i) => [
+        name,
+        CATEGORY_NAMES.map((_, j) => (i === j ? 1 : 0)),
+      ])
+    );
+
+    it("takes no hold, and calls nothing, when the persisted prototypes are all there is to read", async () => {
+      const e = embedder("holds-stored");
+      const h = holds();
+      expect(
+        await categorise({
+          text: "tart",
+          vector: toward("Recipe"),
+          embedder: e,
+          allow: yes,
+          hold: h.hold,
+          record,
+          loadPrototypes: async () => stored,
+        })
+      ).toEqual(["Recipe"]);
+      expect(h.asked).toEqual([]);
+      expect(e.calls).toBe(0);
+    });
+
+    it("holds right before embedding the missing prototypes, settles it with the cost, then lets go of it", async () => {
+      const e = embedder("holds-missing");
+      const h = holds();
+      const recorded: { reservation?: string }[] = [];
+      await categorise({
+        text: "tart",
+        vector: toward("Recipe"),
+        embedder: e,
+        allow: yes,
+        hold: h.hold,
+        record: async (call) => void recorded.push(call),
+      });
+      expect(h.asked).toHaveLength(1);
+      expect(h.asked[0]).toBeGreaterThanOrEqual(0);
+      expect(e.calls).toBe(1);
+      expect(recorded).toEqual([
+        expect.objectContaining({ reservation: "hold-1" }),
+      ]);
+      expect(h.released).toBe(1);
+    });
+
+    it("makes no call when no hold is given, and gives back a hold whose call failed", async () => {
+      const none = holds();
+      none.refuse = true;
+      const e = embedder("holds-refused");
+      expect(
+        await categorise({
+          text: "tart",
+          vector: toward("Recipe"),
+          embedder: e,
+          allow: yes,
+          hold: none.hold,
+          record,
+        })
+      ).toBeUndefined();
+      expect(e.calls).toBe(0);
+      const failing = embedder("holds-failing");
+      failing.embed = async () => {
+        throw new Error("down");
+      };
+      const h = holds();
+      expect(
+        await categorise({
+          text: "tart",
+          vector: toward("Recipe"),
+          embedder: failing,
+          allow: yes,
+          hold: h.hold,
+          record,
+        })
+      ).toBeUndefined();
+      expect(h.released).toBe(1);
+      expect(calls).toEqual([]);
+    });
+
+    it("holds Jev's call at an upper bound by its UTF-8 bytes, and settles then releases it", async () => {
+      const e = embedder("holds-jev");
+      const h = holds();
+      const jev: CategoryClient = {
+        model: "jev-1.14.0",
+        classify: async () => ({ scores: { Recipe: 0.9 }, inputTokens: 10 }),
+      };
+      const text = "नींबू का टार्ट ".repeat(500);
+      const recorded: { reservation?: string }[] = [];
+      await categorise({
+        text,
+        vector: toward("Recipe"),
+        embedder: e,
+        jev,
+        allow: yes,
+        hold: h.hold,
+        record: async (call) => void recorded.push(call),
+        loadPrototypes: async () => stored,
+      });
+      // The first hold is Jev's, at its bytes (not characters ÷ 3).
+      expect(h.asked[0]).toBeGreaterThan(
+        Math.ceil(((text.length / 3 + 800) * 42_000) / 1_000_000)
+      );
+      expect(recorded[0]).toMatchObject({ reservation: "hold-1" });
+      expect(h.released).toBe(h.asked.length);
+    });
   });
 
   it("takes Jev's Categories above the threshold and bills its input tokens", async () => {
@@ -74,6 +204,7 @@ describe("categorise", () => {
         embedder: e,
         jev,
         allow: yes,
+        hold: grant,
         record,
       })
     ).toEqual(["Recipe", "Tutorial"]);
@@ -102,6 +233,7 @@ describe("categorise", () => {
         embedder: e,
         jev,
         allow: yes,
+        hold: grant,
         record: async (call) => {
           seen.push(call);
           throw new Error("database away");
@@ -127,6 +259,7 @@ describe("categorise", () => {
         embedder: e,
         ...(jev && { jev }),
         allow: yes,
+        hold: grant,
         record,
       });
     expect(await run(toward("Recipe"), down)).toEqual(["Recipe"]);
@@ -146,7 +279,14 @@ describe("categorise", () => {
   it("is Other when nothing is near, or the vector is unusable", async () => {
     const e = embedder("far");
     const run = (vector: number[]) =>
-      categorise({ text: "x", vector, embedder: e, allow: yes, record });
+      categorise({
+        text: "x",
+        vector,
+        embedder: e,
+        allow: yes,
+        hold: grant,
+        record,
+      });
     expect(await run(new Array<number>(CATEGORY_NAMES.length).fill(0))).toEqual(
       ["Other"]
     );
@@ -164,6 +304,7 @@ describe("categorise", () => {
         vector: toward("Recipe"),
         embedder: e,
         allow: yes,
+        hold: grant,
         record,
       })
     ).toBeUndefined();
@@ -184,6 +325,7 @@ describe("categorise", () => {
         embedder: e,
         jev,
         allow: async () => false,
+        hold: grant,
         record: async () => {
           throw new Error("must not record");
         },

@@ -2,11 +2,7 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { CategoryRequest } from "@spark/core";
 import { openCategories } from "@spark/db";
-import {
-  embedderFor,
-  HELD_CATEGORY_MICROS,
-  prepareCategoryPrototypes,
-} from "@spark/indexing";
+import { embedderFor, prepareCategoryPrototypes } from "@spark/indexing";
 import { spendStore } from "./spend";
 import type { AppEnv } from "./env";
 import { providers } from "./indexing";
@@ -112,7 +108,16 @@ async function preparePrototypes(
     await prepareCategoryPrototypes({
       embedder,
       own: names,
-      allow: () => store.reserve({ userId, micros: HELD_CATEGORY_MICROS }),
+      allow: async () => true,
+      hold: async (micros) => {
+        const held = await store.reserve({ userId, micros });
+        return "refused" in held
+          ? undefined
+          : {
+              reservation: held.id,
+              release: () => store.releaseHold(held.id),
+            };
+      },
       loadPrototypes: (space, names) =>
         store.loadCategoryPrototypes(userId, space, names),
       savePrototypes: (space, vectors) =>

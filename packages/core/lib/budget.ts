@@ -66,3 +66,11 @@ export function ownerBudgetMicros(
 ): number {
   return Math.floor(dailyBudgetMicros * share);
 }
+
+/**
+ * What asking to hold an AI call's cost answers: the hold's id, or why not.
+ * `spent`: the person's share (or the day's budget) is used up, wait for the
+ * next UTC day. `busy`: other calls' holds in flight leave no room right
+ * now, try again soon.
+ */
+export type Hold = { id: string } | { refused: "spent" | "busy" };

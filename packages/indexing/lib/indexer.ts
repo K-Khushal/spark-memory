@@ -6,7 +6,9 @@ import {
   indexedPages,
   INDEXING,
   IndexingOutput,
+  maxTokens,
   modelCostMicros,
+  type Hold,
   PdfScanOutput,
   type IndexFailure,
   type ProviderName,
@@ -249,14 +251,17 @@ export type IndexStore = {
   /**
    * Holds an estimate of a call's cost before it is made, or says no: the
    * person has spent their share of today's budget, or (with `global`)
-   * everyone together have spent all of it. The call's `recordCall` then
-   * replaces the hold, so parallel calls cannot overshoot the budget.
+   * everyone together have spent all of it (`spent`: wait for the next UTC
+   * day), or other calls' holds leave no room right now (`busy`: try again
+   * soon). The call's `recordCall({ reservation })` then settles exactly
+   * that hold; `releaseHold` gives it back when no cost was recorded.
    */
   reserve(input: {
     userId: string;
     micros: number;
     global?: boolean;
-  }): Promise<boolean>;
+  }): Promise<Hold>;
+  releaseHold(id: string): Promise<void>;
 };
 
 /** One AI call and what it cost, for the admin page and the budget. */
@@ -274,6 +279,8 @@ export type AiCall = {
   costMicros: number;
   /** A guess: the call timed out, so no usage came back. */
   estimated?: boolean;
+  /** The hold (`IndexStore.reserve`) this call was made under; its cost settles that hold. */
+  reservation?: string;
 };
 
 export type IndexOutcome =
@@ -287,19 +294,21 @@ export type IndexOutcome =
 class InvalidOutput extends Error {}
 /** The run moved on (an edit, Retry or AI opt-out) before a provider call. */
 class Superseded extends Error {}
-/** No budget is left for the call (the person's share, or everyone's): wait for the next UTC day. */
-class OverBudget extends Error {}
+/**
+ * No budget for the call: `spent` (the person's share, or everyone's: wait
+ * for the next UTC day) or `busy` (other calls' holds in flight: soon).
+ */
+class OverBudget extends Error {
+  constructor(readonly why: "spent" | "busy") {
+    super(why);
+  }
+}
 
-/** About three characters a token: an overestimate, which is what a hold should be. */
-const heldTextTokens = (chars: number) => Math.ceil(chars / 3);
+/** How long a run waits when only other calls' holds stand in the way. */
+const BUSY_RETRY_SECONDS = 90;
+
 /** Tokens one image or page image is held at. */
-const HELD_IMAGE_TOKENS = 1_600;
-/** Output tokens a normal Extraction is held at. */
-const HELD_OUTPUT_TOKENS = 2_000;
-/** Audio tokens a second of video sound is held at (Gemini counts 32). */
-const HELD_AUDIO_TOKENS_PER_SECOND = 32;
-/** What a Category's call (a prototype embedding, or Jev) is held at, in micro-dollars. */
-export const HELD_CATEGORY_MICROS = 500;
+const HELD_IMAGE_TOKENS = INDEXING.heldImageTokens;
 
 const costMicros = (model: string, { inputTokens, outputTokens }: Usage) => {
   const [input, output] = INDEXING.pricesMicrosPerMTokens[model] ?? [0, 0];
@@ -413,7 +422,10 @@ export function createIndexer({
    * A new Capture's first run is never held back by the global budget, only
    * by the person's share of it.
    */
-  const hold = (work: Claim & { priority?: Priority }, micros: number) =>
+  const hold = (
+    work: Claim & { priority?: Priority },
+    micros: number
+  ): Promise<Hold> =>
     store.reserve({
       userId: work.userId,
       micros,
@@ -425,24 +437,26 @@ export function createIndexer({
     // AI opt-out switched on (or an edit, or Retry) since loading: stop here.
     if (!(await store.isCurrent(work))) throw new Superseded();
     const images = (request.image ? 1 : 0) + (request.pages?.length ?? 0);
-    const chars =
-      request.system.length +
-      request.user.length +
-      (request.correction
-        ? request.correction.previous.length + request.correction.errors.length
-        : 0);
-    if (
-      !(await hold(
-        work,
-        costMicros(provider.model, {
-          inputTokens: heldTextTokens(chars) + images * HELD_IMAGE_TOKENS,
-          outputTokens: request.pages
-            ? INDEXING.scanMaxOutputTokens
-            : HELD_OUTPUT_TOKENS,
-        })
-      ))
-    )
-      throw new OverBudget();
+    // An upper bound: input at its UTF-8 bytes (no tokenizer makes more
+    // tokens than bytes), and every output token the request allows.
+    const held = await hold(
+      work,
+      costMicros(provider.model, {
+        inputTokens:
+          maxTokens(request.system) +
+          maxTokens(request.user) +
+          (request.correction
+            ? maxTokens(request.correction.previous) +
+              maxTokens(request.correction.errors) +
+              200
+            : 0) +
+          images * HELD_IMAGE_TOKENS,
+        outputTokens: request.pages
+          ? INDEXING.scanMaxOutputTokens
+          : INDEXING.maxOutputTokens,
+      })
+    );
+    if ("refused" in held) throw new OverBudget(held.refused);
     let reply;
     try {
       reply = await provider.extract(request);
@@ -455,7 +469,11 @@ export function createIndexer({
           usage: error.estimate,
           costMicros: costMicros(provider.model, error.estimate),
           estimated: true,
+          reservation: held.id,
         });
+      } else {
+        // Failed before it could be billed: the hold goes back.
+        await store.releaseHold(held.id).catch(() => {});
       }
       throw error;
     }
@@ -465,6 +483,7 @@ export function createIndexer({
       model: provider.model,
       usage: reply.usage,
       costMicros: costMicros(provider.model, reply.usage),
+      reservation: held.id,
     });
     return reply.text;
   }
@@ -529,6 +548,7 @@ export function createIndexer({
     if (!embedder) return undefined;
     const record = (
       usage: { textTokens: number; imageTokens: number },
+      reservation: string,
       estimated?: boolean
     ) =>
       recordCall({
@@ -540,6 +560,7 @@ export function createIndexer({
           outputTokens: 0,
         },
         costMicros: embedCostMicros(embedder.model, usage),
+        reservation,
         ...(estimated && { estimated }),
       });
     let visuals = loaded ?? (await visualsOf(work));
@@ -549,18 +570,24 @@ export function createIndexer({
         visuals
       );
       if (!(await current())) throw new Superseded();
-      // No budget left for it: no vectors now; the hourly sweep makes them later.
-      const held = { textTokens: 0, imageTokens: 0 };
+      // Held at an upper bound: a text at its UTF-8 bytes (the model cuts
+      // each input at its token limit), an image at its high-resolution count.
+      // No room for it: no vectors now; the hourly sweep makes them later
+      // (the Extraction already paid for must not be redone).
+      const bound = { textTokens: 0, imageTokens: 0 };
       for (const input of inputs) {
         if ("text" in input)
-          held.textTokens += heldTextTokens(input.text.length);
-        else held.imageTokens += HELD_IMAGE_TOKENS;
+          bound.textTokens += Math.min(
+            maxTokens(input.text),
+            EMBEDDING.maxInputTokens
+          );
+        else bound.imageTokens += HELD_IMAGE_TOKENS;
       }
-      if (!(await hold(work, embedCostMicros(embedder.model, held))))
-        return undefined;
+      const held = await hold(work, embedCostMicros(embedder.model, bound));
+      if ("refused" in held) return undefined;
       try {
         const { vectors, usage } = await embedder.embed(inputs);
-        await record(usage);
+        await record(usage, held.id);
         return {
           model: embedder.model,
           dimensions: embedder.dimensions,
@@ -571,13 +598,19 @@ export function createIndexer({
           })),
         };
       } catch (error) {
-        if (!(error instanceof ProviderError)) throw error;
+        if (!(error instanceof ProviderError)) {
+          await store.releaseHold(held.id).catch(() => {});
+          throw error;
+        }
         if (error.estimate) {
           const { inputTokens, imageTokens = 0 } = error.estimate;
           await record(
             { textTokens: Math.max(0, inputTokens - imageTokens), imageTokens },
+            held.id,
             true
           );
+        } else {
+          await store.releaseHold(held.id).catch(() => {});
         }
         // An image the model will not read still leaves the text to embed.
         if (error.kind !== "unsupported" || !visuals.length) return undefined;
@@ -721,18 +754,20 @@ export function createIndexer({
         // Asked again right before the call: AI opt-out may have been
         // switched on, or the reel replaced, while the video was read.
         if (!(await store.isCurrent(work))) return { result: "skipped" };
-        const seconds = Math.ceil(copy.video.duration);
-        if (
-          !(await hold(
-            work,
-            modelCostMicros(transcriber.model, {
-              inputTokens: seconds * HELD_AUDIO_TOKENS_PER_SECOND + 1_000,
-              outputTokens: heldTextTokens(FREE_ALLOWANCE.textMaxChars),
-              audio: true,
-            })
-          ))
-        )
-          return pausedUntilTomorrow();
+        // Held at what the request can cost at most: the video's tokens a
+        // second for its whole length, and every output token it allows.
+        const held = await hold(
+          work,
+          modelCostMicros(transcriber.model, {
+            inputTokens:
+              Math.ceil(
+                copy.video.duration * INDEXING.transcribeTokensPerSecond
+              ) + 1_000,
+            outputTokens: INDEXING.transcribeMaxOutputTokens,
+            audio: true,
+          })
+        );
+        if ("refused" in held) return pausedFor(held.refused);
         try {
           const { segments, usage } = await transcriber.transcribe(
             { bytes, mime: copy.video.mime },
@@ -748,6 +783,7 @@ export function createIndexer({
               ...usage,
               audio: true,
             }),
+            reservation: held.id,
           });
           // Never silently keep a partial transcript and call it complete.
           const chars = segments.reduce((n, s) => n + s.text.length + 1, 0);
@@ -773,7 +809,11 @@ export function createIndexer({
                 audio: true,
               }),
               estimated: true,
+              reservation: held.id,
             });
+          } else {
+            // Nothing was billed (or it was recorded above): a no-op then.
+            await store.releaseHold(held.id).catch(() => {});
           }
           const cannot =
             error instanceof ProviderError && error.kind === "unsupported";
@@ -810,6 +850,11 @@ export function createIndexer({
     result: "paused",
     delaySeconds: secondsToNextUtcDay(now()),
   });
+  /** Only other calls' holds stand in the way: try again soon, not tomorrow. */
+  const pausedFor = (why: "spent" | "busy"): IndexOutcome =>
+    why === "busy"
+      ? { result: "paused", delaySeconds: BUSY_RETRY_SECONDS }
+      : pausedUntilTomorrow();
   const overBudget = async (
     job: IndexJob
   ): Promise<IndexOutcome | undefined> =>
@@ -858,8 +903,16 @@ export function createIndexer({
         }),
         ...(jev && { jev }),
         ...(work.ownCategories && { own: work.ownCategories }),
-        allow: async () =>
-          (await hold(work, HELD_CATEGORY_MICROS)) && (await current()),
+        allow: current,
+        hold: async (micros) => {
+          const held = await hold(work, micros);
+          return "refused" in held
+            ? undefined
+            : {
+                reservation: held.id,
+                release: () => store.releaseHold(held.id),
+              };
+        },
         record: (call) => recordCall({ ...callOf(work), ...call }),
       });
       if (categories) {
@@ -1030,7 +1083,7 @@ export function createIndexer({
         return { result: written ? "searchable" : "skipped" };
       } catch (error) {
         if (error instanceof Superseded) return { result: "skipped" };
-        if (error instanceof OverBudget) return pausedUntilTomorrow();
+        if (error instanceof OverBudget) return pausedFor(error.why);
         if (error instanceof InvalidOutput) seen.add("invalid");
         else if (error instanceof ProviderError && error.kind === "unsupported")
           seen.add("unsupported");

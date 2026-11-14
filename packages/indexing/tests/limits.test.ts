@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { INDEXING } from "@spark/core";
 import {
   createIndexer,
   gemini,
@@ -51,7 +52,8 @@ async function userPartFor(body: string) {
     ...noEmbedding,
     spentTodayMicros: async () => 0,
     dailyBudgetMicros: async () => 1_000_000,
-    reserve: async () => true,
+    reserve: async () => ({ id: "hold" }),
+    releaseHold: async () => {},
     recordCall: async () => {},
   };
   await createIndexer({
@@ -136,8 +138,48 @@ describe("provider calls", () => {
     ).rejects.toMatchObject({
       kind: "failed",
       // Billed even though nothing came back: every output token it may use.
-      estimate: { inputTokens: 100, outputTokens: 4096 },
+      estimate: { inputTokens: 400, outputTokens: 4096 },
     });
+  });
+
+  it("asks each provider for exactly the output a hold counts: INDEXING's maximum, and a scan's own", async () => {
+    // A hold is held at these numbers, so the request may never ask for more.
+    const bodies: Record<string, unknown>[] = [];
+    const answer = {
+      candidates: [{ content: { parts: [{ text: "{}" }] } }],
+      usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+    };
+    const fetch = (async (_url: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)));
+      return new Response(JSON.stringify(answer));
+    }) as unknown as typeof globalThis.fetch;
+    const g = gemini({ apiKey: "k", paidTier: true, fetch, timeoutMs: 1000 });
+    await g.extract({ system: "s", user: "u" }).catch(() => {});
+    await g
+      .extract({
+        system: "s",
+        user: "u",
+        pages: [{ bytes: new Uint8Array([1]), mime: "image/png" }],
+      })
+      .catch(() => {});
+    const limits = bodies.map(
+      (b) => (b.generationConfig as { maxOutputTokens: number }).maxOutputTokens
+    );
+    expect(limits).toEqual([
+      INDEXING.maxOutputTokens,
+      INDEXING.scanMaxOutputTokens,
+    ]);
+    let asked: Record<string, unknown> | undefined;
+    const ai = {
+      run: async (_model: string, input: Record<string, unknown>) => {
+        asked = input;
+        return { choices: [{ message: { content: "{}" } }] };
+      },
+    };
+    await workersAi(ai as never)
+      .extract({ system: "s", user: "u" })
+      .catch(() => {});
+    expect(asked?.max_completion_tokens).toBe(INDEXING.maxOutputTokens);
   });
 
   it("estimates a Gemini call it lost after sending, at its most, and not one Google refused", async () => {
@@ -210,7 +252,8 @@ describe("provider calls", () => {
       ...noEmbedding,
       spentTodayMicros: async () => 0,
       dailyBudgetMicros: async () => 1_000_000,
-      reserve: async () => true,
+      reserve: async () => ({ id: "hold" }),
+      releaseHold: async () => {},
       recordCall: async (call) => {
         calls.push(call);
       },
@@ -253,7 +296,8 @@ describe("provider calls", () => {
       ...noEmbedding,
       spentTodayMicros: async () => 0,
       dailyBudgetMicros: async () => 1_000_000,
-      reserve: async () => true,
+      reserve: async () => ({ id: "hold" }),
+      releaseHold: async () => {},
       recordCall: async (call) => {
         calls.push(call);
       },

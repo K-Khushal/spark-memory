@@ -157,7 +157,8 @@ try {
     find: (q, options) => time(sqlTimings, () => library.search(q, options)),
     embedder: stub,
     spend: {
-      reserve: async () => true,
+      reserve: async () => ({ id: "hold" }),
+      releaseHold: async () => {},
       recordCall: async () => {},
     },
   });
