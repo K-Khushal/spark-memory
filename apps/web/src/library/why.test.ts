@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colourName, whyLabel } from "./why";
+import { clip, colourName, whyLabel } from "./why";
 
 const filter = (field: "colour" | "source" | "kind" | "date", value: string) =>
   whyLabel({
@@ -61,5 +61,30 @@ describe("why-chips for what a search matched", () => {
   it("says when it looks like the query", () => {
     expect(found({ kind: "visual" }, "image")).toBe("Image");
     expect(found({ kind: "overview" })).toBe("Overview");
+  });
+});
+
+describe("why-chips for text without spaces", () => {
+  const passage = (body: string) =>
+    whyLabel({
+      kind: "text",
+      body,
+      part: { kind: "passage", field: "body", start: 0, end: body.length },
+    });
+
+  it("cuts on whole characters, never through a pair or a joined emoji", () => {
+    const family = "👨‍👩‍👧‍👦";
+    const body = "あ".repeat(119) + family + "い".repeat(10);
+    // A plain slice(0, 120) would end one unit into the emoji.
+    expect(body.slice(0, 120).endsWith("\u{1F468}")).toBe(false);
+    expect(body.slice(0, 120)).not.toBe(clip(body, 120));
+    expect(passage(body)).toBe(`“${"あ".repeat(119)}${family}”`);
+    expect(clip("か\u3099".repeat(5), 2)).toBe("か\u3099か\u3099");
+  });
+
+  it("leaves short and spaced text as it was", () => {
+    expect(passage("検索のテスト")).toBe("“検索のテスト”");
+    expect(passage("the  quick\n brown")).toBe("“the quick brown”");
+    expect(clip("abc", 3)).toBe("abc");
   });
 });

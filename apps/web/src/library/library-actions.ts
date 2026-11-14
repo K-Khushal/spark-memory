@@ -30,10 +30,19 @@ export type Memory = InferResponseType<
   200
 >;
 /**
- * A Memory on the wall; `fresh` marks a Capture that has just landed, and
- * `upload` an image whose files are still on their way (image-capture.ts).
+ * A Memory on the wall; `fresh` marks a Capture that has just landed,
+ * `resurfaced` one that has just moved to the top because its page was
+ * Captured again (the wall glides it there), and `upload` an image whose
+ * files are still on their way (image-capture.ts).
  */
-export type WallMemory = Memory & { fresh?: boolean; upload?: UploadState };
+export type WallMemory = Memory & {
+  fresh?: boolean;
+  resurfaced?: boolean;
+  upload?: UploadState;
+};
+
+/** How long a resurfaced Memory is marked: past the wall's glide (DURATION.small). */
+export const RESURFACED_MS = 400;
 
 /** What the actions need from the server. Each call rejects when it fails. */
 export type Transport = ImageTransport & {
@@ -506,8 +515,15 @@ export function libraryActions({
       const before = all.find((m) => m.id === saved.id);
       const now =
         before && pending.has(saved.id) ? { ...before, lastSavedAt } : saved;
-      return [...kept, now].sort(newestFirst);
+      return [...kept, { ...now, resurfaced: true }].sort(newestFirst);
     });
+    setTimeout(
+      () =>
+        setMemories((all) =>
+          all.map((m) => (m.id === saved.id ? { ...m, resurfaced: false } : m))
+        ),
+      RESURFACED_MS
+    );
     notify("Already in Your Library", {
       id: toastId,
       duration: 4000,

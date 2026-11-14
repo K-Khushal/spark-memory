@@ -140,10 +140,12 @@ export function searchSession({
   scope: string;
 }) {
   let stop = () => {};
+  let last: { request: SearchRequest; version: string } | undefined;
 
   /** `version` names the Library's state (libraryVersion): a new one searches again. */
   function set(request: SearchRequest | undefined, version: string) {
     stop();
+    last = request && { request, version };
     if (!request) {
       stop = () => {};
       onAnswer(undefined);
@@ -201,5 +203,12 @@ export function searchSession({
     };
   }
 
-  return { set, stop: () => stop() };
+  /** Asks again for the request last set: a failed answer is never cached, so it goes to the network. */
+  const retry = () => {
+    if (!last) return false;
+    set(last.request, last.version);
+    return true;
+  };
+
+  return { set, retry, stop: () => stop() };
 }

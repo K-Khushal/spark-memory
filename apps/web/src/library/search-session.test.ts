@@ -298,3 +298,31 @@ it("image-only searches use full mode and discard a removed image's late answer"
   s.session.set(undefined, "0");
   expect(s.last()).toBeUndefined();
 });
+
+describe("retry", () => {
+  it("asks again for the request that failed, and answers from the network", async () => {
+    const s = setup(0);
+    s.session.set({ query: "purple" }, "0");
+    await settle();
+    s.find("instant", "purple").fail();
+    s.find("full", "purple").fail();
+    await settle();
+    expect(s.last()).toMatchObject({ failed: true });
+
+    expect(s.session.retry()).toBe(true);
+    await settle();
+    expect(s.pending).toHaveLength(4);
+    s.pending[2]!.answer(["a"]);
+    s.pending[3]!.answer(["a"]);
+    await settle();
+    expect(s.ids()).toEqual(["full", ["a"]]);
+  });
+
+  it("has nothing to retry before a search is set or once it is cleared", () => {
+    const s = setup(0);
+    expect(s.session.retry()).toBe(false);
+    s.session.set({ query: "purple" }, "0");
+    s.session.set(undefined, "0");
+    expect(s.session.retry()).toBe(false);
+  });
+});

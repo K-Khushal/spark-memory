@@ -6,6 +6,7 @@ import {
   type AllowanceUsage,
   type MemoryKind,
   type Meter,
+  sourceHost,
 } from "@spark/core";
 
 /** A Memory that takes storage, as `GET /api/usage` names it. */
@@ -29,11 +30,8 @@ const time = new Intl.DateTimeFormat(undefined, {
 /** A Memory's name for a list: its title, else its Source's host, else its kind. */
 export function nameOf({ title, sourceUrl, kind }: Heaviest) {
   if (title?.trim()) return title.trim();
-  try {
-    if (sourceUrl) return new URL(sourceUrl).hostname.replace(/^www\./, "");
-  } catch {
-    // Not a URL: fall through to the kind.
-  }
+  const host = sourceUrl && sourceHost(sourceUrl);
+  if (host) return host;
   return kind === "pdf" ? "PDF" : kind === "image" ? "Image" : "Memory";
 }
 

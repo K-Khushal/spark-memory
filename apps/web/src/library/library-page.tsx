@@ -3,6 +3,7 @@ import { SelectionBar } from "./selection-bar";
 import {
   ImageQueryControls,
   memoryImageQuery,
+  LikeSourceChip,
   QueryImageChip,
   useImageQuery,
   type ImageQueryProps,
@@ -137,7 +138,7 @@ export function LibraryPage({
     [library.memories]
   );
   // ⌘K: instant per keystroke, full once typing pauses.
-  const instant = useSearch(
+  const { results: instant, ...instantSearch } = useSearch(
     searchOpen ? { query: draft, ...(visual && { visual, chips }) } : undefined,
     memoriesById,
     library.version,
@@ -151,11 +152,12 @@ export function LibraryPage({
   const request = like
     ? { like: like.id }
     : { query, ...(visual && { visual }), ...(filtering && { chips }) };
-  const first = useSearch(request, memoriesById, library.version, {
-    userId: session.user.id,
-    pauseMs: 0,
-    keepPrevious: true,
-  });
+  const { results: first, ...wallSearch } = useSearch(
+    request,
+    memoriesById,
+    library.version,
+    { userId: session.user.id, pauseMs: 0, keepPrevious: true }
+  );
   const more = useMoreResults(request, first, memoriesById);
   const results = useMemo(
     () =>
@@ -553,7 +555,15 @@ export function LibraryPage({
           (library.memories.length > 0 || visual || imageBusy) && (
             <LibraryFilters
               layout="sidebar"
-              leading={<QueryImageChip {...queryImage} />}
+              leading={
+                <>
+                  <LikeSourceChip
+                    memory={like}
+                    onClear={() => setLike(undefined)}
+                  />
+                  <QueryImageChip {...queryImage} />
+                </>
+              }
               options={filterOptions}
               chips={chips}
               onChange={changeChips}
@@ -603,7 +613,15 @@ export function LibraryPage({
           {(library.memories.length > 0 || visual || imageBusy) && (
             <LibraryFilters
               layout="row"
-              leading={<QueryImageChip {...queryImage} />}
+              leading={
+                <>
+                  <LikeSourceChip
+                    memory={like}
+                    onClear={() => setLike(undefined)}
+                  />
+                  <QueryImageChip {...queryImage} />
+                </>
+              }
               options={filterOptions}
               chips={chips}
               onChange={changeChips}
@@ -663,6 +681,8 @@ export function LibraryPage({
             {searching && results ? (
               <SearchResults
                 results={results}
+                onRetry={wallSearch.retry}
+                retrying={wallSearch.retrying}
                 query={query}
                 chips={chips}
                 onChips={changeChips}
@@ -722,6 +742,12 @@ export function LibraryPage({
           imageQuery={queryImage}
           draft={draft}
           instant={instant}
+          onRetrySearch={() => {
+            // One failure shows in both places: one Try Again asks for both.
+            instantSearch.retry();
+            wallSearch.retry();
+          }}
+          retryingSearch={instantSearch.retrying || wallSearch.retrying}
           onSearchOpenChange={(open) => {
             setSearchOpen(open);
             if (!open) metrics.abandoned();
@@ -811,6 +837,9 @@ function Wall({
       getLabel={tileLabel}
       onOpen={open}
       onPreview={open}
+      // Only a Memory moved to the top by a repeat Capture glides there.
+      glideKey="library"
+      glide={memories.some((m) => m.resurfaced)}
       renderItem={(m, tile) => (
         <MemoryTile memory={m} query={query} width={tile.width} {...tiles} />
       )}
@@ -886,6 +915,8 @@ function ResultWall({
 /** Direct Matches first, Related Matches apart (DESIGN.md → Interaction baseline). */
 function SearchResults({
   results,
+  onRetry,
+  retrying,
   query,
   chips,
   onChips,
@@ -893,6 +924,8 @@ function SearchResults({
   tiles,
 }: {
   results: Results | "failed" | undefined;
+  onRetry: () => void;
+  retrying: boolean;
   query: string;
   chips: SearchChips;
   onChips: (chips: SearchChips) => void;
@@ -905,12 +938,23 @@ function SearchResults({
   if (!results) return null;
   if (results === "failed") {
     return (
-      <h2
-        tabIndex={-1}
-        className="text-sm font-medium text-ink-muted outline-none"
-      >
-        Search Is Unreachable
-      </h2>
+      <div className="flex flex-col items-start gap-3">
+        <h2
+          tabIndex={-1}
+          className="text-sm font-medium text-ink-muted outline-none"
+        >
+          Search Is Unreachable
+        </h2>
+        <Button
+          variant="outline"
+          // Not `disabled`: that would drop the focus it holds.
+          aria-disabled={retrying}
+          className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+          onClick={() => !retrying && onRetry()}
+        >
+          Try Again
+        </Button>
+      </div>
     );
   }
   // More Like This: one wall, nearest first, no headings or chips. Read

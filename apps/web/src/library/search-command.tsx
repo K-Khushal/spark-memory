@@ -6,6 +6,7 @@ import {
   ClockIcon,
   LogOutIcon,
   PlusIcon,
+  RotateCwIcon,
   SearchIcon,
   SettingsIcon,
   Trash2Icon,
@@ -32,6 +33,8 @@ export function SearchCommand({
   draft,
   imageQuery,
   instant,
+  onRetry,
+  retrying,
   onOpenChange,
   onDraft,
   onShowOnWall,
@@ -44,6 +47,9 @@ export function SearchCommand({
   imageQuery: ImageQueryProps;
   draft: string;
   instant: Results | "failed" | undefined;
+  onRetry: () => void;
+  /** Between Try Again and the next answer. */
+  retrying: boolean;
   onOpenChange: (open: boolean) => void;
   onDraft: (value: string) => void;
   onShowOnWall: (query: string) => void;
@@ -138,7 +144,19 @@ export function SearchCommand({
         )}
         {draft.trim() || visual ? (
           instant === "failed" ? (
-            <ListNote>Search Is Unreachable</ListNote>
+            <>
+              <ListNote>Search Is Unreachable</ListNote>
+              <CommandGroup>
+                <CommandItem
+                  value="__retry"
+                  aria-disabled={retrying || undefined}
+                  onSelect={() => !retrying && onRetry()}
+                >
+                  <RotateCwIcon className="size-4 text-ink-muted" aria-hidden />
+                  Try Again
+                </CommandItem>
+              </CommandGroup>
+            </>
           ) : instant &&
             instant.direct.length + instant.related.length === 0 ? (
             <ListNote>No Direct Matches</ListNote>

@@ -64,6 +64,16 @@ test("finds a Memory by meaning, says what matched, and finds More Like This", a
   await page.getByRole("button", { name: "More Like This" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   const similar = page.getByRole("list", { name: "More Like This" });
+  // The search names its source Memory, as a picked image does: a chip that leaves the search.
+  const source = page
+    .getByRole("button", { name: "Remove More Like This" })
+    .first();
+  await expect(source).toContainText("Sunset over the dock");
+  if (process.env.FACTORY_SCREENSHOTS_DIR)
+    await page.screenshot({
+      animations: "disabled",
+      path: `${process.env.FACTORY_SCREENSHOTS_DIR}/tui2-more-like-this.png`,
+    });
   await expect(
     similar.getByRole("listitem", { name: "Dusk by the port" })
   ).toBeVisible();

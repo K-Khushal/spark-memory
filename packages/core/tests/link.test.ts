@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { LinkCapture, linkFromPaste, normaliseUrl, sourceHost } from "../index";
+import {
+  displayHost,
+  LinkCapture,
+  linkFromPaste,
+  normaliseUrl,
+  sourceHost,
+} from "../index";
 
 describe("normaliseUrl", () => {
   it("strips tracking parameters and the fragment", () => {
@@ -72,6 +78,34 @@ describe("sourceHost", () => {
       "nytimes.com"
     );
     expect(sourceHost("nonsense")).toBeUndefined();
+  });
+
+  it("shows an international host in Unicode and stores it unchanged", () => {
+    expect(sourceHost("https://www.münchen.de/karte")).toBe("münchen.de");
+    expect(sourceHost("https://xn--wgv71a119e.jp/a")).toBe("日本語.jp");
+    expect(sourceHost("https://пример.рф/")).toBe("пример.рф");
+    // The key the Library files it under is still ASCII, whatever was pasted.
+    expect(normaliseUrl("https://münchen.de/karte")).toContain(
+      "xn--mnchen-3ya.de"
+    );
+    expect(normaliseUrl("https://xn--mnchen-3ya.de/karte")).toBe(
+      normaliseUrl("https://münchen.de/karte")
+    );
+  });
+});
+
+describe("displayHost", () => {
+  it("decodes punycode labels and leaves the rest alone", () => {
+    expect(displayHost("xn--bcher-kva.example")).toBe("bücher.example");
+    expect(displayHost("shop.xn--r8jz45g.jp")).toBe("shop.例え.jp");
+    expect(displayHost("nytimes.com")).toBe("nytimes.com");
+  });
+
+  it("keeps punycode for a lookalike that mixes Latin with Cyrillic, and for junk", () => {
+    // "аpple.com" with a Cyrillic а.
+    expect(displayHost("xn--pple-43d.com")).toBe("xn--pple-43d.com");
+    expect(displayHost("xn--")).toBe("xn--");
+    expect(displayHost("xn--!!.com")).toBe("xn--!!.com");
   });
 });
 

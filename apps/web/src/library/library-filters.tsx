@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from "react";
 import {
   CATEGORY_NAMES,
   SEARCH_KINDS,
+  displayHost,
   sourceOf,
   type SearchChips,
   type SearchColour,
@@ -38,7 +39,7 @@ const SOURCE_NAMES: Record<string, string> = {
 /** A Source as it is named on a chip: "instagram" is Instagram, a domain stays a domain. */
 export const sourceLabel = (source: string) =>
   source.includes(".")
-    ? source
+    ? displayHost(source)
     : (SOURCE_NAMES[source] ?? source[0]!.toUpperCase() + source.slice(1));
 
 /** The filter a Memory's kind belongs to; none for files, which no chip covers. */

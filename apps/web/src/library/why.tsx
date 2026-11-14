@@ -25,6 +25,24 @@ const KIND_WHY: Record<string, string> = {
   text: "Note",
 };
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/**
+ * The first `max` characters of `text` as people count them: whole
+ * graphemes, so text without spaces (Chinese, Japanese, emoji with
+ * joiners) never ends mid-character, as a plain `slice` can.
+ */
+export function clip(text: string, max: number) {
+  if (text.length <= max) return text;
+  let end = 0;
+  let count = 0;
+  for (const { segment } of graphemes.segment(text)) {
+    if (++count > max) break;
+    end += segment.length;
+  }
+  return text.slice(0, end);
+}
+
 /** The palette colour, as the nearest name people say it by. */
 export function colourName(hex: string) {
   const channels = (h: string) =>
@@ -82,9 +100,7 @@ export function whyLabel({
         return `Said at ${formatTimestamp(part.seconds)}`;
       if (part.field === "ocr") return part.page ? `Page ${part.page}` : ocr;
       const words = (body ?? "").slice(part.start, part.end).trim();
-      return words
-        ? `“${words.replace(/\s+/g, " ").slice(0, 120)}”`
-        : undefined;
+      return words ? `“${clip(words.replace(/\s+/g, " "), 120)}”` : undefined;
     }
     case "visual":
       return part.page ? `Page ${part.page}` : "Image";

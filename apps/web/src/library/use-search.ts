@@ -85,7 +85,8 @@ async function fetchHits(
  * and only an answer to this search shows (shownAnswer); `keepPrevious`
  * (the wall) keeps the last results up until the new ones land. Hits are
  * read through the wall's own Memories, so local edits show and pending
- * deletes stay hidden. `version` goes up when the Library changes (an
+ * deletes stay hidden. `retry` asks again after a failure (`retrying` until
+ * the answer lands). `version` goes up when the Library changes (an
  * accepted edit, Indexing finished, AI opt-out): the search runs again.
  */
 export function useSearch(
@@ -99,10 +100,15 @@ export function useSearch(
   }: { userId: string; pauseMs?: number; keepPrevious?: boolean }
 ) {
   const [answer, setAnswer] = useState<Answer>();
+  /** Between Try Again and the next answer: the failure stays up, marked busy. */
+  const [retrying, setRetrying] = useState(false);
   const [session] = useState(() =>
     searchSession({
       fetch: fetchHits,
-      onAnswer: setAnswer,
+      onAnswer: (next) => {
+        setAnswer(next);
+        setRetrying(false);
+      },
       pauseMs,
       cache: searchCache,
       scope: userId,
@@ -130,12 +136,12 @@ export function useSearch(
   }, [session, wanted, version]);
   useEffect(() => () => session.stop(), [session]);
 
-  return useMemo((): Results | "failed" | undefined => {
+  const results = useMemo((): Results | "failed" | undefined => {
     const current = wanted && requestKey(wanted);
     const shown = shownAnswer(answer, current, keepPrevious);
     if (!shown) return undefined;
     if ("failed" in shown) return "failed";
-    const results: Results = {
+    const found: Results = {
       direct: [],
       related: [],
       mode: shown.mode,
@@ -144,10 +150,16 @@ export function useSearch(
     };
     for (const hit of shown.hits) {
       const memory = wall.get(hit.id);
-      if (memory) results[hit.match].push({ ...memory, part: hit.part });
+      if (memory) found[hit.match].push({ ...memory, part: hit.part });
     }
-    return results;
+    return found;
   }, [answer, wanted, wall, keepPrevious]);
+  const retry = () => {
+    setRetrying(true);
+    // Nothing to ask again when no search is set (the menu is closed).
+    if (!session.retry()) setRetrying(false);
+  };
+  return { results, retry, retrying };
 }
 
 /**
