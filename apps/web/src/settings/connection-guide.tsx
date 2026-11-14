@@ -1,3 +1,4 @@
+import { motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { Button, Dialog, DialogContent, DialogTitle } from "@spark/ui";
@@ -28,7 +29,7 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
       <code
         ref={code}
         tabIndex={0}
-        className="min-w-0 flex-1 p-3 font-mono text-xs/5 whitespace-pre-wrap wrap-anywhere"
+        className="min-w-0 flex-1 overflow-x-auto p-3 pb-4 font-mono text-xs/5 whitespace-pre"
       >
         {text}
       </code>
@@ -39,7 +40,14 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
         aria-label={`Copy ${label}`}
         onClick={() => void copy()}
       >
-        {copied ? <CheckIcon aria-hidden /> : <CopyIcon aria-hidden />}
+        <motion.span
+          key={String(copied)}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.15 }}
+        >
+          {copied ? <CheckIcon aria-hidden /> : <CopyIcon aria-hidden />}
+        </motion.span>
       </Button>
       <span role="status" className="sr-only">
         {copied ? "Copied" : ""}
@@ -69,6 +77,7 @@ export function ConnectionGuide({
   onOpenChange: (open: boolean) => void;
 }) {
   const url = serverUrl();
+  const [client, setClient] = useState("Claude Code");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -76,47 +85,65 @@ export function ConnectionGuide({
         aria-describedby={undefined}
       >
         <DialogTitle className="pr-8">Connection Guide</DialogTitle>
-        <Guide title="Claude Code">
-          <Step>
-            <CopyBlock
-              label="claude mcp add"
-              text={`claude mcp add --transport http spark ${url}`}
-            />
-          </Step>
-          <Step>
-            <span>Run this in Claude Code, choose spark and sign in.</span>
-            <CopyBlock label="/mcp" text="/mcp" />
-          </Step>
-        </Guide>
-        <Guide title="Claude Desktop">
-          <Step>
-            Open Customize, then Connectors. Choose Add, then Add Custom
-            Connector.
-          </Step>
-          <Step>
-            <CopyBlock label="Connector Name" text="Spark" />
-            <CopyBlock label="Server URL" text={url} />
-          </Step>
-          <Step>Choose Add, then sign in to Spark.</Step>
-        </Guide>
-        <Guide title="Codex">
-          <Step>
-            <CopyBlock
-              label="codex mcp add"
-              text={`codex mcp add spark --url ${url}`}
-            />
-          </Step>
-          <Step>
-            <CopyBlock label="codex mcp login" text="codex mcp login spark" />
-          </Step>
-          <Step>
-            <span>Or add this to ~/.codex/config.toml, then log in.</span>
-            <CopyBlock
-              label="config.toml"
-              text={`[mcp_servers.spark]\nurl = "${url}"`}
-            />
-          </Step>
-        </Guide>
+        <label className="flex flex-col gap-2 text-sm">
+          Assistant
+          <select
+            className="min-h-11 rounded-control border border-line-strong bg-canvas px-3 text-ink"
+            value={client}
+            onChange={(event) => setClient(event.target.value)}
+          >
+            {["Claude Code", "Claude Desktop", "Codex"].map((name) => (
+              <option key={name}>{name}</option>
+            ))}
+          </select>
+        </label>
+        {client === "Claude Code" && (
+          <Guide title="Claude Code">
+            <Step>
+              <CopyBlock
+                label="claude mcp add"
+                text={`claude mcp add --transport http spark ${url}`}
+              />
+            </Step>
+            <Step>
+              <span>Run this in Claude Code, choose spark and sign in.</span>
+              <CopyBlock label="/mcp" text="/mcp" />
+            </Step>
+          </Guide>
+        )}
+        {client === "Claude Desktop" && (
+          <Guide title="Claude Desktop">
+            <Step>
+              Open Customize, then Connectors. Choose Add, then Add Custom
+              Connector.
+            </Step>
+            <Step>
+              <CopyBlock label="Connector Name" text="Spark" />
+              <CopyBlock label="Server URL" text={url} />
+            </Step>
+            <Step>Choose Add, then sign in to Spark.</Step>
+          </Guide>
+        )}
+        {client === "Codex" && (
+          <Guide title="Codex">
+            <Step>
+              <CopyBlock
+                label="codex mcp add"
+                text={`codex mcp add spark --url ${url}`}
+              />
+            </Step>
+            <Step>
+              <CopyBlock label="codex mcp login" text="codex mcp login spark" />
+            </Step>
+            <Step>
+              <span>Or add this to ~/.codex/config.toml, then log in.</span>
+              <CopyBlock
+                label="config.toml"
+                text={`[mcp_servers.spark]\nurl = "${url}"`}
+              />
+            </Step>
+          </Guide>
+        )}
       </DialogContent>
     </Dialog>
   );

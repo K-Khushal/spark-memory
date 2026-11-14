@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { checkImage } from "@spark/capture";
 import { parseImport } from "@spark/capture/import";
 import { FREE_ALLOWANCE, IMPORT_LIMITS, type ImportEntry } from "@spark/core";
-import { Button, toast } from "@spark/ui";
+import { Button, Switch, toast } from "@spark/ui";
 import { createApiClient } from "@spark/api-client";
 import { imageCapture } from "../library/image-capture";
 import { importImageTransport } from "../library/use-library";
@@ -343,11 +343,9 @@ export function ImportSection({ userId }: { userId: string }) {
       />
       {!active && (
         <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="accent-ink"
+          <Switch
             checked={!spread}
-            onChange={(e) => setSpread(!e.target.checked)}
+            onCheckedChange={(checked) => setSpread(!checked)}
           />
           Import All Today
         </label>

@@ -15,3 +15,6 @@ root.setProperty("--font-size", `${TYPE_SCALE.sm.size}px`);
 root.setProperty("--leading", `${TYPE_SCALE.sm.leading}px`);
 root.setProperty("--duration-press", `${DURATION.press}ms`);
 root.setProperty("--ease-out", `cubic-bezier(${EASING.out.join(",")})`);
+
+root.setProperty("--font-md", `${TYPE_SCALE.md.size}px`);
+root.setProperty("--font-base", `${TYPE_SCALE.base.size}px`);

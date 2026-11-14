@@ -143,17 +143,6 @@ export function Onboarding({
                   {state.paused ? "Get Started" : headings[state.step]}
                 </h2>
                 <div className="flex flex-wrap items-center gap-2">
-                  {sampleCount > 0 && (
-                    <Button
-                      variant="quiet"
-                      disabled={busy}
-                      onClick={() =>
-                        void mutate(() => endpoint.samples.$delete(), true)
-                      }
-                    >
-                      Remove Samples
-                    </Button>
-                  )}
                   {finished ? null : state.paused ? (
                     <Button
                       variant="outline"
@@ -186,7 +175,7 @@ export function Onboarding({
                     duration: DURATION.small / 1000,
                     ease: EASING.out,
                   }}
-                  className="mt-4 flex min-w-0 flex-wrap items-center gap-3"
+                  className="mt-6 flex min-w-0 flex-wrap items-center gap-3"
                   aria-busy={busy}
                 >
                   {state.step === "disclosure" && (
@@ -283,6 +272,19 @@ export function Onboarding({
                   )}
                 </motion.div>
               )}
+              <div className={sampleCount ? "mt-6" : undefined}>
+                {sampleCount > 0 && (
+                  <Button
+                    variant="quiet"
+                    disabled={busy}
+                    onClick={() =>
+                      void mutate(() => endpoint.samples.$delete(), true)
+                    }
+                  >
+                    Remove Samples
+                  </Button>
+                )}
+              </div>
             </>
           )
         )}

@@ -237,11 +237,13 @@ describe("Connected Assistants in Settings", () => {
     expect(dialog.textContent).toContain(
       `claude mcp add --transport http spark ${url}`
     );
-    expect(dialog.textContent).toContain(`codex mcp add spark --url ${url}`);
+    expect(dialog.textContent).not.toContain(
+      `codex mcp add spark --url ${url}`
+    );
     const copies = [...dialog.querySelectorAll("button")].filter((b) =>
       b.getAttribute("aria-label")?.startsWith("Copy ")
     );
-    expect(copies.length).toBeGreaterThanOrEqual(6);
+    expect(copies).toHaveLength(2);
     await click(button(`Copy claude mcp add`));
     expect(write).toHaveBeenCalledWith(
       `claude mcp add --transport http spark ${url}`

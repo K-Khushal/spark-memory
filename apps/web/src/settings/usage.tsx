@@ -108,10 +108,10 @@ function Gauge({
         aria-valuemax={meter.limit}
         aria-valuenow={Math.min(meter.used, meter.limit)}
         aria-valuetext={detail ? `${value}. ${detail}` : value}
-        className="h-1.5 overflow-hidden rounded-chip bg-sunken"
+        className="h-1 overflow-hidden rounded-control bg-sunken"
       >
         <div
-          className="h-full rounded-chip bg-ink"
+          className="h-full rounded-control bg-ink"
           style={{ width: `${Math.round(share(meter) * 10_000) / 100}%` }}
         />
       </div>

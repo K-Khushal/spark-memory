@@ -1,3 +1,5 @@
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { motion } from "motion/react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, Dialog, DialogContent, DialogTitle, Input } from "@spark/ui";
 import { api } from "../api";
@@ -41,6 +43,7 @@ export function ConnectedAssistants() {
   const [state, setState] = useState<AssistantState>({ phase: "pending" });
   const [confirming, setConfirming] = useState<Assistant>();
   const [viewing, setViewing] = useState<Assistant>();
+  const [copied, setCopied] = useState(false);
   const [guide, setGuide] = useState(false);
   const list = useRef<HTMLUListElement>(null);
   const guideButton = useRef<HTMLButtonElement>(null);
@@ -85,6 +88,7 @@ export function ConnectedAssistants() {
         { id: created.id, name: created.name, lastActiveAt: null },
       ]);
       setName("");
+      setCopied(false);
       setState({ phase: "issued", token: created.token });
     } catch {
       setState({ phase: "failed" });
@@ -216,6 +220,34 @@ export function ConnectedAssistants() {
             readOnly
             onFocus={(e) => e.currentTarget.select()}
           />
+          <Button
+            variant="outline"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(state.token);
+                setCopied(true);
+              } catch {
+                document.getElementById("assistant-token")?.focus();
+              }
+            }}
+          >
+            <motion.span
+              key={String(copied)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.15 }}
+            >
+              {copied ? (
+                <CheckIcon aria-hidden className="size-4" />
+              ) : (
+                <CopyIcon aria-hidden className="size-4" />
+              )}
+            </motion.span>
+            {copied ? "Copied" : "Copy Token"}
+          </Button>
+          <span role="status" className="sr-only">
+            {copied ? "Copied" : ""}
+          </span>
           <Button variant="outline" onClick={() => setState({ phase: "idle" })}>
             Done
           </Button>
@@ -248,7 +280,7 @@ export function ConnectedAssistants() {
         >
           <div className="flex flex-col gap-5">
             <DialogTitle className="pr-8 wrap-anywhere" dir="auto">
-              Revoke {confirming?.name}
+              Revoke {confirming?.name} Access
             </DialogTitle>
             <div className="flex flex-wrap justify-end gap-2">
               <Button

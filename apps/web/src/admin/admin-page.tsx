@@ -122,7 +122,7 @@ export function AdminPage({ session }: { session: AppSession }) {
           ref={bar}
           className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-canvas px-4 py-2 md:hidden"
         >
-          <span className="font-display text-md font-semibold">Spark</span>
+          <span className="font-display text-md font-medium">Spark</span>
           <Link to="/" className="text-sm text-ink-muted">
             All Memories
           </Link>
@@ -144,7 +144,7 @@ export function AdminPage({ session }: { session: AppSession }) {
             <h1 className="font-display text-lg font-semibold">Admin</h1>
             <section className="mt-6 flex flex-wrap items-end justify-between gap-4">
               <div>
-                <h2 className="font-display text-md font-semibold">
+                <h2 className="font-display text-md font-medium">
                   Daily Budget
                 </h2>
                 <p className="mt-2 text-sm tabular-nums">
@@ -190,11 +190,8 @@ export function AdminPage({ session }: { session: AppSession }) {
               </form>
             </section>
 
-            <section className="mt-8">
-              <h2
-                id="daily-spend"
-                className="font-display text-md font-semibold"
-              >
+            <section className="mt-6">
+              <h2 id="daily-spend" className="font-display text-md font-medium">
                 Daily Spend
               </h2>
               {/* A sideways-scrolling table must take the keyboard (2.1.1). */}
@@ -226,7 +223,7 @@ export function AdminPage({ session }: { session: AppSession }) {
                       >
                         <Cell className="tabular-nums">{row.day}</Cell>
                         <Cell>{row.provider}</Cell>
-                        <Cell className="max-w-48 truncate">{row.model}</Cell>
+                        <Cell className="select-text">{row.model}</Cell>
                         <Cell align="right" className="tabular-nums">
                           {row.calls}
                         </Cell>
@@ -241,8 +238,8 @@ export function AdminPage({ session }: { session: AppSession }) {
               </div>
             </section>
 
-            <section className="mt-8">
-              <h2 id="usage" className="font-display text-md font-semibold">
+            <section className="mt-6">
+              <h2 id="usage" className="font-display text-md font-medium">
                 Usage
               </h2>
               <div
@@ -266,10 +263,7 @@ export function AdminPage({ session }: { session: AppSession }) {
                   <tbody>
                     {usage.users.map((person) => (
                       <tr key={person.id} className="border-b border-line">
-                        <Cell
-                          className="max-w-64 truncate"
-                          title={person.email}
-                        >
+                        <Cell className="select-text" title={person.email}>
                           {person.email}
                         </Cell>
                         <Cell align="right" className="tabular-nums">

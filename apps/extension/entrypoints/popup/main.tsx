@@ -13,7 +13,7 @@ type State = { hasRows?: boolean } & (
 );
 const labels = {
   saving: "Saving",
-  saved: "Saved",
+  saved: "Captured",
   duplicate: "Already in Your Library",
   queued: "Waiting to Send",
   "signed-out": "Sign In",
@@ -22,7 +22,7 @@ const labels = {
 function Popup() {
   const [result, setResult] = useState<State>({ state: "saving" });
   const [note, setNote] = useState("");
-  const [noteState, setNoteState] = useState("Add");
+  const [noteState, setNoteState] = useState("Add Note");
   async function capture() {
     setResult({ state: "saving" });
     try {
@@ -46,6 +46,11 @@ function Popup() {
         </a>
       </header>
       <p role="status">
+        {result.state === "saved" && (
+          <span key="captured" className="feedback" aria-hidden>
+            ✓{" "}
+          </span>
+        )}
         {("label" in result && result.label) || labels[result.state]}
       </p>
       {result.state === "signed-out" && (
@@ -58,9 +63,7 @@ function Popup() {
           Sign In
         </a>
       )}
-      {(result.state === "error" ||
-        result.state === "queued" ||
-        result.state === "signed-out") && (
+      {(result.state === "error" || result.state === "queued") && (
         <button
           onClick={
             result.state === "queued"
@@ -90,28 +93,33 @@ function Popup() {
             if (response.error) setNoteState("Try Again");
             else {
               setResult({ ...result, memory: response.memory });
-              setNoteState("Saved");
+              setNoteState("Note Added");
             }
           }}
         >
+          <label htmlFor="capture-note">Capture Note</label>
           <textarea
+            id="capture-note"
             name="captureNote"
-            aria-label="Capture Note"
-            placeholder="Capture Note"
             dir="auto"
             maxLength={500}
             rows={3}
             value={note}
             onChange={(event) => {
               setNote(event.target.value);
-              setNoteState("Add");
+              setNoteState("Add Note");
             }}
           />
           <button
             // The visible word is short; the name says what is added.
-            aria-label={noteState === "Add" ? "Add Capture Note" : undefined}
+            aria-label={noteState === "Add Note" ? "Add Note" : undefined}
             disabled={!note.trim() || noteState === "Saving"}
           >
+            {noteState === "Note Added" && (
+              <span className="feedback" aria-hidden>
+                ✓{" "}
+              </span>
+            )}
             {noteState}
           </button>
         </form>

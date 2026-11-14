@@ -92,13 +92,17 @@ export function SettingsPage({
             </Button>
           </Centred>
         ) : (
-          <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12 wrapping-buttons">
+          <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12 ">
             <h1 className="sr-only font-display text-xl font-semibold md:not-sr-only">
               Settings
             </h1>
-            {/* Nothing until both have loaded, so nothing moves under the pointer. */}
-            {loading ? null : (
+            {loading ? (
+              <SettingsSkeleton />
+            ) : (
               <>
+                <Section title="Appearance">
+                  <Appearance />
+                </Section>
                 <Section title="Usage">
                   <UsageSection usage={usage} onDelete={account.deleteMemory} />
                 </Section>
@@ -114,7 +118,7 @@ export function SettingsPage({
                 <Section title="Export" live>
                   <Export account={account} />
                 </Section>
-                <Section title="Account">
+                <Section title="Delete Account">
                   <DeleteAccount email={email} account={account} />
                 </Section>
               </>
@@ -139,8 +143,8 @@ function Section({
 }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className="flex flex-col gap-2">
-      <h2 id={id} className="text-sm font-medium text-ink-muted">
+    <section aria-labelledby={id} className="flex flex-col gap-3">
+      <h2 id={id} className="text-md font-medium text-ink">
         {title}
       </h2>
       <div
@@ -445,5 +449,67 @@ function DeleteAccount({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** Delay the static placeholder so cached responses never flash it. */
+function SettingsSkeleton() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), 150);
+    return () => clearTimeout(timer);
+  }, []);
+  if (!visible) return null;
+  return (
+    <div
+      role="status"
+      aria-label="Loading Settings"
+      className="flex flex-col gap-6"
+    >
+      {[0, 1, 2].map((key) => (
+        <div key={key} aria-hidden className="flex flex-col gap-3">
+          <div className="h-6 w-28 rounded-control bg-sunken" />
+          <div className="h-12 rounded-control bg-sunken" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Appearance() {
+  const [choice, setChoice] = useState(() => {
+    try {
+      return localStorage.getItem("spark-theme") ?? "system";
+    } catch {
+      return "system";
+    }
+  });
+  return (
+    <div role="group" aria-label="Appearance" className="flex flex-wrap gap-2">
+      {(["system", "light", "dark"] as const).map((value) => (
+        <Button
+          key={value}
+          variant={choice === value ? "primary" : "outline"}
+          aria-pressed={choice === value}
+          onClick={() => {
+            try {
+              if (value === "system") localStorage.removeItem("spark-theme");
+              else localStorage.setItem("spark-theme", value);
+            } catch {
+              /* Apply for this session even without storage. */
+            }
+            document.documentElement.dataset.theme =
+              value === "system"
+                ? matchMedia("(prefers-color-scheme: dark)").matches
+                  ? "dark"
+                  : "light"
+                : value;
+            setChoice(value);
+          }}
+        >
+          {value === "system" ? "System" : value === "light" ? "Light" : "Dark"}
+        </Button>
+      ))}
+    </div>
   );
 }
