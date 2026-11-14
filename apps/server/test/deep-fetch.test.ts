@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import pg from "pg";
 import { INDEXING } from "@spark/core";
+import { requeueStalled } from "../src/indexing";
 import { requeueDeepFetches } from "../src/deep-fetch";
 import { enqueueDeepFetch } from "../src/deep-fetch-queue";
 import {
@@ -82,9 +83,10 @@ const searchIds = async (call: Call, q: string) =>
 
 describe.skipIf(!databaseUrl)("Deep fetch", () => {
   it.each([503, 403, 401])(
-    "retries unreachable Sources through Deep fetch, but never refused ones (%s)",
+    "recovers transient Sources once after 24 hours, but never retries refused ones (%s)",
     async (status) => {
       const { call } = await signedIn();
+      let recovered = false;
       vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
         const url = new URL(
           input instanceof Request ? input.url : String(input)
@@ -96,7 +98,16 @@ describe.skipIf(!databaseUrl)("Deep fetch", () => {
                   ? [{ type: 1, data: "93.184.215.14" }]
                   : [],
             })
-          : new Response("", { status });
+          : recovered
+            ? new Response(
+                "<html><body>" +
+                  "A recovered public article about basil and warm sunny gardens. ".repeat(
+                    20
+                  ) +
+                  "</body></html>",
+                { headers: { "content-type": "text/html" } }
+              )
+            : new Response("", { status });
       });
       const id = await capture(call, `https://unreachable-${status}.test/post`);
       const initial = queues.fresh.sent.find(
@@ -113,16 +124,37 @@ describe.skipIf(!databaseUrl)("Deep fetch", () => {
         );
         expect(await read(call, id)).toMatchObject({
           preservation: "reference_only",
-          deepFetch: "fetching",
+          deepFetch: null,
         });
         expect(deepFetchQueue.sent.some((m) => m.body.memoryId === id)).toBe(
-          true
+          false
         );
-        await drainDeepFetch(id, env(FAKE));
-        await drain(id, env(FAKE));
+        const sent = () =>
+          queues.background.sent.filter((m) => m.body.memoryId === id);
+        await requeueStalled(env(FAKE));
+        expect(sent()).toHaveLength(0);
+        await sql(
+          "update memory set gather_retry_at = now() - interval '1 minute' where id = $1",
+          id
+        );
+        await requeueStalled(env(FAKE));
+        expect(sent()).toHaveLength(1);
+        recovered = true;
+        const recovery = await deliver(
+          queues.background.name,
+          sent()[0]!.body,
+          1,
+          env(FAKE)
+        );
+        expect(recovery.retry).not.toHaveBeenCalled();
         expect(await read(call, id)).toMatchObject({
           preservation: "preserved",
         });
+        await requeueStalled(env(FAKE));
+        expect(sent()).toHaveLength(1);
+        expect(deepFetchQueue.sent.some((m) => m.body.memoryId === id)).toBe(
+          false
+        );
       } else {
         expect(first.retry).not.toHaveBeenCalled();
         expect(await read(call, id)).toMatchObject({

@@ -1743,11 +1743,11 @@ export function openLibrary(
                   // by opt-out, or its transcript removed. Give it a new run.
                   deepFetchState: sql`case when ${refetch} then 'queued' else ${memory.deepFetchState} end`,
                   deepFetchRun: sql`${memory.deepFetchRun} + (case when ${refetch} then 1 else 0 end)`,
-                  deepFetchAttempts: sql`case when ${memory.kind} = 'video' then 0 else ${memory.deepFetchAttempts} end`,
+                  deepFetchAttempts: sql`case when ${refetch} then 0 else ${memory.deepFetchAttempts} end`,
                   deepFetchDueAt: sql`case when ${refetch} then now() else ${memory.deepFetchDueAt} end`,
-                  deepFetchLeaseUntil: null,
-                  deepFetchToken: null,
-                  deepFetchError: null,
+                  deepFetchLeaseUntil: sql`case when ${refetch} then null else ${memory.deepFetchLeaseUntil} end`,
+                  deepFetchToken: sql`case when ${refetch} then null else ${memory.deepFetchToken} end`,
+                  deepFetchError: sql`case when ${refetch} then null else ${memory.deepFetchError} end`,
                   ...restartIndexing,
                   indexState: sql`case when ${memory.sample} or ${memory.overAllowance} then 'searchable' else 'indexing' end`,
                 }

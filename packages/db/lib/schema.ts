@@ -133,13 +133,13 @@ export const memory = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     sample: boolean("sample").default(false).notNull(),
+    gatherRetryAt: timestamp("gather_retry_at", { withTimezone: true }),
+    gatherRetried: boolean("gather_retried").notNull().default(false),
     /**
      * Captured past the Free allowance's Captures a day (migrations/0027): kept
      * and keyword-findable, with no AI work for good. Every path that would
      * restart Indexing, and the indexer itself, leaves it alone.
      */
-    gatherRetryAt: timestamp("gather_retry_at", { withTimezone: true }),
-    gatherRetried: boolean("gather_retried").notNull().default(false),
     overAllowance: boolean("over_allowance").default(false).notNull(),
     kind: text("kind").$type<MemoryKind>().notNull(),
     title: text("title"),
