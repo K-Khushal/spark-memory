@@ -43,7 +43,7 @@ test("select by keyboard and mouse, set Categories, delete and Undo", async ({
       r.url().endsWith("/api/memories/bulk") && r.request().method() === "POST"
   );
   await dialog.getByRole("button", { name: "Set Categories" }).click();
-  await expect.poll(async () => (await saved).status()).toBe(200);
+  expect((await saved).status()).toBe(200);
   await first.click({ modifiers: ["Control"] });
   await second.click();
   await expect(bar).toContainText("2 Selected");
@@ -93,4 +93,99 @@ test("select by keyboard and mouse, set Categories, delete and Undo", async ({
   await expect(bar).toBeVisible();
   await bar.getByRole("button", { name: "Clear", exact: true }).click();
   await expect(bar).toHaveCount(0);
+});
+
+test("Shift+arrows extend the shared selection across Direct and Related Matches", async ({
+  page,
+}) => {
+  await signIn(page);
+  const ids = await page.evaluate(async () => {
+    const ids: string[] = [];
+    for (const body of ["Boundary Direct", "Boundary Related"]) {
+      const response = await fetch("/api/memories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      });
+      ids.push((await response.json()).id);
+    }
+    return ids;
+  });
+  await page.reload();
+  await page.route("**/api/search", (route) =>
+    route.fulfill({
+      json: {
+        mode: "full",
+        results: ids.map((id, i) => ({
+          id,
+          match: i ? "related" : "direct",
+          part: null,
+        })),
+      },
+    })
+  );
+  await expect(
+    page.getByRole("listitem", { name: "Boundary Direct", exact: true })
+  ).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByPlaceholder("Search…").fill("Boundary");
+  await expect(
+    page.getByRole("option", { name: "Boundary Direct" })
+  ).toBeVisible();
+  await page.keyboard.press("Enter");
+  const direct = page
+    .getByRole("list", { name: "Direct Matches" })
+    .getByRole("listitem");
+  const related = page
+    .getByRole("list", { name: "Related Matches" })
+    .getByRole("listitem");
+  const bar = page.getByRole("region", { name: "Selection", exact: true });
+  await direct.focus();
+  await page.keyboard.press("Shift+ArrowDown");
+  await expect(related).toBeFocused();
+  await expect(bar).toContainText("2 Selected");
+  await page.keyboard.press("Escape");
+  await related.focus();
+  await page.keyboard.press("Shift+ArrowUp");
+  await expect(direct).toBeFocused();
+  await expect(bar).toContainText("2 Selected");
+});
+
+test("replays an unacknowledged bulk delete from IndexedDB after reload", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await signIn(page);
+  await page.evaluate(async () => {
+    await fetch("/api/memories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: "Durable Bulk Memory" }),
+    });
+  });
+  await page.reload();
+  const tile = page.getByRole("listitem", {
+    name: "Durable Bulk Memory",
+    exact: true,
+  });
+  await tile.focus();
+  await page.keyboard.press("Space");
+  await page.route("**/api/memories/bulk", (route) => route.abort());
+  await page
+    .getByRole("region", { name: "Selection", exact: true })
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect(
+    page.getByText("1 Memory Not Updated", { exact: true })
+  ).toBeVisible({ timeout: 15_000 });
+  await page.unroute("**/api/memories/bulk");
+  const replay = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/memories/bulk") && r.request().method() === "POST"
+  );
+  await page.reload();
+  expect((await replay).status()).toBe(200);
+  await expect(tile).toHaveCount(0);
+  await page.reload();
+  await expect(tile).toHaveCount(0);
 });

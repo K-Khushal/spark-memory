@@ -61,9 +61,9 @@ type MasonryProps<T> = {
   /**
    * ↑ or ↓ pressed on the top or bottom tile of its column: there is no
    * tile further that way here, so a neighbouring wall can take focus.
-   * Return true when it did; otherwise the key keeps its default (scrolling).
+   * Return the destination id when it did; otherwise the key keeps its default (scrolling).
    */
-  onEdge?: (key: "ArrowUp" | "ArrowDown") => boolean;
+  onEdge?: (key: "ArrowUp" | "ArrowDown") => string | undefined;
   handle?: Ref<MasonryHandle>;
   renderItem: (item: T, tile: MasonryTile) => ReactNode;
 };
@@ -247,11 +247,16 @@ export function Masonry<T>({
           selection.choose(getKey(items[current]), "toggle");
         selection.choose(getKey(items[target]), "range");
       }
-    } else if (
-      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
-      onEdge?.(event.key)
-    ) {
-      event.preventDefault();
+    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      const destination = onEdge?.(event.key);
+      if (destination !== undefined) {
+        event.preventDefault();
+        if (event.shiftKey && selection) {
+          if (!selection.ids.length && items[current])
+            selection.choose(getKey(items[current]), "toggle");
+          selection.choose(destination, "range");
+        }
+      }
     } else if (event.key === "Enter") {
       onOpen?.(current);
     } else if (event.key === " ") {

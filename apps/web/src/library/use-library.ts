@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { toast } from "@spark/ui";
 import { api } from "../api";
 import { track } from "../analytics";
+import { bulkOutbox } from "./bulk-outbox";
 import { drafts } from "./drafts";
 import { Refused, type Upload } from "./image-capture";
 import {
@@ -150,7 +151,7 @@ function putFile(
  * permanent; a page that closes inside that window sends them on its way
  * out. `version` goes up whenever the server accepts a change.
  */
-export function useLibrary() {
+export function useLibrary(owner: string) {
   const [memories, setMemories] = useState<WallMemory[]>([]);
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [attempt, setAttempt] = useState(0);
@@ -167,6 +168,7 @@ export function useLibrary() {
       setMemories,
       transport,
       drafts,
+      bulkOutbox: bulkOutbox(owner),
       notify: toast,
       freeUpSpace: () => void navigate({ to: "/settings" }),
       onSaved: () => setVersion((n) => n + 1),
@@ -178,6 +180,7 @@ export function useLibrary() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      await actions.resumeBulks();
       let after: string | undefined;
       do {
         const res = await ok(

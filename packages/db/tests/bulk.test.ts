@@ -77,6 +77,10 @@ describe.skipIf(!url)("Bulk removal durability", () => {
     expect(
       await library.bulk({ ids: [saved.memory.id], operation: "delete" })
     ).toMatchObject({ ids: [saved.memory.id] });
+    // A lost acknowledgement can replay the same deletion after reload.
+    expect(
+      await library.bulk({ ids: [saved.memory.id], operation: "delete" })
+    ).toEqual({ ids: [] });
     expect(await library.get(saved.memory.id)).toBeUndefined();
     expect(await library.files(saved.memory.id)).toBeUndefined();
     expect(await library.search("Durability")).toEqual([]);
@@ -139,6 +143,18 @@ describe.skipIf(!url)("Bulk removal durability", () => {
     });
     await openCategories(db, owner).create("Gardening");
     const created = await generation();
+    expect(
+      await library.bulk({
+        ids: [chosen.id],
+        operation: "categories",
+        categories: ["Gardening"],
+      })
+    ).toEqual({ ids: [chosen.id] });
+    expect(await library.get(chosen.id)).toMatchObject({
+      categories: ["Gardening"],
+      categoriesLocked: true,
+    });
+    // Replaying a Category set must retain the same state and generation.
     expect(
       await library.bulk({
         ids: [chosen.id],

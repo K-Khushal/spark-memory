@@ -78,7 +78,7 @@ export function LibraryPage({
   admin: boolean;
 }) {
   const navigate = useNavigate();
-  const library = useLibrary();
+  const library = useLibrary(session.user.id);
   const { desk } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [activationVersion, setActivationVersion] = useState(0);
@@ -760,7 +760,7 @@ function ResultWall({
   found: Found[];
   /** Focus moves between the Direct and Related walls through these. */
   handle?: Ref<MasonryHandle>;
-  onEdge?: (key: "ArrowUp" | "ArrowDown") => boolean;
+  onEdge?: (key: "ArrowUp" | "ArrowDown") => string | undefined;
   /** The search these answer: reordering within it glides (Masonry). */
   glideKey: string;
   /** Direct or Related; undefined for More Like This, which needs no why-chip. */
@@ -906,9 +906,9 @@ function SearchResults({
             handle={direct}
             // Down from the bottom tile goes on to the Related Matches.
             onEdge={(key) => {
-              if (key !== "ArrowDown" || !results.related.length) return false;
+              if (key !== "ArrowDown" || !results.related.length) return;
               related.current?.focus("first");
-              return true;
+              return results.related[0]!.id;
             }}
           />
         ) : (
@@ -944,9 +944,9 @@ function SearchResults({
             tiles={tiles}
             handle={related}
             onEdge={(key) => {
-              if (key !== "ArrowUp" || !results.direct.length) return false;
+              if (key !== "ArrowUp" || !results.direct.length) return;
               direct.current?.focus("last");
-              return true;
+              return results.direct.at(-1)!.id;
             }}
           />
         </section>
