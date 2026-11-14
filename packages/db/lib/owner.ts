@@ -31,6 +31,17 @@ export const lockCategories = (tx: Pick<Database, "execute">, userId: string) =>
     sql`select pg_advisory_xact_lock(${CATEGORY_LOCK}::int, hashtext(${userId}))`
   );
 
+/** Nonblocking form of the same Categories lock, for bounded cron batches. */
+export async function tryLockCategories(
+  tx: Pick<Database, "execute">,
+  userId: string
+): Promise<boolean> {
+  const { rows } = await tx.execute<{ locked: boolean }>(
+    sql`select pg_try_advisory_xact_lock(${CATEGORY_LOCK}::int, hashtext(${userId})) as locked`
+  );
+  return rows[0]?.locked === true;
+}
+
 /**
  * Takes the owner lock only when it is free. The sweep uses this so a confirm
  * or a deletion already in progress cannot hold the sweep past its budget.

@@ -39,6 +39,25 @@ afterEach(() => {
 });
 
 describe("categorise", () => {
+  it("checks permission again after loading persisted prototypes", async () => {
+    const e = embedder("persisted-permission-fence");
+    let allowed = true;
+    expect(
+      await categorise({
+        text: "tart",
+        vector: toward("Recipe"),
+        embedder: e,
+        allow: async () => allowed,
+        record,
+        loadPrototypes: async () => {
+          allowed = false;
+          return {};
+        },
+      })
+    ).toBeUndefined();
+    expect(e.calls).toBe(0);
+  });
+
   it("takes Jev's Categories above the threshold and bills its input tokens", async () => {
     const e = embedder("jev-first");
     const jev: CategoryClient = {

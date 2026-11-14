@@ -132,7 +132,7 @@ export const EMBEDDING = {
   /** An edited title waits this long, so a burst of autosaves embeds once. */
   editDelaySeconds: 60,
   /** Stale or missing vectors re-embedded per hourly sweep. */
-  sweepBatch: 200,
+  sweepBatch: 100,
 } as const;
 
 /** How stored vectors name what made them: model and dimensions. */

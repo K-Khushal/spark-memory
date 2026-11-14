@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { CategoryRequest } from "@spark/core";
-import { openCategories } from "@spark/db";
-import { embedderFor } from "@spark/indexing";
+import { openCategories, indexingStore } from "@spark/db";
+import { embedderFor, prepareCategoryPrototypes } from "@spark/indexing";
 import type { AppEnv } from "./env";
-import { enqueueRecategorising, providers } from "./indexing";
+import { providers } from "./indexing";
 import { json, signedIn } from "./memories";
 
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
@@ -23,7 +23,7 @@ export const categories = new Hono<AppEnv>()
   .use("/categories", ...signedIn)
   .use("/categories/*", ...signedIn)
   .get("/categories", async (c) =>
-    c.json(await stateOf(c.env, c.var.db, c.var.user.id))
+    c.json(await stateOf(c.var.db, c.var.user.id))
   )
   .post("/categories", limitBody, json(CategoryRequest), async (c) => {
     const own = openCategories(c.var.db, c.var.user.id);
@@ -34,11 +34,8 @@ export const categories = new Hono<AppEnv>()
         400
       );
     }
-    // Only with an embedder can anything be categorised, and only then is it queued.
-    if (made.recategorising > 0 && embedderFor(providers(c.env))) {
-      await enqueueRecategorising(c.env, await own.due(500));
-    }
-    return c.json(await stateOf(c.env, c.var.db, c.var.user.id), 201);
+    await preparePrototypes(c.env, c.var.db, c.var.user.id);
+    return c.json(await stateOf(c.var.db, c.var.user.id), 201);
   })
   .patch("/categories/:id", limitBody, json(CategoryRequest), async (c) => {
     const id = c.req.param("id");
@@ -55,7 +52,8 @@ export const categories = new Hono<AppEnv>()
         400
       );
     }
-    return c.json(await stateOf(c.env, c.var.db, c.var.user.id));
+    await preparePrototypes(c.env, c.var.db, c.var.user.id);
+    return c.json(await stateOf(c.var.db, c.var.user.id));
   })
   /** Takes the Category off its Memories; never deletes a Memory. */
   .delete("/categories/:id", async (c) => {
@@ -64,15 +62,42 @@ export const categories = new Hono<AppEnv>()
       UUID.test(id) &&
       (await openCategories(c.var.db, c.var.user.id).remove(id));
     if (!removed) return c.json(notFound, 404);
-    return c.json(await stateOf(c.env, c.var.db, c.var.user.id));
+    return c.json(await stateOf(c.var.db, c.var.user.id));
   });
 
 async function stateOf(
-  env: AppEnv["Bindings"],
   db: Parameters<typeof openCategories>[0],
   userId: string
 ) {
   const { categories, run } = await openCategories(db, userId).list();
-  // Without an embedder nothing is categorised, so no progress is promised.
-  return { categories, ...(run && embedderFor(providers(env)) && { run }) };
+  // Refreshes use stored vectors, even if no AI provider is configured now.
+  return { categories, ...(run && { run }) };
+}
+
+async function preparePrototypes(
+  env: AppEnv["Bindings"],
+  db: Parameters<typeof openCategories>[0],
+  userId: string
+) {
+  // A new Category needs a prototype vector, not a queue message per Memory.
+  // The hourly cron later classifies from stored vectors without AI calls.
+  const embedder = embedderFor(providers(env));
+  if (embedder) {
+    const store = indexingStore(db);
+    const state = await openCategories(db, userId).list();
+    if (!state.run) return;
+    const names = state.categories.map((category) => category.name);
+    await prepareCategoryPrototypes({
+      embedder,
+      own: names,
+      allow: async () =>
+        (await store.spentTodayMicros()) < (await store.dailyBudgetMicros()),
+      loadPrototypes: (space, names) =>
+        store.loadCategoryPrototypes(userId, space, names),
+      savePrototypes: (space, vectors) =>
+        store.saveCategoryPrototypes(userId, space, vectors),
+      record: (call) =>
+        store.recordCall({ ...call, userId: userId, memoryId: null }),
+    }).catch(() => undefined);
+  }
 }

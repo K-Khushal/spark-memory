@@ -35,14 +35,16 @@ async function openTile(page: Page, name: RegExp) {
       await page.waitForTimeout(100);
     }
   }
-  await tile.focus();
-  await page.keyboard.press("Enter");
+  // Target the tile at key delivery time; dialog focus restoration can
+  // otherwise move focus back to the previously opened Memory.
+  await tile.press("Enter");
   await expect(page.getByRole("dialog")).toBeVisible();
 }
 
 async function closeDialog(page: Page) {
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await settle(page);
 }
 
 /** A small real PNG as the query image of a search by image. */
@@ -119,7 +121,7 @@ for (const theme of THEMES) {
           response,
           json: Array.isArray(data.memories)
             ? { ...data, memories: data.memories.map(decorate) }
-            : data,
+            : decorate(data),
         });
       });
       await signIn(page);

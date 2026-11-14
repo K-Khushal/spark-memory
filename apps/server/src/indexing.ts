@@ -268,6 +268,9 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
     const store = indexingStore(db);
+    // At most 500 Category refreshes, in SQL batches of 100 and a 2s wall
+    // budget. Uses persisted prototypes + Overview vectors: zero AI/queue calls.
+    await store.refreshCategories();
     // Past the budget, background work is waiting on purpose (with its own
     // delayed message): only fresh work, which the budget never holds, goes.
     const spent =
@@ -296,11 +299,14 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
     if (embedRoom === 0) return;
     const stale = await store.staleVectors(
       embeddingSpace(embedder.model, embedder.dimensions),
-      Math.min(embedRoom ?? 10, 10) * QUEUE_BATCH
+      EMBEDDING.sweepBatch,
+      true
     );
     let embedded = 0;
-    // One Queue subrequest can send 100 jobs. Category-only jobs reuse their
-    // stored Overview; the consumer still checks the daily budget per job.
+    // Queues Free: 10,000 operations/day / ~3 (write + read + ack) is
+    // ~3,300 messages/day for ALL queues. Cap real embeds at 100/hour:
+    // 2,400 messages (~7,200 ops)/day, leaving ~2,800 ops for other work.
+    // Category-only refreshes above spend ZERO queue operations.
     for (let i = 0; i < stale.length; i += QUEUE_BATCH) {
       if (calls && !calls.take("indexing")) break;
       const batch = stale.slice(i, i + QUEUE_BATCH);
@@ -327,35 +333,4 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
   }
 }
 
-/** The most one new Category queues at once; the hourly sweep finds the rest. */
-const RECATEGORISE_QUEUED = 500;
 const QUEUE_BATCH = 100;
-
-/**
- * Queues the Memories a new Category is due on (`due`, from the owner's
- * Categories) as embed jobs on the background queue: they categorise from
- * the vectors already kept. A message that is lost is sent again by the sweep.
- */
-export async function enqueueRecategorising(
-  env: Bindings,
-  due: { id: string; generation: string }[]
-) {
-  const messages = due
-    .slice(0, RECATEGORISE_QUEUED)
-    .map(({ id, generation }) => ({
-      body: {
-        memoryId: id,
-        generation,
-        priority: "background",
-        task: "embed",
-      } satisfies IndexMessage,
-    }));
-  for (let i = 0; i < messages.length; i += QUEUE_BATCH) {
-    try {
-      await env.REINDEX_QUEUE.sendBatch(messages.slice(i, i + QUEUE_BATCH));
-    } catch {
-      console.error("indexing: recategorising enqueue failed");
-      return;
-    }
-  }
-}

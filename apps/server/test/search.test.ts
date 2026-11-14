@@ -3,14 +3,14 @@ import { Client } from "pg";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { EMBEDDING } from "@spark/core";
-import { indexingStore, openDatabase } from "@spark/db";
+import { indexingStore, openDatabase, openLibrary } from "@spark/db";
 import type * as Core from "@spark/core";
 import { queryVectorsCached } from "@spark/search";
 import * as Search from "@spark/search";
 import * as Sentry from "@sentry/cloudflare";
 import { ProviderError } from "@spark/indexing";
 import { cronCalls } from "../src/cron-budget";
-import { requeueStalled } from "../src/indexing";
+import { requeueStalled, enqueue } from "../src/indexing";
 import {
   newClient,
   databaseUrl,
@@ -658,7 +658,7 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     expect(queryVectorsCached(userId)).toBe(0);
   });
 
-  it("back-fills more than 200 Categories using bounded queue batches", async () => {
+  it("drains Category backlogs without queue or AI calls and caps real embeds at 100", async () => {
     // The sweep is global: unrelated stalled Captures may consume its cron
     // share. Give this scenario its own database, including on repeated runs.
     const database = `category_batch_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -684,10 +684,24 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
         'insert into "user" (id, name, email) values ($1, $2, $3)',
         [owner, "Category Test", `${owner}@example.test`]
       );
+      const primerConnection = openDatabase(isolatedUrl.href);
+      try {
+        const primer = await openLibrary(primerConnection.db, owner).capture({
+          body: "Warm prototype vectors",
+        });
+        if (!("memory" in primer)) throw new Error("capture");
+        await enqueue(bindings, primer.memory);
+        await drain(primer.memory.id, bindings);
+        await isolated.query("delete from memory where id = $1", [
+          primer.memory.id,
+        ]);
+      } finally {
+        await primerConnection.close();
+      }
       const inserted = await isolated.query(
         `insert into memory (user_id, kind, body, index_state, vectors_space, vectors_revision, updated_at)
       select $1, 'text', 'Recipe', 'searchable', 'fake-embedding@768', 1, now() - interval '20 years'
-      from generate_series(1, 250) returning id`,
+      from generate_series(1, 1250) returning id`,
         [owner]
       );
       const ids = inserted.rows.map((r: { id: string }) => r.id);
@@ -699,23 +713,42 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
         );
         await isolated.query(
           `insert into memory_vector (memory_id, user_id, kind, model, dimensions, embedding)
-        select id, user_id, 'overview', 'fake-embedding', 768, $2::halfvec from memory where id = any($1::uuid[])`,
-          [ids, JSON.stringify([1, ...new Array(767).fill(0)])]
+        select id, user_id, 'overview', 'fake-embedding', 768,
+          (select embedding from category_prototype where user_id is null and name = 'Recipe' and space = 'fake-embedding@768')
+          from memory where id = any($1::uuid[])`,
+          [ids]
         );
         queues.background.sent.length = 0;
-        const calls = cronCalls();
-        await requeueStalled(bindings, calls);
-        const sent = queues.background.sent.filter((m) =>
-          ids.includes(m.body.memoryId)
-        );
-        expect(sent).toHaveLength(250);
-        expect(10 - calls.remaining("indexing")).toBeLessThanOrEqual(10);
-        expect(10 - calls.remaining("indexing")).toBeGreaterThanOrEqual(3);
+        queues.fresh.sent.length = 0;
+        const network = vi
+          .spyOn(globalThis, "fetch")
+          .mockRejectedValue(new Error("cron must not call providers"));
+        const callsBefore = (
+          await isolated.query("select count(*)::int as n from ai_call")
+        ).rows[0].n;
         const before = await isolated.query(
           "select embedding::text from memory_vector where memory_id = $1",
           [ids[0]]
         );
-        await drain(ids[0]!, bindings);
+        // The AI budget is exhausted; vector-only classification still costs $0.
+        await isolated.query(
+          "insert into spend_day (day, provider, cost_micros) values (current_date, 'fake', 1000000000000) on conflict (day, provider) do update set cost_micros = excluded.cost_micros"
+        );
+        for (const remaining of [750, 250, 0]) {
+          const calls = cronCalls();
+          await requeueStalled(bindings, calls);
+          expect(queues.background.sent).toHaveLength(0);
+          expect(queues.fresh.sent).toHaveLength(0);
+          expect(
+            (
+              await isolated.query(
+                "select count(*)::int as n from memory where categories_version is null"
+              )
+            ).rows[0].n
+          ).toBe(remaining);
+          expect(calls.remaining("indexing")).toBe(10);
+        }
+        expect(network).not.toHaveBeenCalled();
         expect(
           (
             await isolated.query(
@@ -727,11 +760,61 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
         expect(
           (
             await isolated.query(
+              "select categories from memory where id = $1",
+              [ids[0]]
+            )
+          ).rows[0].categories[0]
+        ).toBe("Recipe");
+        await isolated.query(
+          "update memory set categories_version = null where id = $1",
+          [ids[0]]
+        );
+        const blocker = new Client({ connectionString: isolatedUrl.href });
+        await blocker.connect();
+        try {
+          await blocker.query("BEGIN");
+          await blocker.query("select pg_advisory_xact_lock(7, hashtext($1))", [
+            owner,
+          ]);
+          await requeueStalled(bindings, cronCalls());
+          expect(
+            (
+              await isolated.query(
+                "select categories_version from memory where id = $1",
+                [ids[0]]
+              )
+            ).rows[0].categories_version
+          ).toBeNull();
+        } finally {
+          await blocker.query("ROLLBACK");
+          await blocker.end();
+        }
+        // A cold/incomplete prototype cache must neither guess nor call AI.
+        await isolated.query(
+          "delete from category_prototype where name = 'Recipe'"
+        );
+        await requeueStalled(bindings, cronCalls());
+        expect(
+          (
+            await isolated.query(
               "select categories_version from memory where id = $1",
               [ids[0]]
             )
           ).rows[0].categories_version
-        ).not.toBeNull();
+        ).toBeNull();
+        expect(queues.background.sent).toHaveLength(0);
+        expect(network).not.toHaveBeenCalled();
+        expect(
+          (await isolated.query("select count(*)::int as n from ai_call"))
+            .rows[0].n
+        ).toBe(callsBefore);
+        await isolated.query("update spend_day set cost_micros = 0");
+        await isolated.query("update memory set vectors_revision = 0");
+        await requeueStalled(bindings, cronCalls());
+        expect(queues.background.sent).toHaveLength(100);
+        expect(
+          queues.background.sent.every((m) => m.body.task === "embed")
+        ).toBe(true);
       } finally {
         await isolated.query("delete from memory where id = any($1::uuid[])", [
           ids,

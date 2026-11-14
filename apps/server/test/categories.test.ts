@@ -1,6 +1,8 @@
+import { requeueStalled } from "../src/indexing";
 import { describe, expect, it } from "vitest";
 import {
   databaseUrl,
+  env,
   drain,
   fakeTurnstile,
   postSearch,
@@ -281,14 +283,12 @@ describe.skipIf(!databaseUrl)("Categories API", () => {
         done: 0,
         total: 1,
       });
-      // One embed job, on the background queue, for the unlocked Memory only.
-      expect(queues.background.sent.map((m) => m.body)).toMatchObject([
-        { memoryId: unlocked.id, task: "embed", priority: "background" },
-      ]);
+      // Category-only refreshes never spend Queue operations.
+      expect(queues.background.sent).toHaveLength(0);
       expect(
         queues.fresh.sent.some((m) => m.body.memoryId === unlocked.id)
       ).toBe(false);
-      await drain(unlocked.id);
+      await requeueStalled(env());
       const get = async (id: string) =>
         (await (await call(`/api/memories/${id}`)).json()) as {
           categories: string[];

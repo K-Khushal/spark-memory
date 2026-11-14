@@ -15,6 +15,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 import {
@@ -408,6 +409,24 @@ const halfvec = customType<{ data: number[]; driverData: string }>({
   toDriver: (v) => `[${v.join(",")}]`,
   fromDriver: (v) => JSON.parse(v) as number[],
 });
+
+/** Prototype sentences embedded during ordinary Indexing, never by cron. */
+export const categoryPrototype = pgTable(
+  "category_prototype",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    space: text("space").notNull(),
+    version: integer("version").notNull(),
+    embedding: halfvec("embedding").notNull(),
+  },
+  (t) => [
+    unique("category_prototype_owner_name_space_version")
+      .on(t.userId, t.name, t.space, t.version)
+      .nullsNotDistinct(),
+  ]
+);
 
 export type VectorKind = "overview" | "visual" | "passage";
 /**
