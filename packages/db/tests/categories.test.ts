@@ -397,6 +397,39 @@ describe.skipIf(!url)("Categories", () => {
     });
   });
 
+  it("exposes pending Categories separately from a real Other", async () => {
+    const m = await capture("Uncategorised words");
+    expect(await library().get(m.id)).toMatchObject({
+      categoriesVersion: null,
+    });
+    await indexer(embedder(), jev({}))(job(m.id, 1));
+    expect(await library().get(m.id)).toMatchObject({
+      categories: ["Other"],
+      categoriesVersion: CATEGORISING.version,
+    });
+  });
+
+  it("categorises again after a run is superseded without a text edit", async () => {
+    const m = await capture("Lemon tart");
+    const embed = embedder();
+    const store = indexingStore(db);
+    const loaded = (await store.load(m.id))!;
+    const claim = { ...loaded, memoryId: m.id };
+    expect(
+      await store.writeCategories(claim, loaded.revision, ["Recipe"], 0)
+    ).toBe(true);
+    await store.fail(claim, "unavailable");
+    const retried = await library().retryIndexing(m.id);
+    expect(retried).toMatchObject({
+      indexRun: 2,
+      revision: loaded.revision,
+      categories: ["Recipe"],
+    });
+    const client = jev({ Tutorial: 0.9 });
+    await indexer(embed, client)(job(m.id, 2));
+    expect((await library().get(m.id))!.categories).toEqual(["Tutorial"]);
+  });
+
   it("categorises every unlocked Memory again when the categoriser's version changes", async () => {
     const auto = await capture("Lemon tart");
     const chosen = await capture("Lemon tart");
@@ -472,6 +505,27 @@ describe.skipIf(!url)("Categories", () => {
         value: "Tutorial",
       });
       expect(names(await mine.search("", only("Quote")))).toEqual([]);
+    });
+
+    it("keeps the Category why-chip alongside Source and date chips", async () => {
+      const captured = await mine.captureLink({
+        url: "https://recipes.test/tart",
+      });
+      if (!("memory" in captured)) throw new Error("capture");
+      await mine.edit(captured.memory.id, { categories: ["Recipe"] });
+      const results = await mine.search("", {
+        filters: {
+          categories: ["Recipe"],
+          hosts: ["recipes.test"],
+          after: "2020-01-01T00:00:00Z",
+        },
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0]!.part).toMatchObject({
+        kind: "filter",
+        field: "category",
+        value: "Recipe",
+      });
     });
 
     it("pages a browse by cursor, and combines with a kind", async () => {

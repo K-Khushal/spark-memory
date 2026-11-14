@@ -232,6 +232,34 @@
       "when": 1794800000000,
       "tag": "0033_assistant_activity_detail",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794800000001,
+      "tag": "0034_categories_run",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794800000002,
+      "tag": "0035_category_browse_reason",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794800000003,
+      "tag": "0036_social_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794800000004,
+      "tag": "0037_category_prototypes",
+      "breakpoints": true
     }
   ]
 }

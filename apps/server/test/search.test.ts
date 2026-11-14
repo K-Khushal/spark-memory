@@ -1,16 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { EMBEDDING } from "@spark/core";
+import { indexingStore, openDatabase, openLibrary } from "@spark/db";
 import type * as Core from "@spark/core";
 import { queryVectorsCached } from "@spark/search";
 import * as Search from "@spark/search";
 import * as Sentry from "@sentry/cloudflare";
 import { ProviderError } from "@spark/indexing";
-import { requeueStalled } from "../src/indexing";
+import { cronCalls } from "../src/cron-budget";
+import { requeueStalled, enqueue } from "../src/indexing";
 import {
   newClient,
   databaseUrl,
   drain,
+  deliver,
   env,
   fakeTurnstile,
   postSearch,
@@ -499,6 +504,94 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     expect((await search(call, "twilight", "full"))[0]?.id).toBe(id);
   });
 
+  it("queues a title edited during Indexing and embeds the latest revision", async () => {
+    const { call } = await signedIn();
+    const response = await call("/api/memories", {
+      method: "POST",
+      json: { body: "Notes from the trip" },
+    });
+    const { id } = (await response.json()) as { id: string };
+    const connection = openDatabase(databaseUrl!);
+    const store = indexingStore(connection.db);
+    const loaded = (await store.load(id))!;
+    const claim = {
+      memoryId: id,
+      userId: loaded.userId,
+      generation: loaded.generation,
+      run: loaded.run,
+    };
+    queues.background.sent.length = 0;
+    await call(`/api/memories/${id}`, {
+      method: "PATCH",
+      json: { title: "Sunset over the dock", body: "Notes from the trip" },
+    });
+    expect(queues.background.sent).toEqual([
+      {
+        body: {
+          memoryId: id,
+          generation: expect.any(String),
+          priority: "background",
+          task: "embed",
+        },
+        delaySeconds: EMBEDDING.editDelaySeconds,
+      },
+    ]);
+    // If the delayed job arrives before Indexing finishes it must stay on the queue.
+    const message = queues.background.sent[0]!.body;
+    queues.background.sent.length = 0;
+    const early = await deliver(queues.background.name, message, 1);
+    expect(early.ack).toHaveBeenCalled();
+    expect(early.retry).not.toHaveBeenCalled();
+    expect(queues.background.sent).toContainEqual({
+      body: message,
+      delaySeconds: EMBEDDING.editDelaySeconds,
+    });
+    // The in-flight run finishes with the revision it loaded before the edit.
+    try {
+      expect(
+        await store.complete(
+          claim,
+          {
+            output: {
+              title: "Trip Notes",
+              description: "Notes from the trip",
+              ocrText: "",
+              entities: [],
+              tags: [],
+              language: "en",
+            },
+            model: "fake",
+          },
+          {
+            model: "fake-embedding",
+            dimensions: 768,
+            revision: loaded.revision,
+            vectors: [
+              { kind: "overview", embedding: [1, ...new Array(767).fill(0)] },
+            ],
+          }
+        )
+      ).toBe(true);
+    } finally {
+      await connection.close();
+    }
+    expect(
+      (
+        await sql.query("select vectors_revision from memory where id = $1", [
+          id,
+        ])
+      ).rows[0].vectors_revision
+    ).toBeNull();
+    await drain(id);
+    await deliver(queues.background.name, message, 2);
+    expect((await search(call, "twilight", "full"))[0]?.id).toBe(id);
+    const revisions = await sql.query(
+      "select revision, vectors_revision from memory where id = $1",
+      [id]
+    );
+    expect(revisions.rows[0].vectors_revision).toBe(revisions.rows[0].revision);
+  });
+
   it("falls back to keyword search when the embedding provider is down or answers nonsense", async () => {
     const { call } = await signedIn();
     const id = await capture(call, "Sunset over the dock");
@@ -563,6 +656,174 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     );
     expect(res.status).toBe(204);
     expect(queryVectorsCached(userId)).toBe(0);
+  });
+
+  it("drains Category backlogs without queue or AI calls and caps real embeds at 100", async () => {
+    // The sweep is global: unrelated stalled Captures may consume its cron
+    // share. Give this scenario its own database, including on repeated runs.
+    const database = `category_batch_${crypto.randomUUID().replaceAll("-", "")}`;
+    await sql.query(`CREATE DATABASE "${database}"`);
+    const isolatedUrl = new URL(databaseUrl!);
+    isolatedUrl.pathname = `/${database}`;
+    const isolated = new Client({ connectionString: isolatedUrl.href });
+    const bindings = env({
+      HYPERDRIVE: { connectionString: isolatedUrl.href },
+    });
+    try {
+      await promisify(execFile)(
+        "pnpm",
+        ["--filter", "@spark/db", "db:migrate"],
+        {
+          env: { ...process.env, DATABASE_URL: isolatedUrl.href },
+          timeout: 30_000,
+        }
+      );
+      await isolated.connect();
+      const owner = crypto.randomUUID();
+      await isolated.query(
+        'insert into "user" (id, name, email) values ($1, $2, $3)',
+        [owner, "Category Test", `${owner}@example.test`]
+      );
+      const primerConnection = openDatabase(isolatedUrl.href);
+      try {
+        const primer = await openLibrary(primerConnection.db, owner).capture({
+          body: "Warm prototype vectors",
+        });
+        if (!("memory" in primer)) throw new Error("capture");
+        await enqueue(bindings, primer.memory);
+        await drain(primer.memory.id, bindings);
+        await isolated.query("delete from memory where id = $1", [
+          primer.memory.id,
+        ]);
+      } finally {
+        await primerConnection.close();
+      }
+      const inserted = await isolated.query(
+        `insert into memory (user_id, kind, body, index_state, vectors_space, vectors_revision, updated_at)
+      select $1, 'text', 'Recipe', 'searchable', 'fake-embedding@768', 1, now() - interval '20 years'
+      from generate_series(1, 1250) returning id`,
+        [owner]
+      );
+      const ids = inserted.rows.map((r: { id: string }) => r.id);
+      try {
+        await isolated.query(
+          `insert into memory_index (memory_id, title, description, ocr_text, entities, tags, model)
+        select id, 'Recipe', '', '', '{}', '{}', 'fake' from memory where id = any($1::uuid[])`,
+          [ids]
+        );
+        await isolated.query(
+          `insert into memory_vector (memory_id, user_id, kind, model, dimensions, embedding)
+        select id, user_id, 'overview', 'fake-embedding', 768,
+          (select embedding from category_prototype where user_id is null and name = 'Recipe' and space = 'fake-embedding@768')
+          from memory where id = any($1::uuid[])`,
+          [ids]
+        );
+        queues.background.sent.length = 0;
+        queues.fresh.sent.length = 0;
+        const network = vi
+          .spyOn(globalThis, "fetch")
+          .mockRejectedValue(new Error("cron must not call providers"));
+        const callsBefore = (
+          await isolated.query("select count(*)::int as n from ai_call")
+        ).rows[0].n;
+        const before = await isolated.query(
+          "select embedding::text from memory_vector where memory_id = $1",
+          [ids[0]]
+        );
+        // The AI budget is exhausted; vector-only classification still costs $0.
+        await isolated.query(
+          "insert into spend_day (day, provider, cost_micros) values (current_date, 'fake', 1000000000000) on conflict (day, provider) do update set cost_micros = excluded.cost_micros"
+        );
+        for (const remaining of [750, 250, 0]) {
+          const calls = cronCalls();
+          await requeueStalled(bindings, calls);
+          expect(queues.background.sent).toHaveLength(0);
+          expect(queues.fresh.sent).toHaveLength(0);
+          expect(
+            (
+              await isolated.query(
+                "select count(*)::int as n from memory where categories_version is null"
+              )
+            ).rows[0].n
+          ).toBe(remaining);
+          expect(calls.remaining("indexing")).toBe(10);
+        }
+        expect(network).not.toHaveBeenCalled();
+        expect(
+          (
+            await isolated.query(
+              "select embedding::text from memory_vector where memory_id = $1",
+              [ids[0]]
+            )
+          ).rows
+        ).toEqual(before.rows);
+        expect(
+          (
+            await isolated.query(
+              "select categories from memory where id = $1",
+              [ids[0]]
+            )
+          ).rows[0].categories[0]
+        ).toBe("Recipe");
+        await isolated.query(
+          "update memory set categories_version = null where id = $1",
+          [ids[0]]
+        );
+        const blocker = new Client({ connectionString: isolatedUrl.href });
+        await blocker.connect();
+        try {
+          await blocker.query("BEGIN");
+          await blocker.query("select pg_advisory_xact_lock(7, hashtext($1))", [
+            owner,
+          ]);
+          await requeueStalled(bindings, cronCalls());
+          expect(
+            (
+              await isolated.query(
+                "select categories_version from memory where id = $1",
+                [ids[0]]
+              )
+            ).rows[0].categories_version
+          ).toBeNull();
+        } finally {
+          await blocker.query("ROLLBACK");
+          await blocker.end();
+        }
+        // A cold/incomplete prototype cache must neither guess nor call AI.
+        await isolated.query(
+          "delete from category_prototype where name = 'Recipe'"
+        );
+        await requeueStalled(bindings, cronCalls());
+        expect(
+          (
+            await isolated.query(
+              "select categories_version from memory where id = $1",
+              [ids[0]]
+            )
+          ).rows[0].categories_version
+        ).toBeNull();
+        expect(queues.background.sent).toHaveLength(0);
+        expect(network).not.toHaveBeenCalled();
+        expect(
+          (await isolated.query("select count(*)::int as n from ai_call"))
+            .rows[0].n
+        ).toBe(callsBefore);
+        await isolated.query("update spend_day set cost_micros = 0");
+        await isolated.query("update memory set vectors_revision = 0");
+        await requeueStalled(bindings, cronCalls());
+        expect(queues.background.sent).toHaveLength(100);
+        expect(
+          queues.background.sent.every((m) => m.body.task === "embed")
+        ).toBe(true);
+      } finally {
+        await isolated.query("delete from memory where id = any($1::uuid[])", [
+          ids,
+        ]);
+      }
+    } finally {
+      await isolated.end();
+      await sql.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
+    }
   });
 
   it("re-embeds, hourly, Memories whose vectors are missing or stale", async () => {

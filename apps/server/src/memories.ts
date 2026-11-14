@@ -605,9 +605,13 @@ export const memories = new Hono<AppEnv>()
     // New text is Indexed again, behind fresh Captures.
     if (changes.body !== undefined && result.indexState === "indexing") {
       await enqueue(c.env, result);
-    } else if (
+    }
+    // The editor sends a full draft: an unchanged body must not suppress
+    // the delayed title/note embed while the initial run is still Indexing.
+    if (
       (changes.title !== undefined || changes.captureNote !== undefined) &&
-      result.indexState === "searchable" &&
+      (result.indexState === "searchable" ||
+        result.indexState === "indexing") &&
       !result.aiOptOut
     ) {
       // Its vectors read the title and note: made again once typing stops.

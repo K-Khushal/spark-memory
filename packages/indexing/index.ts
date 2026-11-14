@@ -72,6 +72,7 @@ export {
 } from "./lib/link/public-fetch";
 export {
   categorise,
+  prepareCategoryPrototypes,
   jevCostMicros,
   jevTokenEstimate,
   type CategoryClient,

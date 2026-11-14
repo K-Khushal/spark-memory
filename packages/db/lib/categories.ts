@@ -8,7 +8,7 @@ import {
 import type { Database } from "./client";
 import { categoriesStale, embeddable } from "./indexing";
 import { lockCategories, lockOwner } from "./owner";
-import { category, categoryRun, memory } from "./schema";
+import { category, categoryRun, categoryPrototype, memory } from "./schema";
 
 /** A person's own Category and how many of their Memories have it. */
 export type OwnCategory = { id: string; name: string; memories: number };
@@ -173,6 +173,14 @@ export function openCategories(db: Database, userId: string) {
             .update(category)
             .set({ name: checked.name })
             .where(and(mine, eq(category.id, id)));
+          await tx
+            .delete(categoryPrototype)
+            .where(
+              and(
+                eq(categoryPrototype.userId, userId),
+                eq(categoryPrototype.name, target.name)
+              )
+            );
           await bump(tx, false);
           await tx
             .update(memory)
@@ -203,6 +211,14 @@ export function openCategories(db: Database, userId: string) {
           .from(category)
           .where(and(mine, eq(category.id, id)));
         if (!target) return undefined;
+        await tx
+          .delete(categoryPrototype)
+          .where(
+            and(
+              eq(categoryPrototype.userId, userId),
+              eq(categoryPrototype.name, target.name)
+            )
+          );
         await tx.delete(category).where(and(mine, eq(category.id, id)));
         await bump(tx, false);
         const left = sql`array_remove(${memory.categories}, ${target.name})`;

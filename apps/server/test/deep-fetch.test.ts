@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import pg from "pg";
+import { INDEXING } from "@spark/core";
 import { requeueDeepFetches } from "../src/deep-fetch";
 import { enqueueDeepFetch } from "../src/deep-fetch-queue";
 import {
   databaseUrl,
   deepFetchQueue,
   drain,
+  deliver,
+  queues,
   drainDeepFetch,
   env,
   fakeTurnstile,
@@ -78,6 +81,61 @@ const searchIds = async (call: Call, q: string) =>
   ).results.map((m) => m.id);
 
 describe.skipIf(!databaseUrl)("Deep fetch", () => {
+  it.each([503, 403, 401])(
+    "retries unreachable Sources through Deep fetch, but never refused ones (%s)",
+    async (status) => {
+      const { call } = await signedIn();
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = new URL(
+          input instanceof Request ? input.url : String(input)
+        );
+        return url.hostname === "cloudflare-dns.com"
+          ? Response.json({
+              Answer:
+                url.searchParams.get("type") === "A"
+                  ? [{ type: 1, data: "93.184.215.14" }]
+                  : [],
+            })
+          : new Response("", { status });
+      });
+      const id = await capture(call, `https://unreachable-${status}.test/post`);
+      const initial = queues.fresh.sent.find(
+        (m) => m.body.memoryId === id
+      )!.body;
+      const first = await deliver(queues.fresh.name, initial, 1, env(FAKE));
+      if (status === 503) {
+        expect(first.retry).toHaveBeenCalled();
+        await deliver(
+          queues.fresh.name,
+          initial,
+          INDEXING.maxAttempts,
+          env(FAKE)
+        );
+        expect(await read(call, id)).toMatchObject({
+          preservation: "reference_only",
+          deepFetch: "fetching",
+        });
+        expect(deepFetchQueue.sent.some((m) => m.body.memoryId === id)).toBe(
+          true
+        );
+        await drainDeepFetch(id, env(FAKE));
+        await drain(id, env(FAKE));
+        expect(await read(call, id)).toMatchObject({
+          preservation: "preserved",
+        });
+      } else {
+        expect(first.retry).not.toHaveBeenCalled();
+        expect(await read(call, id)).toMatchObject({
+          preservation: "reference_only",
+          deepFetch: null,
+        });
+        expect(deepFetchQueue.sent.some((m) => m.body.memoryId === id)).toBe(
+          false
+        );
+      }
+    }
+  );
+
   it("fetches a Memory Gather found too little of, then Indexes what came back", async () => {
     const { call } = await signedIn();
     stubThinWeb();

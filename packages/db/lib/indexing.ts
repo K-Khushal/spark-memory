@@ -1,6 +1,7 @@
 import { and, eq, lt, sql } from "drizzle-orm";
 import {
   CATEGORISING,
+  CATEGORY_NAMES,
   EMBEDDING,
   Categories,
   embeddingSpace,
@@ -16,12 +17,18 @@ import {
 } from "@spark/core";
 import { readDailyBudgetMicros } from "./admin";
 import type { Database } from "./client";
-import { ANONYMISED_USER, lockCategories, lockOwner } from "./owner";
+import {
+  ANONYMISED_USER,
+  lockCategories,
+  lockOwner,
+  tryLockCategories,
+} from "./owner";
 import {
   accountDeletion,
   aiCall,
   category,
   categoryRun,
+  categoryPrototype,
   memory,
   memoryCopy,
   memoryFile,
@@ -111,7 +118,7 @@ const ownerDueGeneration = sql`coalesce((select r.due_generation from category_r
  * Not locked by the user, and not categorised at this revision by this
  * version of the categoriser, nor since the owner's newest Category.
  */
-export const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version} or coalesce(${memory.categoriesGeneration}, 0) < ${ownerDueGeneration}))`;
+export const categoriesStale = sql<boolean>`(not ${memory.categoriesLocked} and (${memory.categoriesRun} is distinct from ${memory.indexRun} or ${memory.categoriesRevision} is distinct from ${memory.revision} or ${memory.categoriesVersion} is distinct from ${CATEGORISING.version} or coalesce(${memory.categoriesGeneration}, 0) < ${ownerDueGeneration}))`;
 /** What the hourly sweep and `embed` jobs pick up: vectors or Categories to make. */
 const workDueIn = (space: string) =>
   sql`(${vectorsStaleIn(space)} or ${categoriesStale})`;
@@ -362,6 +369,74 @@ export function indexingStore(db: Database) {
       },
     },
 
+    async loadCategoryPrototypes(
+      userId: string,
+      space: string,
+      names: readonly string[]
+    ) {
+      const rows = await db
+        .select({
+          name: categoryPrototype.name,
+          embedding: categoryPrototype.embedding,
+        })
+        .from(categoryPrototype).where(sql`${categoryPrototype.space} = ${space}
+          and ${categoryPrototype.version} = ${CATEGORISING.version} and ${categoryPrototype.name} = any(array[${sql.join(
+            names.map((name) => sql`${name}`),
+            sql`, `
+          )}]::text[])
+          and (${categoryPrototype.userId} is null or ${categoryPrototype.userId} = ${userId})`);
+      return Object.fromEntries(rows.map((r) => [r.name, r.embedding]));
+    },
+
+    async saveCategoryPrototypes(
+      userId: string,
+      space: string,
+      vectors: Record<string, number[]>
+    ) {
+      await db.transaction(async (tx) => {
+        await lockOwner(tx, userId);
+        await lockCategories(tx, userId);
+        // A Category deleted while the model ran must not be resurrected in its cache.
+        const own = await tx
+          .select({ name: category.name })
+          .from(category)
+          .where(eq(category.userId, userId));
+        const values = Object.entries(vectors)
+          .filter(
+            ([name, embedding]) =>
+              embedding.length > 0 &&
+              (CATEGORY_NAMES.includes(
+                name as (typeof CATEGORY_NAMES)[number]
+              ) ||
+                own.some((c) => c.name === name))
+          )
+          .map(([name, embedding]) => ({
+            name,
+            space,
+            version: CATEGORISING.version,
+            embedding,
+            userId: CATEGORY_NAMES.includes(
+              name as (typeof CATEGORY_NAMES)[number]
+            )
+              ? null
+              : userId,
+          }));
+        if (values.length)
+          await tx
+            .insert(categoryPrototype)
+            .values(values)
+            .onConflictDoUpdate({
+              target: [
+                categoryPrototype.userId,
+                categoryPrototype.name,
+                categoryPrototype.space,
+                categoryPrototype.version,
+              ],
+              set: { embedding: sql`excluded.embedding` },
+            });
+      });
+    },
+
     /**
      * Automatic Categories for the Memory at `revision`, once: never over a
      * user's edit (Locked categories), AI opt-out, a newer revision or run.
@@ -383,6 +458,7 @@ export function indexingStore(db: Database) {
             categories,
             categoriesRevision: revision,
             categoriesVersion: CATEGORISING.version,
+            categoriesRun: claim.run,
             categoriesGeneration,
           })
           .where(
@@ -681,6 +757,15 @@ export function indexingStore(db: Database) {
       return !!row;
     },
 
+    /** A delayed title edit arrived before its initial Indexing completed. */
+    async waitingForIndexing(target: IndexMessageTarget) {
+      const [row] = await db
+        .select({ id: memory.id })
+        .from(memory)
+        .where(and(named(target), indexing, eq(memory.aiOptOut, false)));
+      return !!row;
+    },
+
     /** New vectors for a Searchable Memory, if nothing changed since loading. */
     async writeVectors(claim: Claim, embedding: Embedding) {
       return db.transaction(async (tx) => {
@@ -701,12 +786,135 @@ export function indexingStore(db: Database) {
       });
     },
 
+    /**
+     * Pure vector fallback in bounded Postgres batches. No vectors or text
+     * cross the Worker, and no provider or queue is involved. Missing prototype
+     * vectors leave work pending until ordinary Indexing warms that space.
+     */
+    async refreshCategories(limit = 500, budgetMs = 2_000) {
+      const deadline = Date.now() + Math.min(budgetMs, 2_000);
+      const cap = Math.max(0, Math.min(limit, 500));
+      if (!cap || budgetMs <= 0) return 0;
+      const currentVectors = sql`${memory.vectorsSpace} is not null and ${memory.vectorsRevision} = ${memory.revision}
+        and exists (select 1 from memory_vector v where v.memory_id = ${memory.id} and v.kind = 'overview'
+          and v.model || '@' || v.dimensions::text = ${memory.vectorsSpace})`;
+      const completePrototypes = sql`(select count(*) from category_prototype p
+        where p.space = ${memory.vectorsSpace} and p.version = ${CATEGORISING.version} and (
+          (p.user_id is null and p.name = any(array[${sql.join(
+            CATEGORY_NAMES.map((name) => sql`${name}`),
+            sql`, `
+          )}]::text[])) or
+          (p.user_id = ${memory.userId} and exists (select 1 from category c where c.user_id = ${memory.userId} and c.name = p.name))))
+        = ${CATEGORY_NAMES.length} + (select count(*) from category c where c.user_id = ${memory.userId})`;
+      let owners: { userId: string }[];
+      try {
+        owners = await db.transaction(async (tx) => {
+          await tx.execute(
+            sql`select set_config('statement_timeout', ${String(Math.max(1, Math.min(250, deadline - Date.now())))}, true)`
+          );
+          return tx
+            .select({ userId: memory.userId })
+            .from(memory)
+            .where(
+              and(
+                embeddable,
+                categoriesStale,
+                unleased,
+                currentVectors,
+                completePrototypes
+              )
+            )
+            .groupBy(memory.userId)
+            .orderBy(sql`min(${memory.updatedAt})`)
+            .limit(20);
+        });
+      } catch (error) {
+        const cause = error as { code?: string; cause?: { code?: string } };
+        if ((cause.cause?.code ?? cause.code) === "57014") return 0;
+        throw error;
+      }
+      let changed = 0;
+      for (const { userId } of owners) {
+        while (changed < cap && Date.now() < deadline) {
+          const batch = Math.min(100, cap - changed);
+          let n: number;
+          try {
+            n = await db.transaction(async (tx) => {
+              // Advisory lock FIRST, nonblocking: another Category writer must
+              // never hold cron past its wall-time budget. Same lock as #25.
+              if (!(await tryLockCategories(tx, userId))) return 0;
+              if (Date.now() >= deadline) return 0;
+              const remaining = Math.max(
+                1,
+                Math.min(250, deadline - Date.now())
+              );
+              await tx.execute(
+                sql`select set_config('statement_timeout', ${String(remaining)}, true)`
+              );
+              const { rows } = await tx.execute(sql`
+                with names as materialized (
+                  select name, ord from unnest(array[${sql.join(
+                    CATEGORY_NAMES.map((name) => sql`${name}`),
+                    sql`, `
+                  )}]::text[]) with ordinality n(name, ord)
+                  union all
+                  select name, ${CATEGORY_NAMES.length} + row_number() over (order by created_at, id)
+                  from category where user_id = ${userId}
+                ), due as materialized (
+                  select memory.id, memory.revision, memory.index_run, memory.index_generation,
+                    memory.vectors_space, v.embedding
+                  from memory join memory_vector v on v.memory_id = memory.id and v.kind = 'overview'
+                    and v.model || '@' || v.dimensions::text = memory.vectors_space
+                  where memory.user_id = ${userId} and ${embeddable} and ${categoriesStale}
+                    and ${unleased} and ${currentVectors} and ${completePrototypes}
+                  order by memory.updated_at, memory.id limit ${batch}
+                )
+                update memory set categories = coalesce(nullif(array(
+                  select p.name from names n join category_prototype p on p.name = n.name
+                    and p.user_id is not distinct from (case when n.ord <= ${CATEGORY_NAMES.length} then null else ${userId} end)
+                    and p.space = due.vectors_space and p.version = ${CATEGORISING.version}
+                  where p.name <> 'Other' and (due.embedding <=> p.embedding) between 0 and ${1 - CATEGORISING.embeddingThreshold}
+                  order by due.embedding <=> p.embedding, n.ord limit 3
+                ), '{}'::text[]), array['Other']::text[]),
+                  categories_revision = due.revision, categories_run = due.index_run,
+                  categories_version = ${CATEGORISING.version}, categories_generation = ${ownerGeneration}
+                from due where memory.id = due.id and memory.user_id = ${userId} and memory.revision = due.revision
+                  and memory.index_run = due.index_run and memory.index_generation = due.index_generation
+                  and memory.vectors_space = due.vectors_space and ${embeddable} and ${categoriesStale}
+                  and ${currentVectors}
+                returning memory.id
+              `);
+              return rows.length;
+            });
+          } catch (error) {
+            const cause = error as { code?: string; cause?: { code?: string } };
+            if ((cause.cause?.code ?? cause.code) !== "57014") throw error;
+            break; // SQL deadline: the batch rolled back and remains pending.
+          }
+          changed += n;
+          if (n < batch) break;
+        }
+        if (changed >= cap || Date.now() >= deadline) break;
+      }
+      return changed;
+    },
+
     /** Memories whose vectors in `space` are missing or stale, oldest first. */
-    async staleVectors(space: string, limit: number = EMBEDDING.sweepBatch) {
+    async staleVectors(
+      space: string,
+      limit: number = EMBEDDING.sweepBatch,
+      vectorsOnly = false
+    ) {
       return db
         .select({ id: memory.id, generation: memory.indexGeneration })
         .from(memory)
-        .where(and(embeddable, workDueIn(space), unleased))
+        .where(
+          and(
+            embeddable,
+            vectorsOnly ? vectorsStaleIn(space) : workDueIn(space),
+            unleased
+          )
+        )
         .orderBy(memory.updatedAt)
         .limit(limit);
     },

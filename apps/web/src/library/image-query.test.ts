@@ -20,6 +20,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
   deepFetch: null,
   categories: ["Other"],
   categoriesLocked: false,
+  categoriesVersion: null,
   revision: 1,
   capturedAt: "2026-11-13T00:00:00.000Z",
   lastSavedAt: "2026-11-13T00:00:00.000Z",

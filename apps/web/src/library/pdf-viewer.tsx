@@ -169,8 +169,8 @@ function Viewer({
     >
       <DialogTitle className="sr-only">{memoryName(memory)}</DialogTitle>
       {/* A solid strip, so pages never scroll under the controls. */}
-      <div className="absolute inset-x-0 top-0 flex h-17 items-center gap-1 bg-canvas pr-14 pl-2 sm:gap-3 sm:pr-16 sm:pl-3">
-        <div className="flex min-w-0 flex-1 items-center">
+      <div className="absolute inset-x-0 top-0 flex h-17 items-center gap-1 bg-canvas max-[360px]:h-32 max-[360px]:flex-wrap pr-14 pl-2 sm:gap-3 sm:pr-16 sm:pl-3">
+        <div className="flex min-w-0 flex-1 items-center max-[360px]:basis-full">
           {memory.upload ? (
             <UploadBadge
               upload={memory.upload}
@@ -189,7 +189,7 @@ function Viewer({
           )}
         </div>
         {!stranded && (
-          <div className="flex shrink-0 items-center gap-1 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-1 max-[360px]:max-w-full max-[360px]:flex-wrap max-[360px]:justify-end sm:gap-3">
             <MoreLikeThis
               memory={memory}
               onSelect={onMoreLikeThis}
@@ -197,6 +197,7 @@ function Viewer({
               className="h-11"
             />
             <CategoryEditor
+              compact
               key={memory.id}
               memory={memory}
               onSave={onCategories}
@@ -232,7 +233,7 @@ function Viewer({
         // A tab stop too, so the keyboard can always come back to scrolling.
         tabIndex={0}
         aria-label="Pages"
-        className="absolute inset-x-0 top-17 bottom-0 overflow-y-auto overscroll-contain px-4 pb-6 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring md:px-16"
+        className="absolute inset-x-0 top-17 bottom-0 overflow-y-auto max-[360px]:top-32 overscroll-contain px-4 pb-6 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring md:px-16"
       >
         <div className="mx-auto flex max-w-[50rem] flex-col gap-4">
           {shown ? (

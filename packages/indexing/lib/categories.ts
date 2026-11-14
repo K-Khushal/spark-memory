@@ -3,6 +3,7 @@ import {
   CATEGORY_NAMES,
   chooseCategories,
   cosine,
+  embeddingSpace,
   INDEXING,
   prototypeOf,
 } from "@spark/core";
@@ -28,7 +29,8 @@ export type CategoryClient = {
  */
 const prototypes = new Map<string, number[]>();
 const MAX_PROTOTYPES = 2000;
-const prototypeKey = (space: string, name: string) => `${space}\0${name}`;
+const prototypeKey = (space: string, name: string) =>
+  `${space}\0${CATEGORISING.version}\0${name}`;
 
 /** About three characters a token, plus the question and the Category names. */
 export const jevTokenEstimate = (text: string) =>
@@ -59,7 +61,17 @@ export async function categorise({
   own = [],
   allow,
   record,
+  loadPrototypes,
+  savePrototypes,
 }: {
+  loadPrototypes?: (
+    space: string,
+    names: readonly string[]
+  ) => Promise<Record<string, number[]>>;
+  savePrototypes?: (
+    space: string,
+    vectors: Record<string, number[]>
+  ) => Promise<void>;
   text: string;
   /** The Memory's Overview vector, in `embedder`'s space. */
   vector: number[];
@@ -98,16 +110,61 @@ export async function categorise({
         usage: { inputTokens: reply.inputTokens, outputTokens: 0 },
         costMicros: jevCostMicros(jev.model, reply.inputTokens),
       }).catch(() => {});
+      // Warm the persisted fallback during ordinary Indexing, even when Jev
+      // answered: the cron is intentionally unable to call any provider.
+      if (savePrototypes)
+        await prepareCategoryPrototypes({
+          embedder,
+          own,
+          allow,
+          record,
+          loadPrototypes,
+          savePrototypes,
+        }).catch(() => undefined);
       return chooseCategories(reply.scores, CATEGORISING.jevThreshold);
     }
   }
+  const prepared = await prepareCategoryPrototypes({
+    embedder,
+    own,
+    allow,
+    record,
+    loadPrototypes,
+    savePrototypes,
+  });
+  if (!prepared) return undefined;
+  const scores = Object.fromEntries(
+    names.map((name) => [name, cosine(vector, prepared[name] ?? [])])
+  );
+  return chooseCategories(scores, CATEGORISING.embeddingThreshold);
+}
+
+/** Prepare Category prototype vectors during ordinary Indexing or Category creation, never cron. */
+export async function prepareCategoryPrototypes({
+  embedder,
+  own = [],
+  allow,
+  record,
+  loadPrototypes,
+  savePrototypes,
+}: Pick<
+  Parameters<typeof categorise>[0],
+  "embedder" | "own" | "allow" | "record" | "loadPrototypes" | "savePrototypes"
+>): Promise<Record<string, number[]> | undefined> {
+  const names = [...CATEGORY_NAMES, ...own];
   if (!(await allow())) return undefined;
-  const space = `${embedder.model}:${embedder.dimensions}`;
+  const space = embeddingSpace(embedder.model, embedder.dimensions);
+  const stored = await loadPrototypes?.(space, names);
+  if (prototypes.size + Object.keys(stored ?? {}).length > MAX_PROTOTYPES)
+    prototypes.clear();
+  for (const [name, vector] of Object.entries(stored ?? {}))
+    prototypes.set(prototypeKey(space, name), vector);
   const missing = names.filter(
     (name) => !prototypes.has(prototypeKey(space, name))
   );
   try {
     if (missing.length) {
+      if (!(await allow())) return undefined;
       const { vectors, usage } = await embedder.embed(
         missing.map((name) => ({ text: prototypeOf(name) })),
         { timeoutMs: 10_000 }
@@ -129,11 +186,18 @@ export async function categorise({
   } catch {
     return undefined;
   }
-  const scores = Object.fromEntries(
-    names.map((name) => [
-      name,
-      cosine(vector, prototypes.get(prototypeKey(space, name)) ?? []),
-    ])
+  const unstored = names.filter((name) => !stored?.[name]);
+  if (unstored.length)
+    await savePrototypes?.(
+      space,
+      Object.fromEntries(
+        unstored.map((name) => [
+          name,
+          prototypes.get(prototypeKey(space, name)) ?? [],
+        ])
+      )
+    );
+  return Object.fromEntries(
+    names.map((name) => [name, prototypes.get(prototypeKey(space, name)) ?? []])
   );
-  return chooseCategories(scores, CATEGORISING.embeddingThreshold);
 }

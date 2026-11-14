@@ -142,6 +142,16 @@ export type Extraction = { output: IndexingOutput; model: string };
  * Memory it loaded is gone.
  */
 export type IndexStore = {
+  loadCategoryPrototypes?(
+    userId: string,
+    space: string,
+    names: readonly string[]
+  ): Promise<Record<string, number[]>>;
+  saveCategoryPrototypes?(
+    userId: string,
+    space: string,
+    vectors: Record<string, number[]>
+  ): Promise<void>;
   /** Automatic Categories, once per revision, never over a user's edit; false if refused. */
   writeCategories?(
     claim: Claim,
@@ -752,6 +762,14 @@ export function createIndexer({
         text,
         vector,
         embedder,
+        ...(store.loadCategoryPrototypes && {
+          loadPrototypes: (space, names) =>
+            store.loadCategoryPrototypes!(work.userId, space, names),
+        }),
+        ...(store.saveCategoryPrototypes && {
+          savePrototypes: (space, vectors) =>
+            store.saveCategoryPrototypes!(work.userId, space, vectors),
+        }),
         ...(jev && { jev }),
         ...(work.ownCategories && { own: work.ownCategories }),
         allow: async () => !(await budgetSpent()) && (await current()),
