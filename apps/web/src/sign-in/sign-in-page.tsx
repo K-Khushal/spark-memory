@@ -145,8 +145,8 @@ export function SignInPage({
 
   return (
     <main className="grid min-h-dvh grid-cols-[minmax(0,1fr)] place-items-center bg-canvas px-4 py-12">
-      {/* Buttons wrap at large text sizes instead of widening the page. */}
-      <div className="flex w-full max-w-[22rem] flex-col gap-6 [--button-min:2.75rem] wrapping-buttons">
+      <div className="flex w-full max-w-[22rem] flex-col gap-6">
+        <Wordmark />
         {step === "email" ? (
           <>
             <Title>Sign In to Spark</Title>
@@ -158,7 +158,8 @@ export function SignInPage({
                     <Button
                       key={p}
                       variant="outline"
-                      className="h-11 text-base"
+                      wrap
+                      className="min-h-11 text-base"
                       disabled={pending !== undefined}
                       onClick={() => void social(p)}
                     >
@@ -197,7 +198,8 @@ export function SignInPage({
               <Button
                 type="submit"
                 variant="primary"
-                className="h-11 text-base"
+                wrap
+                className="min-h-11 text-base"
                 disabled={pending !== undefined}
               >
                 {pending === "email" && <Spinner />}
@@ -235,13 +237,14 @@ export function SignInPage({
                 aria-label="Code"
                 aria-invalid={error ? true : undefined}
                 aria-describedby={error ? "sign-in-error" : undefined}
-                containerClassName="justify-between"
+                containerClassName="w-full"
               >
-                <InputOTPGroup className="w-full justify-between">
+                <InputOTPGroup className="w-full gap-2">
                   {Array.from({ length: 6 }, (_, i) => (
                     <InputOTPSlot
                       key={i}
                       index={i}
+                      className="max-w-none"
                       aria-invalid={error ? true : undefined}
                     />
                   ))}
@@ -252,6 +255,7 @@ export function SignInPage({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Button
                 variant="quiet"
+                wrap
                 className="-ml-3"
                 disabled={pending !== undefined}
                 onClick={() => {
@@ -263,6 +267,7 @@ export function SignInPage({
               </Button>
               <Button
                 variant="quiet"
+                wrap
                 className="-mr-3"
                 disabled={pending !== undefined || !canResend}
                 onClick={() => void sendCode("resend")}
@@ -283,6 +288,11 @@ export function SignInPage({
       </div>
     </main>
   );
+}
+
+/** The brand, in display type, above the step's heading. Not a heading. */
+function Wordmark() {
+  return <p className="font-display text-xl font-semibold">Spark</p>;
 }
 
 function Title({ children }: { children: ReactNode }) {

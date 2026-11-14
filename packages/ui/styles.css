@@ -97,12 +97,18 @@
     0 32px 64px -16px rgb(var(--shadow-rgb) / 0.18);
 
   --duration-press: 120ms;
+  --duration-preview: 150ms;
   --duration-small: 180ms;
   --duration-panel: 260ms;
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Geometry beyond the 4px step: a coarse pointer's target (tokens.ts
+     TOUCH_TARGET) and the tallest a phone sheet may stand. */
+  --size-touch: 2.75rem;
+  --size-sheet: 92dvh;
 }
 
 @theme inline {
@@ -173,6 +179,145 @@
   }
 }
 
+/* Keyboard hints mean nothing to a finger. Unlayered, so it beats the
+   `md:inline-flex` a caller puts on one. */
+@media (pointer: coarse) {
+  [data-slot="kbd"] {
+    display: none;
+  }
+}
+
+/*
+ * Overlays (DESIGN.md → Motion). A dialog opened by pointer fades and grows
+ * from .98 in 180ms; one opened from the keyboard, and any full-screen
+ * viewer, only fades in 150ms. Every exit is a 120ms fade. A phone sheet
+ * rises from 8% in 260ms and leaves in 180ms. `data-input` is set by
+ * `trackInputModality`. Reduced motion: opacity only (the global rule above
+ * pins `scale`; the sheet swaps to fades because `translate` is not pinned).
+ * The ⌘K menu has none of this: it is a shortcut.
+ */
+@keyframes spark-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes spark-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes spark-dialog-in {
+  from {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+@keyframes spark-sheet-in {
+  from {
+    opacity: 0;
+    translate: 0 8%;
+  }
+}
+@keyframes spark-sheet-out {
+  to {
+    opacity: 0;
+    translate: 0 8%;
+  }
+}
+
+@layer components {
+  [data-slot="dialog-overlay"][data-state="open"] {
+    animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
+  }
+  [data-slot="dialog-overlay"][data-state="closed"],
+  [data-slot="dialog-content"][data-state="closed"] {
+    animation: spark-fade-out var(--duration-press) var(--ease-out) both;
+  }
+  [data-slot="dialog-content"][data-state="open"] {
+    animation: spark-dialog-in var(--duration-small) var(--ease-out) both;
+  }
+  html[data-input="keyboard"] [data-slot="dialog-content"][data-state="open"],
+  [data-slot="dialog-content"][data-presentation="fullscreen"][data-state="open"] {
+    animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
+  }
+  @media (max-width: 639.98px) {
+    [data-slot="dialog-content"][data-presentation="sheet"][data-state="open"] {
+      animation: spark-sheet-in var(--duration-panel) var(--ease-drawer) both;
+    }
+    [data-slot="dialog-content"][data-presentation="sheet"][data-state="closed"] {
+      animation: spark-sheet-out var(--duration-small) var(--ease-drawer) both;
+    }
+  }
+  @media (max-width: 639.98px) and (prefers-reduced-motion: reduce) {
+    [data-slot="dialog-content"][data-presentation="sheet"][data-state="open"] {
+      animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
+    }
+    [data-slot="dialog-content"][data-presentation="sheet"][data-state="closed"] {
+      animation: spark-fade-out var(--duration-press) var(--ease-out) both;
+    }
+  }
+}
+
+/* Menus grow from their trigger (pointer) and are immediate by keyboard. */
+@keyframes spark-menu-in {
+  from {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+@layer components {
+  [data-slot="menu-content"][data-state="open"] {
+    transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+    animation: spark-menu-in var(--duration-small) var(--ease-out) both;
+  }
+  [data-slot="menu-content"][data-state="closed"] {
+    animation: spark-fade-out var(--duration-press) var(--ease-out) both;
+  }
+  html[data-input="keyboard"] [data-slot="menu-content"] {
+    animation: none;
+  }
+}
+
+/*
+ * Confirm feedback (Copied, Note Added, Captured): two icons stacked, the
+ * outgoing one fades out as the incoming one fades in, 150ms.
+ */
+[data-slot="crossfade"] > [data-face] {
+  transition: opacity var(--duration-preview) var(--ease-out);
+}
+[data-slot="crossfade"] > [data-face="to"] {
+  position: absolute;
+  inset: 0;
+}
+[data-slot="crossfade"][data-on="false"] > [data-face="to"],
+[data-slot="crossfade"][data-on="true"] > [data-face="from"] {
+  opacity: 0;
+}
+
+/* Static skeleton (no shimmer); it leaves with a 150ms fade. */
+@keyframes spark-skeleton-out {
+  to {
+    opacity: 0;
+  }
+}
+[data-slot="skeleton-layer"][data-leaving="true"] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: spark-skeleton-out var(--duration-preview) var(--ease-out) both;
+}
+
+/* The check mark draws itself in 120ms (stroke-dashoffset). */
+[data-slot="checkbox-mark"] {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset var(--duration-press) var(--ease-out);
+}
+[data-slot="checkbox"][data-state="checked"] [data-slot="checkbox-mark"],
+[data-slot="checkbox"][data-state="indeterminate"] [data-slot="checkbox-mark"] {
+  stroke-dashoffset: 0;
+}
+
 /* The fake caret in InputOTP. */
 @theme {
   --animate-caret-blink: caret-blink 1.1s steps(1) infinite;
@@ -188,7 +333,7 @@
 }
 
 /*
- * A container whose Buttons may wrap their label onto several lines (a
+ * Deprecated: prefer `<Button wrap>`. A container whose Buttons may wrap their label onto several lines (a
  * screen read at 320px with 200% text): they grow instead of clipping and
  * never outgrow the container. The minimum height is `--button-min`
  * (36px), set on the container for a taller target.

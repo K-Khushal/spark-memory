@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 import * as Sentry from "@sentry/react";
+import { trackInputModality } from "@spark/ui";
 import { sentryScrubbing } from "@spark/core/sentry";
 import { registerServiceWorker } from "./pwa/register";
 import { router } from "./router";
@@ -21,6 +22,7 @@ if (sentryDsn) {
 }
 
 followSystemTheme();
+trackInputModality();
 registerServiceWorker();
 
 const root = document.getElementById("root");

@@ -1,11 +1,42 @@
-import type { ComponentProps } from "react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { XIcon } from "lucide-react";
 import { cn } from "./cn";
 
-// shadcn/ui Dialog, restyled. Opacity only, no zoom: Quick preview opens from
-// the keyboard (Space) dozens of times a day, so it must feel instant.
+// shadcn/ui Dialog, restyled. How it moves is in styles.css (DESIGN.md →
+// Motion): a pointer-opened dialog fades and grows from .98, a keyboard-opened
+// one (Quick preview) and a full-screen viewer only fade, and a phone sheet
+// rises. The ⌘K menu is a separate component and does none of this.
 export const Dialog = DialogPrimitive.Root;
+
+let modalityTracked = false;
+
+/**
+ * Marks `<html data-input>` with how the last interaction arrived, "pointer"
+ * or "keyboard", so a dialog can enter the way it was asked for. Call once at
+ * start-up. Returns a function that stops tracking.
+ */
+export function trackInputModality(): () => void {
+  if (modalityTracked || typeof document === "undefined") return () => {};
+  modalityTracked = true;
+  const root = document.documentElement;
+  const set = (value: "pointer" | "keyboard") => () => {
+    root.dataset.input = value;
+  };
+  const pointer = set("pointer");
+  const keyboard = (event: KeyboardEvent) => {
+    // A bare modifier is not a request for anything.
+    if (!["Shift", "Control", "Alt", "Meta"].includes(event.key))
+      root.dataset.input = "keyboard";
+  };
+  document.addEventListener("pointerdown", pointer, true);
+  document.addEventListener("keydown", keyboard, true);
+  return () => {
+    modalityTracked = false;
+    document.removeEventListener("pointerdown", pointer, true);
+    document.removeEventListener("keydown", keyboard, true);
+  };
+}
 
 export function DialogTitle({
   className,
@@ -14,6 +45,55 @@ export function DialogTitle({
   return (
     <DialogPrimitive.Title
       className={cn("font-display text-lg font-semibold", className)}
+      {...props}
+    />
+  );
+}
+
+/**
+ * The top of a dialog that reads in one scrolling body: it stays put while
+ * the body scrolls. Leaves room for the Close button. 16px on a phone, 24px
+ * from `sm`.
+ */
+export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-header"
+      className={cn(
+        "flex shrink-0 flex-col gap-1 px-4 pt-4 pr-14 pb-2 sm:px-6 sm:pt-6 sm:pb-3",
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+/** The one scrolling region of a dialog laid out with header and footer. */
+export function DialogBody({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn(
+        "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-2 sm:px-6",
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+/**
+ * Actions that stay visible while the body scrolls, 8px apart, wrapping at
+ * large text. On a phone it clears the home indicator.
+ */
+export function DialogFooter({ className, ...props }: ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-footer"
+      className={cn(
+        "flex shrink-0 flex-wrap items-center justify-end gap-2 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-4 sm:pb-6",
+        className
+      )}
       {...props}
     />
   );
@@ -32,24 +112,88 @@ const onToast = (event: {
   }
 };
 
+/**
+ * Keeps a bottom sheet above the on-screen keyboard: browsers that resize
+ * only the visual viewport leave a fixed `bottom: 0` underneath it, so the
+ * footer would hide. Sets `--keyboard-inset` (px) on the element.
+ */
+function useKeyboardInset(element: HTMLElement | null, enabled: boolean) {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!element || !enabled || !viewport) return;
+    const apply = () => {
+      const inset = Math.max(
+        0,
+        window.innerHeight - viewport.height - viewport.offsetTop
+      );
+      element.style.setProperty("--keyboard-inset", `${Math.round(inset)}px`);
+      element.style.setProperty(
+        "--visual-height",
+        `${Math.round(viewport.height)}px`
+      );
+    };
+    apply();
+    viewport.addEventListener("resize", apply);
+    viewport.addEventListener("scroll", apply);
+    return () => {
+      viewport.removeEventListener("resize", apply);
+      viewport.removeEventListener("scroll", apply);
+      element.style.removeProperty("--keyboard-inset");
+      element.style.removeProperty("--visual-height");
+    };
+  }, [element, enabled]);
+}
+
+/** How a dialog stands. `sheet`: bottom-aligned below 640px, centred above. */
+export type DialogPresentation = "dialog" | "sheet" | "fullscreen";
+
 export function DialogContent({
   className,
   children,
   closeLabel = "Close",
   closeClassName,
   onInteractOutside,
+  presentation = "dialog",
+  ref,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Content> & {
   closeLabel?: string;
   /** For a dialog on a dark surface in both themes (the image viewer). */
   closeClassName?: string;
+  /**
+   * `sheet` opts in to the phone presentation: below 640px it is bottom
+   * aligned, full width, at most 92dvh, with the top corners rounded and the
+   * safe area cleared; compose it from DialogHeader, DialogBody and
+   * DialogFooter so one region scrolls and the actions stay put. `fullscreen`
+   * (the image and PDF viewers) only fades. Default: a centred dialog.
+   */
+  presentation?: DialogPresentation;
 }) {
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  const sheet = presentation === "sheet";
+  useKeyboardInset(node, sheet);
+  const setRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      setNode(element);
+      if (typeof ref === "function") ref(element);
+      else if (ref) ref.current = element;
+    },
+    [ref]
+  );
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim duration-150 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+      <DialogPrimitive.Overlay
+        data-slot="dialog-overlay"
+        className="fixed inset-0 z-50 bg-scrim"
+      />
       <DialogPrimitive.Content
+        data-slot="dialog-content"
+        data-presentation={presentation}
+        ref={setRef}
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-1/2 overscroll-contain rounded-panel bg-surface text-ink shadow-overlay duration-150 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
+          "fixed inset-0 z-50 m-auto h-fit w-[calc(100%-2rem)] max-w-lg overscroll-contain rounded-panel bg-surface text-ink shadow-overlay outline-none",
+          sheet &&
+            "max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-(--keyboard-inset,0px) max-sm:m-0 max-sm:flex max-sm:max-h-[min(var(--size-sheet),var(--visual-height,100dvh))] max-sm:w-full max-sm:max-w-none max-sm:flex-col max-sm:rounded-b-none",
           className
         )}
         onInteractOutside={(event) => {
@@ -61,7 +205,7 @@ export function DialogContent({
         {children}
         <DialogPrimitive.Close
           className={cn(
-            "absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97]",
+            "absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97] pointer-coarse:size-11",
             closeClassName
           )}
           aria-label={closeLabel}

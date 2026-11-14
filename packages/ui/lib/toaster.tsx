@@ -1,17 +1,23 @@
 import type { CSSProperties } from "react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
+import { toastOffset, useBottomObstructionHeight } from "./obstruction";
 
-// shadcn/ui Sonner wrapper, restyled from the tokens: an ink toast with a
-// canvas-coloured action, so Undo is the most visible thing on it. Spark has
-// no next-themes; pass the resolved `theme` in.
+// shadcn/ui Sonner wrapper, restyled from the tokens: an overlay surface with
+// the faint edge ring, ink text and an ink action with a canvas label, so
+// Undo is the most visible thing on it in both themes. It stacks above
+// anything that registered with `useBottomObstruction`. Spark has no
+// next-themes; pass the resolved `theme` in.
 export function Toaster(props: ToasterProps) {
+  const offset = toastOffset(useBottomObstructionHeight());
   return (
     <Sonner
       position="bottom-center"
+      offset={{ bottom: offset, left: 16, right: 16, top: 16 }}
+      mobileOffset={{ bottom: offset, left: 16, right: 16, top: 16 }}
       style={
         {
-          "--normal-bg": "var(--ink)",
-          "--normal-text": "var(--canvas)",
+          "--normal-bg": "var(--surface)",
+          "--normal-text": "var(--ink)",
           "--normal-border": "transparent",
           "--border-radius": "var(--radius-tile)",
           fontFamily: "var(--font-sans)",
@@ -23,9 +29,9 @@ export function Toaster(props: ToasterProps) {
       toastOptions={{
         // Sonner sizes its text in px; rem keeps a toast in step with larger text.
         classNames: {
-          toast: "!text-sm",
+          toast: "!text-sm !shadow-overlay",
           actionButton:
-            "!bg-canvas !text-ink !text-sm !font-medium !rounded-chip !h-7 !px-2.5",
+            "!bg-ink !text-canvas !text-sm !font-medium !rounded-chip !h-7 !px-2.5",
         },
       }}
       {...props}
