@@ -11,7 +11,8 @@ import {
   type AppSession,
 } from "../auth";
 import { formatSize } from "@spark/core";
-import { DeskSidebar, useLibraryDesk } from "../shell";
+import { useStickyInset } from "../sticky-inset";
+import { Centred, DeskSidebar, SkipLink, useLibraryDesk } from "../shell";
 import { dollarsToMicros, formatCost, microsToDollars } from "./format";
 
 type Summary = InferResponseType<(typeof api.api.admin.summary)["$get"], 200>;
@@ -23,6 +24,8 @@ const PAGE = 50;
 export function AdminPage({ session }: { session: AppSession }) {
   const navigate = useNavigate();
   const desk = useLibraryDesk();
+  const bar = useRef<HTMLDivElement>(null);
+  useStickyInset(bar);
   const [summary, setSummary] = useState<Summary>();
   const [usage, setUsage] = useState<Usage>();
   const [offset, setOffset] = useState(0);
@@ -105,6 +108,7 @@ export function AdminPage({ session }: { session: AppSession }) {
 
   return (
     <div className="flex min-h-dvh bg-canvas">
+      <SkipLink />
       <DeskSidebar
         email={session.user.email}
         current="admin"
@@ -113,32 +117,30 @@ export function AdminPage({ session }: { session: AppSession }) {
         onCapture={desk.onCapture}
         onSearch={desk.onSearch}
       />
-      <div className="min-w-0 flex-1">
-        <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-canvas px-4 py-2 md:hidden">
+      <main id="content" tabIndex={-1} className="min-w-0 flex-1 outline-none">
+        <div
+          ref={bar}
+          className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-canvas px-4 py-2 md:hidden"
+        >
           <span className="font-display text-md font-semibold">Spark</span>
           <Link to="/" className="text-sm text-ink-muted">
             All Memories
           </Link>
         </div>
         {failed ? (
-          <div className="grid min-h-[calc(100dvh-3.5rem)] place-items-center p-4 md:min-h-dvh">
-            <div className="flex flex-col items-center gap-4">
-              <h1 className="font-display text-lg font-semibold">
-                Admin Is Unreachable
-              </h1>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setFailed(false);
-                  setAttempt((n) => n + 1);
-                }}
-              >
-                Try Again
-              </Button>
-            </div>
-          </div>
+          <Centred title="Admin Is Unreachable">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setFailed(false);
+                setAttempt((n) => n + 1);
+              }}
+            >
+              Try Again
+            </Button>
+          </Centred>
         ) : summary && usage ? (
-          <main className="mx-auto max-w-4xl px-4 py-6 md:px-8">
+          <div className="mx-auto max-w-4xl px-4 py-6 md:px-8">
             <h1 className="font-display text-lg font-semibold">Admin</h1>
             <section className="mt-6 flex flex-wrap items-end justify-between gap-4">
               <div>
@@ -294,9 +296,9 @@ export function AdminPage({ session }: { session: AppSession }) {
                 </div>
               )}
             </section>
-          </main>
+          </div>
         ) : null}
-      </div>
+      </main>
       <Toaster />
     </div>
   );

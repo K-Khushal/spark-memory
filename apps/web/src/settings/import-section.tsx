@@ -306,8 +306,7 @@ export function ImportSection({ userId }: { userId: string }) {
       </div>
       <input
         ref={exportInput}
-        className="sr-only"
-        tabIndex={-1}
+        hidden
         aria-label="Import File"
         type="file"
         accept=".html,.htm,.csv,.txt"
@@ -315,8 +314,7 @@ export function ImportSection({ userId }: { userId: string }) {
       />
       <input
         ref={filesInput}
-        className="sr-only"
-        tabIndex={-1}
+        hidden
         aria-label="Image Files"
         type="file"
         accept="image/*"
@@ -328,8 +326,7 @@ export function ImportSection({ userId }: { userId: string }) {
       />
       <input
         ref={folderInput}
-        className="sr-only"
-        tabIndex={-1}
+        hidden
         aria-label="Image Folder"
         type="file"
         accept="image/*"

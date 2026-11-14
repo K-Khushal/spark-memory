@@ -20,8 +20,15 @@ import {
 } from "@spark/ui";
 import { confirmsDeletion } from "@spark/core";
 import type { Session } from "../auth";
+import { useStickyInset } from "../sticky-inset";
 import { UsageSection } from "./usage";
-import { DeskSidebar, useLibraryDesk, useSignOut } from "../shell";
+import {
+  Centred,
+  DeskSidebar,
+  SkipLink,
+  useLibraryDesk,
+  useSignOut,
+} from "../shell";
 import {
   EXPORT_DOWNLOAD_URL,
   useAccount,
@@ -38,6 +45,8 @@ export function SettingsPage({
 }) {
   const signOut = useSignOut();
   const desk = useLibraryDesk();
+  const bar = useRef<HTMLDivElement>(null);
+  useStickyInset(bar);
   const account = useAccount();
   const { email } = session.user;
   const { usage } = account;
@@ -52,6 +61,7 @@ export function SettingsPage({
 
   return (
     <div className="flex min-h-dvh bg-canvas">
+      <SkipLink />
       <DeskSidebar
         email={email}
         current="settings"
@@ -61,8 +71,11 @@ export function SettingsPage({
         onSearch={desk.onSearch}
       />
 
-      <main className="min-w-0 flex-1">
-        <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden">
+      <main id="content" tabIndex={-1} className="min-w-0 flex-1 outline-none">
+        <div
+          ref={bar}
+          className="sticky top-0 z-20 flex items-center gap-2 border-b border-line bg-canvas px-4 py-2 md:hidden"
+        >
           <Button variant="quiet" size="icon" aria-label="Library" asChild>
             <Link to="/">
               <ArrowLeftIcon aria-hidden />
@@ -72,43 +85,42 @@ export function SettingsPage({
             Settings
           </span>
         </div>
-        <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12 [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-9 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:py-2 [&_[data-slot=button]]:whitespace-normal">
-          <h1 className="sr-only font-display text-xl font-semibold tracking-[-0.02em] md:not-sr-only">
-            Settings
-          </h1>
-          {/* Nothing until both have loaded, so nothing moves under the pointer. */}
-          {failed ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-sm text-ink-muted">
-                Spark Is Unreachable
-              </span>
-              <Button variant="outline" size="sm" onClick={account.reload}>
-                Try Again
-              </Button>
-            </div>
-          ) : loading ? null : (
-            <>
-              <Section title="Usage">
-                <UsageSection usage={usage} onDelete={account.deleteMemory} />
-              </Section>
-              <Section title="Sessions">
-                <Sessions account={account} />
-              </Section>
-              <Section title="Connected Assistants">
-                <ConnectedAssistants />
-              </Section>
-              <Section title="Import">
-                <ImportSection userId={session.user.id} />
-              </Section>
-              <Section title="Export" live>
-                <Export account={account} />
-              </Section>
-              <Section title="Account">
-                <DeleteAccount email={email} account={account} />
-              </Section>
-            </>
-          )}
-        </div>
+        {failed ? (
+          <Centred title="Settings Are Unreachable">
+            <Button variant="outline" onClick={account.reload}>
+              Try Again
+            </Button>
+          </Centred>
+        ) : (
+          <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12 [&_[data-slot=button]]:h-auto [&_[data-slot=button]]:min-h-9 [&_[data-slot=button]]:max-w-full [&_[data-slot=button]]:py-2 [&_[data-slot=button]]:whitespace-normal">
+            <h1 className="sr-only font-display text-xl font-semibold md:not-sr-only">
+              Settings
+            </h1>
+            {/* Nothing until both have loaded, so nothing moves under the pointer. */}
+            {loading ? null : (
+              <>
+                <Section title="Usage">
+                  <UsageSection usage={usage} onDelete={account.deleteMemory} />
+                </Section>
+                <Section title="Sessions">
+                  <Sessions account={account} />
+                </Section>
+                <Section title="Connected Assistants">
+                  <ConnectedAssistants />
+                </Section>
+                <Section title="Import">
+                  <ImportSection userId={session.user.id} />
+                </Section>
+                <Section title="Export" live>
+                  <Export account={account} />
+                </Section>
+                <Section title="Account">
+                  <DeleteAccount email={email} account={account} />
+                </Section>
+              </>
+            )}
+          </div>
+        )}
       </main>
       <Toaster />
     </div>

@@ -101,6 +101,13 @@ describe("shape and motion tokens", () => {
       expect(themeValue(`--text-${name}--line-height`)).toBe(
         `${step.leading / 16}rem`
       );
+      // From 22px up, tracking is -0.02em; smaller steps declare none.
+      const tracking = "tracking" in step ? `${step.tracking}em` : undefined;
+      expect(block("@theme").includes(`--text-${name}--letter-spacing:`)).toBe(
+        tracking !== undefined
+      );
+      if (tracking)
+        expect(themeValue(`--text-${name}--letter-spacing`)).toBe(tracking);
     }
   );
 
@@ -109,7 +116,10 @@ describe("shape and motion tokens", () => {
     const names = (prefix: string) =>
       [
         ...theme.matchAll(
-          new RegExp(`--${prefix}-([a-z0-9-]+?)(?:--line-height)?:`, "g")
+          new RegExp(
+            `--${prefix}-([a-z0-9-]+?)(?:--line-height|--letter-spacing)?:`,
+            "g"
+          )
         ),
       ]
         .map((m) => m[1]!)

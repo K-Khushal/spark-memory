@@ -274,3 +274,48 @@ export function useSignOut() {
   };
   return signOut;
 }
+
+/**
+ * A whole-wall message with one way forward: the same empty and error state
+ * on every screen. The Library's own h1 is out of sight, so it passes `level={2}`.
+ */
+export function Centred({
+  title,
+  level = 1,
+  children,
+}: {
+  title: string;
+  level?: 1 | 2;
+  children: ReactNode;
+}) {
+  const Heading = level === 1 ? "h1" : "h2";
+  return (
+    <div className="grid min-h-[calc(100dvh-3.5rem)] place-items-center p-4 md:min-h-dvh">
+      <div className="flex flex-col items-center gap-5">
+        <Heading className="text-center font-display text-lg font-semibold">
+          {title}
+        </Heading>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The first Tab stop on a page: it jumps past the sidebar to the content
+ * (WCAG 2.4.1). Out of sight until it has focus.
+ */
+export function SkipLink() {
+  return (
+    <a
+      href="#content"
+      onClick={(event) => {
+        event.preventDefault();
+        document.getElementById("content")?.focus();
+      }}
+      className="fixed top-2 left-2 z-50 -translate-y-[200%] rounded-control bg-ink px-3 py-2 text-sm font-medium text-canvas focus-visible:translate-y-0"
+    >
+      Skip To Content
+    </a>
+  );
+}

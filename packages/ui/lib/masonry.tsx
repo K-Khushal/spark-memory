@@ -107,21 +107,42 @@ export function Masonry<T>({
   }>(undefined);
   const suppressClick = useRef(false);
   useEffect(() => () => clearTimeout(gesture.current?.timer), []);
-  const [box, setBox] = useState({ width: 0, top: 0 });
+  const [box, setBox] = useState({ width: 0, top: 0, inset: 0 });
   const [active, setActive] = useState(0);
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const update = () =>
-      setBox({
+    const root = document.documentElement;
+    const update = () => {
+      const next = {
         width: el.clientWidth,
         top: el.getBoundingClientRect().top + window.scrollY,
-      });
+        // What a sticky bar covers: the page's own scroll-padding-top, so
+        // focus moved by arrow keys clears it as Tab does (WCAG 2.4.11).
+        inset: parseFloat(getComputedStyle(root).scrollPaddingTop) || 0,
+      };
+      // The page's own growth fires this often; only a real change renders.
+      setBox((box) =>
+        box.width === next.width &&
+        box.top === next.top &&
+        box.inset === next.inset
+          ? box
+          : next
+      );
+    };
     update();
+    // The wall's top moves when something above it (the Get Started band)
+    // mounts or grows, which resizes the page but not the wall.
     const observer = new ResizeObserver(update);
     observer.observe(el);
-    return () => observer.disconnect();
+    observer.observe(document.body);
+    const inset = new MutationObserver(update);
+    inset.observe(root, { attributes: true, attributeFilter: ["style"] });
+    return () => {
+      observer.disconnect();
+      inset.disconnect();
+    };
   }, []);
 
   const lanes = columnCount(box.width, {
@@ -146,6 +167,7 @@ export function Masonry<T>({
     overscan: 3,
     estimateSize: sizeOf,
     scrollMargin: box.top,
+    scrollPaddingStart: box.inset,
     scrollPaddingEnd: selection?.ids.length ? 128 : 0,
     getItemKey: (i) => (items[i] ? getKey(items[i]) : i),
   });
