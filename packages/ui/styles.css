@@ -229,15 +229,26 @@
   [data-slot="dialog-overlay"][data-state="open"] {
     animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
   }
-  [data-slot="dialog-overlay"][data-state="closed"],
-  [data-slot="dialog-content"][data-state="closed"] {
+  [data-slot="dialog-overlay"][data-state="closed"] {
     animation: spark-fade-out var(--duration-press) var(--ease-out) both;
   }
+  /* A dialog with no `presentation` (the image and PDF viewers until they
+     opt in) keeps the plain 150ms fade it always had. */
   [data-slot="dialog-content"][data-state="open"] {
+    animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
+  }
+  [data-slot="dialog-content"][data-state="closed"] {
+    animation: spark-fade-out var(--duration-preview) var(--ease-out) both;
+  }
+  /* The scale entrance is opt-in: presentation="dialog". */
+  [data-slot="dialog-content"][data-presentation="dialog"][data-state="open"] {
     animation: spark-dialog-in var(--duration-small) var(--ease-out) both;
   }
-  html[data-input="keyboard"] [data-slot="dialog-content"][data-state="open"],
-  [data-slot="dialog-content"][data-presentation="fullscreen"][data-state="open"] {
+  [data-slot="dialog-content"][data-presentation][data-state="closed"] {
+    animation: spark-fade-out var(--duration-press) var(--ease-out) both;
+  }
+  html[data-input="keyboard"]
+    [data-slot="dialog-content"][data-presentation="dialog"][data-state="open"] {
     animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
   }
   @media (max-width: 639.98px) {
@@ -248,11 +259,12 @@
       animation: spark-sheet-out var(--duration-small) var(--ease-drawer) both;
     }
   }
-  @media (max-width: 639.98px) and (prefers-reduced-motion: reduce) {
-    [data-slot="dialog-content"][data-presentation="sheet"][data-state="open"] {
+  /* Reduced motion: every overlay is opacity only, 150ms at most. */
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="dialog-content"][data-presentation][data-state="open"] {
       animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
     }
-    [data-slot="dialog-content"][data-presentation="sheet"][data-state="closed"] {
+    [data-slot="dialog-content"][data-presentation][data-state="closed"] {
       animation: spark-fade-out var(--duration-press) var(--ease-out) both;
     }
   }
@@ -275,6 +287,11 @@
   }
   html[data-input="keyboard"] [data-slot="menu-content"] {
     animation: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="menu-content"][data-state="open"] {
+      animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
+    }
   }
 }
 
@@ -312,6 +329,18 @@
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
   transition: stroke-dashoffset var(--duration-press) var(--ease-out);
+}
+/* Immediate from the keyboard and under reduced motion. Unlayered, so it
+   beats the Tailwind transition on the box. */
+html[data-input="keyboard"] [data-slot="checkbox"],
+html[data-input="keyboard"] [data-slot="checkbox-mark"] {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="checkbox"],
+  [data-slot="checkbox-mark"] {
+    transition: none;
+  }
 }
 [data-slot="checkbox"][data-state="checked"] [data-slot="checkbox-mark"],
 [data-slot="checkbox"][data-state="indeterminate"] [data-slot="checkbox-mark"] {

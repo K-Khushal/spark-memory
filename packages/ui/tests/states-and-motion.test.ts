@@ -47,18 +47,21 @@ describe("overlay motion (DESIGN.md → Motion)", () => {
     }
   });
 
-  it("a pointer-opened dialog scales from .98 in the small duration", () => {
+  it("the scale entrance is opt-in: a dialog with no presentation only fades", () => {
     expect(css).toMatch(
-      /@keyframes spark-dialog-in \{[^}]*\{[^}]*scale: 0\.98/
+      /\[data-slot="dialog-content"\]\[data-state="open"\] \{\s*animation: spark-fade-in var\(--duration-preview\)/
     );
     expect(css).toMatch(
-      /\[data-state="open"\] \{\s*animation: spark-dialog-in var\(--duration-small\)/
+      /\[data-presentation="dialog"\]\[data-state="open"\] \{\s*animation: spark-dialog-in var\(--duration-small\)/
     );
+    // Nothing scales unless it names a presentation.
+    for (const m of css.matchAll(/([^{}]+)\{\s*animation: spark-dialog-in/g))
+      expect(m[1]).toContain("data-presentation");
   });
 
-  it("a keyboard-opened dialog and a full-screen viewer only fade", () => {
+  it("a keyboard-opened dialog only fades", () => {
     expect(css).toMatch(
-      /html\[data-input="keyboard"\] \[data-slot="dialog-content"\]\[data-state="open"\],\s*\[data-slot="dialog-content"\]\[data-presentation="fullscreen"\]\[data-state="open"\] \{\s*animation: spark-fade-in var\(--duration-preview\)/
+      /html\[data-input="keyboard"\]\s*\[data-slot="dialog-content"\]\[data-presentation="dialog"\]\[data-state="open"\] \{\s*animation: spark-fade-in var\(--duration-preview\)/
     );
   });
 
@@ -66,9 +69,16 @@ describe("overlay motion (DESIGN.md → Motion)", () => {
     expect(css).toMatch(
       /spark-sheet-in var\(--duration-panel\) var\(--ease-drawer\)/
     );
-    expect(css).toMatch(
-      /max-width: 639\.98px\) and \(prefers-reduced-motion: reduce\)[\s\S]*spark-fade-in/
+    const reduced = css.slice(
+      css.indexOf("/* Reduced motion: every overlay is opacity only")
     );
+    // Every overlay that moves has a fade-only override, 150ms at most.
+    for (const slot of ["dialog-content", "menu-content"])
+      expect(reduced).toMatch(
+        new RegExp(
+          `data-slot="${slot}"\\][^{]*data-state="open"\\] \\{\\s*animation: spark-fade-in var\\(--duration-preview\\)`
+        )
+      );
   });
 
   it("the ⌘K menu is not given any entrance", () => {

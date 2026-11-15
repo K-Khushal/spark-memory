@@ -10,6 +10,7 @@ export {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
   type DialogPresentation,
 } from "./lib/dialog";
 export { inputModality, trackInputModality } from "./lib/input-modality";

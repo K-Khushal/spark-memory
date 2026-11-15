@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <!-- Dev-only fixture page for e2e/r1-a.e2e.ts: the shared primitives on their
+       own, before any screen mounts them. Not part of the production build. -->
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="light dark" />
+    <title>Spark Fixtures</title>
+    <script>
+      (function () {
+        var dark = matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/r1-a-fixtures.tsx"></script>
+  </body>
+</html>

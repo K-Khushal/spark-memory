@@ -168,55 +168,6 @@ for (const theme of THEMES) {
   });
 }
 
-test("a dialog opened by pointer grows from .98; from the keyboard it only fades", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await signIn(page);
-  await page.getByRole("button", { name: "Capture" }).first().click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  expect(
-    await page.evaluate(() => document.documentElement.dataset.input)
-  ).toBe("pointer");
-  // The animation may already be over on a quick machine: its CSS is what counts.
-  const entering = await page.evaluate(
-    () =>
-      getComputedStyle(document.querySelector("[data-slot=dialog-content]")!)
-        .animationName
-  );
-  expect(entering).toBe("spark-dialog-in");
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toBeHidden();
-
-  // Focus the Capture button and press it: the keyboard opened the dialog.
-  await page.getByRole("button", { name: "Capture" }).first().focus();
-  await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog")).toBeVisible();
-  expect(
-    await page.evaluate(() => document.documentElement.dataset.input)
-  ).toBe("keyboard");
-  const fading = await page.evaluate(
-    () =>
-      getComputedStyle(document.querySelector("[data-slot=dialog-content]")!)
-        .animationName
-  );
-  expect(fading).toBe("spark-fade-in");
-});
-
-test("reduced motion: a dialog never scales", async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await signIn(page);
-  await page.getByRole("button", { name: "Capture" }).first().click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  const scale = await page.evaluate(
-    () =>
-      getComputedStyle(document.querySelector("[data-slot=dialog-content]")!)
-        .scale
-  );
-  expect(scale).toBe("none");
-});
-
 test("the search row keeps its clear control inside one surface", async ({
   page,
 }) => {
@@ -272,4 +223,264 @@ test("the phone wordmark is a Navigation menu that reaches Settings and returns"
   await expect(menu).toBeHidden();
   await page.goBack();
   await expect(page).toHaveURL(/\/$/);
+});
+
+// ---- Primitives on their own (src/r1-a-fixtures.tsx, dev-only) -------------
+
+const FIXTURES = "/r1-a-fixtures.html";
+
+/** The running animation of an element's computed style, right now. */
+const motion = (page: Page, selector: string) =>
+  page.evaluate((sel) => {
+    const style = getComputedStyle(document.querySelector(sel)!);
+    return {
+      name: style.animationName,
+      seconds: parseFloat(style.animationDuration),
+      scale: style.scale,
+    };
+  }, selector);
+
+const openByPointer = async (page: Page, name: string) => {
+  await page.getByRole("button", { name, exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+};
+
+const openByKeyboard = async (page: Page, name: string) => {
+  await page.getByRole("button", { name, exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog")).toBeVisible();
+};
+
+test.describe("dialog entrances", () => {
+  test("plain dialog: only a 150ms fade, so the viewers behave as before", async ({
+    page,
+  }) => {
+    await page.goto(FIXTURES);
+    await openByPointer(page, "Plain Dialog");
+    const m = await motion(page, "[data-slot=dialog-content]");
+    expect(m.name).toBe("spark-fade-in");
+    expect(m.seconds).toBeCloseTo(0.15, 3);
+    expect(m.scale).toBe("none");
+  });
+
+  test("presentation=dialog: pointer grows in 180ms, keyboard only fades in 150ms", async ({
+    page,
+  }) => {
+    await page.goto(FIXTURES);
+    await openByPointer(page, "Pointer Dialog");
+    const pointer = await motion(page, "[data-slot=dialog-content]");
+    expect(pointer.name).toBe("spark-dialog-in");
+    expect(pointer.seconds).toBeCloseTo(0.18, 3);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toBeHidden();
+
+    await openByKeyboard(page, "Pointer Dialog");
+    const keyboard = await motion(page, "[data-slot=dialog-content]");
+    expect(keyboard.name).toBe("spark-fade-in");
+    expect(keyboard.seconds).toBeCloseTo(0.15, 3);
+  });
+
+  test("full screen only fades", async ({ page }) => {
+    await page.goto(FIXTURES);
+    await openByPointer(page, "Full Screen");
+    const m = await motion(page, "[data-slot=dialog-content]");
+    expect(m.name).toBe("spark-fade-in");
+    expect(m.seconds).toBeCloseTo(0.15, 3);
+  });
+
+  test("reduced motion: every overlay is opacity only and at most 150ms", async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(FIXTURES);
+    for (const name of [
+      "Pointer Dialog",
+      "Sheet",
+      "Plain Dialog",
+      "Full Screen",
+    ]) {
+      await openByPointer(page, name);
+      const m = await motion(page, "[data-slot=dialog-content]");
+      expect(m.name, name).toBe("spark-fade-in");
+      expect(m.seconds, name).toBeLessThanOrEqual(0.15);
+      expect(m.scale, name).toBe("none");
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog")).toBeHidden();
+    }
+    // The menu too, opened by pointer: 180ms scale becomes a 150ms fade.
+    await page.getByRole("button", { name: "Navigation", exact: true }).click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    const menu = await motion(page, "[data-slot=menu-content]");
+    expect(menu.name).toBe("spark-fade-in");
+    expect(menu.seconds).toBeLessThanOrEqual(0.15);
+    expect(menu.scale).toBe("none");
+  });
+
+  test("a sheet rises 8% in 260ms on a phone; the same dialog is centred on a desktop", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(FIXTURES);
+    await openByPointer(page, "Sheet");
+    const rise = await motion(page, "[data-slot=dialog-content]");
+    expect(rise.name).toBe("spark-sheet-in");
+    expect(rise.seconds).toBeCloseTo(0.26, 3);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toBeHidden();
+
+    await page.setViewportSize({ width: 1024, height: 700 });
+    await openByPointer(page, "Sheet");
+    const desk = (await page.getByRole("dialog").boundingBox())!;
+    expect(Math.abs(desk.x + desk.width / 2 - 512)).toBeLessThan(2);
+    expect(desk.y).toBeGreaterThan(0);
+    expect(desk.y + desk.height).toBeLessThan(700);
+  });
+});
+
+test.describe("phone sheet", () => {
+  test("is bottom aligned and capped, with one scrolling body and a footer that stays visible", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 600 });
+    await page.goto(FIXTURES);
+    await openByKeyboard(page, "Sheet");
+    await page.waitForTimeout(350);
+    const dialog = (await page.getByRole("dialog").boundingBox())!;
+    expect(Math.round(dialog.x)).toBe(0);
+    expect(Math.round(dialog.width)).toBe(390);
+    expect(Math.round(dialog.y + dialog.height)).toBe(600);
+    expect(dialog.height).toBeLessThanOrEqual(600 * 0.92 + 1);
+    const body = page.getByTestId("body");
+    const scrolls = await body.evaluate(
+      (el) => el.scrollHeight > el.clientHeight
+    );
+    expect(scrolls).toBe(true);
+    await body.evaluate((el) => (el.scrollTop = el.scrollHeight));
+    const footer = (await page
+      .getByRole("button", { name: "Done" })
+      .boundingBox())!;
+    const header = (await page
+      .getByRole("heading", { name: "Sheet" })
+      .boundingBox())!;
+    expect(footer.y + footer.height).toBeLessThanOrEqual(600);
+    expect(header.y).toBeGreaterThanOrEqual(dialog.y);
+    // Only the body scrolled: the page behind did not move.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await overflows(page)).toBe(false);
+  });
+
+  test("traps Tab, and gives focus back to its trigger on Escape", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 600 });
+    await page.goto(FIXTURES);
+    await openByKeyboard(page, "Sheet");
+    const inside = () =>
+      page.evaluate(
+        () => !!document.activeElement?.closest("[data-slot=dialog-content]")
+      );
+    expect(await inside()).toBe(true);
+    for (let i = 0; i < 8; i++) {
+      await page.keyboard.press("Tab");
+      expect(await inside()).toBe(true);
+    }
+    await page.keyboard.press("Shift+Tab");
+    expect(await inside()).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect(
+      page.getByRole("button", { name: "Sheet", exact: true })
+    ).toBeFocused();
+  });
+});
+
+test.describe("checkbox", () => {
+  const duration = (page: Page) =>
+    page.evaluate(() => {
+      const box = document.querySelector("[data-slot=checkbox]")!;
+      const mark = document.querySelector("[data-slot=checkbox-mark]")!;
+      return {
+        box: getComputedStyle(box).transitionDuration,
+        mark: getComputedStyle(mark).transitionDuration,
+      };
+    });
+
+  test("draws in 120ms for a pointer", async ({ page }) => {
+    await page.goto(FIXTURES);
+    await page.getByRole("checkbox").click();
+    await expect(page.getByRole("checkbox")).toBeChecked();
+    expect(await duration(page)).toEqual({ box: "0.12s", mark: "0.12s" });
+  });
+
+  test("is immediate from the keyboard", async ({ page }) => {
+    await page.goto(FIXTURES);
+    await page.getByRole("checkbox").focus();
+    await page.keyboard.press("Space");
+    await expect(page.getByRole("checkbox")).toBeChecked();
+    expect(await duration(page)).toEqual({ box: "0s", mark: "0s" });
+  });
+
+  test("is immediate under reduced motion", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(FIXTURES);
+    await page.getByRole("checkbox").click();
+    expect(await duration(page)).toEqual({ box: "0s", mark: "0s" });
+  });
+});
+
+test.describe("PhoneNavigation", () => {
+  test("opens from the keyboard, moves with the arrows, navigates, and returns focus on Escape", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(FIXTURES);
+    const trigger = page.getByRole("button", {
+      name: "Navigation",
+      exact: true,
+    });
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    const menu = page.getByRole("menu", { name: "Navigation" });
+    await expect(menu).toBeVisible();
+    // Keyboard-opened: immediate, no entrance.
+    expect((await motion(page, "[data-slot=menu-content]")).name).toBe("none");
+    const items = menu.getByRole("menuitem");
+    await expect(items).toHaveText([/Library/, /Settings/, /Admin/]);
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press("End");
+    await expect(items.nth(2)).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
+
+    await page.keyboard.press("Enter");
+    await expect(items.first()).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(items.nth(1)).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(
+      page.getByRole("heading", { name: "Settings Page" })
+    ).toBeVisible();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+
+    // The destination marks itself current; Library is one choice back.
+    await page.getByRole("button", { name: "Navigation", exact: true }).click();
+    const here = page.getByRole("menuitem", { name: "Settings" });
+    await expect(here).toHaveAttribute("aria-current", "page");
+    await page.getByRole("menuitem", { name: "Library" }).click();
+    await expect(page.getByRole("button", { name: "Outside" })).toBeVisible();
+  });
+
+  test("pointer open grows from its trigger in 180ms", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 700 });
+    await page.goto(FIXTURES);
+    await page.getByRole("button", { name: "Navigation", exact: true }).click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    const m = await motion(page, "[data-slot=menu-content]");
+    expect(m.name).toBe("spark-menu-in");
+    expect(m.seconds).toBeCloseTo(0.18, 3);
+  });
 });

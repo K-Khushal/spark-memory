@@ -8,6 +8,7 @@ import { cn } from "./cn";
 // one (Quick preview) and a full-screen viewer only fade, and a phone sheet
 // rises. The ⌘K menu is a separate component and does none of this.
 export const Dialog = DialogPrimitive.Root;
+export const DialogTrigger = DialogPrimitive.Trigger;
 
 export function DialogTitle({
   className,
@@ -116,6 +117,7 @@ function useKeyboardInset(element: HTMLElement | null, enabled: boolean) {
 }
 
 /** How a dialog stands. `sheet`: bottom-aligned below 640px, centred above. */
+/** Opt-in presentations; leave it unset for the plain fade. */
 export type DialogPresentation = "dialog" | "sheet" | "fullscreen";
 
 export function DialogContent({
@@ -124,7 +126,7 @@ export function DialogContent({
   closeLabel = "Close",
   closeClassName,
   onInteractOutside,
-  presentation = "dialog",
+  presentation,
   ref,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Content> & {
@@ -132,11 +134,13 @@ export function DialogContent({
   /** For a dialog on a dark surface in both themes (the image viewer). */
   closeClassName?: string;
   /**
+   * With none, the dialog only fades in 150ms (what the viewers have always
+   * done). `dialog` opts in to the pointer entrance (grows from .98).
    * `sheet` opts in to the phone presentation: below 640px it is bottom
    * aligned, full width, at most 92dvh, with the top corners rounded and the
    * safe area cleared; compose it from DialogHeader, DialogBody and
    * DialogFooter so one region scrolls and the actions stay put. `fullscreen`
-   * (the image and PDF viewers) only fades. Default: a centred dialog.
+   * (the image and PDF viewers) only fades.
    */
   presentation?: DialogPresentation;
 }) {

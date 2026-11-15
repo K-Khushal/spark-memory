@@ -49,6 +49,8 @@ export function SkeletonGate({
   const [wasLoading, setWasLoading] = useState(loading);
   if (wasLoading !== loading) {
     setWasLoading(loading);
+    // Each loading cycle waits its own 150ms, even straight after a fade-out.
+    if (loading) setWaited(false);
     setLeaving(!loading && waited);
   }
   useEffect(() => {
