@@ -7,6 +7,10 @@ import type { MemoryKind } from "./memory";
  * Memory's content when Gather came back thin. One place for its limits.
  */
 export const DEEP_FETCH = {
+  /** What the media engine asks Gemini for: the most output, and audio counted by the second plus the prompt. */
+  mediaMaxOutputTokens: 32_768,
+  audioTokensPerSecond: 32,
+  mediaPromptTokens: 200,
   /** Waits after the first and second attempt; a third failure is final. */
   retryDelaysSeconds: [3600, 86400],
   /**
@@ -18,8 +22,6 @@ export const DEEP_FETCH = {
   leaseMinutes: 10,
   /** Queued this soon counts as Fetching, so the wall keeps asking. */
   soonSeconds: 300,
-  /** Queues delays a message 24 hours at most: longer waits rely on the sweep. */
-  maxQueueDelaySeconds: 12 * 3600,
   /** Memories the hourly sweep sends at most. */
   sweepBatch: 50,
   /**

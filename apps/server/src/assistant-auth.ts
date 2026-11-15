@@ -9,6 +9,7 @@ import { sameOrigin } from "./origin";
 import { digest, opaque, resourceFor } from "./mcp";
 import { assistantPage, escapeHtml as esc } from "./assistant-pages";
 import type { AppEnv } from "./env";
+import { ipLimited, rateLimited } from "./rate-limit";
 
 const redirectUri = z
   .string()
@@ -30,7 +31,8 @@ const redirectUri = z
   });
 const registration = z.object({
   client_name: z.string().trim().min(1).max(80),
-  redirect_uris: z.array(redirectUri).min(1).max(8),
+  // Registration is anonymous: what it stores is small (a few short URIs).
+  redirect_uris: z.array(redirectUri.max(512)).min(1).max(4),
   token_endpoint_auth_method: z.literal("none").default("none"),
   grant_types: z
     .array(z.enum(["authorization_code", "refresh_token"]))
@@ -86,6 +88,8 @@ const registeredRedirect = (redirects: string[], actual: string) =>
 const COOKIE = "spark-assistant-consent";
 
 export const assistantAuth = new Hono<AppEnv>()
+  // Before anything that touches the database: a refused call costs none.
+  .use("/oauth/token", ipLimited("TOKEN_LIMITER"))
   .use("*", bodyLimit({ maxSize: 16_384 }))
   .use("*", async (c, next) => {
     c.header("Cache-Control", "private, no-store");
@@ -114,11 +118,16 @@ export const assistantAuth = new Hono<AppEnv>()
     if (!parsed.success)
       return c.json({ error: "invalid_client_metadata" }, 400);
     const id = crypto.randomUUID();
-    await assistantStore(c.var.db).register({
+    const saved = await assistantStore(c.var.db).register({
       id,
       name: parsed.data.client_name,
       redirects: parsed.data.redirect_uris,
     });
+    // Too many registrations are waiting for a grant: try again later.
+    if (!saved) {
+      c.header("Retry-After", "3600");
+      return c.json({ error: "rate_limited" }, 429);
+    }
     return c.json(
       {
         ...parsed.data,
@@ -138,7 +147,7 @@ export const assistantAuth = new Hono<AppEnv>()
       refreshDigest: await digest(refresh),
       id: crypto.randomUUID(),
     };
-    let ok: boolean | "limit" = false;
+    let ok: boolean | "limit" | "slow" = false;
     if (form.grant_type === "refresh_token") {
       const parsed = renewal.safeParse(form);
       if (parsed.success)
@@ -173,6 +182,12 @@ export const assistantAuth = new Hono<AppEnv>()
           resource: "",
         });
       }
+    }
+    // A grant renewing far more often than a client does: slow down, and keep
+    // the refresh token, which was not spent.
+    if (ok === "slow") {
+      c.header("Retry-After", "600");
+      return c.json({ error: "slow_down" }, 429);
     }
     if (ok === "limit")
       return c.json(
@@ -233,52 +248,58 @@ export const assistantAuth = new Hono<AppEnv>()
       )
     );
   })
-  .post("/oauth/authorize", sameOrigin(), requireUser, async (c) => {
-    const form = await c.req.parseBody();
-    const p = authorization.safeParse(form);
-    if (
-      !p.success ||
-      p.data.resource !== resourceFor(c.env) ||
-      typeof form.nonce !== "string"
-    )
-      return c.json({ error: "invalid_request" }, 400);
-    const store = assistantStore(c.var.db);
-    const client = await store.client(p.data.client_id);
-    if (!client || !registeredRedirect(client.redirects, p.data.redirect_uri))
-      return c.json({ error: "invalid_client" }, 400);
-    const cookie = await getSignedCookie(c, c.env.BETTER_AUTH_SECRET, COOKIE);
-    if (
-      cookie !==
-      (await digest(JSON.stringify(p.data) + c.var.user.id + form.nonce))
-    )
-      return c.json({ error: "invalid_consent" }, 403);
-    deleteCookie(c, COOKIE, { path: "/api/oauth/authorize" });
-    const target = new URL(p.data.redirect_uri);
-    target.searchParams.set("iss", new URL(resourceFor(c.env)).origin);
-    if (p.data.state !== undefined)
-      target.searchParams.set("state", p.data.state);
-    if (form.decision !== "allow")
-      target.searchParams.set("error", "access_denied");
-    else {
-      const code = opaque();
-      await store.grant({
-        digest: await digest(code),
-        userId: c.var.user.id,
-        clientId: p.data.client_id,
-        redirect: p.data.redirect_uri,
-        challenge: p.data.code_challenge,
-        resource: p.data.resource,
-      });
-      target.searchParams.set("code", code);
+  .post(
+    "/oauth/authorize",
+    sameOrigin(),
+    requireUser,
+    rateLimited("EDIT_LIMITER"),
+    async (c) => {
+      const form = await c.req.parseBody();
+      const p = authorization.safeParse(form);
+      if (
+        !p.success ||
+        p.data.resource !== resourceFor(c.env) ||
+        typeof form.nonce !== "string"
+      )
+        return c.json({ error: "invalid_request" }, 400);
+      const store = assistantStore(c.var.db);
+      const client = await store.client(p.data.client_id);
+      if (!client || !registeredRedirect(client.redirects, p.data.redirect_uri))
+        return c.json({ error: "invalid_client" }, 400);
+      const cookie = await getSignedCookie(c, c.env.BETTER_AUTH_SECRET, COOKIE);
+      if (
+        cookie !==
+        (await digest(JSON.stringify(p.data) + c.var.user.id + form.nonce))
+      )
+        return c.json({ error: "invalid_consent" }, 403);
+      deleteCookie(c, COOKIE, { path: "/api/oauth/authorize" });
+      const target = new URL(p.data.redirect_uri);
+      target.searchParams.set("iss", new URL(resourceFor(c.env)).origin);
+      if (p.data.state !== undefined)
+        target.searchParams.set("state", p.data.state);
+      if (form.decision !== "allow")
+        target.searchParams.set("error", "access_denied");
+      else {
+        const code = opaque();
+        await store.grant({
+          digest: await digest(code),
+          userId: c.var.user.id,
+          clientId: p.data.client_id,
+          redirect: p.data.redirect_uri,
+          challenge: p.data.code_challenge,
+          resource: p.data.resource,
+        });
+        target.searchParams.set("code", code);
+      }
+      return c.redirect(target.href, 303);
     }
-    return c.redirect(target.href, 303);
-  })
+  )
   .use("/assistants/*", sameOrigin(), requireUser)
   .use("/assistants", sameOrigin(), requireUser)
   .get("/assistants", async (c) =>
     c.json({ assistants: await assistantStore(c.var.db).list(c.var.user.id) })
   )
-  .post("/assistants", async (c) => {
+  .post("/assistants", rateLimited("EDIT_LIMITER"), async (c) => {
     const p = assistantName.safeParse(await c.req.json().catch(() => null));
     if (!p.success) return c.json({ error: "invalid_name" }, 400);
     const token = opaque();
@@ -319,7 +340,7 @@ export const assistantAuth = new Hono<AppEnv>()
       );
     }
   )
-  .delete("/assistants/:id", async (c) =>
+  .delete("/assistants/:id", rateLimited("EDIT_LIMITER"), async (c) =>
     (await assistantStore(c.var.db).revoke(c.var.user.id, c.req.param("id")))
       ? c.body(null, 204)
       : c.json({ error: "not_found" }, 404)

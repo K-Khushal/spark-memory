@@ -1,8 +1,7 @@
-import { INDEXING, INDEXING_OUTPUT_JSON_SCHEMA } from "@spark/core";
+import { INDEXING, INDEXING_OUTPUT_JSON_SCHEMA, maxTokens } from "@spark/core";
 import {
   base64,
   CORRECTION,
-  guessTokens,
   lostCall,
   ProviderError,
   type MarkdownBinding,
@@ -41,7 +40,7 @@ export function withTimeout<T>(ms: number, call: Promise<T>): Promise<T> {
   ]).finally(() => clearTimeout(timer));
 }
 
-const MAX_OUTPUT_TOKENS = 4096;
+const MAX_OUTPUT_TOKENS = INDEXING.maxOutputTokens;
 /** What an image is guessed to cost when the reply does not say. */
 const IMAGE_TOKENS = 1000;
 
@@ -131,10 +130,8 @@ export function workersAi(
         usage: {
           inputTokens:
             reply.usage?.prompt_tokens ??
-            guessTokens(system.length + user.length) +
-              (image ? IMAGE_TOKENS : 0),
-          outputTokens:
-            reply.usage?.completion_tokens ?? guessTokens(text.length),
+            maxTokens(system) + maxTokens(user) + (image ? IMAGE_TOKENS : 0),
+          outputTokens: reply.usage?.completion_tokens ?? maxTokens(text),
         },
       };
     },

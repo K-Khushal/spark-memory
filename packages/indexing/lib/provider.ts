@@ -1,4 +1,4 @@
-import { INDEXING, type ProviderName } from "@spark/core";
+import { INDEXING, maxTokens, type ProviderName } from "@spark/core";
 
 /** The part of the Workers AI binding Markdown Conversion needs (lib/pdf.ts). */
 export type MarkdownBinding = {
@@ -96,7 +96,7 @@ export const CORRECTION = (errors: string) =>
 
 /**
  * The most an Extraction call lost after it was sent may be billed: its
- * input guessed from characters (the correction included) plus what the
+ * input counted at its UTF-8 bytes (the correction included) plus what the
  * image costs, and every output token it was allowed.
  */
 export function lostCall(
@@ -106,16 +106,16 @@ export function lostCall(
     maxOutputTokens,
   }: { imageTokens: number; maxOutputTokens: number }
 ): Usage {
-  const chars =
-    system.length +
-    user.length +
+  // Bytes, not characters: never fewer tokens than the text can make.
+  const bytes =
+    maxTokens(system) +
+    maxTokens(user) +
     (correction
-      ? correction.previous.length + CORRECTION(correction.errors).length
+      ? maxTokens(correction.previous) +
+        maxTokens(CORRECTION(correction.errors))
       : 0);
   return {
-    inputTokens:
-      guessTokens(chars) +
-      ((image ? 1 : 0) + (pages?.length ?? 0)) * imageTokens,
+    inputTokens: bytes + ((image ? 1 : 0) + (pages?.length ?? 0)) * imageTokens,
     outputTokens: maxOutputTokens,
   };
 }

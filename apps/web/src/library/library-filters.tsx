@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CATEGORY_NAMES,
   SEARCH_KINDS,
@@ -110,6 +110,23 @@ export function LibraryFilters({
   /** Opens the Categories dialog: the last thing in the Category group. */
   manage?: ReactNode;
 }) {
+  const row = useRef<HTMLDivElement>(null);
+  const [moreToRight, setMoreToRight] = useState(false);
+  useEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const update = () =>
+      setMoreToRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    el.addEventListener("scroll", update, { passive: true });
+    update();
+    return () => {
+      observer.disconnect();
+      el.removeEventListener("scroll", update);
+    };
+  }, [layout, options]);
   const set = <K extends keyof SearchChips>(
     group: K,
     value: SearchChips[K]
@@ -149,8 +166,8 @@ export function LibraryFilters({
       aria-label="Colour"
       className={
         layout === "sidebar"
-          ? "grid grid-cols-6 gap-2 px-2"
-          : "flex shrink-0 items-center gap-2 px-1"
+          ? "grid grid-cols-6 gap-2 px-2 pointer-coarse:grid-cols-4 pointer-coarse:gap-0"
+          : "flex shrink-0 items-center gap-0 px-1"
       }
     >
       {FILTER_COLOURS.map(({ name, hex }) => {
@@ -160,7 +177,6 @@ export function LibraryFilters({
             key={name}
             hex={hex}
             name={name}
-            className={layout === "sidebar" ? "size-6" : "size-8"}
             aria-pressed={chips.colour === colour}
             onClick={() => set("colour", colour)}
           />
@@ -171,32 +187,42 @@ export function LibraryFilters({
 
   if (layout === "row") {
     return (
-      <div className="flex items-center gap-1.5 overflow-x-auto px-4 pb-2 [scrollbar-width:none]">
-        {leading}
-        {kinds.map((item) => (
-          <Chip key={item.id} {...item} />
-        ))}
-        {colours}
-        {sources.map((item) => (
-          <Chip key={item.id} {...item} />
-        ))}
-        {whens.map((item) => (
-          <Chip key={item.id} {...item} />
-        ))}
-        {categories.map((item) => (
-          <Chip key={item.id} {...item} />
-        ))}
-        {manage}
+      <div className="relative">
+        <div ref={row} className="overflow-x-auto [scrollbar-width:none]">
+          <div className="flex w-max min-w-full items-center gap-1.5 px-4 pb-2">
+            {leading}
+            {kinds.map((item) => (
+              <Chip key={item.id} {...item} />
+            ))}
+            {colours}
+            {sources.map((item) => (
+              <Chip key={item.id} {...item} />
+            ))}
+            {whens.map((item) => (
+              <Chip key={item.id} {...item} />
+            ))}
+            {categories.map((item) => (
+              <Chip key={item.id} {...item} />
+            ))}
+            {manage}
+          </div>
+        </div>
+        {moreToRight && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 w-4 bg-linear-to-r from-transparent to-canvas"
+          />
+        )}
       </div>
     );
   }
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       {leading}
       <Group label="Kind" items={kinds} />
       {colours}
       <Group label="Source" items={sources} />
-      <Group label="When" items={whens} />
+      <Group label="Date" items={whens} />
       <Group label="Category" items={categories} footer={manage} />
     </div>
   );
@@ -214,7 +240,7 @@ function Chip({
   press: () => void;
 }) {
   return (
-    <FilterChip aria-pressed={on} onClick={press} className="max-w-48">
+    <FilterChip aria-pressed={on} onClick={press} className="min-h-11 max-w-48">
       <span className="truncate" dir={dir}>
         {label}
       </span>
@@ -238,17 +264,21 @@ function Group({
     press: () => void;
   }[];
 }) {
-  if (!items.length) return null;
+  const [expanded, setExpanded] = useState(false);
+  if (!items.length && !footer) return null;
+  const shown = expanded
+    ? items
+    : items.filter((item, index) => index < 6 || item.on);
   return (
     <ul aria-label={label} className="flex flex-col gap-1">
-      {items.map((item) => (
+      {shown.map((item) => (
         <li key={item.id}>
           <button
             type="button"
             aria-pressed={item.on}
             onClick={item.press}
             className={cn(
-              "flex h-8 w-full items-center rounded-control px-2 text-left text-sm transition-[color] duration-(--duration-press) ease-out",
+              "flex min-h-8 w-full [@media(pointer:coarse)]:min-h-11 items-center rounded-control px-2 text-left text-sm transition-[color] duration-(--duration-press) ease-out",
               item.on
                 ? "bg-surface font-medium text-ink shadow-raised"
                 : "text-ink-muted hover:text-ink"
@@ -260,6 +290,18 @@ function Group({
           </button>
         </li>
       ))}
+      {items.length > 6 && (
+        <li>
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded(!expanded)}
+            className="min-h-8 rounded-control px-2 text-sm text-ink-muted"
+          >
+            {expanded ? "Less" : "More"}
+          </button>
+        </li>
+      )}
       {footer && <li className="flex flex-col">{footer}</li>}
     </ul>
   );

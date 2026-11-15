@@ -1,11 +1,6 @@
-import { EMBEDDING, INDEXING } from "@spark/core";
+import { EMBEDDING, INDEXING, maxTokens } from "@spark/core";
 import type { Embedder } from "./embedder";
-import {
-  base64,
-  guessTokens,
-  overInlineLimit,
-  ProviderError,
-} from "./provider";
+import { base64, overInlineLimit, ProviderError } from "./provider";
 
 type Reply = {
   embeddings?: { values?: number[] }[];
@@ -57,10 +52,16 @@ export function geminiEmbedding({
       ) {
         throw new ProviderError("unsupported");
       }
-      let textChars = 0;
+      // An upper bound, as the hold is: a text at its UTF-8 bytes, cut at the
+      // model's input limit. Used when the reply does not say, or is lost.
+      let textTokens = 0;
       let images = 0;
       const requests = inputs.map((input) => {
-        if ("text" in input) textChars += input.text.length;
+        if ("text" in input)
+          textTokens += Math.min(
+            maxTokens(input.text),
+            EMBEDDING.maxInputTokens
+          );
         else images++;
         return {
           model: `models/${model}`,
@@ -80,7 +81,7 @@ export function geminiEmbedding({
         };
       });
       const estimate = {
-        textTokens: guessTokens(textChars),
+        textTokens,
         imageTokens: images * IMAGE_TOKENS,
       };
       // Timed out, cut off or unreadable: it may still be billed.

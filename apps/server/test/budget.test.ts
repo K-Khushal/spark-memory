@@ -79,6 +79,11 @@ describe.skipIf(!databaseUrl)("past the daily AI budget", () => {
   });
 
   it("re-sends stalled fresh work that sits behind background rows", async () => {
+    const now = new Date("2000-01-02T02:20:00Z");
+    await sql.query(
+      "insert into spend_day(day, provider, cost_micros) values ($1, $2, $3)",
+      ["2000-01-02", PROVIDER, DAILY_BUDGET_MAX_MICROS]
+    );
     const fresh = await stalledMemory("Fresh behind background");
     const { rows } = await sql.query<{ user_id: string }>(
       `select user_id from memory where id = $1`,
@@ -89,19 +94,43 @@ describe.skipIf(!databaseUrl)("past the daily AI budget", () => {
     for (let i = 0; i < 10; i++) {
       await sql.query(
         `insert into memory (id, user_id, kind, body, index_state, index_priority, updated_at)
-         values ($1, $2, 'text', 'background', 'indexing', 'background', now() - interval '5 hours')`,
-        [i === 0 ? background : crypto.randomUUID(), userId]
+         values ($1, $2, 'text', 'background', 'indexing', 'background', $3::timestamptz - interval '5 hours')`,
+        [i === 0 ? background : crypto.randomUUID(), userId, now]
       );
     }
     await sql.query(
-      `update memory set updated_at = now() - interval '4 hours', index_priority = 'fresh' where id = $1`,
-      [fresh.id]
+      `update memory set updated_at = $2::timestamptz - interval '4 hours', index_priority = 'fresh' where id = $1`,
+      [fresh.id, now]
     );
     queues.fresh.sent.length = 0;
     queues.background.sent.length = 0;
-    await requeueStalled(env(), cronCalls());
+    await requeueStalled(env(), cronCalls(), now);
     expect(sentFor(fresh.id).map((m) => m.body.priority)).toContain("fresh");
     expect(sentFor(background)).toEqual([]);
+  });
+
+  it("re-sends a budget pause within the queue delay limit", async () => {
+    const { id } = await stalledMemory("Waiting for tomorrow");
+    const { rows } = await sql.query<{ index_generation: string }>(
+      "select index_generation from memory where id = $1",
+      [id]
+    );
+    const queue = recordingQueue("spark-reindex-local");
+    const message = await deliver(
+      "spark-reindex-local",
+      {
+        memoryId: id,
+        run: 1,
+        generation: rows[0]!.index_generation,
+        priority: "background",
+      },
+      1,
+      env({ REINDEX_QUEUE: queue })
+    );
+    expect(queue.sent).toHaveLength(1);
+    expect(queue.sent[0]!.delaySeconds).toBeGreaterThan(0);
+    expect(queue.sent[0]!.delaySeconds).toBeLessThanOrEqual(43_200);
+    expect(message.ack).toHaveBeenCalled();
   });
 
   it("acks a paused message it could not re-send, so a pause never dead-letters", async () => {

@@ -128,6 +128,95 @@ describe.skipIf(!databaseUrl)("the Free allowance API", () => {
     expect((await call("/api/memories", {}, bindings)).status).toBe(200);
   });
 
+  it("limits edits, opt-out toggles and image search with their own bindings, and nothing else with them", async () => {
+    const { call } = await signedIn();
+    const made = (await (
+      await call("/api/memories", { method: "POST", json: { body: "note" } })
+    ).json()) as { id: string };
+    const edit = limiter(0);
+    const optOut = limiter(0);
+    const imageSearch = limiter(0);
+    const bindings = env({
+      EDIT_LIMITER: edit,
+      OPT_OUT_LIMITER: optOut,
+      IMAGE_SEARCH_LIMITER: imageSearch,
+    });
+    const id = made.id;
+    const writes: [string, string, object?][] = [
+      ["PATCH", `/api/memories/${id}`, { body: "again" }],
+      ["POST", `/api/memories/${id}/stored`],
+      ["POST", `/api/memories/${id}/reindex`],
+      ["POST", `/api/memories/${id}/deep-fetch`],
+      ["POST", "/api/memories/bulk", { ids: [id], operation: "delete" }],
+      ["DELETE", `/api/memories/${id}`],
+      ["POST", "/api/categories", { name: "Soup" }],
+    ];
+    for (const [method, path, json] of writes) {
+      const res = await call(path, { method, ...(json && { json }) }, bindings);
+      expect(res.status, `${method} ${path}`).toBe(429);
+      expect(res.headers.get("retry-after")).toBe("60");
+    }
+    const toggled = await call(
+      `/api/memories/${id}/ai-opt-out`,
+      { method: "PUT", json: { aiOptOut: false } },
+      bindings
+    );
+    expect(toggled.status).toBe(429);
+    expect(optOut.keys).toHaveLength(1);
+    // Nothing was written by the refused calls.
+    expect(
+      (await (await call(`/api/memories/${id}`)).json()) as { body: string }
+    ).toMatchObject({ body: "note" });
+    // Text search is not an image search; only an image draws on its limit.
+    expect(
+      (await postSearch(call, { q: "soup", mode: "instant" }, bindings)).status
+    ).toBe(200);
+    expect(imageSearch.keys).toHaveLength(0);
+    const byImage = await postSearch(
+      call,
+      {
+        q: "",
+        mode: "full",
+        image: { data: "iVBORw0KGgo=", mime: "image/png" },
+      },
+      bindings
+    );
+    expect(byImage.status).toBe(429);
+    expect(imageSearch.keys).toEqual([await userId(call)]);
+  });
+
+  it("refuses text and links past the daily keeps with 429 and Retry-After, and storing nothing", async () => {
+    const { call } = await signedIn();
+    const id = await userId(call);
+    const client = new Client({ connectionString: databaseUrl });
+    await client.connect();
+    try {
+      await client.query(
+        `insert into usage_day (user_id, day, captures, kept)
+         values ($1, (now() at time zone 'utc')::date, $2, $3)`,
+        [id, FREE_ALLOWANCE.capturesPerDay, FREE_ALLOWANCE.keptPerDay]
+      );
+    } finally {
+      await client.end();
+    }
+    const text = await call("/api/memories", {
+      method: "POST",
+      json: { body: "past every limit" },
+    });
+    expect(text.status).toBe(429);
+    expect(await text.json()).toEqual({ ok: false, error: "captures_full" });
+    expect(Number(text.headers.get("retry-after"))).toBeGreaterThan(0);
+    const link = await call("/api/memories/links", {
+      method: "POST",
+      json: { url: "https://garden.test/past-limit" },
+    });
+    expect(link.status).toBe(429);
+    const list = (await (await call("/api/memories")).json()) as {
+      memories: unknown[];
+    };
+    expect(list.memories).toHaveLength(0);
+  });
+
   it("does not limit when no binding is set, as locally", async () => {
     const { call } = await signedIn();
     for (let i = 0; i < 5; i++) {
@@ -190,10 +279,14 @@ describe.skipIf(!databaseUrl)("the Free allowance API", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     const usage = (await res.json()) as Record<string, unknown>;
     expect(usage).toMatchObject({
-      storage: { used: 12 + 6, limit: FREE_ALLOWANCE.storageBytes },
+      // The image's 12 and 6, and the 3 bytes of text "one".
+      storage: { used: 12 + 6 + 3, limit: FREE_ALLOWANCE.storageBytes },
       captures: { used: 2, limit: FREE_ALLOWANCE.capturesPerDay },
       deepFetches: { used: 0, limit: FREE_ALLOWANCE.deepFetchesPerDay },
-      largest: [{ id: file.id, kind: "image", bytes: 18 }],
+      largest: [
+        { id: file.id, kind: "image", bytes: 18 },
+        { kind: "text", bytes: 3 },
+      ],
     });
     expect(new Date(usage.resetsAt as string).getUTCHours()).toBe(0);
   });

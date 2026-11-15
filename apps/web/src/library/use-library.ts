@@ -57,6 +57,22 @@ async function created(request: Promise<Response>) {
   };
 }
 
+/** A pasted text or link: the Memory, or Refused when the Free allowance has no room for it. */
+async function saved(request: Promise<Response>) {
+  const res = await request;
+  const status: number = res.status;
+  if (status === 413 || status === 429) {
+    const { error } = (await res
+      .clone()
+      .json()
+      .catch(() => ({}))) as { error?: string };
+    if (error === "storage_full" || error === "captures_full") {
+      throw new Refused(error);
+    }
+  }
+  return (await (await ok(Promise.resolve(res))).json()) as Memory;
+}
+
 /** The Memory API, as the Library actions need it. */
 const transport: Transport = {
   bulk: async (json, init) =>
@@ -68,10 +84,8 @@ const transport: Transport = {
         )
       )
     ).json(),
-  create: async (json) =>
-    (await (await ok(api.api.memories.$post({ json }))).json()) as Memory,
-  createLink: async (json) =>
-    (await (await ok(api.api.memories.links.$post({ json }))).json()) as Memory,
+  create: (json) => saved(api.api.memories.$post({ json })),
+  createLink: (json) => saved(api.api.memories.links.$post({ json })),
   patch: async (id, json, init) => {
     const res = await byId.$patch({ param: { id }, json }, { init });
     if (res.status === 409) return "stale";
@@ -183,9 +197,23 @@ function putFile(
  * permanent; a page that closes inside that window sends them on its way
  * out. `version` goes up whenever the server accepts a change.
  */
+// One owner's settled wall survives route changes; a different owner never reads it.
+let cachedWall: { owner: string; memories: WallMemory[] } | undefined;
+
 export function useLibrary(owner: string) {
-  const [memories, setMemories] = useState<WallMemory[]>([]);
+  const [memories, setMemories] = useState<WallMemory[]>(() =>
+    cachedWall?.owner === owner ? cachedWall.memories : []
+  );
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
+  useEffect(() => {
+    if (state !== "ready") return;
+    cachedWall = {
+      owner,
+      memories: memories
+        .filter((m) => !m.upload)
+        .map(({ fresh: _fresh, resurfaced: _resurfaced, ...memory }) => memory),
+    };
+  }, [owner, memories, state]);
   const [attempt, setAttempt] = useState(0);
   // This mount's own versions (libraryVersion), so the search cache never
   // serves it an answer from an earlier visit.

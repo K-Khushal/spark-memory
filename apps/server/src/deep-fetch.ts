@@ -1,10 +1,6 @@
+import { queueDelaySeconds } from "@spark/core";
 import { DEEP_FETCH } from "@spark/core";
-import {
-  deepFetchStore,
-  indexingStore,
-  openDatabase,
-  openLibrary,
-} from "@spark/db";
+import { deepFetchStore, openDatabase, openLibrary } from "@spark/db";
 import {
   cloudflareBrowser,
   cloudRunFetcher,
@@ -18,8 +14,9 @@ import { backoffSeconds, dohResolver } from "@spark/indexing";
 import type { CronCalls } from "./cron-budget";
 import type { Bindings, DeepFetchMessage } from "./env";
 import { FILE_CACHE_CONTROL } from "./files";
-import { enqueueDeepFetch } from "./deep-fetch-queue";
+import { enqueueDeepFetch } from "./queues";
 import { enqueue } from "./indexing";
+import { spendStore } from "./spend";
 
 /** Deep fetch's engines for this environment; a kind without one is Unavailable (stored, never shown). */
 export function deepFetchFor(env: Bindings) {
@@ -123,34 +120,34 @@ export async function consumeDeepFetch(batch: DeepFetchBatch, env: Bindings) {
     };
     const { run } = createDeepFetchWorker({
       store: deepFetchStore(db),
-      ai: indexingStore(db),
+      ai: spendStore(env, db),
       deepFetch: deepFetchFor(env),
       keepScreenshot,
     });
-    await Promise.all(
-      batch.messages.map(async (message) => {
-        let outcome;
-        try {
-          outcome = await run(message.body);
-        } catch {
-          // The database, most likely. The lease keeps a duplicate out; if
-          // retries run out, the hourly sweep takes it once the lease ends.
-          message.retry({ delaySeconds: backoffSeconds(message.attempts) });
-          console.error("deep fetch: retrying after an error");
-          return;
-        }
-        if (outcome.result === "done" && outcome.reindex) {
-          await enqueue(env, outcome.reindex);
-        } else if (outcome.result === "later") {
-          await enqueueDeepFetch(env, {
-            ...message.body,
-            delaySeconds: outcome.delaySeconds,
-          });
-        }
-        message.ack();
-        console.log(`deep fetch: ${outcome.result}`);
-      })
-    );
+    for (const message of batch.messages) {
+      let outcome;
+      try {
+        outcome = await run(message.body);
+      } catch {
+        // The database, most likely. The lease keeps a duplicate out; if
+        // retries run out, the hourly sweep takes it once the lease ends.
+        message.retry({
+          delaySeconds: queueDelaySeconds(backoffSeconds(message.attempts)),
+        });
+        console.error("deep fetch: retrying after an error");
+        continue;
+      }
+      if (outcome.result === "done" && outcome.reindex) {
+        await enqueue(env, outcome.reindex);
+      } else if (outcome.result === "later") {
+        await enqueueDeepFetch(env, {
+          ...message.body,
+          delaySeconds: queueDelaySeconds(outcome.delaySeconds),
+        });
+      }
+      message.ack();
+      console.log(`deep fetch: ${outcome.result}`);
+    }
   } finally {
     await close();
   }

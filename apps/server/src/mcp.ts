@@ -39,6 +39,7 @@ export const mcp = new Hono<AppEnv>()
   .use("*", bodyLimit({ maxSize: 16_384 }))
   .all("/mcp", async (c) => {
     c.header("Cache-Control", "private, no-store");
+    // MCP requires Origin validation against DNS rebinding: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#security-warning
     const origin = new URL(resourceFor(c.env)).origin;
     if (c.req.header("origin") && c.req.header("origin") !== origin)
       return c.body(null, 403);
@@ -198,6 +199,7 @@ export const discovery = new Hono<AppEnv>()
     })
   )
   .get("/.well-known/oauth-authorization-server", (c) => {
+    // MCP requires Origin validation against DNS rebinding: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#security-warning
     const origin = new URL(resourceFor(c.env)).origin;
     return c.json({
       issuer: origin,

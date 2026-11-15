@@ -121,6 +121,15 @@ export function openAdmin(db: Database) {
         where m.user_id = ${ownerId}
           and (f.stored_at is not null
             or f.created_at > now() - make_interval(hours => ${sql.raw(String(UPLOAD_WINDOW_HOURS))}))
+      ) + (
+        select coalesce(sum(octet_length(coalesce(m.body, '')) + octet_length(coalesce(m.title, ''))
+          + octet_length(coalesce(m.capture_note, '')) + octet_length(coalesce(m.metadata::text, ''))), 0) from memory m
+        where m.user_id = ${ownerId} and not m.sample
+      ) + (
+        select coalesce(sum(octet_length(i.title) + octet_length(i.description) + octet_length(i.ocr_text)
+          + octet_length(array_to_string(i.entities, ' ')) + octet_length(array_to_string(i.tags, ' '))), 0)
+        from memory_index i join memory m on m.id = i.memory_id
+        where m.user_id = ${ownerId} and not m.sample
       )`;
       const cost = sql`(select coalesce(sum(cost_micros), 0) from ai_call c where c.user_id = ${ownerId})`;
       const [rows, count] = await Promise.all([

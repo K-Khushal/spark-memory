@@ -9,6 +9,8 @@ import {
   type TranscriptSegment,
 } from "@spark/core";
 import type { Database } from "./client";
+import { lockOwner } from "./owner";
+import { textFits } from "./storage";
 import { accountDeletion, deepFetchUsage, memory, usageDay } from "./schema";
 
 /**
@@ -230,34 +232,82 @@ export function deepFetchStore(db: Database) {
       const video = found?.transcript
         ? sql`jsonb_build_object('video', coalesce(${memory.metadata}->'video', '{}'::jsonb) || ${JSON.stringify({ transcript: found.transcript, transcriptState: "available" })}::jsonb)`
         : sql`'{}'::jsonb`;
-      const [row] = await db
-        .update(memory)
-        .set({
-          deepFetchState: "done",
-          deepFetchError: null,
-          deepFetchLeaseUntil: null,
-          deepFetchToken: null,
-          ...(found && {
-            // Metadata the page already had stays; the patch (a video's
-            // transcript) replaces what was empty.
-            metadata: sql`(${JSON.stringify(found.metadata ?? {})}::jsonb || coalesce(${memory.metadata}, '{}'::jsonb)) || ${video}`,
-            body: sql`case when ${text}::text is not null and (${memory.body} is null or char_length(${memory.body}) < char_length(${text}::text)) then ${text}::text else ${memory.body} end`,
-            preservation: sql`case when ${memory.kind} = 'link' and (${memory.body} is not null or ${text}::text is not null) then 'preserved' else ${memory.preservation} end`,
-            indexState: "indexing",
-            indexError: null,
-            indexRun: sql`${memory.indexRun} + 1`,
-            indexPriority: "background",
-            indexLeaseUntil: null,
-          }),
-        })
-        .where(claimed(claim))
-        .returning({
-          id: memory.id,
-          indexRun: memory.indexRun,
-          indexGeneration: memory.indexGeneration,
-          indexPriority: memory.indexPriority,
-        });
-      return row && { ...row, reindex: !!found };
+      return db.transaction(async (tx) => {
+        // What it found takes storage like any text: under the owner's lock,
+        // with no room for it nothing of it is kept (the job is still done)
+        // and the Memory ends partly Indexed, never failed.
+        let keep = found;
+        let full = false;
+        if (found) {
+          await lockOwner(tx, claim.userId);
+          const [current] = await tx
+            .select({ body: memory.body })
+            .from(memory)
+            .where(eq(memory.id, claim.memoryId));
+          const body = current?.body;
+          const bodyAfter =
+            text !== null && (body == null || body.length < text.length)
+              ? text
+              : undefined;
+          // What is kept: the body, and the metadata with the transcript in
+          // it (as the update below merges it): both take storage.
+          const fits = await textFits(tx, claim.userId, claim.memoryId, {
+            ...(bodyAfter !== undefined && { body: bodyAfter }),
+            metadata: (existing: unknown) => {
+              const had = (existing as { video?: object } | null) ?? {};
+              return {
+                ...(found.metadata ?? {}),
+                ...had,
+                ...(found.transcript && {
+                  video: {
+                    ...((had as { video?: object }).video ?? {}),
+                    transcript: found.transcript,
+                    transcriptState: "available",
+                  },
+                }),
+              };
+            },
+          });
+          if (!fits) {
+            keep = undefined;
+            full = true;
+          }
+        }
+        const [row] = await tx
+          .update(memory)
+          .set({
+            deepFetchState: "done",
+            deepFetchError: null,
+            deepFetchLeaseUntil: null,
+            deepFetchToken: null,
+            ...(full && {
+              indexState: "searchable",
+              indexError: null,
+              indexLeaseUntil: null,
+              overAllowance: true,
+            }),
+            ...(keep && {
+              // Metadata the page already had stays; the patch (a video's
+              // transcript) replaces what was empty.
+              metadata: sql`(${JSON.stringify(keep.metadata ?? {})}::jsonb || coalesce(${memory.metadata}, '{}'::jsonb)) || ${video}`,
+              body: sql`case when ${text}::text is not null and (${memory.body} is null or char_length(${memory.body}) < char_length(${text}::text)) then ${text}::text else ${memory.body} end`,
+              preservation: sql`case when ${memory.kind} = 'link' and (${memory.body} is not null or ${text}::text is not null) then 'preserved' else ${memory.preservation} end`,
+              indexState: "indexing",
+              indexError: null,
+              indexRun: sql`${memory.indexRun} + 1`,
+              indexPriority: "background",
+              indexLeaseUntil: null,
+            }),
+          })
+          .where(claimed(claim))
+          .returning({
+            id: memory.id,
+            indexRun: memory.indexRun,
+            indexGeneration: memory.indexGeneration,
+            indexPriority: memory.indexPriority,
+          });
+        return row && { ...row, reindex: !!keep };
+      });
     },
 
     /**

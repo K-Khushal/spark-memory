@@ -51,7 +51,7 @@ async function image(
 }
 async function text(library: Lib, body: string) {
   const r = await library.capture({ body });
-  if ("conflict" in r) throw new Error("conflict");
+  if ("conflict" in r || "refused" in r) throw new Error("not saved");
   return r.memory.id;
 }
 const ids = (results: { id: string }[]) => results.map((r) => r.id);

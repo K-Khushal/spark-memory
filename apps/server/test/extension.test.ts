@@ -131,8 +131,9 @@ describe.skipIf(!databaseUrl)("extension Capture", () => {
     expect(await screenshot.json()).toMatchObject({
       url: expect.stringContaining("sig="),
     });
+    // The 4 bytes of the one screenshot kept, and the page's metadata (jsonb: `{"title": "Basil"}`).
     expect(await (await call("/api/storage")).json()).toMatchObject({
-      usedBytes: 4,
+      usedBytes: 4 + '{"title": "Basil"}'.length,
     });
     const other = await signedIn();
     const denied = await other.call(`/api/memories/${id}/screenshot`, {

@@ -9,6 +9,11 @@ export const FREE_ALLOWANCE = {
   storageBytes: 1024 * MB,
   maxUploadBytes: 25 * MB,
   capturesPerDay: 100,
+  /**
+   * Past the daily Captures, links and text are still kept (partly Indexed)
+   * up to this many more a UTC day, then refused like any Capture.
+   */
+  keptPerDay: 50,
   pdfPagesIndexed: 30,
   videoTranscriptMaxMinutes: 60,
   deepFetchesPerDay: 20,

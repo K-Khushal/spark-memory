@@ -39,13 +39,13 @@ export async function prepareQueryImage(file: File): Promise<ImageQuery> {
 }
 
 /** One decode state machine shared by both search surfaces. */
-export function useImageQuery() {
+export function useImageQuery(initial?: ImageQuery) {
   const generation = useRef(0);
   const [state, setState] = useState<
     | { status: "idle" }
     | { status: "reading" }
     | { status: "ready"; value: ImageQuery }
-  >({ status: "idle" });
+  >(initial ? { status: "ready", value: initial } : { status: "idle" });
   useEffect(
     () => () => {
       generation.current++;

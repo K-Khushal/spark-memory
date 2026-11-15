@@ -12,9 +12,8 @@ export type Transcriber = {
   ): Promise<{ segments: TranscriptSegment[]; usage: Usage }>;
 };
 
-const MAX_OUTPUT_TOKENS = 8192;
-/** Gemini counts about 300 tokens a second of video with its audio. */
-const TOKENS_PER_SECOND = 300;
+const MAX_OUTPUT_TOKENS = INDEXING.transcribeMaxOutputTokens;
+const TOKENS_PER_SECOND = INDEXING.transcribeTokensPerSecond;
 
 const SYSTEM =
   "You transcribe the speech in a short video. Return JSON with `segments`: " +

@@ -1,3 +1,5 @@
+import { readLibraryView, rememberLibraryView } from "./library-view";
+import "./library-wall.css";
 import { emptySelection, select } from "./selection";
 import { SelectionBar } from "./selection-bar";
 import {
@@ -22,6 +24,7 @@ import { recordSearch } from "./search-history";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useId,
   useMemo,
   useRef,
@@ -29,13 +32,16 @@ import {
   type Ref,
 } from "react";
 import {
-  Link,
   useNavigate,
+  useRouterState,
   useSearch as useRouteSearch,
 } from "@tanstack/react-router";
-import { PlusIcon, SearchIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 import {
   Button,
+  SkeletonGate,
+  Skeleton,
+  StateBlock,
   FilterChip,
   Kbd,
   Masonry,
@@ -45,11 +51,12 @@ import {
   type MasonryHandle,
   type MasonrySelection,
 } from "@spark/ui";
+import { columnCount } from "@spark/ui/layout";
 import { startAnalytics, track } from "../analytics";
 import { authClient, endSession, type AppSession } from "../auth";
 import { ShareTarget } from "../pwa/share-target";
 import {
-  Centred,
+  PhoneNavigation,
   DeskSearchField,
   DeskSidebar,
   focusDeskControl,
@@ -71,14 +78,20 @@ import {
   type Found,
   type Results,
 } from "./use-search";
-import { WHY_HEIGHT, WhyChip, whyLabel } from "./why";
+import { whyHeight, WhyChip, whyLabel } from "./why";
+
+const WALL_COLUMNS = { minWidth: 220, gap: 12, max: 6 };
 
 /**
  * The Library: sidebar (a top bar on phones) beside the masonry wall of
  * Memories (DESIGN.md → Pick). ⌘V Captures, ⌘K searches, a tile opens its
  * Memory.
  */
-export function LibraryPage({
+export function LibraryPage(props: { session: AppSession; admin: boolean }) {
+  return <LibraryForSession key={props.session.user.id} {...props} />;
+}
+
+function LibraryForSession({
   session,
   admin,
 }: {
@@ -86,9 +99,15 @@ export function LibraryPage({
   admin: boolean;
 }) {
   const navigate = useNavigate();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const bar = useRef<HTMLDivElement>(null);
   useStickyInset(bar);
   const library = useLibrary(session.user.id);
+  const [returnView] = useState(() => readLibraryView(session.user.id));
+  const restoringView = useRef(!!returnView);
+  const navigationScroll = useRef<number | undefined>(undefined);
   const { desk, memory: linked } = useRouteSearch({ from: "/" });
   const [metrics] = useState(() => productMetrics(track));
   const [activationVersion, setActivationVersion] = useState(0);
@@ -104,10 +123,10 @@ export function LibraryPage({
     change: setVisual,
     choose: decodeImage,
     busy: imageBusy,
-  } = useImageQuery();
-  const [query, setQuery] = useState("");
+  } = useImageQuery(returnView?.visual);
+  const [query, setQuery] = useState(returnView?.query ?? "");
   /** The filter chips, one choice per group; they work with no words. */
-  const [chips, setChips] = useState<SearchChips>({});
+  const [chips, setChips] = useState<SearchChips>(returnView?.chips ?? {});
   const [pasteOpen, setPasteOpen] = useState(desk === "capture");
   /** Set when this page was opened to show Capture or Search, then cleared on close. */
   const deskReturn = useRef<"capture" | "search" | null>(
@@ -118,7 +137,7 @@ export function LibraryPage({
   /** The PDF in the viewer, and where it opens. */
   const [pdf, setPdf] = useState<{ id: string; match: PdfMatch }>();
   /** The Memory the wall shows More Like This of, instead of a query. */
-  const [like, setLike] = useState<Memory>();
+  const [like, setLike] = useState<Memory | undefined>(returnView?.like);
   const chooseImage = (file?: File) => {
     setLike(undefined);
     return decodeImage(file);
@@ -176,6 +195,42 @@ export function LibraryPage({
     searching &&
     first !== "failed" &&
     (!first || first.key !== requestKey(request));
+  useEffect(() => {
+    const saved = {
+      owner: session.user.id,
+      query,
+      chips,
+      visual,
+      like,
+      scroll: restoringView.current
+        ? (returnView?.scroll ?? 0)
+        : window.scrollY,
+    };
+    rememberLibraryView(saved);
+    const rememberScroll = () => {
+      if (!restoringView.current) saved.scroll = window.scrollY;
+    };
+    window.addEventListener("scroll", rememberScroll, { passive: true });
+    return () => window.removeEventListener("scroll", rememberScroll);
+  }, [session.user.id, query, chips, visual, like, returnView]);
+  useEffect(() => {
+    if (
+      !restoringView.current ||
+      pathname !== "/" ||
+      library.state !== "ready" ||
+      pending
+    )
+      return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        window.scrollTo({
+          top: returnView?.scroll ?? 0,
+        });
+        restoringView.current = false;
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [library.state, pending, returnView, pathname]);
   /**
    * Until when focus goes to the results once they land: Enter in ⌘K
    * replaces the wall, and the tile that held focus goes with it.
@@ -330,6 +385,8 @@ export function LibraryPage({
     void library.captureFiles(files);
   };
   const dropping = useFileDrop(captureFiles);
+
+  const [bulkHeight, setBulkHeight] = useState(0);
   const [selected, setSelected] = useState(emptySelection);
   // Only what the wall shows can be selected: nothing while results are pending or failed.
   const wallOrder = searching
@@ -508,6 +565,41 @@ export function LibraryPage({
   return (
     <div
       className="flex min-h-dvh bg-canvas"
+      onPointerDownCapture={(event) => {
+        if (
+          (event.target as Element).closest(
+            '[aria-label="Spark Navigation"], [role="menu"][aria-label="Navigation"]'
+          )
+        )
+          navigationScroll.current = window.scrollY;
+      }}
+      onKeyDownCapture={(event) => {
+        if (
+          ["Enter", " "].includes(event.key) &&
+          (event.target as Element).closest(
+            '[aria-label="Spark Navigation"], [role="menu"][aria-label="Navigation"]'
+          )
+        )
+          navigationScroll.current = window.scrollY;
+      }}
+      onClickCapture={(event) => {
+        const view = readLibraryView(session.user.id);
+        if (
+          event.button === 0 &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.shiftKey &&
+          (event.target as Element).closest(
+            'a[href="/settings"], a[href="/admin"]'
+          ) &&
+          view
+        ) {
+          view.scroll = navigationScroll.current ?? window.scrollY;
+          // Menu focus restoration and router scroll resets belong to the destination.
+          restoringView.current = true;
+        }
+      }}
       onPasteCapture={(event) => {
         if (
           (event.target as HTMLElement).closest('[data-desk="search"]') &&
@@ -573,19 +665,25 @@ export function LibraryPage({
         id="content"
         tabIndex={-1}
         className="min-w-0 flex-1 pb-32 outline-none"
+        style={
+          bulkHeight
+            ? {
+                paddingBottom: `calc(${bulkHeight}px + 2rem + env(safe-area-inset-bottom))`,
+              }
+            : undefined
+        }
       >
         <div
           ref={bar}
           className="sticky top-0 z-20 border-b border-line bg-canvas md:hidden"
         >
           <div className="flex flex-wrap items-center gap-2 px-4 py-2">
-            <Wordmark />
-            {admin && (
-              <Link to="/admin" className="text-sm text-ink-muted">
-                Admin
-              </Link>
-            )}
-            <div className="min-w-0 flex-1 basis-56">
+            <PhoneNavigation
+              current="library"
+              admin={admin}
+              onLibrary={leaveSearch}
+            />
+            <div className="min-w-0 flex-1 basis-32">
               <DeskSearchField
                 label={searchLabel}
                 active={searching}
@@ -606,7 +704,7 @@ export function LibraryPage({
               <PlusIcon aria-hidden />
             </Button>
           </div>
-          {(library.memories.length > 0 || visual || imageBusy) && (
+          {library.memories.length > 0 || visual || imageBusy ? (
             <LibraryFilters
               layout="row"
               leading={
@@ -620,7 +718,9 @@ export function LibraryPage({
               onChange={changeChips}
               manage={manage("row")}
             />
-          )}
+          ) : library.state === "loading" ? (
+            <div aria-hidden className="h-13" />
+          ) : null}
         </div>
         <h1 className="sr-only">Library</h1>
         {/* Outside the busy wall below, or a screen reader may hold it back
@@ -629,96 +729,120 @@ export function LibraryPage({
           {first === "failed" && wallSearch.retrying ? "Searching Again" : ""}
         </div>
         {library.state === "ready" && (
-          <Onboarding
-            activationVersion={activationVersion}
-            onActivated={onActivated}
-            memories={library.memories}
-            refresh={library.refreshSamples}
-            onCapture={openPasteBox}
-            onOpen={reveal}
-            onSearch={(q) => {
-              openSearch();
-              setDraft(q);
-            }}
-          />
-        )}
-
-        {library.state === "failed" ? (
-          <Centred title="Library Is Unreachable" level={2}>
-            <Button variant="outline" onClick={library.retry}>
-              Try Again
-            </Button>
-          </Centred>
-        ) : library.state === "loading" ? null : !library.memories.length ? (
-          <Centred title="No Memories Yet" level={2}>
-            <div className="flex flex-wrap justify-center gap-2">
-              <Button variant="primary" className="h-10" onClick={openPasteBox}>
-                <PlusIcon aria-hidden /> Capture
-                <Kbd className="hidden border-transparent bg-canvas/15 text-canvas sm:inline-flex">
-                  {MOD}V
-                </Kbd>
-              </Button>
-              <Button variant="outline" className="h-10" onClick={openSearch}>
-                <SearchIcon aria-hidden /> Search
-                <Kbd className="hidden sm:inline-flex">{MOD}K</Kbd>
-              </Button>
-            </div>
-          </Centred>
-        ) : (
-          <div
-            aria-busy={pending || wallSearch.retrying}
-            className={cn(
-              "p-4 transition-opacity md:p-6",
-              // A slow answer dims what is shown; a quick one never does.
-              pending
-                ? "opacity-60 delay-300 duration-(--duration-press)"
-                : "opacity-100 duration-(--duration-press)"
-            )}
-          >
-            {/* Until a search's first answer lands, the wall stays as it was. */}
-            {searching && results ? (
-              <SearchResults
-                results={results}
-                onRetry={wallSearch.retry}
-                retrying={wallSearch.retrying}
-                query={query}
-                chips={chips}
-                onChips={changeChips}
-                onOpen={openMemory}
-                tiles={tiles}
-              />
-            ) : (
-              <Wall
-                label="All Memories"
-                memories={library.memories}
-                query=""
-                onOpen={openMemory}
-                tiles={tiles}
-              />
-            )}
-            {paging && (
-              <div className="mt-6 flex justify-center">
-                <Button
-                  variant="outline"
-                  // Not `disabled`: that would drop the focus it holds.
-                  aria-disabled={more.busy}
-                  className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
-                  onClick={() => {
-                    if (more.busy) return;
-                    pagingFocus.current = true;
-                    void more.load();
-                  }}
-                >
-                  Show More
-                </Button>
-              </div>
-            )}
+          <div className="peer">
+            <Onboarding
+              activationVersion={activationVersion}
+              onActivated={onActivated}
+              memories={library.memories}
+              refresh={library.refreshSamples}
+              onCapture={openPasteBox}
+              onOpen={reveal}
+              onSearch={(q) => {
+                openSearch();
+                setDraft(q);
+              }}
+            />
           </div>
         )}
+
+        <SkeletonGate
+          loading={library.state === "loading" && !library.memories.length}
+          skeleton={<LibrarySkeleton />}
+          className="peer-has-[section_[aria-busy]]:[&_[data-empty-primary]]:hidden"
+        >
+          {library.state === "failed" ? (
+            <StateBlock
+              title="Library Is Unreachable"
+              align="centre"
+              className="min-h-[60dvh] justify-center px-4"
+            >
+              <Button variant="outline" onClick={library.retry}>
+                Try Again
+              </Button>
+            </StateBlock>
+          ) : !library.memories.length ? (
+            <div>
+              <StateBlock
+                title="No Memories Yet"
+                align="centre"
+                className="min-h-[60dvh] justify-center px-4"
+              >
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button
+                    variant="primary"
+                    data-empty-primary
+                    wrap
+                    className="min-h-10"
+                    onClick={openPasteBox}
+                  >
+                    <PlusIcon aria-hidden /> Capture
+                    <Kbd className="hidden border-transparent bg-canvas/15 text-canvas sm:inline-flex">
+                      {MOD}V
+                    </Kbd>
+                  </Button>
+                </div>
+              </StateBlock>
+            </div>
+          ) : (
+            <div
+              data-library-wall
+              aria-busy={pending || wallSearch.retrying}
+              className={cn(
+                "p-4 transition-opacity md:p-6",
+                // A slow answer dims what is shown; a quick one never does.
+                pending
+                  ? "opacity-60 delay-300 duration-(--duration-press)"
+                  : "opacity-100 duration-(--duration-press)"
+              )}
+            >
+              {/* Until a search's first answer lands, the wall stays as it was. */}
+              {searching && results ? (
+                <SearchResults
+                  results={results}
+                  onClearSearch={leaveSearch}
+                  onClearFilters={() => setChips({})}
+                  onRetry={wallSearch.retry}
+                  retrying={wallSearch.retrying}
+                  query={query}
+                  chips={chips}
+                  onChips={changeChips}
+                  onOpen={openMemory}
+                  tiles={tiles}
+                />
+              ) : (
+                <Wall
+                  label="All Memories"
+                  memories={library.memories}
+                  query=""
+                  onOpen={openMemory}
+                  tiles={tiles}
+                />
+              )}
+              {paging && (
+                <div className="mt-6 flex justify-center">
+                  <Button
+                    variant="outline"
+                    // Not `disabled`: that would drop the focus it holds.
+                    aria-disabled={more.busy}
+                    className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                    onClick={() => {
+                      if (more.busy) return;
+                      pagingFocus.current = true;
+                      void more.load();
+                    }}
+                  >
+                    Show More
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </SkeletonGate>
       </main>
 
       {bulkRows.length > 0 && (
         <SelectionBar
+          onHeight={setBulkHeight}
           count={bulkRows.length}
           ownNames={ownNames}
           onClear={selection.clear}
@@ -798,10 +922,6 @@ export function LibraryPage({
   );
 }
 
-function Wordmark() {
-  return <span className="font-display text-md font-semibold">Spark</span>;
-}
-
 /** What a tile can ask of the Library: Try Again or Delete for an upload, Retry for Indexing, fresh URLs for a broken image. */
 type TileActions = {
   selection: MasonrySelection;
@@ -827,6 +947,10 @@ function Wall({
   const open = (i: number) => memories[i] && onOpen(memories[i]);
   return (
     <Masonry
+      minColumnWidth={WALL_COLUMNS.minWidth}
+      maxColumns={WALL_COLUMNS.max}
+      gap={WALL_COLUMNS.gap}
+      className="library-wall"
       label={label}
       selection={tiles.selection}
       items={memories}
@@ -877,12 +1001,16 @@ function ResultWall({
   const open = (i: number) => found[i] && onOpen(found[i]);
   return (
     <Masonry
+      minColumnWidth={WALL_COLUMNS.minWidth}
+      maxColumns={WALL_COLUMNS.max}
+      gap={WALL_COLUMNS.gap}
+      className="library-wall"
       label={label}
       selection={tiles.selection}
       items={found}
       getKey={(m) => m.id}
       getHeight={tileHeight}
-      getCaption={() => (direct === undefined ? 0 : WHY_HEIGHT)}
+      getCaption={() => (direct === undefined ? 0 : whyHeight())}
       getLabel={(m) =>
         [tileLabel(m), direct !== undefined && whyLabel(m)]
           .filter(Boolean)
@@ -914,6 +1042,8 @@ function ResultWall({
 function SearchResults({
   results,
   onRetry,
+  onClearSearch,
+  onClearFilters,
   retrying,
   query,
   chips,
@@ -923,6 +1053,8 @@ function SearchResults({
 }: {
   results: Results | "failed" | undefined;
   onRetry: () => void;
+  onClearSearch: () => void;
+  onClearFilters: () => void;
   retrying: boolean;
   query: string;
   chips: SearchChips;
@@ -936,22 +1068,18 @@ function SearchResults({
   if (!results) return null;
   if (results === "failed") {
     return (
-      <div className="flex flex-col items-start gap-3">
-        <h2
-          tabIndex={-1}
-          className="text-sm font-medium text-ink-muted outline-none"
-        >
-          Search Is Unreachable
-        </h2>
-        <Button
-          variant="outline"
-          // Not `disabled`: that would drop the focus it holds.
-          aria-disabled={retrying}
-          className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
-          onClick={() => !retrying && onRetry()}
-        >
-          Try Again
-        </Button>
+      <div data-search="failed">
+        <StateBlock title="Search Is Unreachable">
+          <Button
+            wrap
+            variant="outline"
+            aria-disabled={retrying}
+            className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+            onClick={() => !retrying && onRetry()}
+          >
+            {retrying ? "Searching Again" : "Try Again"}
+          </Button>
+        </StateBlock>
       </div>
     );
   }
@@ -988,12 +1116,11 @@ function SearchResults({
     return (
       <div data-search={results.mode}>
         {!found.length && (
-          <Landing
-            key={results.key}
-            className="text-sm font-medium text-ink-muted"
-          >
-            No Memories Match
-          </Landing>
+          <StateBlock title="No Memories Match">
+            <Button wrap variant="outline" onClick={onClearFilters}>
+              Clear Filters
+            </Button>
+          </StateBlock>
         )}
         <ResultWall
           label="Filtered Memories"
@@ -1007,6 +1134,16 @@ function SearchResults({
       </div>
     );
   }
+  if (!results.direct.length && !results.related.length)
+    return (
+      <div data-search={results.mode}>
+        <StateBlock title="No Direct Matches">
+          <Button wrap variant="outline" onClick={onClearSearch}>
+            Clear Search
+          </Button>
+        </StateBlock>
+      </div>
+    );
   return (
     <div data-search={results.mode}>
       <section aria-labelledby={`${headings}-direct`}>
@@ -1098,21 +1235,25 @@ function Narrow({
     <div
       role="group"
       aria-label="Narrow Related Matches"
-      className="flex flex-wrap gap-2"
+      className="flex flex-wrap gap-3"
     >
-      {options.kinds.map((kind) => (
-        <FilterChip key={kind} onClick={() => onChips({ ...chips, kind })}>
-          {KIND_LABELS[kind]}
-        </FilterChip>
-      ))}
-      {options.categories.map((category) => (
-        <FilterChip
-          key={category}
-          onClick={() => onChips({ ...chips, category })}
-        >
-          {category}
-        </FilterChip>
-      ))}
+      <div role="group" aria-label="Kind" className="flex flex-wrap gap-2">
+        {options.kinds.map((kind) => (
+          <FilterChip key={kind} onClick={() => onChips({ ...chips, kind })}>
+            {KIND_LABELS[kind]}
+          </FilterChip>
+        ))}
+      </div>
+      <div role="group" aria-label="Category" className="flex flex-wrap gap-2">
+        {options.categories.map((category) => (
+          <FilterChip
+            key={category}
+            onClick={() => onChips({ ...chips, category })}
+          >
+            {category}
+          </FilterChip>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1134,5 +1275,37 @@ function Landing({
     <h2 ref={ref} tabIndex={-1} className={cn("outline-none", className)}>
       {children}
     </h2>
+  );
+}
+
+/** Static loading geometry follows Masonry's 220px columns and 12px gaps. */
+function LibrarySkeleton() {
+  const wall = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const node = wall.current;
+    if (!node) return;
+    const measure = () => setWidth(node.clientWidth);
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+  const columns = columnCount(width, WALL_COLUMNS);
+  return (
+    <div aria-hidden className="p-4 md:p-6">
+      <div
+        ref={wall}
+        className="grid"
+        style={{
+          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          gap: WALL_COLUMNS.gap,
+        }}
+      >
+        {Array.from({ length: 12 }, (_, i) => (
+          <Skeleton key={i} className="h-56" />
+        ))}
+      </div>
+    </div>
   );
 }

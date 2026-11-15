@@ -252,10 +252,15 @@ describe.skipIf(!url)("Categories", () => {
     const m = await capture("Lemon tart");
     const client = jev({ Recipe: 0.9 });
     const real = indexingStore(db);
+    let holds = 0;
     const broke = {
       ...real,
       load: real.load,
       spentTodayMicros: async () => Number.MAX_SAFE_INTEGER,
+      // The first call (Extraction) is held; the share is spent after it, so
+      // neither the vectors nor Jev are asked for.
+      reserve: async () =>
+        ++holds <= 1 ? { id: "hold" } : { refused: "spent" as const },
     } as typeof real;
     await indexer(embedder(), client, broke)(job(m.id, 1));
     expect(client.calls).toEqual([]);

@@ -6,6 +6,9 @@ import {
   Button,
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogBody,
+  DialogFooter,
   DialogTitle,
   Kbd,
   Textarea,
@@ -50,46 +53,55 @@ export function PasteBox({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        presentation="sheet"
         onCloseAutoFocus={restoreLibraryFocus}
         aria-describedby={undefined}
-        className="max-h-[90dvh] max-w-xl overflow-y-auto p-4 sm:p-6"
+        className="flex max-h-[min(36rem,calc(100dvh-2rem))] max-w-md flex-col overflow-hidden"
       >
-        <form onSubmit={submit} className="flex flex-col gap-3">
-          <DialogTitle>Capture</DialogTitle>
-          <Textarea
-            autoFocus
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
-            }}
-            onPaste={(e) => {
-              const files = [...e.clipboardData.files];
-              // Copied text from Office apps carries a picture too: text wins.
-              if (!files.length || e.clipboardData.getData("text/plain").trim())
-                return;
-              e.preventDefault();
-              onFiles(files);
-            }}
-            placeholder="Paste or Type"
-            aria-label="Text"
-            dir="auto"
-            className="max-h-[50dvh] min-h-32"
-          />
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
-            placeholder="Capture Note"
-            aria-label="Capture Note"
-            dir="auto"
-            className="h-11 min-w-0 rounded-control bg-sunken px-3 text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring"
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader>
+            <DialogTitle>Capture</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="flex flex-col gap-3">
+            <Textarea
+              autoFocus
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+              }}
+              onPaste={(e) => {
+                const files = [...e.clipboardData.files];
+                // Copied text from Office apps carries a picture too: text wins.
+                if (
+                  !files.length ||
+                  e.clipboardData.getData("text/plain").trim()
+                )
+                  return;
+                e.preventDefault();
+                onFiles(files);
+              }}
+              placeholder="Paste or Type"
+              aria-label="Text"
+              dir="auto"
+              className="max-h-[50dvh] min-h-32"
+            />
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
+              placeholder="Capture Note"
+              aria-label="Capture Note"
+              dir="auto"
+              className="h-11 min-w-0 shrink-0 rounded-control bg-sunken px-3 text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring"
+            />
+          </DialogBody>
+          <DialogFooter className="justify-between">
             <Button
               type="button"
               variant="quiet"
-              className="h-auto min-h-10 max-w-full px-2 whitespace-normal"
+              wrap
+              className="min-h-10 px-2"
               onClick={() => picker.current?.click()}
             >
               <PaperclipIcon aria-hidden /> Choose Files
@@ -110,7 +122,8 @@ export function PasteBox({
             <Button
               type="submit"
               variant="primary"
-              className="ml-auto h-10"
+              wrap
+              className="ml-auto min-h-10"
               disabled={!text.trim()}
             >
               Capture
@@ -118,7 +131,7 @@ export function PasteBox({
                 {MOD}↵
               </Kbd>
             </Button>
-          </div>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

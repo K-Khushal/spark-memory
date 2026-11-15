@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { INDEXING } from "@spark/core";
+import { INDEXING, maxTokens, modelCostMicros, type Hold } from "@spark/core";
 import {
   createIndexer,
   gemini,
@@ -122,6 +122,16 @@ function memoryStore(
     writeVectors: async () => false,
     spentTodayMicros: async () => store.spent,
     dailyBudgetMicros: async () => store.budget,
+    reserve: async ({
+      global,
+    }: {
+      micros: number;
+      global?: boolean;
+    }): Promise<Hold> =>
+      global === false || store.spent < store.budget
+        ? { id: "hold" }
+        : { refused: "spent" },
+    releaseHold: async (_id: string): Promise<void> => {},
     recordCall: async (call: { provider: string; costMicros: number }) => {
       store.calls.push(call);
       store.spent += call.costMicros;
@@ -352,6 +362,136 @@ describe("index(job)", () => {
       readFile: noFiles,
     });
     expect(await fresh.index(job())).toEqual({ result: "searchable" });
+  });
+
+  it("holds each call's cost before making it, a fresh run against the person's share only", async () => {
+    for (const priority of ["fresh", "background"] as const) {
+      const gemma = scripted("workers-ai", json());
+      const store = memoryStore(textMemory());
+      const holds: { micros: number; global?: boolean }[] = [];
+      const order: string[] = [];
+      store.reserve = async (input) => {
+        order.push("hold");
+        holds.push(input);
+        return { id: "hold-1" };
+      };
+      vi.mocked(gemma.extract).mockImplementation(async () => {
+        order.push("call");
+        return { text: json(), usage: { inputTokens: 10, outputTokens: 5 } };
+      });
+      const indexer = createIndexer({
+        store,
+        providers: [gemma],
+        readFile: noFiles,
+      });
+      expect(await indexer.index(job({ priority }))).toEqual({
+        result: "searchable",
+      });
+      expect(order).toEqual(["hold", "call"]);
+      expect(holds).toHaveLength(1);
+      expect(holds[0]!.micros).toBeGreaterThan(0);
+      // Only a new Capture's first run is never held back by the global budget.
+      expect(holds[0]!.global, priority).toBe(priority !== "fresh");
+    }
+  });
+
+  it("pauses to the next UTC day when a hold is refused, even a fresh run, and makes no call", async () => {
+    const gemma = scripted("workers-ai", json());
+    const store = memoryStore(textMemory());
+    store.reserve = async () => ({ refused: "spent" });
+    const at = new Date("2026-11-11T20:00:00Z");
+    const indexer = createIndexer({
+      store,
+      providers: [gemma],
+      readFile: noFiles,
+      now: () => at,
+    });
+    expect(await indexer.index(job())).toEqual({
+      result: "paused",
+      delaySeconds: 4 * 3600,
+    });
+    expect(gemma.extract).not.toHaveBeenCalled();
+    expect(store.failed).toEqual([]);
+    expect(store.released).toBe(1);
+  });
+
+  it("holds an upper bound: every output token the request allows, and input at its UTF-8 bytes", async () => {
+    // Hindi is three bytes a character: far more tokens than characters ÷ 3.
+    const hindi = "यह एक नींबू का टार्ट है और बहुत स्वादिष्ट भी ".repeat(300);
+    const gemini = scripted("gemini", json());
+    const store = memoryStore(textMemory({ body: hindi }));
+    const holds: { micros: number }[] = [];
+    store.reserve = async (input) => {
+      holds.push(input);
+      return { id: "hold-1" };
+    };
+    const indexer = createIndexer({
+      store,
+      providers: [gemini],
+      readFile: noFiles,
+    });
+    expect(await indexer.index(job())).toEqual({ result: "searchable" });
+    const request = gemini.requests[0]!;
+    const bytes = maxTokens(request.system) + maxTokens(request.user);
+    expect(bytes).toBeGreaterThan(
+      (request.system.length + request.user.length) * 2
+    );
+    const atMost = modelCostMicros(gemini.model, {
+      inputTokens: bytes,
+      outputTokens: INDEXING.maxOutputTokens,
+    });
+    expect(holds[0]!.micros).toBeGreaterThanOrEqual(atMost);
+    // Never the old guess: characters ÷ 3 in, 2,000 out.
+    const guess = modelCostMicros(gemini.model, {
+      inputTokens: Math.ceil((request.system.length + request.user.length) / 3),
+      outputTokens: 2000,
+    });
+    expect(holds[0]!.micros).toBeGreaterThan(guess);
+    // The call's real cost settles exactly that hold.
+    expect(store.calls[0]).toMatchObject({ reservation: "hold-1" });
+  });
+
+  it("waits only a minute or two, not until tomorrow, when other calls' holds are all that stand in the way", async () => {
+    const gemma = scripted("workers-ai", json());
+    const store = memoryStore(textMemory());
+    store.reserve = async () => ({ refused: "busy" });
+    const indexer = createIndexer({
+      store,
+      providers: [gemma],
+      readFile: noFiles,
+      now: () => new Date("2026-11-11T08:00:00Z"),
+    });
+    expect(await indexer.index(job())).toEqual({
+      result: "paused",
+      delaySeconds: 90,
+    });
+    expect(gemma.extract).not.toHaveBeenCalled();
+  });
+
+  it("settles the hold with the call's cost, even a lost call's most, and gives back one that never could bill", async () => {
+    const released: string[] = [];
+    const run = async (failure: ProviderError) => {
+      const gemma = scripted("workers-ai", failure, failure, failure, failure);
+      const store = memoryStore(textMemory());
+      store.reserve = async () => ({ id: "hold-x" });
+      store.releaseHold = async (id: string) => void released.push(id);
+      const indexer = createIndexer({
+        store,
+        providers: [gemma],
+        readFile: noFiles,
+      });
+      await indexer.index(job());
+      return store;
+    };
+    // Lost after sending: Google may bill it at most; that cost settles the hold.
+    const lost = await run(
+      new ProviderError("failed", { inputTokens: 50, outputTokens: 4096 })
+    );
+    expect(lost.calls[0]).toMatchObject({ reservation: "hold-x" });
+    expect(released).toEqual([]);
+    // Failed with no usage and no estimate: nothing can be billed, the hold goes back.
+    await run(new ProviderError("failed"));
+    expect(released).toContain("hold-x");
   });
 
   it("pauses at the budget the store reports, including one below the default", async () => {
