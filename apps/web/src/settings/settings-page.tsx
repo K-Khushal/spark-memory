@@ -158,7 +158,7 @@ function Section({
   const id = useId();
   return (
     <section aria-labelledby={id} className="flex flex-col gap-3">
-      <h2 id={id} className="text-md font-medium text-ink">
+      <h2 id={id} className="font-display text-md font-medium text-ink">
         {title}
       </h2>
       <div
@@ -522,7 +522,8 @@ function Appearance() {
             }
             document.documentElement.dataset.theme =
               value === "system"
-                ? matchMedia("(prefers-color-scheme: dark)").matches
+                ? (window.matchMedia?.("(prefers-color-scheme: dark)")
+                    .matches ?? false)
                   ? "dark"
                   : "light"
                 : value;

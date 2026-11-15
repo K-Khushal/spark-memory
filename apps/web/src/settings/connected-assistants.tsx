@@ -53,6 +53,11 @@ export function ConnectedAssistants() {
   const [confirming, setConfirming] = useState<Assistant>();
   const [viewing, setViewing] = useState<Assistant>();
   const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
   const [guide, setGuide] = useState(false);
   const list = useRef<HTMLUListElement>(null);
   const activityButton = useRef<HTMLButtonElement>(null);

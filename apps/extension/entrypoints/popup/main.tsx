@@ -122,11 +122,7 @@ function Popup() {
               setNoteState("Add Note");
             }}
           />
-          <button
-            // The visible word is short; the name says what is added.
-            aria-label={noteState === "Add Note" ? "Add Note" : undefined}
-            disabled={!note.trim() || noteState === "Saving"}
-          >
+          <button disabled={!note.trim() || noteState === "Saving"}>
             <CrossfadeIcon
               on={noteState === "Note Added"}
               from={
