@@ -147,7 +147,6 @@ for (const theme of THEMES) {
     await paste(page, "A Memory for the toast");
     const toast = page.locator("[data-sonner-toast][data-front=true]");
     await expect(toast).toContainText("Captured");
-    await page.waitForTimeout(600);
     const colours = await toast.evaluate((el) => {
       const root = getComputedStyle(document.documentElement);
       const action = el.querySelector("[data-button]")!;
@@ -164,6 +163,7 @@ for (const theme of THEMES) {
     };
     expect(colours.background).toBe(rgb(colours.surface));
     expect(colours.actionBackground).toBe(rgb(colours.ink));
+    if (OUT) await page.waitForTimeout(600);
     await shot(page, `toast-${theme}`);
   });
 }
@@ -253,7 +253,7 @@ test("the phone wordmark is a Navigation menu that reaches Settings and returns"
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page, "admin@example.test");
-  const trigger = page.getByRole("button", { name: "Spark Navigation" });
+  const trigger = page.getByRole("button", { name: "Navigation", exact: true });
   // The page that mounts it is stream B's (B3); until then there is nothing to test.
   test.skip(
     (await trigger.count()) === 0,

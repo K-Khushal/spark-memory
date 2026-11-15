@@ -23,7 +23,7 @@ export function Skeleton({ className, ...props }: ComponentProps<"div">) {
 }
 
 /** A load shorter than this never shows a skeleton. */
-export const SKELETON_DELAY = 150;
+export const SKELETON_DELAY = DURATION.preview;
 
 /**
  * Shows `skeleton` while `loading`, but only once the wait passes 150ms, so a

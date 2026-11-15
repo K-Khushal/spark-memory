@@ -55,7 +55,7 @@ export function useBottomObstructionHeight(): number {
 }
 
 /** Space between the viewport's bottom edge and what is pinned there. */
-export const BOTTOM_EDGE = "max(1rem, env(safe-area-inset-bottom))";
+export const BOTTOM_EDGE = "calc(env(safe-area-inset-bottom) + 1rem)";
 /** Space between a toast and the bar it stacks above. */
 const TOAST_GAP = 12;
 

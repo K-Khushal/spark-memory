@@ -1,8 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { DURATION, TOUCH_TARGET } from "../tokens";
-import { toastOffset } from "../index";
+import { Button, toastOffset } from "../index";
 
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const libDir = new URL("../lib/", import.meta.url);
@@ -83,12 +85,12 @@ describe("overlay motion (DESIGN.md → Motion)", () => {
 
 describe("toastOffset", () => {
   it("sits at the safe bottom edge when nothing is pinned there", () => {
-    expect(toastOffset(0)).toBe("max(1rem, env(safe-area-inset-bottom))");
+    expect(toastOffset(0)).toBe("calc(env(safe-area-inset-bottom) + 1rem)");
   });
 
   it("stacks above a registered bar with a 12px gap", () => {
     expect(toastOffset(56)).toBe(
-      "calc(max(1rem, env(safe-area-inset-bottom)) + 56px + 12px)"
+      "calc(calc(env(safe-area-inset-bottom) + 1rem) + 56px + 12px)"
     );
   });
 });
@@ -105,5 +107,17 @@ describe("controls", () => {
 
   it("wrap is an explicit variant, not a descendant rule", () => {
     expect(button).toMatch(/wrap: \{\s*true: "h-auto/);
+  });
+});
+
+describe("Button wrap", () => {
+  it("replaces the fixed height with auto, whatever the size", () => {
+    const html = renderToStaticMarkup(
+      createElement(Button, { wrap: true, size: "md" }, "Label")
+    );
+    const classes = /class="([^"]+)"/.exec(html)![1]!.split(" ");
+    expect(classes).toContain("h-auto");
+    expect(classes).not.toContain("h-9");
+    expect(classes).toContain("whitespace-normal");
   });
 });

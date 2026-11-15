@@ -9,35 +9,6 @@ import { cn } from "./cn";
 // rises. The ⌘K menu is a separate component and does none of this.
 export const Dialog = DialogPrimitive.Root;
 
-let modalityTracked = false;
-
-/**
- * Marks `<html data-input>` with how the last interaction arrived, "pointer"
- * or "keyboard", so a dialog can enter the way it was asked for. Call once at
- * start-up. Returns a function that stops tracking.
- */
-export function trackInputModality(): () => void {
-  if (modalityTracked || typeof document === "undefined") return () => {};
-  modalityTracked = true;
-  const root = document.documentElement;
-  const set = (value: "pointer" | "keyboard") => () => {
-    root.dataset.input = value;
-  };
-  const pointer = set("pointer");
-  const keyboard = (event: KeyboardEvent) => {
-    // A bare modifier is not a request for anything.
-    if (!["Shift", "Control", "Alt", "Meta"].includes(event.key))
-      root.dataset.input = "keyboard";
-  };
-  document.addEventListener("pointerdown", pointer, true);
-  document.addEventListener("keydown", keyboard, true);
-  return () => {
-    modalityTracked = false;
-    document.removeEventListener("pointerdown", pointer, true);
-    document.removeEventListener("keydown", keyboard, true);
-  };
-}
-
 export function DialogTitle({
   className,
   ...props
@@ -205,7 +176,7 @@ export function DialogContent({
         {children}
         <DialogPrimitive.Close
           className={cn(
-            "absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97] pointer-coarse:size-11",
+            "absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97] pointer-coarse:size-(--size-touch)",
             closeClassName
           )}
           aria-label={closeLabel}

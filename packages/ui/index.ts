@@ -10,9 +10,9 @@ export {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  trackInputModality,
   type DialogPresentation,
 } from "./lib/dialog";
+export { inputModality, trackInputModality } from "./lib/input-modality";
 export { Checkbox } from "./lib/checkbox";
 export { CrossfadeIcon } from "./lib/crossfade-icon";
 export { Skeleton, SkeletonGate } from "./lib/skeleton";

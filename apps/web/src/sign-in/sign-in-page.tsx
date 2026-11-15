@@ -159,7 +159,7 @@ export function SignInPage({
                       key={p}
                       variant="outline"
                       wrap
-                      className="min-h-11 text-base"
+                      className="min-h-(--size-touch) text-base"
                       disabled={pending !== undefined}
                       onClick={() => void social(p)}
                     >
@@ -199,7 +199,7 @@ export function SignInPage({
                 type="submit"
                 variant="primary"
                 wrap
-                className="min-h-11 text-base"
+                className="min-h-(--size-touch) text-base"
                 disabled={pending !== undefined}
               >
                 {pending === "email" && <Spinner />}

@@ -8,12 +8,13 @@ import { toastOffset, useBottomObstructionHeight } from "./obstruction";
 // anything that registered with `useBottomObstruction`. Spark has no
 // next-themes; pass the resolved `theme` in.
 export function Toaster(props: ToasterProps) {
-  const offset = toastOffset(useBottomObstructionHeight());
+  const bottom = toastOffset(useBottomObstructionHeight());
+  const offset = { bottom, left: 16, right: 16, top: 16 };
   return (
     <Sonner
       position="bottom-center"
-      offset={{ bottom: offset, left: 16, right: 16, top: 16 }}
-      mobileOffset={{ bottom: offset, left: 16, right: 16, top: 16 }}
+      offset={offset}
+      mobileOffset={offset}
       style={
         {
           "--normal-bg": "var(--surface)",

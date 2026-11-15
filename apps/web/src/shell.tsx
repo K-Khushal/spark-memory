@@ -14,6 +14,7 @@ import { LayoutGroup, MotionConfig, motion } from "motion/react";
 import {
   Button,
   cn,
+  inputModality,
   Kbd,
   Menu,
   MenuContent,
@@ -35,7 +36,7 @@ const NAV_INDICATOR = "desk-nav-indicator";
  * keyboard did; reduced motion jumps too (MotionConfig on the sidebar).
  */
 function NavIndicator() {
-  const byPointer = document.documentElement.dataset.input !== "keyboard";
+  const byPointer = inputModality() === "pointer";
   return (
     <motion.span
       layoutId={NAV_INDICATOR}
@@ -380,7 +381,7 @@ export function PhoneNavigation({
         <MenuTrigger asChild>
           <button
             type="button"
-            aria-label="Spark Navigation"
+            aria-label="Navigation"
             className="-ml-2 flex h-9 items-center gap-1 rounded-control px-2 font-display text-md font-semibold transition-[background-color,transform] duration-(--duration-press) ease-out hover:bg-sunken active:scale-[0.97] pointer-coarse:min-h-(--size-touch)"
           >
             Spark

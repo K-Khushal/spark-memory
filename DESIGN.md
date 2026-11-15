@@ -76,7 +76,7 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 | What                                    | Motion                                                                                                                                                         |
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Press on a button, chip or tile         | `scale(0.97)` (tiles `0.98`) on `:active`, 120ms `ease-out`                                                                                                    |
-| Hover                                   | Colour only, 120ms. Tiles also fade a 1px `raised` shadow in (pointer, fine); no lift, no scale                                                                |
+| Hover                                   | Colour only, 120ms. Tiles also fade a 1px `raised` shadow in (`hover-raise`, fine pointer); no lift, no scale                                                  |
 | ⌘K menu, Escape                         | None. Opens and closes on the next frame                                                                                                                       |
 | Dialog opened by pointer                | Opacity 0 to 1 and scale .98 to 1 from its centre, 180ms `ease-out`. Exit: opacity only, 120ms                                                                 |
 | Dialog opened from the keyboard         | Opacity 150ms, no scale or slide (Quick preview). Full-screen viewers (image, PDF) do the same whatever opened them                                            |

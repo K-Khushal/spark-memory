@@ -347,3 +347,27 @@
     white-space: normal;
   }
 }
+
+/*
+ * Tile hover: on a fine pointer the `raised` shadow fades in over 120ms; no
+ * lift, no scale. The shadow sits on a pseudo-element so only opacity moves.
+ * Put it on a tile (it becomes the positioning parent).
+ */
+@utility hover-raise {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: var(--shadow-raised);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-press) var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    &:hover::after {
+      opacity: 1;
+    }
+  }
+}
