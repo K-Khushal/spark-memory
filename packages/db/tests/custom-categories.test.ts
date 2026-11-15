@@ -14,7 +14,6 @@ import {
   type Provider,
 } from "@spark/indexing";
 import {
-  indexingStore,
   openCategories,
   openDatabase,
   openLibrary,
@@ -22,6 +21,7 @@ import {
   type Database,
 } from "../index";
 import { newUser, removeUser } from "./users";
+import { categoryStore } from "./category-store";
 
 const url = process.env.DATABASE_URL;
 
@@ -121,7 +121,7 @@ describe.skipIf(!url)("Custom Categories", () => {
 
   const indexer = (embed: Embedder, jev?: CategoryClient) =>
     createIndexer({
-      store: indexingStore(db),
+      store: categoryStore(db),
       providers: [provider()],
       embedder: embed,
       ...(jev && { jev }),
@@ -454,7 +454,7 @@ describe.skipIf(!url)("Custom Categories", () => {
       const embed = embedder();
       const m = await indexed(a, "My garden in June", embed);
       const garden = await a.create("Gardening");
-      const store = indexingStore(db);
+      const store = categoryStore(db);
       await a.categories.remove(garden.id);
       const claim = {
         memoryId: m.id,
@@ -655,7 +655,7 @@ describe.skipIf(!url)("Custom Categories", () => {
     it("a delete racing a write: each ends cleanly, and no Category that does not exist is left", async () => {
       const a = await person();
       const embed = embedder();
-      const store = indexingStore(db);
+      const store = categoryStore(db);
       for (let i = 0; i < 15; i++) {
         const m = await indexed(a, `Garden ${i}`, embed);
         const garden = await a.create("Gardening");
@@ -681,7 +681,7 @@ describe.skipIf(!url)("Custom Categories", () => {
     it("a rename racing a write: each ends cleanly, and the old name is not left behind", async () => {
       const a = await person();
       const embed = embedder();
-      const store = indexingStore(db);
+      const store = categoryStore(db);
       for (let i = 0; i < 15; i++) {
         const m = await indexed(a, `Garden ${i}`, embed);
         const garden = await a.create("Gardening");

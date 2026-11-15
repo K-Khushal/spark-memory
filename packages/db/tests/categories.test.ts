@@ -13,14 +13,9 @@ import {
   type Embedder,
   type Provider,
 } from "@spark/indexing";
-import {
-  indexingStore,
-  openDatabase,
-  openLibrary,
-  schema,
-  type Database,
-} from "../index";
+import { openDatabase, openLibrary, schema, type Database } from "../index";
 import { newUser, removeUser } from "./users";
+import { categoryStore } from "./category-store";
 
 const url = process.env.DATABASE_URL;
 
@@ -129,7 +124,7 @@ describe.skipIf(!url)("Categories", () => {
   const indexer = (
     embed: Embedder,
     client?: CategoryClient,
-    store = indexingStore(db)
+    store = categoryStore(db)
   ) =>
     createIndexer({
       store,
@@ -251,7 +246,7 @@ describe.skipIf(!url)("Categories", () => {
   it("asks nothing of Jev once the day's budget is spent, and tries again later", async () => {
     const m = await capture("Lemon tart");
     const client = jev({ Recipe: 0.9 });
-    const real = indexingStore(db);
+    const real = categoryStore(db);
     let holds = 0;
     const broke = {
       ...real,
@@ -283,7 +278,7 @@ describe.skipIf(!url)("Categories", () => {
       .set({ categories: ["Other"], categoriesRevision: null })
       .where(eq(schema.memory.id, m.id));
     const space = embeddingSpace(embed.model, embed.dimensions);
-    const store = indexingStore(db);
+    const store = categoryStore(db);
     expect((await store.staleVectors(space, 500)).map((s) => s.id)).toContain(
       m.id
     );
@@ -328,7 +323,7 @@ describe.skipIf(!url)("Categories", () => {
         CATEGORY_NAMES.length
       );
       expect(
-        (await indexingStore(db).staleVectors(space, 500)).map((s) => s.id)
+        (await categoryStore(db).staleVectors(space, 500)).map((s) => s.id)
       ).not.toContain(m.id);
       for (const bad of [[], ["Quote", "Quote"]]) {
         await expect(
@@ -362,7 +357,7 @@ describe.skipIf(!url)("Categories", () => {
       });
 
       // A late automatic write, and a migration-style re-gather, change nothing.
-      const store = indexingStore(db);
+      const store = categoryStore(db);
       const loaded = {
         memoryId: m.id,
         userId: owner,
@@ -387,7 +382,7 @@ describe.skipIf(!url)("Categories", () => {
 
     it("an automatic result landing after the edit is dropped", async () => {
       const m = await capture("Lemon tart");
-      const store = indexingStore(db);
+      const store = categoryStore(db);
       const loaded = (await store.load(m.id))!;
       await library().edit(m.id, { categories: ["Place"] });
       expect(
@@ -417,7 +412,7 @@ describe.skipIf(!url)("Categories", () => {
   it("categorises again after a run is superseded without a text edit", async () => {
     const m = await capture("Lemon tart");
     const embed = embedder();
-    const store = indexingStore(db);
+    const store = categoryStore(db);
     const loaded = (await store.load(m.id))!;
     const claim = { ...loaded, memoryId: m.id };
     expect(
@@ -446,7 +441,7 @@ describe.skipIf(!url)("Categories", () => {
       categoriesVersion: CATEGORISING.version,
     });
     const space = embeddingSpace(embed.model, embed.dimensions);
-    const store = indexingStore(db);
+    const store = categoryStore(db);
     const due = async () =>
       (await store.staleVectors(space, 500)).map((s) => s.id);
     expect(await due()).not.toContain(auto.id);
@@ -597,7 +592,7 @@ describe.skipIf(!url)("Categories", () => {
 
   it("finishes Indexing even when keeping the Categories fails", async () => {
     const m = await capture("Lemon tart");
-    const real = indexingStore(db);
+    const real = categoryStore(db);
     const failing = {
       ...real,
       writeCategories: async () => {
@@ -627,7 +622,7 @@ describe.skipIf(!url)("Categories", () => {
       },
     };
     await createIndexer({
-      store: indexingStore(db),
+      store: categoryStore(db),
       providers: [next],
       embedder: embed,
       readFile: async () => undefined,

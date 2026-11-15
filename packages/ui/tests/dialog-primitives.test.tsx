@@ -3,7 +3,7 @@
  */
 import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   Dialog,
   DialogBody,
@@ -20,13 +20,17 @@ let host: HTMLElement;
 let root: Root;
 
 beforeEach(() => {
+  vi.useFakeTimers();
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
 });
-afterEach(() => {
+afterEach(async () => {
   act(() => root.unmount());
+  // Radix defers focus restoration and focus-scope removal until unmount settles.
+  await act(async () => vi.runOnlyPendingTimersAsync());
+  vi.useRealTimers();
   host.remove();
   delete document.documentElement.dataset.input;
 });
@@ -111,7 +115,7 @@ it("moves focus into the dialog, wraps Tab inside it and returns focus on Escape
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
     );
   });
-  await act(async () => {});
+  await act(async () => vi.runOnlyPendingTimersAsync());
   expect(document.querySelector("[data-slot=dialog-content]")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
