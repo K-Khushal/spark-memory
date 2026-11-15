@@ -141,7 +141,7 @@ test("Memory detail is a sheet on a phone and a centred dialog on a desktop, in 
   }
 });
 
-test("a note reads as text until touched: no chrome at rest, one line for one line, 96px only while writing", async ({
+test("a note reads as text until touched: no chrome at rest, one line for one line, 96px once you write and no shift when you leave", async ({
   page,
 }) => {
   await signIn(page);
@@ -195,11 +195,24 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
   // Typing grows it with no height transition.
   await text.fill(Array.from({ length: 12 }, (_, i) => `Line ${i}`).join("\n"));
   expect((await boxOf(text)).height).toBeGreaterThan(250);
-  // Emptied, it keeps the 96px well to write in even after it loses focus.
-  await text.fill("");
+  // Leaving it moves nothing: Done is where it was when the press began, so
+  // pressing it straight after typing (focus still in the field) lands.
+  await text.fill("Line 0");
+  const done = dialog.getByRole("button", { name: "Done", exact: true });
+  const before = await boxOf(done);
   await dialog.getByRole("textbox", { name: "Capture Note" }).focus();
+  expect(await boxOf(done)).toEqual(before);
   expect((await boxOf(text)).height).toBeGreaterThanOrEqual(96);
   await text.fill("Line 0\nLine 11");
+  // Press Done with the field still focused: it closes on that one press.
+  await done.click();
+  await expect(dialog).toBeHidden();
+  await page.getByRole("listitem", { name: /Line 0/ }).click();
+  const reopened = dialog.getByRole("textbox", { name: "Text" });
+  await expect(reopened).toHaveValue("Line 0\nLine 11");
+  // A fresh open reads as text again: two lines (24px each) and the inset.
+  expect((await boxOf(reopened)).height).toBeLessThan(96);
+  await reopened.focus();
   // Ctrl Enter saves and closes, and focus goes back to the Memory.
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(dialog).toBeHidden();
