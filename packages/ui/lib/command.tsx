@@ -68,12 +68,12 @@ export function CommandInput({
       <SearchIcon className="size-5 shrink-0 text-ink-muted" aria-hidden />
       <CommandPrimitive.Input
         className={cn(
-          "h-full w-full bg-transparent text-md outline-none placeholder:text-ink-muted",
+          "h-full min-w-0 flex-1 bg-transparent text-md outline-none placeholder:text-ink-muted",
           className
         )}
         {...props}
       />
-      {trailing}
+      {trailing && <div className="shrink-0">{trailing}</div>}
     </div>
   );
 }
@@ -127,7 +127,7 @@ export function CommandItem({
   return (
     <CommandPrimitive.Item
       className={cn(
-        "flex cursor-default items-center gap-3 rounded-control px-2 py-2 text-sm select-none data-[selected=true]:bg-sunken",
+        "flex cursor-default items-center gap-3 rounded-control px-2 py-2 text-sm select-none pointer-coarse:min-h-(--size-touch) data-[selected=true]:bg-sunken",
         className
       )}
       {...props}

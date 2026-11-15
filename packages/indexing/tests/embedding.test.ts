@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { EMBEDDING, INDEXING, JUDGING } from "@spark/core";
+import {
+  EMBEDDING,
+  INDEXING,
+  JUDGING,
+  maxTokens,
+  type Hold,
+} from "@spark/core";
 import {
   createIndexer,
   embeddingInputs,
@@ -98,6 +104,16 @@ function store({
     fail: async () => true,
     spentTodayMicros: async () => spentNow,
     dailyBudgetMicros: async () => limit,
+    reserve: async ({
+      global,
+    }: {
+      micros?: number;
+      global?: boolean;
+    }): Promise<Hold> =>
+      global === false || spentNow < limit
+        ? { id: "hold" }
+        : { refused: "spent" },
+    releaseHold: async () => {},
     recordCall: async (call: {
       costMicros: number;
       estimated?: boolean;
@@ -137,6 +153,39 @@ const paidExtraction: Provider = {
 };
 
 describe("embedding in the Indexing pipeline", () => {
+  it("holds the embedding at an upper bound by UTF-8 bytes, so a language of three-byte letters cannot exceed it", async () => {
+    const hindi = "यह एक नींबू का टार्ट है और बहुत स्वादिष्ट भी। ".repeat(80);
+    const s = store({ memory: { ...pending, body: hindi } });
+    const holds: number[] = [];
+    s.reserve = async (input) => {
+      holds.push(input.micros ?? 0);
+      return { id: "hold-e" };
+    };
+    const embedder = stubEmbedder();
+    const { index } = createIndexer({
+      store: s,
+      providers: [fakeProvider()],
+      embedder,
+      readFile: noFiles,
+    });
+    expect(await index(indexJob)).toEqual({ result: "searchable" });
+    // holds[0] is the Extraction's; the embedding's is the last.
+    const inputs = embedder.seen[0]!;
+    const bytes = inputs.reduce(
+      (n, input) =>
+        "text" in input ? n + Math.min(maxTokens(input.text), 8192) : n,
+      0
+    );
+    const atMost = Math.ceil((bytes * 200_000) / 1_000_000);
+    const guess = Math.ceil(
+      (inputs.reduce((n, i) => ("text" in i ? n + i.text.length : n), 0) / 3) *
+        0.2
+    );
+    expect(holds.at(-1)).toBeGreaterThanOrEqual(atMost);
+    expect(holds.at(-1)).toBeGreaterThan(guess);
+    expect(s.calls.at(-1)).toMatchObject({ reservation: "hold-e" });
+  });
+
   it("embeds after Extraction and writes the vectors with the result, at the revision it read", async () => {
     const s = store();
     const embedder = stubEmbedder();
@@ -468,7 +517,7 @@ describe("Gemini Embedding", () => {
       embedder(hang as typeof fetch).embed([{ text: "abcd" }], {
         timeoutMs: 10,
       })
-    ).rejects.toMatchObject({ kind: "failed", estimate: { inputTokens: 1 } });
+    ).rejects.toMatchObject({ kind: "failed", estimate: { inputTokens: 4 } });
     // With an image, its tokens are said apart: they are priced apart.
     await expect(
       embedder(hang as typeof fetch).embed(
@@ -480,8 +529,44 @@ describe("Gemini Embedding", () => {
       )
     ).rejects.toMatchObject({
       kind: "failed",
-      estimate: { inputTokens: 1 + 258, imageTokens: 258 },
+      estimate: { inputTokens: 4 + 258, imageTokens: 258 },
     });
+  });
+
+  it("settles a lost or unreported call at the same upper bound a hold uses: UTF-8 bytes, cut at the input limit", async () => {
+    const hindi = "यह एक नींबू का टार्ट है ".repeat(40);
+    const long = "नमस्ते ".repeat(5000);
+    const inputs = [{ text: hindi }, { text: long }];
+    const bound =
+      Math.min(maxTokens(hindi), EMBEDDING.maxInputTokens) +
+      Math.min(maxTokens(long), EMBEDDING.maxInputTokens);
+    // Characters ÷ 4 would be a fraction of this.
+    expect(bound).toBeGreaterThan((hindi.length + long.length) / 4 + 1000);
+    const hang = (_: unknown, init?: RequestInit) =>
+      new Promise<Response>((_, reject) =>
+        init?.signal?.addEventListener("abort", () => reject(new Error()))
+      );
+    await expect(
+      geminiEmbedding({
+        apiKey: "k",
+        paidTier: true,
+        dimensions: 3,
+        fetch: hang as typeof fetch,
+      }).embed(inputs, { timeoutMs: 10 })
+    ).rejects.toMatchObject({ estimate: { inputTokens: bound } });
+    // A reply with vectors but no usage is counted at the same bound.
+    const { usage } = await geminiEmbedding({
+      apiKey: "k",
+      paidTier: true,
+      dimensions: 3,
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            embeddings: [{ values: [1, 0, 0] }, { values: [0, 1, 0] }],
+          })
+        ),
+    }).embed(inputs);
+    expect(usage).toEqual({ textTokens: bound, imageTokens: 0 });
   });
 
   it("turns a reply it cannot read or trust into a failure that may still be billed", async () => {
@@ -509,7 +594,7 @@ describe("Gemini Embedding", () => {
       ).rejects.toMatchObject({
         name: "ProviderError",
         kind: "failed",
-        estimate: { inputTokens: 1 },
+        estimate: { inputTokens: 4 },
       });
     }
     // A body that times out while it is read.

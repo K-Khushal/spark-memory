@@ -113,7 +113,8 @@ describe.skipIf(!databaseUrl)("admin costs, usage and the budget", () => {
       id: ada,
       email: `library-${ada}@example.com`,
       memories: 2,
-      storageBytes: 2048,
+      // A file's 2048 bytes and the text of "Admin usage one" and "two".
+      storageBytes: 2048 + "Admin usage one".length + "Admin usage two".length,
       costMicros: 390,
     });
     const boAt = rows.findIndex((row) => row.id === bo);

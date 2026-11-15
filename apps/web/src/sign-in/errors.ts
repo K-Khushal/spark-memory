@@ -13,7 +13,7 @@ export function errorMessage(error: unknown): string {
     case "TOO_MANY_ATTEMPTS":
       return "Too many wrong tries. Send a new code.";
     case "INVALID_EMAIL":
-      return "Enter a valid email.";
+      return "Invalid Email Address";
     case "TURNSTILE":
     case "VERIFICATION_FAILED":
     case "MISSING_RESPONSE":

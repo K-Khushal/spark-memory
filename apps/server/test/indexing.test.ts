@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { Client } from "pg";
 import { EMBEDDING, INDEXING } from "@spark/core";
 import { FAKE_WORD } from "@spark/indexing";
 import worker from "../src/index";
@@ -367,6 +368,54 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
       await drain(memory.id);
       expect(await search(call, FAKE_WORD)).toContain(memory.id);
     });
+  });
+
+  it("holds one person to their share of the daily AI budget, even a fresh run or a toggle off, and no one else", async () => {
+    const hog = await signedIn();
+    const other = await signedIn();
+    const first = await capture(hog.call, "Hog's first note");
+    const sql = new Client({ connectionString: databaseUrl });
+    await sql.connect();
+    try {
+      // Their share is 20% of $1: this is more than that already spent today.
+      await sql.query(
+        `insert into ai_call (user_id, day, provider, model, input_tokens, output_tokens, cost_micros)
+         select user_id, (now() at time zone 'utc')::date, 'fake', 'fake', 1, 0, 250000
+         from memory where id = $1`,
+        [first.id]
+      );
+      const ai = gemma(answer());
+      const [paused] = await drain(first.id, withProviders(ai));
+      expect(paused!.ack).toHaveBeenCalled();
+      expect(ai.run).not.toHaveBeenCalled();
+      expect((await read(hog.call, first.id)).indexState).toBe("indexing");
+      // The first run of a toggle off is `fresh`: it is held to the share too.
+      await hog.call(`/api/memories/${first.id}/ai-opt-out`, {
+        method: "PUT",
+        json: { aiOptOut: true },
+      });
+      await drain(first.id);
+      const back = await hog.call(`/api/memories/${first.id}/ai-opt-out`, {
+        method: "PUT",
+        json: { aiOptOut: false },
+      });
+      expect(((await back.json()) as Memory).indexState).toBe("indexing");
+      await drain(first.id, withProviders(ai));
+      expect(ai.run).not.toHaveBeenCalled();
+      expect((await read(hog.call, first.id)).indexState).toBe("indexing");
+      // Everyone else still indexes.
+      const note = await capture(other.call, "Someone else's note");
+      const spare = gemma(answer());
+      await drain(note.id, withProviders(spare));
+      expect(spare.run).toHaveBeenCalledOnce();
+      expect((await read(other.call, note.id)).indexState).toBe("searchable");
+    } finally {
+      await sql.query(
+        `delete from ai_call where user_id = (select user_id from memory where id = $1)`,
+        [first.id]
+      );
+      await sql.end();
+    }
   });
 
   it("sends an image's bytes to the model and names it", async () => {

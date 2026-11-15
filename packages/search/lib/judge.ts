@@ -1,5 +1,6 @@
 import {
   JUDGING,
+  type Hold,
   thresholdMatch,
   type MatchSignals,
   type MatchThresholds,
@@ -62,14 +63,21 @@ export function jevMatchJudge({
   describe: (ids: string[], chars: number) => Promise<Map<string, string>>;
   userId: string;
   spend: {
-    spentTodayMicros(): Promise<number>;
-    dailyBudgetMicros(): Promise<number>;
+    /** Holds the call's cost (an upper bound) first; refused when no budget is left for it. */
+    reserve(input: { userId: string; micros: number }): Promise<Hold>;
+    releaseHold(id: string): Promise<void>;
     recordCall(call: AiCall): Promise<void>;
   };
 }): MatchJudge {
-  const record = (id: string, inputTokens: number, estimated = false) =>
+  const record = (
+    id: string,
+    inputTokens: number,
+    reservation: string,
+    estimated = false
+  ) =>
     spend.recordCall({
       id,
+      reservation,
       userId,
       memoryId: null,
       provider: "jev",
@@ -80,28 +88,44 @@ export function jevMatchJudge({
     });
   return {
     async judge(query, candidates, signal) {
-      const [spent, limit, texts] = await Promise.all([
-        spend.spentTodayMicros(),
-        spend.dailyBudgetMicros(),
-        describe(
-          candidates.map((c) => c.id),
-          JUDGING.jevCandidateChars
-        ),
-      ]);
-      if (spent >= limit) return new Map();
+      const texts = await describe(
+        candidates.map((c) => c.id),
+        JUDGING.jevCandidateChars
+      );
       const sendable = candidates.filter((c) => texts.get(c.id));
       if (!sendable.length) return new Map();
       const sent = sendable.map((c) => texts.get(c.id)!);
+      // Held before the call: no budget left, or the person's share is spent.
+      const held = jevCostMicros(
+        client.model,
+        jevTokenEstimate(query + sent.join(""))
+      );
+      const hold = await spend.reserve({ userId, micros: held });
+      if ("refused" in hold) return new Map();
       // The deadline passed while the texts and budget were read: no call
       // was made, so nothing may be recorded as spent.
-      signal.throwIfAborted();
+      // No call is made if it already ended: the hold goes back.
+      if (signal.aborted) {
+        await spend.releaseHold(hold.id).catch(() => {});
+        signal.throwIfAborted();
+      }
       const id = crypto.randomUUID();
       // Persist before starting the billable call: a timeout can end the Worker.
       // If persistence fails, do not spend. A successful reply reconciles this row.
-      await record(id, jevTokenEstimate(query + sent.join("")), true);
+      try {
+        await record(
+          id,
+          jevTokenEstimate(query + sent.join("")),
+          hold.id,
+          true
+        );
+      } catch (error) {
+        await spend.releaseHold(hold.id).catch(() => {});
+        throw error;
+      }
       signal.throwIfAborted();
       const reply = await client.judge(query, sent, signal);
-      await record(id, reply.inputTokens).catch(() =>
+      await record(id, reply.inputTokens, hold.id).catch(() =>
         console.error("search: judging estimate not reconciled")
       );
       // A question Jev left unanswered is not ruled on: the thresholds stand.

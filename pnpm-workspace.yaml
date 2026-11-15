@@ -2,6 +2,10 @@ packages:
   - "apps/*"
   - "packages/*"
   - "evals"
+# GHSA-67mh-4wv8-2f99 (esbuild dev server, fixed in 0.25): drizzle-kit's legacy
+# loader pins esbuild 0.18. Drop this once drizzle-kit stops depending on it.
+overrides:
+  "@esbuild-kit/core-utils>esbuild": "0.25.12"
 minimumReleaseAgeExclude:
   - "@rolldown/binding-android-arm-eabi@1.2.18"
   - "@rolldown/binding-android-arm64@1.2.18"

@@ -56,7 +56,16 @@ export const FILTER_COLOURS = [
 ] as const;
 
 /** Durations in ms. See DESIGN.md → Motion for when each applies. */
-export const DURATION = { press: 120, small: 180, panel: 260 } as const;
+export const DURATION = {
+  press: 120,
+  /** Opacity-only fades: Quick preview, confirm feedback, skeleton exit. */
+  preview: 150,
+  small: 180,
+  panel: 260,
+} as const;
+
+/** Touch target in px: coarse pointers get this, icons stay 16px. */
+export const TOUCH_TARGET = 44;
 
 /** Cubic-bézier control points. Never ease-in for UI. */
 export const EASING = {

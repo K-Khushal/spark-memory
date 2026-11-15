@@ -1011,3 +1011,185 @@ describe.skipIf(!databaseUrl)("Connected assistants activity", () => {
     ).toEqual([]);
   });
 });
+
+// Registration is anonymous, so what it stores is bounded (SEC-1).
+describe.skipIf(!databaseUrl)("anonymous OAuth registration limits", () => {
+  const register = (redirects: string[], call = newClient()) =>
+    call("/api/oauth/register", {
+      method: "POST",
+      json: { client_name: "Bounded", redirect_uris: redirects },
+    });
+
+  it("accepts up to four short redirect URIs and refuses more or longer ones", async () => {
+    const uris = (n: number) =>
+      Array.from({ length: n }, (_, i) => `https://example.test/cb${i}`);
+    expect((await register(uris(4))).status).toBe(201);
+    expect((await register(uris(5))).status).toBe(400);
+    const long = `https://example.test/${"a".repeat(512 - "https://example.test/".length)}`;
+    expect(long).toHaveLength(512);
+    expect((await register([long])).status).toBe(201);
+    expect((await register([`${long}a`])).status).toBe(400);
+  });
+
+  it("answers 429 with Retry-After while the unclaimed registrations fill the global cap", async () => {
+    const fixture = new Client({ connectionString: databaseUrl });
+    await fixture.connect();
+    const filler = `fill-${crypto.randomUUID()}`;
+    try {
+      await fixture.query(
+        `insert into assistant_client(id, name, redirects)
+         select $1 || g, 'filler', '[]'::jsonb from generate_series(1, 1000) g`,
+        [filler]
+      );
+      const refused = await register(["https://example.test/cb"]);
+      expect(refused.status).toBe(429);
+      expect(refused.headers.get("retry-after")).toBe("3600");
+      expect(await refused.json()).toEqual({ error: "rate_limited" });
+      // A claimed integration is not one of them.
+      await fixture.query(
+        `update assistant_client set claimed_at = now() where id like $1`,
+        [`${filler}%`]
+      );
+      expect((await register(["https://example.test/cb"])).status).toBe(201);
+    } finally {
+      await fixture.query(`delete from assistant_client where id like $1`, [
+        `${filler}%`,
+      ]);
+      await fixture.end();
+    }
+  });
+});
+
+// The anonymous token endpoint is limited by address before any database
+// work, and one grant may only rotate its refresh token so often.
+describe.skipIf(!databaseUrl)("OAuth token endpoint limits", () => {
+  const limiter = (allow: number) => {
+    const keys: string[] = [];
+    return {
+      keys,
+      limit: async ({ key }: { key: string }) => {
+        keys.push(key);
+        return { success: keys.length <= allow };
+      },
+    };
+  };
+
+  it("refuses by network address with 429 before the database is touched", async () => {
+    const call = newClient();
+    const tokens = limiter(0);
+    // Any use of the database connection would throw.
+    const bindings = env({
+      TOKEN_LIMITER: tokens,
+      HYPERDRIVE: new Proxy(
+        {},
+        {
+          get() {
+            throw new Error("the database was touched");
+          },
+        }
+      ) as never,
+    });
+    const res = await call(
+      "/api/oauth/token",
+      {
+        method: "POST",
+        form: {
+          grant_type: "refresh_token",
+          refresh_token: "x",
+          client_id: "y",
+        },
+      },
+      bindings
+    );
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("60");
+    expect(await res.json()).toEqual({ ok: false, error: "rate_limited" });
+    expect(tokens.keys).toHaveLength(1);
+    // Another endpoint on the same router is not counted against it.
+    expect(tokens.keys[0]).toMatch(/^10\.\d+\.\d+\.\d+$/);
+  });
+
+  it("lets the normal exchange and refresh through while under the limit", async () => {
+    const { call } = await signedIn();
+    const tokens = limiter(100);
+    const bindings = env({ TOKEN_LIMITER: tokens });
+    const code = await authorize(call);
+    const issued = await call(
+      "/api/oauth/token",
+      { method: "POST", form: code },
+      bindings
+    );
+    expect(issued.status).toBe(200);
+    const first = (await issued.json()) as { refresh_token: string };
+    const renewed = await call(
+      "/api/oauth/token",
+      {
+        method: "POST",
+        form: {
+          grant_type: "refresh_token",
+          refresh_token: first.refresh_token,
+          client_id: code.client_id,
+          resource: code.resource,
+        },
+      },
+      bindings
+    );
+    expect(renewed.status).toBe(200);
+    expect(tokens.keys).toHaveLength(2);
+  });
+
+  it("slows one grant's refresh rotation past its hourly count without spending the token, and counts only successes", async () => {
+    const { call } = await signedIn();
+    const code = await authorize(call);
+    const first = (await (await tokenRequest(call, code)).json()) as {
+      refresh_token: string;
+    };
+    const refresh = (token: string) =>
+      tokenRequest(call, {
+        grant_type: "refresh_token",
+        refresh_token: token,
+        client_id: code.client_id,
+        resource: code.resource,
+      });
+    const sql = new Client({ connectionString: databaseUrl });
+    await sql.connect();
+    try {
+      // A failed attempt (wrong token) is not a rotation.
+      expect((await refresh("a".repeat(43))).status).toBe(400);
+      const count = async () =>
+        (
+          await sql.query<{ rotations: number }>(
+            `select rotations from assistant_grant where client_id = $1`,
+            [code.client_id]
+          )
+        ).rows[0]!.rotations;
+      expect(await count()).toBe(0);
+      const renewed = await refresh(first.refresh_token);
+      expect(renewed.status).toBe(200);
+      expect(await count()).toBe(1);
+      const second = (await renewed.json()) as { refresh_token: string };
+      // The grant has already rotated as often as an hour allows.
+      await sql.query(
+        `update assistant_grant set rotations = 20, rotation_window_at = now() where client_id = $1`,
+        [code.client_id]
+      );
+      const slowed = await refresh(second.refresh_token);
+      expect(slowed.status).toBe(429);
+      expect(slowed.headers.get("retry-after")).toBe("600");
+      expect(await slowed.json()).toEqual({ error: "slow_down" });
+      expect(await count()).toBe(20);
+      // The refresh token was not spent: after the window it works, once.
+      await sql.query(
+        `update assistant_grant set rotation_window_at = now() - interval '2 hours' where client_id = $1`,
+        [code.client_id]
+      );
+      const later = await refresh(second.refresh_token);
+      expect(later.status).toBe(200);
+      expect(await count()).toBe(1);
+      // Reuse of the spent token still revokes the family, as before.
+      expect((await refresh(second.refresh_token)).status).toBe(400);
+    } finally {
+      await sql.end();
+    }
+  });
+});

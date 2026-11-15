@@ -43,7 +43,7 @@ An optional line the user writes at Capture time about why they saved a Memory.
 _Avoid_: description, comment, annotation
 
 **Free allowance**:
-The storage and Capture limits a user gets without paying. Links beyond it are still kept, as Reference only or partly indexed; files beyond it are refused with a clear reason, because there is no Source to fall back on.
+The storage and Capture limits a user gets without paying. Text counts toward storage with the files. Text and links beyond the day's Captures are still kept, as Reference only or partly indexed, up to a small daily number more; after that, like files, they are refused with a clear reason, because there is no Source to fall back on.
 _Avoid_: quota, plan limit
 
 ### Making Memories findable

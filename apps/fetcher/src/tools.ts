@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INDEXING, type TranscriptSegment } from "@spark/core";
+import { DEEP_FETCH, INDEXING, type TranscriptSegment } from "@spark/core";
 import { ToolError, type MediaTools } from "@spark/deep-fetch/fetcher";
 
 /**
@@ -28,7 +28,8 @@ export const MAX_AUDIO_BYTES = 14_000_000;
 
 /** Gemini counts audio at 32 tokens a second, plus a little for the prompt. */
 export const estimateAudioTokens = (seconds: number) =>
-  Math.ceil(seconds * 32) + 200;
+  Math.ceil(seconds * DEEP_FETCH.audioTokensPerSecond) +
+  DEEP_FETCH.mediaPromptTokens;
 
 export const probeArgs = (url: string) => [
   ...COMMON,
@@ -204,7 +205,7 @@ export function createMediaTools({
               generationConfig: {
                 responseMimeType: "application/json",
                 responseJsonSchema: SCHEMA,
-                maxOutputTokens: 32_768,
+                maxOutputTokens: DEEP_FETCH.mediaMaxOutputTokens,
                 thinkingConfig: { thinkingLevel: "MINIMAL" },
               },
             }),

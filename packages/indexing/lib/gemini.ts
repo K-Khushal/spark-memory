@@ -1,12 +1,12 @@
 import {
   INDEXING,
   INDEXING_OUTPUT_JSON_SCHEMA,
+  maxTokens,
   PDF_SCAN_OUTPUT_JSON_SCHEMA,
 } from "@spark/core";
 import {
   base64,
   CORRECTION,
-  guessTokens,
   lostCall,
   overInlineLimit,
   ProviderError,
@@ -14,7 +14,7 @@ import {
   type Provider,
 } from "./provider";
 
-const MAX_OUTPUT_TOKENS = 4096;
+const MAX_OUTPUT_TOKENS = INDEXING.maxOutputTokens;
 /** An image at Gemini 3's default (high) media resolution (docs/research/enrichment.md). */
 const IMAGE_TOKENS = 1120;
 
@@ -144,9 +144,9 @@ export function gemini({
         text,
         usage: {
           inputTokens:
-            usage?.promptTokenCount ?? guessTokens(system.length + user.length),
+            usage?.promptTokenCount ?? maxTokens(system) + maxTokens(user),
           outputTokens:
-            (usage?.candidatesTokenCount ?? guessTokens(text.length)) +
+            (usage?.candidatesTokenCount ?? maxTokens(text)) +
             (usage?.thoughtsTokenCount ?? 0),
         },
       };

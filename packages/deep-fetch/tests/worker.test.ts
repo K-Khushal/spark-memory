@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import {
+  DEEP_FETCH,
+  FREE_ALLOWANCE,
+  INDEXING,
+  modelCostMicros,
+} from "@spark/core";
+import {
   deepFetchStore,
   indexingStore,
   openDatabase,
@@ -26,18 +32,20 @@ describe.skipIf(!databaseUrl)("Deep fetch job", () => {
   let close: () => Promise<void>;
   let ana: string;
   let ben: string;
+  let cy: string;
   beforeAll(async () => {
     ({ db, close } = openDatabase(databaseUrl!));
     ana = crypto.randomUUID();
     ben = crypto.randomUUID();
-    for (const id of [ana, ben]) {
+    cy = crypto.randomUUID();
+    for (const id of [ana, ben, cy]) {
       await db
         .insert(schema.user)
         .values({ id, name: "", email: `deep-${id}@example.com` });
     }
   });
   afterAll(async () => {
-    for (const id of [ana, ben]) {
+    for (const id of [ana, ben, cy]) {
       await db.delete(schema.user).where(eq(schema.user.id, id));
     }
     await close();
@@ -96,12 +104,16 @@ describe.skipIf(!databaseUrl)("Deep fetch job", () => {
       return answer(r);
     });
     const recorded: unknown[] = [];
-    const indexing = indexingStore(db);
+    // The real store, with a share of $1 a person; a spent day is a $0 budget.
+    const indexing = indexingStore(db, {
+      ownerBudgetShare: 0.02,
+      budget: async () => ((over.spent ?? 0) >= 1_000_000 ? 0 : 50_000_000),
+    });
     const worker = createDeepFetchWorker({
       store: store(),
       ai: {
-        spentTodayMicros: async () => over.spent ?? 0,
-        dailyBudgetMicros: async () => 1_000_000,
+        reserve: (input) => indexing.reserve(input),
+        releaseHold: (id) => indexing.releaseHold(id),
         recordCall: async (call) => {
           recorded.push(call);
           await indexing.recordCall(call);
@@ -325,6 +337,72 @@ describe.skipIf(!databaseUrl)("Deep fetch job", () => {
       deepFetchState: "queued",
       deepFetchAttempts: 0,
     });
+  });
+
+  it("holds a video's cost at what the request can cost at most, and settles that hold with the call's cost", async () => {
+    const m = await thin(`${VIDEO}hhhhhhhhhhh`, cy, true);
+    const { run, recorded } = setup(() => ({
+      ok: true,
+      seconds: 30,
+      transcript: [{ seconds: 1, text: "Plants need sunlight." }],
+      usage: [
+        { model: "gemini-3.5-flash-lite", inputTokens: 1000, outputTokens: 50 },
+      ],
+    }));
+    expect(await run(job(m))).toMatchObject({ result: "done" });
+    const { rows } = await db.execute<{ micros: string; settled: boolean }>(
+      sql`select micros, settled_at is not null as settled from ai_reservation where user_id = ${cy} order by created_at desc limit 1`
+    );
+    const atMost = modelCostMicros(INDEXING.models.gemini, {
+      inputTokens:
+        FREE_ALLOWANCE.videoTranscriptMaxMinutes *
+          60 *
+          DEEP_FETCH.audioTokensPerSecond +
+        DEEP_FETCH.mediaPromptTokens,
+      outputTokens: DEEP_FETCH.mediaMaxOutputTokens,
+      audio: true,
+    });
+    expect(Number(rows[0]!.micros)).toBeGreaterThanOrEqual(atMost);
+    expect(rows[0]!.settled).toBe(true);
+    expect(recorded[0]).toMatchObject({ reservation: expect.any(String) });
+  });
+
+  it("waits two minutes, not until tomorrow, when only other calls' holds leave no room, and holds nothing for it", async () => {
+    const m = await thin(`${VIDEO}iiiiiiiiiii`, ben, true);
+    const spend = indexingStore(db, {
+      ownerBudgetShare: 0.02,
+      budget: async () => 50_000_000,
+    });
+    // Nearly all of the person's $1 share is held by calls in flight.
+    expect(
+      await spend.reserve({ userId: ben, micros: 950_000 })
+    ).toHaveProperty("id");
+    const { run, calls } = setup(() => found);
+    expect(await run(job(m))).toEqual({ result: "later", delaySeconds: 120 });
+    expect(calls).toEqual([]);
+    expect(await row(m.id)).toMatchObject({ deepFetchAttempts: 0 });
+  });
+
+  it("gives its hold back when the person's 20 a day are used", async () => {
+    const m = await thin(`${VIDEO}jjjjjjjjjjj`, cy, true);
+    const day = (
+      await db.execute<{ d: string }>(
+        sql`select (now() at time zone 'utc')::date::text as d`
+      )
+    ).rows[0]!.d;
+    await db
+      .insert(schema.usageDay)
+      .values({ userId: cy, day, deepFetches: 20 })
+      .onConflictDoUpdate({
+        target: [schema.usageDay.userId, schema.usageDay.day],
+        set: { deepFetches: 20 },
+      });
+    const { run } = setup(() => found);
+    expect(await run(job(m))).toMatchObject({ result: "later" });
+    const { rows } = await db.execute<{ n: number }>(
+      sql`select count(*)::int as n from ai_reservation where user_id = ${cy} and settled_at is null`
+    );
+    expect(rows[0]!.n).toBe(0);
   });
 
   it("allows 20 a person a day: the next waits for tomorrow, and another person is not held", async () => {

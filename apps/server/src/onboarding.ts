@@ -5,6 +5,7 @@ import type { AppEnv } from "./env";
 import { requireUser, withAuth } from "./auth";
 import { json, noStore } from "./memories";
 import { sameOrigin } from "./origin";
+import { rateLimited } from "./rate-limit";
 
 export const onboarding = new Hono<AppEnv>()
   .use("/onboarding", sameOrigin(), withAuth, requireUser, noStore)
@@ -12,23 +13,33 @@ export const onboarding = new Hono<AppEnv>()
   .get("/onboarding", async (c) =>
     c.json(await openOnboarding(c.var.db, c.var.user.id).read())
   )
-  .post("/onboarding/start", async (c) =>
+  .post("/onboarding/start", rateLimited("EDIT_LIMITER"), async (c) =>
     c.json(await openOnboarding(c.var.db, c.var.user.id).start())
   )
-  .put("/onboarding", json(OnboardingUpdate), async (c) => {
-    const { step, paused } = c.req.valid("json");
-    return c.json(
-      await openOnboarding(c.var.db, c.var.user.id).update(step, paused)
-    );
-  })
-  .delete("/onboarding/samples", async (c) => {
+  .put(
+    "/onboarding",
+    rateLimited("EDIT_LIMITER"),
+    json(OnboardingUpdate),
+    async (c) => {
+      const { step, paused } = c.req.valid("json");
+      return c.json(
+        await openOnboarding(c.var.db, c.var.user.id).update(step, paused)
+      );
+    }
+  )
+  .delete("/onboarding/samples", rateLimited("EDIT_LIMITER"), async (c) => {
     await openOnboarding(c.var.db, c.var.user.id).removeSamples();
     return c.body(null, 204);
   })
-  .post("/onboarding/activation", json(SearchActivation), async (c) => {
-    const { memoryId } = c.req.valid("json");
-    const recorded = await openOnboarding(c.var.db, c.var.user.id).activate(
-      memoryId
-    );
-    return c.json({ recorded });
-  });
+  .post(
+    "/onboarding/activation",
+    rateLimited("EDIT_LIMITER"),
+    json(SearchActivation),
+    async (c) => {
+      const { memoryId } = c.req.valid("json");
+      const recorded = await openOnboarding(c.var.db, c.var.user.id).activate(
+        memoryId
+      );
+      return c.json({ recorded });
+    }
+  );

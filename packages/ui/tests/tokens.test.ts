@@ -218,6 +218,7 @@ describe.each(Object.keys(THEMES) as ThemeName[])("%s theme", (name) => {
     ["ink-muted", "surface"],
     ["ink-muted", "sunken"],
     ["on-spark", "spark"],
+    ["canvas", "ink"],
     ["danger", "surface"],
     ["indexing", "surface"],
   ] as const)("%s on %s reads at WCAG AA (4.5:1)", (fg, bg) => {
