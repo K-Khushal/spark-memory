@@ -2,6 +2,7 @@ import { redirect } from "@tanstack/react-router";
 import { createSparkAuthClient } from "@spark/auth/client";
 import { api } from "./api";
 import { stopAnalytics } from "./analytics";
+import { clearLibraryView } from "./library/library-view";
 import { clearSearchCache } from "./library/search-session";
 import { clearHeldShares } from "./pwa/hold";
 import { clearUserCaches } from "./pwa/register";
@@ -57,6 +58,7 @@ export const endSession = createEndSession([
   stopAnalytics,
   clearAdminCache,
   clearSearchCache,
+  clearLibraryView,
   clearHeldShares,
   clearUserCaches,
 ]);

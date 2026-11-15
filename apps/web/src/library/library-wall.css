@@ -1,0 +1,32 @@
+/* Masonry keeps its fallback control for other consumers. Library tiles use
+   the shared Checkbox, inside the tile's reserved title/selection row. */
+.library-wall > [data-selectable] > button {
+  display: none;
+}
+
+/* Selection and keyboard focus stay independent: the selected boundary fades
+   for a pointer; the browser's offset focus outline remains immediate. */
+.library-wall > [data-selected] {
+  box-shadow: none;
+}
+.library-wall > [data-selectable]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 2px var(--ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-press) var(--ease-out);
+}
+.library-wall > [data-selected]::before {
+  opacity: 1;
+}
+html[data-input="keyboard"] .library-wall > [data-selectable]::before {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .library-wall > [data-selectable]::before {
+    transition: none;
+  }
+}

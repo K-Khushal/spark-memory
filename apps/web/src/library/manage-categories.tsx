@@ -14,6 +14,9 @@ import {
   Button,
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogBody,
+  DialogFooter,
   DialogTitle,
   FilterChip,
   Input,
@@ -110,11 +113,21 @@ export function ManageCategories({
       )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
+          presentation="sheet"
           aria-describedby={undefined}
-          className="flex max-h-[min(36rem,calc(100dvh-2rem))] flex-col gap-4 overflow-y-auto p-5"
+          className="flex max-h-[min(36rem,calc(100dvh-2rem))] max-w-md flex-col overflow-hidden"
         >
-          <DialogTitle className="shrink-0 pr-8">Categories</DialogTitle>
-          <CategoriesManager state={state} actions={actions} />
+          <DialogHeader>
+            <DialogTitle className="wrap-anywhere">Categories</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="flex flex-col gap-4">
+            <CategoriesManager state={state} actions={actions} />
+          </DialogBody>
+          <DialogFooter>
+            <Button wrap onClick={() => setOpen(false)}>
+              Done
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
@@ -145,7 +158,7 @@ function CategoriesManager({
       {categories.length > 0 && (
         <ul
           aria-label="Your Categories"
-          className="-mx-2 flex min-h-0 flex-col gap-1 overflow-y-auto overscroll-contain px-2"
+          className="-mx-2 flex shrink-0 flex-col gap-1 px-2"
         >
           {categories.map((category) => (
             <CategoryRow
@@ -254,6 +267,7 @@ function NameForm({
           }}
         />
         <Button
+          wrap
           type="submit"
           variant="primary"
           size="md"
@@ -357,20 +371,25 @@ function ConfirmDelete({
   const described = useId();
   return (
     <DialogContent
+      presentation="sheet"
       role="alertdialog"
       aria-describedby={described}
-      className="flex max-h-[calc(100dvh-2rem)] max-w-sm flex-col gap-4 overflow-y-auto p-5"
+      className="flex max-h-[calc(100dvh-2rem)] max-w-sm flex-col overflow-hidden"
       closeLabel="Close"
     >
-      <DialogTitle className="pr-8 wrap-anywhere" dir="auto">
-        Delete {category.name}
-      </DialogTitle>
-      <p id={described} className="text-sm">
-        {count === 0
-          ? "No Memories have it."
-          : `${count} ${count === 1 ? "Memory loses" : "Memories lose"} it. No Memory is deleted.`}
-      </p>
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <DialogHeader>
+        <DialogTitle className="wrap-anywhere" dir="auto">
+          Delete {category.name}
+        </DialogTitle>
+      </DialogHeader>
+      <DialogBody>
+        <p id={described} className="text-sm">
+          {count === 0
+            ? "No Memories have it."
+            : `${count} ${count === 1 ? "Memory loses" : "Memories lose"} it. No Memory is deleted.`}
+        </p>
+      </DialogBody>
+      <DialogFooter>
         {failed && (
           <span role="alert" className="mr-auto text-sm">
             {PROBLEM_LABELS.failed}
@@ -380,6 +399,7 @@ function ConfirmDelete({
           Cancel
         </Button>
         <Button
+          wrap
           variant="primary"
           disabled={busy}
           onClick={async () => {
@@ -390,7 +410,7 @@ function ConfirmDelete({
         >
           Delete Category
         </Button>
-      </div>
+      </DialogFooter>
     </DialogContent>
   );
 }

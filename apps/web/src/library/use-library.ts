@@ -197,9 +197,23 @@ function putFile(
  * permanent; a page that closes inside that window sends them on its way
  * out. `version` goes up whenever the server accepts a change.
  */
+// One owner's settled wall survives route changes; a different owner never reads it.
+let cachedWall: { owner: string; memories: WallMemory[] } | undefined;
+
 export function useLibrary(owner: string) {
-  const [memories, setMemories] = useState<WallMemory[]>([]);
+  const [memories, setMemories] = useState<WallMemory[]>(() =>
+    cachedWall?.owner === owner ? cachedWall.memories : []
+  );
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
+  useEffect(() => {
+    if (state !== "ready") return;
+    cachedWall = {
+      owner,
+      memories: memories
+        .filter((m) => !m.upload)
+        .map(({ fresh: _fresh, resurfaced: _resurfaced, ...memory }) => memory),
+    };
+  }, [owner, memories, state]);
   const [attempt, setAttempt] = useState(0);
   // This mount's own versions (libraryVersion), so the search cache never
   // serves it an answer from an earlier visit.

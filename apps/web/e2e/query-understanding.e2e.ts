@@ -290,10 +290,19 @@ test("Show More pages a browse to its end with no repeats", async ({
     .getByRole("complementary")
     .getByRole("button", { name: "Notes", exact: true })
     .click();
-  await expect(found.getByRole("listitem")).toHaveCount(40);
+  // Selection includes off-screen Memories; DOM counts only include virtualised rows.
+  const selection = page.getByRole("region", {
+    name: "Selection",
+    exact: true,
+  });
+  await found.getByRole("listitem").first().focus();
+  await page.keyboard.press("ControlOrMeta+a");
+  await expect(selection).toContainText("40 Selected");
+  await selection.getByRole("button", { name: "Clear", exact: true }).click();
   await page.getByRole("button", { name: "Show More" }).click();
-  await expect(found.getByRole("listitem")).toHaveCount(43);
   await expect(page.getByRole("button", { name: "Show More" })).toHaveCount(0);
-  const titles = await found.getByRole("listitem").allInnerTexts();
-  expect(new Set(titles).size).toBe(43);
+  await found.getByRole("listitem").first().focus();
+  await page.keyboard.press("ControlOrMeta+a");
+  // The count comes from unique Memory IDs, so repeated page rows cannot pass.
+  await expect(selection).toContainText("43 Selected");
 });
