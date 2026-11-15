@@ -62,7 +62,38 @@ export const INDEXING = {
   inlineRequestBytes: 20_000_000,
   /** Output room for a scan's text, page by page: about 2,000 characters a page. */
   scanMaxOutputTokens: 16_384,
+  /** The most output an Extraction asks a provider for (a scan has `scanMaxOutputTokens`). */
+  maxOutputTokens: 4_096,
+  /** The most output a reel transcription asks for. */
+  transcribeMaxOutputTokens: 8_192,
+  /** What a second of video with its audio is counted as. */
+  transcribeTokensPerSecond: 300,
+  /** What one image or page image is held at before a call: above any provider's high-resolution count. */
+  heldImageTokens: 1_600,
 } as const;
+
+/**
+ * An upper bound on the tokens in `text`: its UTF-8 bytes. No tokenizer
+ * makes more tokens than bytes, so multilingual text (Hindi, Japanese,
+ * emoji: three or four bytes a character) cannot exceed what a hold counted.
+ */
+export function maxTokens(text: string): number {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    else if (unit >= 0xd800 && unit < 0xdc00 && i + 1 < text.length) {
+      // A surrogate pair is one code point of four bytes.
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next < 0xe000) {
+        bytes += 4;
+        i++;
+      } else bytes += 3;
+    } else bytes += 3;
+  }
+  return bytes;
+}
 
 export type ProviderName = keyof typeof INDEXING.models;
 
@@ -116,6 +147,8 @@ export const EMBEDDING = {
   maxPdfPassages: 60,
   /** Covers the full 100,000-character transcript, including overlap. */
   maxVideoPassages: 60,
+  /** The model cuts each input at this many tokens (8,192). */
+  maxInputTokens: 8_192,
   /** One call for a Memory's vectors. */
   timeoutMs: 30_000,
   /** A query waits this long, then full search goes on without vectors. */

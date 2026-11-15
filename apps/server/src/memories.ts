@@ -42,7 +42,7 @@ import {
 import { extensionCors, sameOrigin } from "./origin";
 import { enqueueDeepFetch } from "./deep-fetch-queue";
 import { enqueue, enqueueEmbed, providers } from "./indexing";
-import { rateLimited } from "./rate-limit";
+import { limitExceeded, rateLimited } from "./rate-limit";
 
 /** Keys per storage delete call. */
 const STORAGE_BATCH = 1000;
@@ -267,6 +267,7 @@ export const memories = new Hono<AppEnv>()
       if ("conflict" in result) {
         return c.json({ ok: false, error: "conflict" } as const, 409);
       }
+      if ("refused" in result) return refusal(c, result.refused);
       // A retry of a Capture still Indexing enqueues again: duplicates are harmless.
       if (result.memory.indexState === "indexing") {
         await enqueue(c.env, result.memory);
@@ -291,6 +292,7 @@ export const memories = new Hono<AppEnv>()
       if ("conflict" in result) {
         return c.json({ ok: false, error: "conflict" } as const, 409);
       }
+      if ("refused" in result) return refusal(c, result.refused);
       if (
         result.memory.indexState === "indexing" &&
         (!result.duplicate || result.indexAgain)
@@ -458,7 +460,7 @@ export const memories = new Hono<AppEnv>()
     }
   )
   /** The copy is checked in storage and Indexing reads it (then deletes it). */
-  .post("/memories/:id/copy/stored", async (c) => {
+  .post("/memories/:id/copy/stored", rateLimited("EDIT_LIMITER"), async (c) => {
     const id = c.req.param("id");
     const memory = UUID.test(id)
       ? await c.var.library.markCopyStored(id, c.var.files.check)
@@ -490,7 +492,7 @@ export const memories = new Hono<AppEnv>()
     });
   })
   /** Step two: the files are checked in storage, and the Memory shows. */
-  .post("/memories/:id/stored", async (c) => {
+  .post("/memories/:id/stored", rateLimited("EDIT_LIMITER"), async (c) => {
     const id = c.req.param("id");
     const memory = UUID.test(id)
       ? await c.var.library.markStored(id, c.var.files.check)
@@ -509,7 +511,7 @@ export const memories = new Hono<AppEnv>()
     return c.json(await forClient(c.var.files, memory));
   })
   /** Retry on a Failed Memory: Indexing again, first in line once a day. */
-  .post("/memories/:id/reindex", async (c) => {
+  .post("/memories/:id/reindex", rateLimited("EDIT_LIMITER"), async (c) => {
     const id = c.req.param("id");
     const memory = UUID.test(id) && (await c.var.library.retryIndexing(id));
     if (!memory) return c.json(notFound, 404);
@@ -522,7 +524,7 @@ export const memories = new Hono<AppEnv>()
    * Try Again on a Memory whose Deep fetch Failed or was Unavailable: a new
    * run, with all its automatic attempts, sent at once.
    */
-  .post("/memories/:id/deep-fetch", async (c) => {
+  .post("/memories/:id/deep-fetch", rateLimited("EDIT_LIMITER"), async (c) => {
     const id = c.req.param("id");
     const before = UUID.test(id) && (await c.var.library.get(id));
     const memory = before && (await c.var.library.retryDeepFetch(id));
@@ -541,17 +543,22 @@ export const memories = new Hono<AppEnv>()
     return c.json(await forClient(c.var.files, memory));
   })
   /** AI opt-out (ADR-0011): on, nothing more goes to a provider; off, Indexing again. */
-  .put("/memories/:id/ai-opt-out", json(AiOptOut), async (c) => {
-    const id = c.req.param("id");
-    const { aiOptOut } = c.req.valid("json");
-    const memory =
-      UUID.test(id) && (await c.var.library.setAiOptOut(id, aiOptOut));
-    if (!memory) return c.json(notFound, 404);
-    if (!aiOptOut && memory.indexState === "indexing") {
-      await enqueue(c.env, memory);
+  .put(
+    "/memories/:id/ai-opt-out",
+    rateLimited("OPT_OUT_LIMITER"),
+    json(AiOptOut),
+    async (c) => {
+      const id = c.req.param("id");
+      const { aiOptOut } = c.req.valid("json");
+      const memory =
+        UUID.test(id) && (await c.var.library.setAiOptOut(id, aiOptOut));
+      if (!memory) return c.json(notFound, 404);
+      if (!aiOptOut && memory.indexState === "indexing") {
+        await enqueue(c.env, memory);
+      }
+      return c.json(await forClient(c.var.files, memory));
     }
-    return c.json(await forClient(c.var.files, memory));
-  })
+  )
   /** The Free allowance and what is used of it, with the Memories that take the most storage. */
   .get("/usage", async (c) => {
     const [used, largest] = await Promise.all([
@@ -566,23 +573,29 @@ export const memories = new Hono<AppEnv>()
       limitBytes: FREE_ALLOWANCE.storageBytes,
     })
   )
-  .post("/memories/bulk", limitBody, json(BulkMemories), async (c) => {
-    const result = await c.var.library.bulk(c.req.valid("json"));
-    if ("unknownCategory" in result)
-      return c.json({ ok: false, error: "unknown_category" } as const, 400);
-    // The transaction is over. Storage failure never rolls a committed delete back;
-    // every key stays durably queued, including PUTs that can still land later.
-    const keys = result.removals ?? [];
-    if (keys.length) {
-      const removals: Promise<void>[] = [];
-      for (let offset = 0; offset < keys.length; offset += STORAGE_BATCH)
-        removals.push(
-          c.var.files.remove(keys.slice(offset, offset + STORAGE_BATCH))
-        );
-      await boundedStorage(Promise.all(removals)).catch(() => {});
+  .post(
+    "/memories/bulk",
+    rateLimited("EDIT_LIMITER"),
+    limitBody,
+    json(BulkMemories),
+    async (c) => {
+      const result = await c.var.library.bulk(c.req.valid("json"));
+      if ("unknownCategory" in result)
+        return c.json({ ok: false, error: "unknown_category" } as const, 400);
+      // The transaction is over. Storage failure never rolls a committed delete back;
+      // every key stays durably queued, including PUTs that can still land later.
+      const keys = result.removals ?? [];
+      if (keys.length) {
+        const removals: Promise<void>[] = [];
+        for (let offset = 0; offset < keys.length; offset += STORAGE_BATCH)
+          removals.push(
+            c.var.files.remove(keys.slice(offset, offset + STORAGE_BATCH))
+          );
+        await boundedStorage(Promise.all(removals)).catch(() => {});
+      }
+      return c.json({ ids: result.ids });
     }
-    return c.json({ ids: result.ids });
-  })
+  )
   .get("/memories/:id", async (c) => {
     const id = c.req.param("id");
     const memory = UUID.test(id) && (await c.var.library.get(id));
@@ -590,40 +603,47 @@ export const memories = new Hono<AppEnv>()
       ? c.json(await forClient(c.var.files, memory))
       : c.json(notFound, 404);
   })
-  .patch("/memories/:id", limitBody, json(MemoryEditRequest), async (c) => {
-    const id = c.req.param("id");
-    const { revision, ...changes } = c.req.valid("json");
-    const result =
-      UUID.test(id) && (await c.var.library.edit(id, changes, revision));
-    if (!result) return c.json(notFound, 404);
-    if ("stale" in result) {
-      return c.json({ ok: false, error: "stale" } as const, 409);
+  .patch(
+    "/memories/:id",
+    rateLimited("EDIT_LIMITER"),
+    limitBody,
+    json(MemoryEditRequest),
+    async (c) => {
+      const id = c.req.param("id");
+      const { revision, ...changes } = c.req.valid("json");
+      const result =
+        UUID.test(id) && (await c.var.library.edit(id, changes, revision));
+      if (!result) return c.json(notFound, 404);
+      if ("stale" in result) {
+        return c.json({ ok: false, error: "stale" } as const, 409);
+      }
+      if ("unknownCategory" in result) {
+        return c.json({ ok: false, error: "unknown_category" } as const, 400);
+      }
+      if ("refused" in result) return refusal(c, result.refused);
+      // New text is Indexed again, behind fresh Captures.
+      if (changes.body !== undefined && result.indexState === "indexing") {
+        await enqueue(c.env, result);
+      }
+      // The editor sends a full draft: an unchanged body must not suppress
+      // the delayed title/note embed while the initial run is still Indexing.
+      if (
+        (changes.title !== undefined || changes.captureNote !== undefined) &&
+        (result.indexState === "searchable" ||
+          result.indexState === "indexing") &&
+        !result.aiOptOut
+      ) {
+        // Its vectors read the title and note: made again once typing stops.
+        await enqueueEmbed(c.env, result, EMBEDDING.editDelaySeconds);
+      }
+      return c.json(await forClient(c.var.files, result));
     }
-    if ("unknownCategory" in result) {
-      return c.json({ ok: false, error: "unknown_category" } as const, 400);
-    }
-    // New text is Indexed again, behind fresh Captures.
-    if (changes.body !== undefined && result.indexState === "indexing") {
-      await enqueue(c.env, result);
-    }
-    // The editor sends a full draft: an unchanged body must not suppress
-    // the delayed title/note embed while the initial run is still Indexing.
-    if (
-      (changes.title !== undefined || changes.captureNote !== undefined) &&
-      (result.indexState === "searchable" ||
-        result.indexState === "indexing") &&
-      !result.aiOptOut
-    ) {
-      // Its vectors read the title and note: made again once typing stops.
-      await enqueueEmbed(c.env, result, EMBEDDING.editDelaySeconds);
-    }
-    return c.json(await forClient(c.var.files, result));
-  })
+  )
   /**
    * Remove storage immediately before deleting the Memory. remove() also
    * queues every key durably, covering pending PUTs that land afterwards.
    */
-  .delete("/memories/:id", async (c) => {
+  .delete("/memories/:id", rateLimited("EDIT_LIMITER"), async (c) => {
     const id = c.req.param("id");
     const files = await filesOf(c.var.library, id);
     if (!files) return c.json(notFound, 404);
@@ -646,6 +666,16 @@ export const memories = new Hono<AppEnv>()
       // that a request log keeps.
       const { q, mode, timezone, chips, page, image, memory } =
         c.req.valid("json");
+      // A search by image is a paid embedding: its own, lower limit.
+      if (image) {
+        const limited = await limitExceeded(
+          c,
+          c.env,
+          c.var.user.id,
+          "IMAGE_SEARCH_LIMITER"
+        );
+        if (limited) return limited;
+      }
       // A Category chip is a built-in or the person's own, never another's.
       if (
         chips?.category &&
@@ -696,26 +726,32 @@ export const memories = new Hono<AppEnv>()
   .get("/search/recent", async (c) =>
     c.json({ searches: await c.var.library.recentSearches() })
   )
-  .delete("/search/recent", async (c) => {
+  .delete("/search/recent", rateLimited("EDIT_LIMITER"), async (c) => {
     await c.var.library.forgetSearch();
     return c.body(null, 204);
   })
-  .delete("/search/recent/:id", async (c) => {
+  .delete("/search/recent/:id", rateLimited("EDIT_LIMITER"), async (c) => {
     const id = c.req.param("id");
     if (!UUID.test(id)) return c.json({ error: "invalid_id" }, 400);
     await c.var.library.forgetSearch(id);
     return c.body(null, 204);
   })
   /** A committed search, or a click on one of its results (Recent searches, PRD metrics). */
-  .post("/search/events", limitImageBody, json(SearchEvent), async (c) => {
-    const { query, memoryId, position, reformulation } = c.req.valid("json");
-    await c.var.library.rememberSearch(
-      query,
-      memoryId && position ? { memoryId, position } : undefined,
-      reformulation
-    );
-    return c.body(null, 204);
-  })
+  .post(
+    "/search/events",
+    rateLimited("EDIT_LIMITER"),
+    limitImageBody,
+    json(SearchEvent),
+    async (c) => {
+      const { query, memoryId, position, reformulation } = c.req.valid("json");
+      await c.var.library.rememberSearch(
+        query,
+        memoryId && position ? { memoryId, position } : undefined,
+        reformulation
+      );
+      return c.body(null, 204);
+    }
+  )
   /** More Like This: Memories near this one's own vectors, leaving it out. */
   .get("/memories/:id/similar", rateLimited("SEARCH_LIMITER"), async (c) => {
     const id = c.req.param("id");

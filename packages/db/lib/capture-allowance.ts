@@ -21,3 +21,25 @@ export async function takeDailyCapture(
     .returning({ n: usageDay.captures });
   return rows.length > 0;
 }
+
+/**
+ * Atomically takes one of today's keeps: a save past the daily Captures that
+ * is still stored (partly Indexed). False once `keptPerDay` are used.
+ */
+export async function takeDailyKeep(
+  tx: Pick<Database, "insert">,
+  userId: string,
+  day: string | SQL,
+  limit: number = FREE_ALLOWANCE.keptPerDay
+): Promise<boolean> {
+  const rows = await tx
+    .insert(usageDay)
+    .values({ userId, day, kept: 1 })
+    .onConflictDoUpdate({
+      target: [usageDay.userId, usageDay.day],
+      set: { kept: sql`${usageDay.kept} + 1` },
+      setWhere: sql`${usageDay.kept} < ${limit}`,
+    })
+    .returning({ n: usageDay.kept });
+  return rows.length > 0;
+}

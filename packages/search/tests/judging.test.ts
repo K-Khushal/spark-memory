@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { INDEXING, JUDGING } from "@spark/core";
+import { INDEXING, JUDGING, type Hold } from "@spark/core";
 import type { AiCall, Embedder, JudgeClient } from "@spark/indexing";
 import {
   createSearch,
@@ -30,8 +30,11 @@ const budget = (spent = 0) => {
   const calls: AiCall[] = [];
   return {
     calls,
-    spentTodayMicros: async () => spent,
-    dailyBudgetMicros: async () => INDEXING.dailyBudgetMicros,
+    reserve: async (): Promise<Hold> =>
+      spent < INDEXING.dailyBudgetMicros
+        ? { id: "hold" }
+        : { refused: "spent" },
+    releaseHold: async () => {},
     recordCall: async (call: AiCall) => void calls.push(call),
   };
 };

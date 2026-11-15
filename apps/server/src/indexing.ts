@@ -4,7 +4,7 @@ import {
   sendProductEvent,
   type ProductEvent,
 } from "@spark/core";
-import { deepFetchStore, indexingStore, openDatabase } from "@spark/db";
+import { deepFetchStore, openDatabase } from "@spark/db";
 import {
   backoffSeconds,
   createGatherer,
@@ -22,6 +22,7 @@ import {
 import type { CronCalls } from "./cron-budget";
 import { enqueueDeepFetch } from "./deep-fetch-queue";
 import type { Bindings, IndexMessage } from "./env";
+import { spendStore } from "./spend";
 
 /**
  * Queues the Memory's current run for Indexing, on the queue its run
@@ -130,7 +131,7 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   const pending: { distinctId: string; event: ProductEvent }[] = [];
   try {
-    const store = indexingStore(db);
+    const store = spendStore(env, db);
     if (isDeadLetter(batch.queue)) {
       for (const message of batch.messages) {
         const { memoryId, run, generation, task } = message.body;
@@ -267,7 +268,7 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
 export async function requeueStalled(env: Bindings, calls?: CronCalls) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
-    const store = indexingStore(db);
+    const store = spendStore(env, db);
     // At most 500 Category refreshes, in SQL batches of 100 and a 2s wall
     // budget. Uses persisted prototypes + Overview vectors: zero AI/queue calls.
     await store.refreshCategories();

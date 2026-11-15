@@ -521,6 +521,29 @@ export const spendDay = pgTable(
 );
 
 /**
+ * An AI call's estimated cost, held before the call so parallel calls cannot
+ * pass the daily budget together. The call's `recordCall` settles exactly
+ * its own hold, once; one nobody settled stops counting after minutes.
+ */
+export const aiReservation = pgTable(
+  "ai_reservation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    micros: bigint("micros", { mode: "number" }).notNull(),
+    createdAt: instant("created_at"),
+    /** Set once the call's real cost was recorded, or the hold was given back: it counts no more. */
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("ai_reservation_owner_idx").on(t.userId, t.createdAt),
+    index("ai_reservation_created_idx").on(t.createdAt),
+  ]
+);
+
+/**
  * A setting an admin changed (the daily budget). The config default applies
  * when the row is absent. `updatedBy` is a user id, never an email.
  */
@@ -601,6 +624,8 @@ export const usageDay = pgTable(
     day: date("day").notNull(),
     deepFetches: integer("deep_fetches").default(0).notNull(),
     captures: integer("captures").default(0).notNull(),
+    /** Saves kept past the daily Capture allowance today (partly Indexed). */
+    kept: integer("kept").default(0).notNull(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.day] })]
 );
@@ -715,6 +740,11 @@ export const assistantClient = pgTable("assistant_client", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
+  /**
+   * When the first grant was issued. A registration nobody claims within a
+   * day is swept (the registration endpoint is anonymous).
+   */
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
 });
 export const assistantCode = pgTable("assistant_code", {
   digest: text("digest").primaryKey(),
@@ -748,6 +778,9 @@ export const assistantGrant = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true })
       .default(sql`now() + interval '90 days'`)
       .notNull(),
+    /** Successful refresh rotations in the current hour (a client renews about once an hour). */
+    rotations: integer("rotations").default(0).notNull(),
+    rotationWindowAt: timestamp("rotation_window_at", { withTimezone: true }),
   },
   (t) => [index("assistant_grant_owner_client").on(t.userId, t.clientId)]
 );

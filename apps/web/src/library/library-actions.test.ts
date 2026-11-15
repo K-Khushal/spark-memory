@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { BulkOutbox, PendingBulk } from "./bulk-outbox";
 import { draftStore } from "./drafts";
+import { Refused } from "./image-capture";
 import {
   libraryActions,
   type Memory,
@@ -96,6 +97,27 @@ describe("Try Again on a Capture", () => {
     expect(create.mock.calls[1]![0]).toEqual(create.mock.calls[0]![0]);
     expect(wall().map((m) => m.id)).toEqual([create.mock.calls[0]![0].id]);
   });
+});
+
+describe("a Capture the Free allowance refuses", () => {
+  it.each([
+    ["captures_full", "Daily Capture Limit Reached"],
+    ["storage_full", "Your 1 GB Free Allowance Is Full"],
+  ] as const)(
+    "says why (%s) and does not offer Try Again, as it would be refused again",
+    async (reason, title) => {
+      const { actions, wall, notify } = setup({
+        create: vi.fn().mockRejectedValue(new Refused(reason)),
+      });
+      actions.capture("Too much", "note");
+      await settle();
+      expect(wall()).toEqual([]);
+      const refused = notify.mock.calls.find(([text]) => text === title);
+      expect(refused).toBeDefined();
+      expect(refused![1].action).toBeUndefined();
+      expect(() => toastAction(notify, "Try Again")).toThrow();
+    }
+  );
 });
 
 describe("Undo of a Capture", () => {

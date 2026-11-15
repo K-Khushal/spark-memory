@@ -19,7 +19,9 @@ import {
   type StoredEdit,
 } from "./drafts";
 import {
+  allowanceRefusal,
   imageCapture,
+  Refused,
   type CaptureOutcome,
   type ImageTransport,
   type UploadState,
@@ -493,8 +495,20 @@ export function libraryActions({
         );
         if (!pending.has(saved.id)) replaceLocal(saved);
       },
-      () => {
+      (error: unknown) => {
         removeLocal(memory.id);
+        // The Free allowance refused it: trying again will not help today.
+        if (
+          error instanceof Refused &&
+          (error.reason === "storage_full" || error.reason === "captures_full")
+        ) {
+          end?.("refused");
+          notify(allowanceRefusal(error.reason), {
+            id: toastId,
+            duration: 8000,
+          });
+          return;
+        }
         notify("Capture Did Not Finish", {
           id: toastId,
           duration: 8000,

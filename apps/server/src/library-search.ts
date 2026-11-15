@@ -1,8 +1,9 @@
-import { indexingStore, type Library } from "@spark/db";
+import type { indexingStore, Library } from "@spark/db";
 import { embedderFor, jevJudge } from "@spark/indexing";
 import { createSearch, jevMatchJudge } from "@spark/search";
 import type { AppEnv } from "./env";
 import { providers } from "./indexing";
+import { spendStore } from "./spend";
 
 /** The person's search: instant, full (with their query embedded) and More Like This. */
 export const searchFor = (
@@ -13,7 +14,7 @@ export const searchFor = (
   { excludeSamples = false }: { excludeSamples?: boolean } = {}
 ) => {
   const embedder = embedderFor(providers(env));
-  const spend = indexingStore(db);
+  const spend = spendStore(env, db);
   // Off unless the owner set the key and JEV_ENABLED (docs/research/jev.md);
   // then Jev judges Direct Matches within full search's time, else thresholds do.
   const client = jevJudge({

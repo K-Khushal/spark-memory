@@ -57,6 +57,22 @@ async function created(request: Promise<Response>) {
   };
 }
 
+/** A pasted text or link: the Memory, or Refused when the Free allowance has no room for it. */
+async function saved(request: Promise<Response>) {
+  const res = await request;
+  const status: number = res.status;
+  if (status === 413 || status === 429) {
+    const { error } = (await res
+      .clone()
+      .json()
+      .catch(() => ({}))) as { error?: string };
+    if (error === "storage_full" || error === "captures_full") {
+      throw new Refused(error);
+    }
+  }
+  return (await (await ok(Promise.resolve(res))).json()) as Memory;
+}
+
 /** The Memory API, as the Library actions need it. */
 const transport: Transport = {
   bulk: async (json, init) =>
@@ -68,10 +84,8 @@ const transport: Transport = {
         )
       )
     ).json(),
-  create: async (json) =>
-    (await (await ok(api.api.memories.$post({ json }))).json()) as Memory,
-  createLink: async (json) =>
-    (await (await ok(api.api.memories.links.$post({ json }))).json()) as Memory,
+  create: (json) => saved(api.api.memories.$post({ json })),
+  createLink: (json) => saved(api.api.memories.links.$post({ json })),
   patch: async (id, json, init) => {
     const res = await byId.$patch({ param: { id }, json }, { init });
     if (res.status === 409) return "stale";

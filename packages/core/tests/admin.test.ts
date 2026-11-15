@@ -4,6 +4,9 @@ import {
   INDEXING,
   budgetPaused,
   effectiveDailyBudgetMicros,
+  OWNER_BUDGET_SHARE_DEFAULT,
+  ownerBudgetMicros,
+  parseOwnerBudgetShare,
   allowOutgoingProductEvent,
   isAdmin,
   isVerifiedAdmin,
@@ -89,6 +92,28 @@ describe("daily budget", () => {
     expect(budgetPaused(999_999, 1_000_000)).toBe(false);
     expect(budgetPaused(1_000_000, 1_000_000)).toBe(true);
     expect(budgetPaused(0, 0)).toBe(true);
+  });
+});
+
+describe("one person's share of the daily AI budget", () => {
+  it("is 20% unless the Worker sets another percent from 1 to 100", () => {
+    expect(OWNER_BUDGET_SHARE_DEFAULT).toBe(0.2);
+    expect(parseOwnerBudgetShare(undefined)).toBe(0.2);
+    expect(parseOwnerBudgetShare("5")).toBe(0.05);
+    expect(parseOwnerBudgetShare(" 12.5 ")).toBe(0.125);
+    expect(parseOwnerBudgetShare("100")).toBe(1);
+  });
+
+  it("ignores a value that would lift the limit or is not a percent", () => {
+    for (const bad of ["0", "101", "-5", "twenty", "", "1e3", "NaN"]) {
+      expect(parseOwnerBudgetShare(bad), bad).toBe(0.2);
+    }
+  });
+
+  it("is a share of the budget, rounded down", () => {
+    expect(ownerBudgetMicros(1_000_000, 0.2)).toBe(200_000);
+    expect(ownerBudgetMicros(0, 0.2)).toBe(0);
+    expect(ownerBudgetMicros(999, 0.2)).toBe(199);
   });
 });
 

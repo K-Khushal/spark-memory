@@ -1,10 +1,5 @@
 import { DEEP_FETCH } from "@spark/core";
-import {
-  deepFetchStore,
-  indexingStore,
-  openDatabase,
-  openLibrary,
-} from "@spark/db";
+import { deepFetchStore, openDatabase, openLibrary } from "@spark/db";
 import {
   cloudflareBrowser,
   cloudRunFetcher,
@@ -20,6 +15,7 @@ import type { Bindings, DeepFetchMessage } from "./env";
 import { FILE_CACHE_CONTROL } from "./files";
 import { enqueueDeepFetch } from "./deep-fetch-queue";
 import { enqueue } from "./indexing";
+import { spendStore } from "./spend";
 
 /** Deep fetch's engines for this environment; a kind without one is Unavailable (stored, never shown). */
 export function deepFetchFor(env: Bindings) {
@@ -123,7 +119,7 @@ export async function consumeDeepFetch(batch: DeepFetchBatch, env: Bindings) {
     };
     const { run } = createDeepFetchWorker({
       store: deepFetchStore(db),
-      ai: indexingStore(db),
+      ai: spendStore(env, db),
       deepFetch: deepFetchFor(env),
       keepScreenshot,
     });

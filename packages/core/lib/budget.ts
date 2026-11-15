@@ -43,3 +43,34 @@ export function budgetPaused(
 ): boolean {
   return spentMicros >= limitMicros;
 }
+
+/** One person's share of the daily budget, unless the Worker sets `AI_OWNER_BUDGET_PERCENT`. */
+export const OWNER_BUDGET_SHARE_DEFAULT = 0.2;
+
+/**
+ * The share of the daily budget one person may spend, from the Worker's
+ * `AI_OWNER_BUDGET_PERCENT` (1 to 100). Anything else falls back to the
+ * default, so a typo cannot lift the limit.
+ */
+export function parseOwnerBudgetShare(percent: string | undefined): number {
+  if (percent === undefined || !/^\d{1,3}(\.\d+)?$/.test(percent.trim()))
+    return OWNER_BUDGET_SHARE_DEFAULT;
+  const value = Number(percent);
+  return value >= 1 && value <= 100 ? value / 100 : OWNER_BUDGET_SHARE_DEFAULT;
+}
+
+/** What one person may spend of today's budget, in micro-dollars. */
+export function ownerBudgetMicros(
+  dailyBudgetMicros: number,
+  share: number
+): number {
+  return Math.floor(dailyBudgetMicros * share);
+}
+
+/**
+ * What asking to hold an AI call's cost answers: the hold's id, or why not.
+ * `spent`: the person's share (or the day's budget) is used up, wait for the
+ * next UTC day. `busy`: other calls' holds in flight leave no room right
+ * now, try again soon.
+ */
+export type Hold = { id: string } | { refused: "spent" | "busy" };

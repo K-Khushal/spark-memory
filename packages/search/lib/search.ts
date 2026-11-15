@@ -1,11 +1,14 @@
 import {
   EMBEDDING,
+  INDEXING,
   JUDGING,
+  maxTokens,
   SEARCH_COLOURS,
   signalsOf,
   SEARCH_KINDS,
   SEARCH_PAGE_SIZE,
   sourceHosts,
+  type Hold,
   type MemoryKind,
   type SearchChips,
   type SearchFilters,
@@ -235,9 +238,14 @@ export function createSearch<R extends Hit>({
   embedder?: Embedder;
   /** The budget breaker's side of the database (`indexingStore`). */
   spend: {
-    spentTodayMicros(): Promise<number>;
-    /** The admin's daily budget, else the default. */
-    dailyBudgetMicros(): Promise<number>;
+    /**
+     * Holds a call's cost (an upper bound) before it is made, refused when
+     * the person's share of today's budget, or all of it, is spent or held
+     * (`recordCall({ reservation })` settles that hold, so parallel
+     * searches cannot overshoot).
+     */
+    reserve(input: { userId: string; micros: number }): Promise<Hold>;
+    releaseHold(id: string): Promise<void>;
     recordCall(call: AiCall): Promise<void>;
   };
   /** Jev's judge of Direct Matches (ADR-0008); without one, thresholds decide. */
@@ -271,11 +279,18 @@ export function createSearch<R extends Hit>({
     purgesAtStart: number
   ): Promise<number[] | undefined> {
     if (!embedder) return undefined;
-    const [spent, limit] = await Promise.all([
-      spend.spentTodayMicros(),
-      spend.dailyBudgetMicros(),
-    ]);
-    if (spent >= limit) return undefined;
+    // An upper bound: the text at its UTF-8 bytes, whatever the language.
+    const held = await spend.reserve({
+      userId,
+      micros: embedCostMicros(embedder.model, {
+        textTokens: Math.min(
+          maxTokens(queryText(query)),
+          EMBEDDING.maxInputTokens
+        ),
+        imageTokens: 0,
+      }),
+    });
+    if ("refused" in held) return undefined;
     // Bookkeeping after the call: if it fails, the vector (already paid
     // for) is still used. Only the category is logged.
     const record = (textTokens: number, estimated?: boolean) =>
@@ -283,6 +298,7 @@ export function createSearch<R extends Hit>({
         .recordCall({
           userId,
           memoryId: null,
+          reservation: held.id,
           provider: embedder.name,
           model: embedder.model,
           usage: { inputTokens: textTokens, outputTokens: 0 },
@@ -307,6 +323,8 @@ export function createSearch<R extends Hit>({
     } catch (error) {
       if (error instanceof ProviderError && error.estimate) {
         await record(error.estimate.inputTokens, true);
+      } else {
+        await spend.releaseHold(held.id).catch(() => {});
       }
       return undefined;
     }
@@ -340,11 +358,14 @@ export function createSearch<R extends Hit>({
       const pending = imageInFlight.get(key);
       if (pending) return await pending;
       const run = async () => {
-        const [spent, budget] = await Promise.all([
-          spend.spentTodayMicros(),
-          spend.dailyBudgetMicros(),
-        ]);
-        if (spent >= budget) throw new Error("image_search_budget");
+        const held = await spend.reserve({
+          userId,
+          micros: embedCostMicros(embedder!.model, {
+            textTokens: 0,
+            imageTokens: INDEXING.heldImageTokens,
+          }),
+        });
+        if ("refused" in held) throw new Error("image_search_budget");
         const record = async (
           textTokens: number,
           imageTokens: number,
@@ -353,6 +374,7 @@ export function createSearch<R extends Hit>({
           await spend.recordCall({
             userId,
             memoryId: null,
+            reservation: held.id,
             provider: embedder!.name,
             model: embedder!.model,
             usage: { inputTokens: textTokens + imageTokens, outputTokens: 0 },
@@ -377,6 +399,8 @@ export function createSearch<R extends Hit>({
               images,
               true
             );
+          } else {
+            await spend.releaseHold(held.id).catch(() => {});
           }
           throw new Error("image_search_unavailable", { cause: error });
         }
