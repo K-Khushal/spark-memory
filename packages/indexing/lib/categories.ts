@@ -127,30 +127,37 @@ export async function categorise({
       : undefined;
   if (jev && jevHold) {
     let reply;
+    // Jev's cost is always recorded against its hold (it may be billed even
+    // when the call failed). The hold goes back only once that is recorded:
+    // a record that fails leaves it to expire, never settled unrecorded.
+    let recorded = true;
+    const settle = (call: Parameters<typeof record>[0]) =>
+      record({ ...call, reservation: jevHold.reservation }).then(
+        () => true,
+        () => false
+      );
     try {
       reply = await jev.classify(text, names);
     } catch {
       // It may still have been billed: count the most it could have cost.
       const inputTokens = jevTokenEstimate(text);
-      await record({
+      recorded = await settle({
         provider: "jev",
         model: jev.model,
         usage: { inputTokens, outputTokens: 0 },
         costMicros: jevCostMicros(jev.model, inputTokens),
         estimated: true,
-        reservation: jevHold.reservation,
-      }).catch(() => {});
+      });
     }
     if (reply) {
-      await record({
+      recorded = await settle({
         provider: "jev",
         model: jev.model,
         usage: { inputTokens: reply.inputTokens, outputTokens: 0 },
         costMicros: jevCostMicros(jev.model, reply.inputTokens),
-        reservation: jevHold.reservation,
-      }).catch(() => {});
+      });
     }
-    await jevHold.release().catch(() => {});
+    if (recorded) await jevHold.release().catch(() => {});
     if (reply) {
       // Warm the persisted fallback during ordinary Indexing, even when Jev
       // answered: the cron is intentionally unable to call any provider.
@@ -226,11 +233,12 @@ export async function prepareCategoryPrototypes({
           { timeoutMs: 10_000 }
         );
       } catch (error) {
+        let recorded = true;
         if (error instanceof ProviderError && error.estimate) {
           // Lost after it was sent: it may be billed, so the most it could
           // have cost is recorded against the hold (not given back).
           const { inputTokens, imageTokens = 0 } = error.estimate;
-          await record({
+          recorded = await record({
             provider: embedder.name,
             model: embedder.model,
             usage: { inputTokens, outputTokens: 0 },
@@ -240,10 +248,15 @@ export async function prepareCategoryPrototypes({
             }),
             estimated: true,
             reservation: held.reservation,
-          }).catch(() => {});
+          }).then(
+            () => true,
+            () => false
+          );
         }
-        // Whatever is not settled (it could not have been billed) goes back.
-        await held.release().catch(() => {});
+        // A hold that could not have been billed goes back. One whose cost
+        // could not be recorded is kept: giving it back would settle it and
+        // block a later reconciliation, so it expires on its own instead.
+        if (recorded) await held.release().catch(() => {});
         throw error;
       }
       const { vectors, usage } = embedded;

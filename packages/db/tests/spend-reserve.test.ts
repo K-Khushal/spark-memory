@@ -205,6 +205,24 @@ describe.skipIf(!databaseUrl)("AI spend holds", () => {
     expect(await calls(ana)).toEqual({ n: 1, micros: "5000" });
   });
 
+  it("lets a hold that was kept (its estimate could not be recorded) be reconciled later; one given back first cannot", async () => {
+    const ana = await person();
+    const ai = store();
+    // The record failed, so the hold was not released: a later record settles it.
+    const kept = ok(await ai.reserve({ userId: ana, micros: 100_000 }))!;
+    expect(await settledAt(kept)).toBe(false);
+    await spend(ana, 30_000, { reservation: kept });
+    recorded += 30_000;
+    expect(await settledAt(kept)).toBe(true);
+    expect(await calls(ana)).toEqual({ n: 1, micros: "30000" });
+    // Released first, a settlement without a call id is dropped: why a hold
+    // whose cost may yet be recorded must not be released.
+    const given = ok(await ai.reserve({ userId: ana, micros: 100_000 }))!;
+    await ai.releaseHold(given);
+    await spend(ana, 30_000, { reservation: given });
+    expect(await calls(ana)).toEqual({ n: 1, micros: "30000" });
+  });
+
   it("stops counting a hold nobody settled after a few minutes", async () => {
     const ana = await person();
     const ai = store();

@@ -61,10 +61,19 @@ export async function usedStorageBytes(
 }
 
 /** The bytes of a Memory's metadata as the database keeps it (jsonb as text). */
-export const metadataBytes = (metadata: unknown): number =>
-  metadata === null || metadata === undefined
-    ? 0
-    : bytesOf(JSON.stringify(metadata));
+export async function metadataBytes(
+  tx: Tx,
+  metadata: unknown
+): Promise<number> {
+  if (metadata === null || metadata === undefined) return 0;
+  // Measured by PostgreSQL itself, as `usedStorageBytes` measures what is
+  // kept (jsonb::text has a space after each ':' and ','), never by a
+  // compact JSON.stringify, which would undercount.
+  const { rows } = await tx.execute<{ bytes: string }>(
+    sql`select octet_length(${JSON.stringify(metadata)}::jsonb::text)::text as bytes`
+  );
+  return Number(rows[0]?.bytes ?? 0);
+}
 
 /**
  * A video's metadata with its transcript left out, as the database keeps a
@@ -143,17 +152,20 @@ export async function textFits(
     usedStorageBytes(tx, userId, { exceptText: memoryId }),
     currentText(tx, memoryId),
   ]);
+  const metadata =
+    after.metadata === undefined
+      ? now.metabytes
+      : await metadataBytes(
+          tx,
+          typeof after.metadata === "function"
+            ? (after.metadata as (current: unknown) => unknown)(now.metadata)
+            : after.metadata
+        );
   const total =
     (after.body === undefined ? now.body : bytesOf(after.body)) +
     (after.title === undefined ? now.title : bytesOf(after.title)) +
     (after.captureNote === undefined ? now.note : bytesOf(after.captureNote)) +
-    (after.metadata === undefined
-      ? now.metabytes
-      : metadataBytes(
-          typeof after.metadata === "function"
-            ? (after.metadata as (current: unknown) => unknown)(now.metadata)
-            : after.metadata
-        )) +
+    metadata +
     (after.found === undefined
       ? now.found
       : after.found === null

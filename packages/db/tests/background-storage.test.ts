@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
-import { FREE_ALLOWANCE, type IndexingOutput } from "@spark/core";
+import {
+  FREE_ALLOWANCE,
+  type IndexingOutput,
+  type LinkMetadata,
+} from "@spark/core";
 import {
   deepFetchStore,
   indexingStore,
@@ -316,6 +320,57 @@ describe.skipIf(!databaseUrl)("background text and storage", () => {
       },
     });
     expect(JSON.stringify(after.metadata)).not.toContain("six hours");
+  });
+
+  it("measures a candidate's metadata as PostgreSQL stores it (jsonb::text), at the boundary where compact JSON would fit", async () => {
+    const metadata: LinkMetadata = {
+      video: {
+        duration: 60,
+        transcript: Array.from({ length: 40 }, (_, i) => ({
+          seconds: i,
+          text: "hi",
+        })),
+        transcriptState: "available",
+      },
+    };
+    const compact = Buffer.byteLength(JSON.stringify(metadata));
+    const stored = (
+      await db.execute<{ n: string }>(
+        sql`select octet_length(${JSON.stringify(metadata)}::jsonb::text)::text as n`
+      )
+    ).rows[0]!.n;
+    // jsonb::text puts a space after every ':' and ',': it is larger.
+    expect(Number(stored)).toBeGreaterThan(compact + 40);
+    const gather = async (left: number, url: string) => {
+      const { id } = await person();
+      await fillUpTo(id, left);
+      const claim = await indexing(id, "video", { url });
+      await store().saveGathered(claim, { metadata, text: null });
+      return row(claim.memoryId);
+    };
+    // Room for the compact form only: the stored form does not fit, so the
+    // transcript is left out (it would have been kept by a compact count).
+    const tight = await gather(compact, "https://boundary.test/tight");
+    expect(tight).toMatchObject({
+      overAllowance: true,
+      metadata: {
+        video: { transcript: [], transcriptState: "over_allowance" },
+      },
+    });
+    // Room for exactly the stored form: kept.
+    const exact = await gather(Number(stored), "https://boundary.test/exact");
+    expect(exact).toMatchObject({
+      overAllowance: false,
+      metadata: { video: { transcriptState: "available" } },
+    });
+    // Usage counts the same bytes that admission did.
+    const { id, library } = await person();
+    const claim = await indexing(id, "video", {
+      url: "https://boundary.test/usage",
+    });
+    const before = await library.usedStorage();
+    await store().saveGathered(claim, { metadata, text: null });
+    expect((await library.usedStorage()) - before).toBe(Number(stored));
   });
 
   it("keeps a video's transcript from Gather, as before, when there is room", async () => {

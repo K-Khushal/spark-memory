@@ -217,6 +217,63 @@ describe("categorise", () => {
       expect(h2.released).toBe(1);
     });
 
+    it("keeps the hold when recording a lost call's estimate fails, so it can be reconciled later", async () => {
+      const lost = embedder("holds-record-fails");
+      lost.embed = async () => {
+        throw new ProviderError("failed", {
+          inputTokens: 700,
+          outputTokens: 0,
+          imageTokens: 0,
+        });
+      };
+      const h = holds();
+      await categorise({
+        text: "tart",
+        vector: toward("Recipe"),
+        embedder: lost,
+        allow: yes,
+        hold: h.hold,
+        record: async () => {
+          throw new Error("database down");
+        },
+      });
+      // Releasing would settle it, and block recording the cost later.
+      expect(h.released).toBe(0);
+      // Jev's lost call: the same, and a recorded one still releases.
+      const jev: CategoryClient = {
+        model: "jev-1.14.0",
+        classify: async () => {
+          throw new Error("down");
+        },
+      };
+      const hj = holds();
+      await categorise({
+        text: "tart",
+        vector: toward("Recipe"),
+        embedder: embedder("holds-record-fails-jev"),
+        jev,
+        allow: yes,
+        hold: hj.hold,
+        record: async () => {
+          throw new Error("database down");
+        },
+        loadPrototypes: async () => stored,
+      });
+      expect(hj.released).toBe(0);
+      const ok = holds();
+      await categorise({
+        text: "tart",
+        vector: toward("Recipe"),
+        embedder: embedder("holds-record-works-jev"),
+        jev,
+        allow: yes,
+        hold: ok.hold,
+        record,
+        loadPrototypes: async () => stored,
+      });
+      expect(ok.released).toBeGreaterThan(0);
+    });
+
     it("counts a prototype call that timed out at the bytes of the names it sent, in any language", async () => {
       const hang = (_: unknown, init?: RequestInit) =>
         new Promise<Response>((_, reject) =>
