@@ -10,3 +10,23 @@
 - Fake providers only (`INDEXING_PROVIDER=fake`), no keys. The mixed Library of 42 Memories, the search answers and the generated images come from `ui-tour-fixtures.ts` and `ui-tour-harness.ts`, so every run draws the same screens. Each phase signs in as a new person (`tour.<label>.demo.account.<time>`), so the account name is the only thing that changes between runs.
 - Takes about six minutes. `-g "<phase>"` runs one phase (`signed out`, `library:`, `new account`, `settings`, `share target`, `extension`, `videos`); its numbers then start at 01.
 - A step that cannot reach its state is listed as `NOT CAPTURED` in `index.md` and fails the run at the end, so one broken screen never hides the rest.
+
+Round-1 coverage includes the phone Navigation menu, Capture and Memory detail
+sheets, Appearance, held Library skeletons, and a Captured toast above the active
+Selection bar. Each state is checked and captured at both widths and themes;
+the desktop counterpart of the phone Navigation menu is the sidebar.
+
+For an isolated run, use a fresh local Postgres database and matching server
+ports. For example, after starting Postgres on 5547:
+
+```sh
+DATABASE_URL=postgres://spark:spark@localhost:5547/spark pnpm db:migrate
+SPARK_WEB_PORT=5188 SPARK_API_PORT=8798 \
+  CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=postgres://spark:spark@localhost:5547/spark \
+  UI_TOUR_OUT=/data/workspace/spark-review/ui/round-1 \
+  pnpm --filter @spark/web ui-tour
+```
+
+Run the tour after `pnpm check` finishes, and reserve its port pair for the full
+run. Do not reuse another checkout's dev servers or database. The OTP step
+asserts that sending the code succeeded before checking its entry screen.

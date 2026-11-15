@@ -87,7 +87,7 @@ test("signed out: sign-in and the screens before an account", async ({
       await expect(page.getByPlaceholder("Email")).toBeVisible();
     }
   );
-  const email = "tour-sign-in@example.com";
+  const email = `tour-sign-in-${Date.now()}@example.com`;
   await step(
     page,
     "sign-in-code",
@@ -95,7 +95,15 @@ test("signed out: sign-in and the screens before an account", async ({
     async () => {
       await home();
       await page.getByPlaceholder("Email").fill(email);
+      const sent = page.waitForResponse(
+        (response) =>
+          response.url().includes("/email-otp/send-verification-otp") &&
+          response.request().method() === "POST"
+      );
       await page.getByRole("button", { name: "Continue with Email" }).click();
+      expect((await sent).ok(), "Local sign-in code request must succeed").toBe(
+        true
+      );
       await expect(
         page.getByRole("heading", { name: "Check Your Email" })
       ).toBeVisible();
@@ -206,19 +214,29 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
   /** Steps that build on the one before keep its state: no clean-up between them. */
   const chain = { recover: async () => {} };
 
+  let releaseLoading: () => void = () => {};
   await step(
     page,
     "library-loading",
-    "Library on a slow first load: static loading tiles until the Library arrives",
+    "Library skeleton loading tiles until the Library arrives",
     async () => {
-      mock.delay = 12_000;
-      void page.goto("/");
-      await page.waitForTimeout(1_500);
+      mock.listGate = new Promise<void>((resolve) => {
+        releaseLoading = resolve;
+      });
+      await page.goto("/");
+      await expect(
+        page.locator('[data-slot="skeleton"]').first()
+      ).toBeVisible();
     },
     {
-      // The Library answers 12 seconds after the page asked, not before the shots.
+      beforeShot: async () => {
+        await expect(
+          page.locator('[data-slot="skeleton"]').first()
+        ).toBeVisible();
+      },
       recover: async () => {
-        mock.delay = 0;
+        releaseLoading();
+        mock.listGate = undefined;
       },
     }
   );
@@ -229,6 +247,28 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     "Library wall, the full mixed Library",
     openWall,
     opts
+  );
+  await step(
+    page,
+    "library-navigation",
+    "Library navigation: sidebar on desktop, Navigation menu open on phone",
+    openWall,
+    {
+      recover: closeAll,
+      beforeShot: async (width) => {
+        if (width === 390) {
+          const menu = page.getByRole("menu", {
+            name: "Navigation",
+            exact: true,
+          });
+          if (!(await menu.isVisible()))
+            await page
+              .getByRole("button", { name: "Spark Navigation" })
+              .click();
+          await expect(menu).toBeVisible();
+        }
+      },
+    }
   );
   await step(
     page,
@@ -397,7 +437,15 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     "detail-note",
     "Memory detail for a note (text and Capture Note)",
     () => open("Cardamom Buns"),
-    opts
+    {
+      ...opts,
+      beforeShot: async () => {
+        await expect(page.getByRole("dialog")).toHaveAttribute(
+          "data-presentation",
+          "sheet"
+        );
+      },
+    }
   );
   await step(
     page,
@@ -501,6 +549,38 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
   );
   await step(
     page,
+    "toast-above-bulk-bar",
+    "Captured toast above the active Selection bar",
+    async () => {},
+    {
+      recover: async () => {},
+      beforeShot: async () => {
+        await paste(
+          page,
+          `A note captured during selection ${crypto.randomUUID()}`
+        );
+        const toast = page
+          .locator("[data-sonner-toast]")
+          .filter({ hasText: "Captured" })
+          .last();
+        const bar = page.getByRole("region", {
+          name: "Selection",
+          exact: true,
+        });
+        await expect(toast).toBeVisible();
+        await expect(bar).toBeVisible();
+        await expect
+          .poll(async () => {
+            const a = await toast.boundingBox();
+            const b = await bar.boundingBox();
+            return !!a && !!b && a.y + a.height <= b.y;
+          })
+          .toBe(true);
+      },
+    }
+  );
+  await step(
+    page,
     "bulk-categories-dialog",
     "Bulk selection: the Categories dialog",
     async () => {
@@ -524,11 +604,20 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
         .getByRole("region", { name: "Selection", exact: true })
         .getByRole("button", { name: "Delete", exact: true })
         .click();
-      await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+      await expect(
+        page
+          .locator("[data-sonner-toast]")
+          .filter({ hasText: "Deleted" })
+          .getByRole("button", { name: "Undo", exact: true })
+      ).toBeVisible();
     },
     opts
   );
-  await page.getByRole("button", { name: "Undo" }).click();
+  await page
+    .locator("[data-sonner-toast]")
+    .filter({ hasText: "Deleted" })
+    .getByRole("button", { name: "Undo", exact: true })
+    .click();
 
   // Capture.
   await step(
@@ -543,7 +632,14 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
         .click();
       await expect(page.getByRole("dialog", { name: "Capture" })).toBeVisible();
     },
-    chain
+    {
+      ...chain,
+      beforeShot: async () => {
+        await expect(
+          page.getByRole("dialog", { name: "Capture" })
+        ).toHaveAttribute("data-presentation", "sheet");
+      },
+    }
   );
   await step(
     page,
@@ -928,6 +1024,20 @@ test("settings and admin", async ({ page, context }) => {
         page.getByRole("heading", { name: "Settings" })
       ).toBeVisible();
       await expect(page.getByRole("meter", { name: "Storage" })).toBeVisible();
+    },
+    full
+  );
+  await step(
+    page,
+    "settings-appearance",
+    "Appearance setting with System, Light and Dark choices",
+    async () => {
+      await page
+        .getByRole("group", { name: "Appearance" })
+        .scrollIntoViewIfNeeded();
+      await expect(
+        page.getByRole("group", { name: "Appearance" })
+      ).toBeVisible();
     },
     full
   );

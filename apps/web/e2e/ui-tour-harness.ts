@@ -97,7 +97,11 @@ export async function step(
   slug: string,
   line: string,
   run: () => Promise<void>,
-  options: { fullPage?: boolean; recover?: () => Promise<void> } = {}
+  options: {
+    fullPage?: boolean;
+    recover?: () => Promise<void>;
+    beforeShot?: (width: number, theme: Theme) => Promise<void>;
+  } = {}
 ) {
   const entry: Entry = { n: ++counter, slug, line, section, files: [] };
   entries.push(entry);
@@ -109,6 +113,7 @@ export async function step(
       await page.setViewportSize(size);
       for (const theme of THEMES) {
         await page.emulateMedia({ colorScheme: theme });
+        await options.beforeShot?.(size.width, theme);
         await settle(page);
         const name = `${pad(entry.n)}-${slug}-${theme}-${size.width}.png`;
         await page.screenshot({
@@ -179,6 +184,8 @@ export type Mock = {
   memories: Memory[];
   /** Delay before the Library answers, ms (the loading state). */
   delay: number;
+  /** Hold list responses until every loading capture is written. */
+  listGate?: Promise<void>;
   /** The Library, or search, is unreachable. */
   listFails: boolean;
   searchFails: boolean;
@@ -235,6 +242,7 @@ export async function installLibrary(context: BrowserContext, mock: Mock) {
       const byId = (id: string) => mock.memories.find((m) => m.id === id);
 
       if (path === "/api/memories" && method === "GET") {
+        await mock.listGate;
         if (mock.delay) await new Promise((r) => setTimeout(r, mock.delay));
         if (mock.listFails) return route.fulfill({ status: 503, json: {} });
         const ids = url.searchParams.get("ids");
