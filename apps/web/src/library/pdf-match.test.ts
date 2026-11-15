@@ -28,6 +28,18 @@ describe("where a PDF opens", () => {
     ).toEqual({ page: 3 });
   });
 
+  it("never marks a scan's recognised words, even with Indexed text beside them", () => {
+    expect(
+      pdfMatch(
+        {
+          body,
+          part: { kind: "passage", field: "ocr", start: 11, end: 26, page: 2 },
+        },
+        ""
+      )
+    ).toEqual({ page: 2 });
+  });
+
   it("at the page whose image matched", () => {
     expect(pdfMatch({ body, part: { kind: "visual", page: 4 } }, "")).toEqual({
       page: 4,

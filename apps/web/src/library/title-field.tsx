@@ -39,7 +39,7 @@ export function TitleField({
       aria-label="Title"
       dir="auto"
       className={cn(
-        "field-sizing-content min-w-0 shrink-0 resize-none rounded-chip bg-transparent py-2 font-display text-lg font-semibold break-words text-ink placeholder:text-ink-muted",
+        "field-sizing-content -mx-3 w-[calc(100%+1.5rem)] max-w-none min-w-0 shrink-0 resize-none rounded-control bg-transparent px-3 py-2 font-display text-lg font-semibold break-words text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring",
         className
       )}
     />

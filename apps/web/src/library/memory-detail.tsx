@@ -2,15 +2,26 @@ import { SearchByImage } from "./image-query";
 import { CategoryEditor, type CategoryEdit } from "./categories";
 import { restoreLibraryFocus } from "./focus";
 import { TitleField } from "./title-field";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent,
+} from "react";
 import { RotateCwIcon, Trash2Icon } from "lucide-react";
 import { FREE_ALLOWANCE } from "@spark/core";
 import {
   Button,
   Dialog,
+  DialogBody,
   DialogContent,
+  DialogFooter,
   DialogTitle,
   Textarea,
+  cn,
+  useBottomObstruction,
 } from "@spark/ui";
 import type { Draft } from "./drafts";
 import {
@@ -32,6 +43,20 @@ import { VideoReader } from "./video-reader";
 import { MoreLikeThis } from "./why";
 
 const AUTOSAVE_MS = 800;
+
+const PHONE = "(max-width: 639px)";
+/** True below 640px, where Memory detail is a sheet on the bottom edge. */
+function useIsPhone() {
+  return useSyncExternalStore(
+    (notify) => {
+      const query = window.matchMedia(PHONE);
+      query.addEventListener("change", notify);
+      return () => query.removeEventListener("change", notify);
+    },
+    () => window.matchMedia(PHONE).matches,
+    () => false
+  );
+}
 
 /** The pending-edit model (library-actions.ts) this dialog is a view of. */
 export type Edits = Pick<
@@ -124,6 +149,19 @@ function Fields({
   const [fields, setFields] = useState<Draft>(
     () => edit?.fields ?? textOf(memory)
   );
+  // The body field opens to its writing height at first focus and stays.
+  const [writing, setWriting] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+  const footer = useRef<HTMLDivElement | null>(null);
+  // The sheet mounts in a portal after this renders: wait for the footer.
+  const [footerMounted, setFooterMounted] = useState(false);
+  const footerRef = useCallback((node: HTMLDivElement | null) => {
+    footer.current = node;
+    setFooterMounted(!!node);
+  }, []);
+  // On a phone the sheet sits on the bottom edge, where a toast (Undo) would
+  // cover Done: the footer tells the toaster how tall it is.
+  useBottomObstruction(footer, useIsPhone() && footerMounted);
   const bodyField = useRef<HTMLTextAreaElement>(null);
   const titleField = useRef<HTMLTextAreaElement>(null);
   const autosave = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -159,58 +197,100 @@ function Fields({
     }
   };
 
+  const referenceOnly = isReferenceOnly(memory);
+  const restorable = !!edit?.refused?.length;
+  const failedOrIndexing =
+    memory.indexState === "failed" || memory.indexState === "indexing";
+  // The status zone takes room only while it has something to say; the
+  // Index state line stays mounted inside it so screen readers hear changes.
+  const hasStatus =
+    referenceOnly || failedOrIndexing || !!memory.deepFetch || restorable;
+
   return (
     <DialogContent
+      presentation="sheet"
       onCloseAutoFocus={(event) => restoreLibraryFocus(event, id)}
       aria-describedby={undefined}
-      // Focus the dialog, not the title: focusing the title would select it.
+      // Focus the scrolling body, not the title (focusing the title would
+      // select it): ↑ ↓ and Space scroll the reading at once.
       onOpenAutoFocus={(e) => {
         e.preventDefault();
-        (e.currentTarget as HTMLElement | null)?.focus();
+        body.current?.focus({ preventScroll: true });
       }}
       onKeyDown={onKeyDown}
-      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col gap-3 overflow-y-auto p-4 sm:p-6 [&_label]:whitespace-normal"
+      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col"
     >
-      <DialogTitle className="sr-only">Memory</DialogTitle>
-      <TitleField
-        ref={titleField}
-        value={shown.title}
-        onChange={(title) => change({ ...shown, title })}
-        maxLength={FREE_ALLOWANCE.titleMaxChars}
-        // A link with no title of its own goes by its host, as on the wall.
-        placeholder={
-          memory.kind === "link" || memory.kind === "video"
-            ? memoryName(memory) || "Title"
-            : "Title"
-        }
-        className="mr-8"
-      />
-      {memory.kind === "video" ? (
-        <VideoReader memory={memory} seconds={seconds} />
-      ) : memory.kind === "link" ? (
-        <Reader memory={memory} />
-      ) : (
-        <Textarea
-          ref={bodyField}
-          value={shown.body}
-          onChange={(e) => change({ ...shown, body: e.target.value })}
-          aria-label="Text"
-          dir="auto"
-          className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0"
-        />
-      )}
-      <input
-        value={shown.captureNote}
-        onChange={(e) => change({ ...shown, captureNote: e.target.value })}
-        maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
-        placeholder="Capture Note"
-        aria-label="Capture Note"
-        dir="auto"
-        className="h-10 min-w-0 shrink-0 rounded-control bg-sunken px-3 text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
-      />
-      <CategoryEditor key={memory.id} memory={memory} onSave={onCategories} />
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pt-1">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <DialogBody
+        ref={body}
+        tabIndex={-1}
+        className="flex flex-col gap-6 pt-4 pb-4 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:pt-6"
+      >
+        <DialogTitle className="sr-only">Memory</DialogTitle>
+        {/* In the body, not above it: a title at 200% text can be taller than
+            the screen, and the one scroll region must still reach Done. */}
+        <div className="flex flex-col gap-1">
+          <div className="pr-8 pointer-coarse:pr-12">
+            <TitleField
+              ref={titleField}
+              value={shown.title}
+              onChange={(title) => change({ ...shown, title })}
+              maxLength={FREE_ALLOWANCE.titleMaxChars}
+              // A link with no title of its own goes by its host, as on the wall.
+              placeholder={
+                memory.kind === "link" || memory.kind === "video"
+                  ? memoryName(memory) || "Title"
+                  : "Title"
+              }
+            />
+          </div>
+          {memory.kind === "video" ? (
+            <VideoReader memory={memory} seconds={seconds} />
+          ) : memory.kind === "link" ? (
+            <Reader memory={memory} />
+          ) : (
+            <Textarea
+              ref={bodyField}
+              value={shown.body}
+              onChange={(e) => change({ ...shown, body: e.target.value })}
+              aria-label="Text"
+              dir="auto"
+              // Reads as text (base/24) with no chrome at rest, sized to what it
+              // holds: a one-line note is one line. The surface appears on hover
+              // (colour, 120ms) and the ring on focus. Once you start writing,
+              // or when it is empty, it keeps a 96px well to write in: it never
+              // shrinks again on blur, because that would move Done out from
+              // under a press. The 12px inset keeps the ring off the glyphs
+              // and the words in line with the Title above.
+              onFocus={() => setWriting(true)}
+              className={cn(
+                "-mx-3 min-h-0 w-[calc(100%+1.5rem)] max-w-none border-0 bg-transparent p-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:text-[1rem]",
+                (writing || !shown.body) && "min-h-24"
+              )}
+            />
+          )}
+        </div>
+        <div className="flex flex-col gap-2">
+          <input
+            value={shown.captureNote}
+            onChange={(e) => change({ ...shown, captureNote: e.target.value })}
+            maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
+            placeholder="Capture Note"
+            aria-label="Capture Note"
+            dir="auto"
+            className="h-10 min-w-0 shrink-0 rounded-control bg-sunken px-3 pointer-coarse:h-(--size-touch) text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
+          />
+          <CategoryEditor
+            key={memory.id}
+            memory={memory}
+            onSave={onCategories}
+          />
+        </div>
+        <div
+          role="group"
+          aria-label="Actions"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2"
+        >
+          <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
           <Button
             variant="quiet"
             size="sm"
@@ -221,46 +301,50 @@ function Fields({
           >
             <Trash2Icon aria-hidden /> Delete
           </Button>
+        </div>
+      </DialogBody>
+      <div
+        className={cn(
+          "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6",
+          hasStatus && "pt-3"
+        )}
+      >
+        {referenceOnly && <ReferenceOnlyBadge className="text-sm" />}
+        <IndexStatus memory={memory} />
+        <DeepFetchStatus memory={memory} onTryAgain={onRetryDeepFetch} />
+        {memory.indexState === "failed" && (
+          <Button
+            variant="quiet"
+            size="sm"
+            onClick={() => onRetryIndexing(memory)}
+          >
+            <RotateCwIcon aria-hidden /> Retry
+          </Button>
+        )}
+        {restorable && (
+          <Button
+            variant="quiet"
+            size="sm"
+            onClick={() => {
+              const restored = edits.restoreEdit(id);
+              if (restored) setFields(restored);
+              // The button goes; focus moves to the restored text.
+              (bodyField.current ?? titleField.current)?.focus();
+            }}
+          >
+            Restore Your Edit
+          </Button>
+        )}
+      </div>
+      <DialogFooter ref={footerRef} className="justify-between">
+        <div className="flex flex-wrap items-center gap-2">
           <MoreLikeThis memory={memory} onSelect={onMoreLikeThis} />
           <SearchByImage memory={memory} onSelect={onSearchByImage} />
-          <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
         </div>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {isReferenceOnly(memory) && (
-              <ReferenceOnlyBadge className="text-sm" />
-            )}
-            <IndexStatus memory={memory} />
-            <DeepFetchStatus memory={memory} onTryAgain={onRetryDeepFetch} />
-            {memory.indexState === "failed" && (
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={() => onRetryIndexing(memory)}
-              >
-                <RotateCwIcon aria-hidden /> Retry
-              </Button>
-            )}
-          </div>
-          {!!edit?.refused?.length && (
-            <Button
-              variant="quiet"
-              size="sm"
-              onClick={() => {
-                const restored = edits.restoreEdit(id);
-                if (restored) setFields(restored);
-                // The button goes; focus moves to the restored text.
-                (bodyField.current ?? titleField.current)?.focus();
-              }}
-            >
-              Restore Your Edit
-            </Button>
-          )}
-          <Button variant="primary" size="sm" onClick={onClose}>
-            Done
-          </Button>
-        </div>
-      </div>
+        <Button variant="primary" size="sm" onClick={onClose}>
+          Done
+        </Button>
+      </DialogFooter>
     </DialogContent>
   );
 }
@@ -278,15 +362,14 @@ function Reader({ memory }: { memory: Memory }) {
   const text = memory.body || memory.description || "";
   const href = webLink(memory.sourceUrl);
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex flex-col gap-3">
       {href && <SourceLink href={href} host={hostOf(memory)} />}
       {text && (
+        // The Memory detail body is the one scrolling region.
         <article
-          // Scrolls on its own, so the keyboard needs to reach it.
-          tabIndex={0}
           aria-label="Text"
           dir="auto"
-          className="max-h-[55dvh] min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-chip text-base break-words text-ink focus-visible:outline-2 focus-visible:outline-ring"
+          className="text-base break-words text-ink"
         >
           {text
             .split(/\n\s*\n/)

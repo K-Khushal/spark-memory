@@ -9,10 +9,19 @@ import {
 import { ArrowUpRightIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { isPartlyIndexed } from "@spark/core";
-import { Button, Dialog, DialogContent, DialogTitle, cn } from "@spark/ui";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  StateBlock,
+  cn,
+} from "@spark/ui";
 import { api } from "../api";
+import { restoreLibraryFocus } from "./focus";
 import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
 import { memoryName, UploadBadge } from "./memory-tile";
+import { VIEWER_CLOSE, ViewerBar } from "./r1-c-viewer-bar";
 import type { PdfMatch } from "./pdf-match";
 import type { WallMemory } from "./use-library";
 import { MoreLikeThis } from "./why";
@@ -29,14 +38,19 @@ type Pages = Page[] | "loading" | "failed";
 function usePages(memory: WallMemory) {
   const [attempt, setAttempt] = useState(0);
   // The answer, and the request (Memory and attempt) it answers.
-  const [answer, setAnswer] = useState<{ to: string; pages: Pages }>();
+  const [answer, setAnswer] = useState<{
+    to: string;
+    memory: string;
+    pages: Pages;
+  }>();
   const uploading = !!memory.upload;
   const request = `${memory.id}:${attempt}`;
   useEffect(() => {
     if (uploading) return;
     const abort = new AbortController();
     const settle = (pages: Pages) =>
-      !abort.signal.aborted && setAnswer({ to: request, pages });
+      !abort.signal.aborted &&
+      setAnswer({ to: request, memory: memory.id, pages });
     api.api.memories[":id"].pages
       .$get({ param: { id: memory.id } }, { init: { signal: abort.signal } })
       .then(async (res) => {
@@ -46,7 +60,13 @@ function usePages(memory: WallMemory) {
       .catch(() => settle("failed"));
     return () => abort.abort();
   }, [memory.id, uploading, request]);
-  const pages: Pages = answer?.to === request ? answer.pages : "loading";
+  // While new URLs load, the pages on show stay (no jump back to the first page).
+  const pages: Pages =
+    answer?.to === request
+      ? answer.pages
+      : Array.isArray(answer?.pages) && answer.memory === memory.id
+        ? answer.pages
+        : "loading";
   return { pages, reload: () => setAttempt((n) => n + 1) };
 }
 
@@ -121,6 +141,11 @@ function Viewer({
     renewed.current = true;
     reload();
   };
+  // Try Again on a page: new signed URLs, and the one automatic renewal is back.
+  const retry = () => {
+    renewed.current = false;
+    reload();
+  };
   const shown = Array.isArray(pages) ? pages : undefined;
   const stranded = memory.upload?.step === "stranded";
 
@@ -164,14 +189,16 @@ function Viewer({
         e.preventDefault();
         scroller.current?.focus({ preventScroll: true });
       }}
-      className="h-dvh w-screen max-w-none overflow-hidden rounded-none bg-canvas shadow-none"
-      closeClassName="z-10 size-11 bg-transparent"
+      presentation="fullscreen"
+      onCloseAutoFocus={(event) => restoreLibraryFocus(event, memory.id)}
+      className="flex h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none bg-canvas shadow-none"
+      closeClassName={VIEWER_CLOSE}
     >
       <DialogTitle className="sr-only">{memoryName(memory)}</DialogTitle>
-      {/* A solid strip, so pages never scroll under the controls. */}
-      <div className="absolute inset-x-0 top-0 flex h-17 items-center gap-1 bg-canvas max-[360px]:h-32 max-[360px]:flex-wrap pr-14 pl-2 sm:gap-3 sm:pr-16 sm:pl-3">
-        <div className="flex min-w-0 flex-1 items-center max-[360px]:basis-full">
-          {memory.upload ? (
+      {/* A solid bar, so pages never scroll under the controls. */}
+      <ViewerBar
+        start={
+          memory.upload ? (
             <UploadBadge
               upload={memory.upload}
               onRetry={() => onRetry(memory.id)}
@@ -183,19 +210,16 @@ function Viewer({
               memory={memory}
               onRetry={() => onRetryIndexing(memory)}
               withReason
+              className="max-w-full"
             />
           ) : (
             partly && <PartlyIndexed className="max-sm:hidden" />
-          )}
-        </div>
+          )
+        }
+      >
         {!stranded && (
-          <div className="flex shrink-0 items-center gap-1 max-[360px]:max-w-full max-[360px]:flex-wrap max-[360px]:justify-end sm:gap-3">
-            <MoreLikeThis
-              memory={memory}
-              onSelect={onMoreLikeThis}
-              compact
-              className="h-11"
-            />
+          <>
+            <MoreLikeThis memory={memory} onSelect={onMoreLikeThis} compact />
             <CategoryEditor
               compact
               key={memory.id}
@@ -204,15 +228,11 @@ function Viewer({
             />
             <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
             {memory.image && !memory.upload && (
-              <Button
-                asChild
-                variant="quiet"
-                size="icon"
-                className="size-11"
-                aria-label="Open PDF"
-              >
+              <Button asChild variant="quiet" size="sm">
                 <a href={memory.image.url} target="_blank" rel="noreferrer">
                   <ArrowUpRightIcon aria-hidden />
+                  {/* The name stays on a phone; the words need room. */}
+                  <span className="max-sm:sr-only">Open PDF</span>
                 </a>
               </Button>
             )}
@@ -220,20 +240,19 @@ function Viewer({
               variant="quiet"
               size="icon"
               aria-label="Delete"
-              className="size-11"
               onClick={remove}
             >
               <Trash2Icon aria-hidden />
             </Button>
-          </div>
+          </>
         )}
-      </div>
+      </ViewerBar>
       <div
         ref={scroller}
         // A tab stop too, so the keyboard can always come back to scrolling.
         tabIndex={0}
         aria-label="Pages"
-        className="absolute inset-x-0 top-17 bottom-0 overflow-y-auto max-[360px]:top-32 overscroll-contain px-4 pb-6 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring md:px-16"
+        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-6 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring md:px-16"
       >
         <div className="mx-auto flex max-w-[50rem] flex-col gap-4">
           {shown ? (
@@ -244,18 +263,22 @@ function Viewer({
                 passage={match.page === page.page ? match.passage : undefined}
                 eager={page.page <= (match.page ?? 1) + 1}
                 onBroken={renew}
+                onRetry={retry}
               />
             ))
           ) : (
             <FirstPage memory={memory} stranded={stranded} />
           )}
           {pages === "failed" && (
-            <div className="flex flex-col items-center gap-3 py-6">
-              <p className="text-sm text-ink-muted">Pages Are Unreachable</p>
+            <StateBlock
+              title="Pages Are Unreachable"
+              align="centre"
+              className="py-6"
+            >
               <Button variant="outline" onClick={reload}>
                 Try Again
               </Button>
-            </div>
+            </StateBlock>
           )}
           {/* On a phone the strip has no room: it closes the pages instead. */}
           {shown && partly && (
@@ -298,14 +321,19 @@ export function PageView({
   passage,
   eager,
   onBroken,
+  onRetry,
 }: {
   page: Page;
   passage: string | undefined;
   eager: boolean;
   onBroken: () => void;
+  /** Asks for the page again (the viewer fetches fresh signed URLs). */
+  onRetry: () => void;
 }) {
-  // A page that still will not load leaves its empty sheet, not a broken glyph.
+  // A page that still will not load leaves its empty sheet and a Try Again,
+  // not a broken glyph; the sheet keeps its size and its Page N name.
   const [unreadable, setUnreadable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   return (
     <figure data-page={page.page} className="flex flex-col gap-3">
       {/* What matched comes first, so it is on screen when the page opens. */}
@@ -318,14 +346,12 @@ export function PageView({
         </figcaption>
       )}
       <div
-        // A page that will not load keeps its sheet and its label; only the
-        // image hides.
-        role={unreadable ? "img" : undefined}
-        aria-label={unreadable ? `Page ${page.page}` : undefined}
+        data-failed={unreadable || undefined}
         style={{ aspectRatio: `${page.width} / ${page.height}` }}
-        className="w-full overflow-hidden rounded-tile bg-surface"
+        className="relative w-full overflow-hidden rounded-tile bg-surface"
       >
         <img
+          key={attempt}
           src={page.url}
           alt={`Page ${page.page}`}
           width={page.width}
@@ -343,6 +369,29 @@ export function PageView({
             unreadable && "invisible"
           )}
         />
+        {unreadable && (
+          <>
+            <div
+              role="img"
+              aria-label={`Page ${page.page}`}
+              className="absolute inset-0"
+            />
+            <div className="absolute inset-0 grid place-items-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setUnreadable(false);
+                  setAttempt((n) => n + 1);
+                  onRetry();
+                }}
+              >
+                Try Again
+                <span className="sr-only"> on Page {page.page}</span>
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </figure>
   );

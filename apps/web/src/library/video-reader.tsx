@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { PlayIcon } from "lucide-react";
 import {
   FREE_ALLOWANCE,
@@ -7,7 +7,7 @@ import {
   videoTimestamp,
   youtubeId,
 } from "@spark/core";
-import { Button } from "@spark/ui";
+import { cn } from "@spark/ui";
 import { SourceLink } from "./source-link";
 import type { Memory } from "./use-library";
 
@@ -16,7 +16,8 @@ export function VideoReader({
   memory,
   seconds,
 }: {
-  memory: Pick<Memory, "sourceUrl" | "video" | "description">;
+  memory: Pick<Memory, "sourceUrl" | "video" | "description"> &
+    Partial<Pick<Memory, "image">>;
   seconds?: number;
 }) {
   const [moment, setMoment] = useState(
@@ -50,7 +51,8 @@ export function VideoReader({
     stamps.current[to]?.focus();
   };
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+    // Reads inside Memory detail's one scrolling body.
+    <div className="flex flex-col gap-3">
       {id &&
         (playing ? (
           <iframe
@@ -64,13 +66,12 @@ export function VideoReader({
             referrerPolicy="no-referrer"
           />
         ) : (
-          <Button
-            variant="quiet"
-            className="aspect-video h-auto w-full shrink-0 bg-sunken"
+          <PlayPanel
+            poster={memory.image?.thumbnailUrl}
             onClick={() => setPlaying(true)}
           >
-            <PlayIcon aria-hidden /> Play at {formatTimestamp(moment)}
-          </Button>
+            Play At {formatTimestamp(moment)}
+          </PlayPanel>
         ))}
       {source && (
         <SourceLink
@@ -96,12 +97,12 @@ export function VideoReader({
                 }}
                 tabIndex={i === stop ? 0 : -1}
                 onFocus={() => setStop(i)}
-                aria-label={`Play at ${formatTimestamp(s.seconds)}`}
+                aria-label={`Play At ${formatTimestamp(s.seconds)}`}
                 onClick={() => {
                   setMoment(s.seconds);
                   setPlaying(true);
                 }}
-                className="shrink-0 rounded-chip px-1 py-1 text-sm text-ink-muted tabular-nums transition-colors duration-(--duration-press) hover:text-ink focus-visible:outline-2 focus-visible:outline-ring"
+                className="min-h-6 shrink-0 rounded-chip px-1 py-1 text-sm text-ink-muted tabular-nums transition-colors duration-(--duration-press) hover:text-ink focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-(--size-touch) pointer-coarse:min-w-(--size-touch)"
               >
                 {formatTimestamp(s.seconds)}
               </button>
@@ -113,18 +114,81 @@ export function VideoReader({
         </ol>
       ) : (
         <>
-          <p className="text-sm text-ink-muted">
-            {memory.video?.transcriptState === "over_allowance"
-              ? `Transcript Unavailable, Over ${FREE_ALLOWANCE.videoTranscriptMaxMinutes} Minutes`
-              : "Transcript Unavailable"}
+          <p
+            role="status"
+            className="flex flex-wrap gap-2 text-sm text-ink-muted"
+          >
+            <StatusChip>Transcript Unavailable</StatusChip>
+            {memory.video?.transcriptState === "over_allowance" && (
+              <StatusChip>
+                Over {FREE_ALLOWANCE.videoTranscriptMaxMinutes} Minutes
+              </StatusChip>
+            )}
           </p>
           {memory.description && (
-            <p dir="auto" className="text-base wrap-anywhere">
+            <p dir="auto" className="max-w-[65ch] text-base wrap-anywhere">
               {memory.description}
             </p>
           )}
         </>
       )}
     </div>
+  );
+}
+
+/** A compact status: a sunken chip, so two of them read as two facts. */
+function StatusChip({ children }: { children: ReactNode }) {
+  return (
+    <span className="rounded-chip bg-sunken px-2 py-0.5 text-sm text-ink-muted">
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Where the player will be: the preserved poster when there is one, else a
+ * flat sunken 16:9 panel. A 44px Play target either way; no glass, no zoom.
+ * The poster is Spark's own preserved copy: nothing from YouTube loads yet.
+ */
+function PlayPanel({
+  poster,
+  onClick,
+  children,
+}: {
+  poster: string | undefined;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const [broken, setBroken] = useState(false);
+  const showing = poster && !broken;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "relative flex aspect-video w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-tile bg-sunken text-sm font-medium text-ink transition-[background-color,transform] duration-(--duration-press) ease-out hover:bg-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.98] pointer-coarse:min-h-(--size-touch)"
+      )}
+    >
+      {showing && (
+        <img
+          src={poster}
+          alt=""
+          draggable={false}
+          onError={() => setBroken(true)}
+          className="absolute inset-0 size-full object-cover"
+        />
+      )}
+      {/* Over a poster the label sits on the fixed dark plate, as video badges do. */}
+      <span
+        data-theme={showing ? "dark" : undefined}
+        className={cn(
+          "relative inline-flex items-center gap-2",
+          showing && "rounded-control bg-canvas px-3 py-2 text-ink"
+        )}
+      >
+        <PlayIcon className="size-4" aria-hidden />
+        {children}
+      </span>
+    </button>
   );
 }
