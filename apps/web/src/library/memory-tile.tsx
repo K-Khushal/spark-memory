@@ -3,7 +3,7 @@ import { IndexBadge, isPartly, PartlyIndexedBadge } from "./index-state";
 import { PlayIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { formatTimestamp, sourceHost } from "@spark/core";
-import { cn } from "@spark/ui";
+import { Checkbox, cn, type MasonrySelection } from "@spark/ui";
 import type { UploadState } from "./image-capture";
 import type { WallMemory } from "./use-library";
 
@@ -158,6 +158,7 @@ export function tileLabel(memory: WallMemory) {
 /** One Memory on the wall, landing with DESIGN.md's Capture motion. */
 export function MemoryTile(props: {
   memory: WallMemory;
+  selection?: MasonrySelection;
   query: string;
   width: number;
   onRetry: (id: string) => void;
@@ -187,7 +188,29 @@ export function MemoryTile(props: {
     ))
   );
   return (
-    <div className={cn("h-full w-full", memory.fresh && "spark-capture-in")}>
+    <div
+      className={cn(
+        "hover-raise relative h-full w-full rounded-tile",
+        memory.fresh && "spark-capture-in"
+      )}
+    >
+      {props.selection && (
+        <Checkbox
+          aria-label={`Select ${tileLabel(memory)}`}
+          tabIndex={-1}
+          checked={props.selection.ids.includes(memory.id)}
+          onCheckedChange={() => props.selection?.choose(memory.id, "toggle")}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (event.shiftKey) {
+              event.preventDefault();
+              props.selection?.choose(memory.id, "range");
+            }
+          }}
+          className="absolute top-4 right-4 z-10 opacity-0 focus:opacity-100 group-hover/selection:opacity-100 data-[state=checked]:opacity-100 pointer-coarse:opacity-100"
+        />
+      )}
       {memory.kind === "link" || memory.kind === "video" ? (
         <LinkTile {...props} />
       ) : memory.image ? (
@@ -200,7 +223,7 @@ export function MemoryTile(props: {
 }
 
 const tileFrame =
-  "relative h-full rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:shadow-raised before:opacity-0 before:transition-opacity before:duration-(--duration-press) before:ease-out [@media(hover:hover)_and_(pointer:fine)]:hover:before:opacity-100";
+  "relative h-full rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]";
 
 /** An image Memory: its thumbnail over its ThumbHash, and its upload while it lasts. */
 function ImageTile({

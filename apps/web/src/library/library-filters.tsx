@@ -166,22 +166,20 @@ export function LibraryFilters({
       aria-label="Colour"
       className={
         layout === "sidebar"
-          ? "grid grid-cols-4 gap-0 px-1"
+          ? "grid grid-cols-6 gap-2 px-2 pointer-coarse:grid-cols-4 pointer-coarse:gap-0"
           : "flex shrink-0 items-center gap-0 px-1"
       }
     >
       {FILTER_COLOURS.map(({ name, hex }) => {
         const colour = name.toLowerCase() as SearchColour;
         return (
-          <span key={name} className="grid size-11 shrink-0 place-items-center">
-            <Swatch
-              hex={hex}
-              name={name}
-              className="size-7 shadow-[inset_0_0_0_1px_var(--line-strong)] before:absolute before:-inset-2"
-              aria-pressed={chips.colour === colour}
-              onClick={() => set("colour", colour)}
-            />
-          </span>
+          <Swatch
+            key={name}
+            hex={hex}
+            name={name}
+            aria-pressed={chips.colour === colour}
+            onClick={() => set("colour", colour)}
+          />
         );
       })}
     </div>

@@ -6,6 +6,11 @@ import {
   Button,
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogBody,
+  DialogFooter,
+  inputModality,
+  useBottomObstruction,
   DialogTitle,
   FilterChip,
 } from "@spark/ui";
@@ -13,7 +18,6 @@ import {
 /** One bar: pointer entry rises once; keyboard entry and every exit are immediate. */
 export function SelectionBar({
   count,
-  keyboard,
   onHeight,
   ownNames,
   onClear,
@@ -21,7 +25,6 @@ export function SelectionBar({
   onCategories,
 }: {
   count: number;
-  keyboard?: boolean;
   onHeight?: (height: number) => void;
   ownNames: string[];
   onClear: () => void;
@@ -30,18 +33,21 @@ export function SelectionBar({
 }) {
   const reduced = useReducedMotion();
   const bar = useRef<HTMLDivElement>(null);
+  useBottomObstruction(bar);
+  // Content needs the same clearance; the shared hook owns toast placement.
   useEffect(() => {
-    const el = bar.current;
-    if (!el) return;
-    const update = () => onHeight?.(el.getBoundingClientRect().height);
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    update();
+    const element = bar.current;
+    if (!element || !onHeight) return;
+    const measure = () => onHeight(element.getBoundingClientRect().height);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
     return () => {
       observer.disconnect();
-      onHeight?.(0);
+      onHeight(0);
     };
   }, [onHeight]);
+  const [keyboard] = useState(() => inputModality() === "keyboard");
   const [open, setOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [announcement, setAnnouncement] = useState("");
@@ -89,12 +95,13 @@ export function SelectionBar({
         transition={{ duration: DURATION.press / 1000, ease: EASING.out }}
         role="region"
         aria-label="Selection"
-        className="fixed inset-x-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-2 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay md:left-60"
+        className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-2 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay md:left-60"
       >
         <span className="px-2 tabular-nums">
           {count.toLocaleString()} Selected
         </span>
         <Button
+          wrap
           size="sm"
           className="min-h-11"
           variant="outline"
@@ -104,6 +111,7 @@ export function SelectionBar({
         </Button>
 
         <Button
+          wrap
           size="sm"
           className="min-h-11"
           variant="quiet"
@@ -112,6 +120,7 @@ export function SelectionBar({
           Clear
         </Button>
         <Button
+          wrap
           size="sm"
           className="min-h-11"
           variant="primary"
@@ -128,48 +137,56 @@ export function SelectionBar({
         }}
       >
         <DialogContent
+          presentation="sheet"
           aria-describedby={undefined}
-          className="max-h-[80dvh] overflow-y-auto p-6"
+          className="flex max-h-[80dvh] flex-col overflow-hidden"
         >
-          <DialogTitle>Categories</DialogTitle>
-          <div className="flex flex-wrap gap-2 py-4">
-            {[...CATEGORY_NAMES, ...ownNames].map((name) => (
-              <FilterChip
-                key={name}
-                title={name}
-                className="h-auto min-h-11 max-w-full py-2"
-                aria-pressed={categories.includes(name)}
-                disabled={
-                  !categories.includes(name) &&
-                  categories.length >= MAX_CATEGORIES
-                }
-                onClick={() =>
-                  setCategories((now) =>
-                    now.includes(name)
-                      ? now.filter((c) => c !== name)
-                      : [...now, name]
-                  )
-                }
-              >
-                <span className="min-w-0 wrap-anywhere text-start" dir="auto">
-                  {name}
-                </span>
-              </FilterChip>
-            ))}
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            className="min-h-11 disabled:opacity-50"
-            disabled={!categories.length}
-            onClick={() => {
-              setOpen(false);
-              finish(() => onCategories(categories));
-              setCategories([]);
-            }}
-          >
-            Set Categories
-          </Button>
+          <DialogHeader>
+            <DialogTitle className="wrap-anywhere">Categories</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <div className="flex flex-wrap gap-2">
+              {[...CATEGORY_NAMES, ...ownNames].map((name) => (
+                <FilterChip
+                  key={name}
+                  title={name}
+                  className="h-auto min-h-11 max-w-full py-2"
+                  aria-pressed={categories.includes(name)}
+                  disabled={
+                    !categories.includes(name) &&
+                    categories.length >= MAX_CATEGORIES
+                  }
+                  onClick={() =>
+                    setCategories((now) =>
+                      now.includes(name)
+                        ? now.filter((c) => c !== name)
+                        : [...now, name]
+                    )
+                  }
+                >
+                  <span className="min-w-0 wrap-anywhere text-start" dir="auto">
+                    {name}
+                  </span>
+                </FilterChip>
+              ))}
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              wrap
+              variant="primary"
+              size="sm"
+              className="min-h-11 disabled:opacity-50"
+              disabled={!categories.length}
+              onClick={() => {
+                setOpen(false);
+                finish(() => onCategories(categories));
+                setCategories([]);
+              }}
+            >
+              Set Categories
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

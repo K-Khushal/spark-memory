@@ -261,7 +261,7 @@ test("a search that fails says so the same way in the menu and on the wall, and 
   ).toBeVisible();
   await page.getByRole("button", { name: "Clear Search" }).first().click();
 
-  const wall = page.locator("main > div[aria-busy]");
+  const wall = page.locator("[data-library-wall]");
   await expect(wall).toHaveAttribute("aria-busy", "false");
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("slow");
@@ -392,7 +392,7 @@ test("Try Again says it is searching again, and marks the menu and the wall busy
   await page.getByPlaceholder("Search…").fill(outage.query);
   await expect(list.getByText("Search Is Unreachable")).toBeVisible();
   await page.keyboard.press("Enter");
-  const wall = page.locator("main > div[aria-busy]");
+  const wall = page.locator("[data-library-wall]");
   await expect(
     page.getByRole("heading", { name: "Search Is Unreachable" })
   ).toBeVisible();

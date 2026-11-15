@@ -1511,7 +1511,11 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
         .getByRole("button", { name: "Delete", exact: true })
         .click();
       await wait(2200);
-      await p.getByRole("button", { name: "Undo" }).click();
+      await p
+        .locator("[data-sonner-toast]")
+        .filter({ hasText: "Deleted" })
+        .getByRole("button", { name: "Undo", exact: true })
+        .click();
       await wait(800);
     }
   );
