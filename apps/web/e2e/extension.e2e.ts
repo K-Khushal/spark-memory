@@ -60,14 +60,14 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     await popup.reload();
     await fixture.bringToFront();
     await expect(popup.getByRole("status")).toHaveText(
-      /Saved|Already in Your Library/
+      /Captured|Already in Your Library/
     );
     await popup
       .getByLabel("Capture Note", { exact: true })
       .fill("For the windowsill");
-    await popup.getByRole("button", { name: "Add Capture Note" }).click();
+    await popup.getByRole("button", { name: "Add Note" }).click();
     await expect(
-      popup.getByRole("button", { name: "Saved", exact: true })
+      popup.getByRole("button", { name: "Note Added", exact: true })
     ).toBeVisible();
     const library = await dashboard.request.get("/api/memories");
     const data = await library.json();
@@ -111,7 +111,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     await expect(popup.getByRole("status")).toHaveText("Waiting to Send");
     await context.setOffline(false);
     await popup.getByRole("button", { name: "Try Again" }).click();
-    await expect(popup.getByRole("status")).toHaveText("Saved");
+    await expect(popup.getByRole("status")).toHaveText("Captured");
     await expect(
       popup.getByRole("button", { name: "Discard Outbox" })
     ).toHaveCount(0);
@@ -298,7 +298,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
         await popup.reload();
         await fixture.bringToFront();
         await expect(popup.getByRole("status")).toHaveText(
-          /Saved|Already in Your Library/
+          /Captured|Already in Your Library/
         );
         await popup.setViewportSize({ width, height: 700 });
         await popup.screenshot({
@@ -341,7 +341,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
         () => document.documentElement.scrollWidth <= innerWidth
       )
     ).toBe(true);
-    await popup.getByRole("button", { name: "Add Capture Note" }).focus();
+    await popup.getByRole("button", { name: "Add Note" }).focus();
     await popup.screenshot({ path: `${folder}/t18-320-dark-worst.png` });
   } finally {
     await context.close();

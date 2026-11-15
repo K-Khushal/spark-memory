@@ -1223,7 +1223,7 @@ test("extension popup, Grant Access and region overlay", async () => {
       async () => {
         await open();
         await expect(popup.getByRole("status")).toHaveText(
-          /Saved|Already in Your Library/
+          /Captured|Already in Your Library/
         );
       },
       { recover: async () => {} }

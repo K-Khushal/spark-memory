@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Button } from "@spark/ui";
+import { Button, StateBlock } from "@spark/ui";
 import { REFUSAL_COPY } from "./refusal";
 import type { ShareRefusal } from "./validate";
 
@@ -7,14 +7,11 @@ import type { ShareRefusal } from "./validate";
 export function ShareRefused({ reason }: { reason: ShareRefusal }) {
   return (
     <main className="grid min-h-dvh place-items-center bg-canvas px-4 py-12">
-      <div className="flex flex-col items-center gap-4">
-        <h1 className="text-center font-display text-xl font-semibold">
-          {REFUSAL_COPY[reason]}
-        </h1>
+      <StateBlock title={REFUSAL_COPY[reason]} level={1} align="centre">
         <Button variant="outline" asChild>
           <Link to="/">Open Library</Link>
         </Button>
-      </div>
+      </StateBlock>
     </main>
   );
 }
