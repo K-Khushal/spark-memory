@@ -98,7 +98,8 @@ export function ImageViewer({
       <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
         {memory?.image && (
           <DialogContent
-            onCloseAutoFocus={restoreLibraryFocus}
+            // Focus goes back to the image last shown, not the one opened.
+            onCloseAutoFocus={(event) => restoreLibraryFocus(event, memory.id)}
             data-theme="dark"
             aria-describedby={undefined}
             onKeyDown={onKeyDown}

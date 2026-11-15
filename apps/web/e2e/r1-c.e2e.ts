@@ -133,13 +133,15 @@ test("Memory detail is a sheet on a phone and a centred dialog on a desktop, in 
       ).toBeVisible();
       expect(await overflows(page)).toBe(false);
       await shot(page, `detail-text-${theme}-${width}`);
-      await page.keyboard.press("Escape");
+      // Close, by its button, hands focus back to the Memory it opened from.
+      await dialog.getByRole("button", { name: "Close" }).click();
       await expect(dialog).toBeHidden();
+      await expect(tile).toBeFocused();
     }
   }
 });
 
-test("a short text has no dead space, and its field edits in place with room around the glyphs", async ({
+test("a note reads as text until touched: no chrome at rest, one line for one line, 96px only while writing", async ({
   page,
 }) => {
   await signIn(page);
@@ -148,22 +150,56 @@ test("a short text has no dead space, and its field edits in place with room aro
   await tile.click();
   const dialog = page.getByRole("dialog");
   const text = dialog.getByRole("textbox", { name: "Text" });
-  // At least 96px, no more: no 160px well for one line.
-  const height = (await boxOf(text)).height;
-  expect(height).toBeGreaterThanOrEqual(96);
-  expect(height).toBeLessThanOrEqual(100);
-  // Base text on a 24px leading, 12px inset on every side.
-  const style = await text.evaluate((el) => {
-    const s = getComputedStyle(el);
-    return [s.fontSize, s.lineHeight, s.paddingLeft, s.paddingTop];
+  const chrome = () =>
+    text.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return {
+        background: s.backgroundColor,
+        border: s.borderTopWidth,
+        outline: s.outlineStyle === "none" ? "0px" : s.outlineWidth,
+      };
+    });
+  // At rest: nothing drawn, and as tall as its one line (24px + 12px inset twice).
+  expect(await chrome()).toEqual({
+    background: "rgba(0, 0, 0, 0)",
+    border: "0px",
+    outline: "0px",
   });
-  expect(style).toEqual(["15px", "24px", "12px", "12px"]);
-  // Typing grows the field with no height transition.
+  const rest = (await boxOf(text)).height;
+  expect(rest).toBeLessThan(60);
+  // Base text on a 24px leading, 12px inset on every side.
+  expect(
+    await text.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return [s.fontSize, s.lineHeight, s.paddingLeft, s.paddingTop];
+    })
+  ).toEqual(["15px", "24px", "12px", "12px"]);
+  // Hover draws the surface, by colour alone (120ms), never a size or an edge.
   expect(
     await text.evaluate((el) => getComputedStyle(el).transitionProperty)
-  ).not.toMatch(/height|all/);
+  ).toBe("background-color");
+  await text.hover();
+  await expect
+    .poll(async () => (await chrome()).background)
+    .not.toBe("rgba(0, 0, 0, 0)");
+  expect((await chrome()).border).toBe("0px");
+  expect((await boxOf(text)).height).toBe(rest);
+  // Tab reaches it with a visible ring, and only then does it open to 96px.
+  await page.mouse.move(0, 0);
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(text).toBeFocused();
+  expect((await chrome()).outline).toBe("2px");
+  expect((await boxOf(text)).height).toBeGreaterThanOrEqual(96);
+  expect((await boxOf(text)).height).toBeLessThanOrEqual(100);
+  // Typing grows it with no height transition.
   await text.fill(Array.from({ length: 12 }, (_, i) => `Line ${i}`).join("\n"));
-  expect((await boxOf(text)).height).toBeGreaterThan(height + 100);
+  expect((await boxOf(text)).height).toBeGreaterThan(250);
+  // Emptied, it keeps the 96px well to write in even after it loses focus.
+  await text.fill("");
+  await dialog.getByRole("textbox", { name: "Capture Note" }).focus();
+  expect((await boxOf(text)).height).toBeGreaterThanOrEqual(96);
+  await text.fill("Line 0\nLine 11");
   // Ctrl Enter saves and closes, and focus goes back to the Memory.
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(dialog).toBeHidden();
@@ -173,6 +209,58 @@ test("a short text has no dead space, and its field edits in place with room aro
     .toMatchObject({
       memories: [{ body: expect.stringContaining("Line 11") }],
     });
+});
+
+test("a toast never covers Done on a phone sheet: it stacks above the footer and both stay clickable", async ({
+  page,
+}) => {
+  await signIn(page);
+  for (const [width, height, large] of [
+    [390, 844, false],
+    [320, 640, false],
+    [320, 640, true],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    if (large) await zoom(page);
+    await paste(page, `Toast check ${width} ${large}`);
+    const tile = page.getByRole("listitem", {
+      name: new RegExp(`Toast check ${width} ${large}`),
+    });
+    await expect(tile).toBeVisible();
+    // The "Captured" toast with Undo is up while the detail opens.
+    const toast = page.locator("[data-sonner-toast]").last();
+    await expect(toast.getByRole("button", { name: "Undo" })).toBeVisible();
+    await tile.click();
+    const dialog = page.getByRole("dialog");
+    const done = dialog.getByRole("button", { name: "Done", exact: true });
+    await expect(done).toBeVisible();
+    await settle(page);
+    await expect(toast).toBeVisible();
+    // The toast stands above the footer, never over it.
+    const footer = await boxOf(dialog.locator("[data-slot=dialog-footer]"));
+    const stood = await boxOf(toast);
+    expect(stood.y + stood.height).toBeLessThanOrEqual(footer.y + 0.5);
+    // What the finger would hit at the centre of each is that control.
+    const hit = async (name: string, scope: Locator) => {
+      const target = scope.getByRole("button", { name, exact: true });
+      const box = await boxOf(target);
+      return target.evaluate(
+        (el, [x, y]) => {
+          const top = document.elementFromPoint(x!, y!);
+          return !!top && (el === top || el.contains(top));
+        },
+        [box.x + box.width / 2, box.y + box.height / 2]
+      );
+    };
+    expect(await hit("Done", dialog)).toBe(true);
+    expect(await hit("Undo", toast)).toBe(true);
+    await shot(page, `detail-toast-${width}${large ? "-200" : ""}`);
+    await done.click();
+    await expect(dialog).toBeHidden();
+    // Closed, the toaster drops back to the bottom edge.
+    if (large)
+      await page.evaluate(() => (document.documentElement.style.fontSize = ""));
+  }
 });
 
 test("a long Title reads in full at 320px and at 200% text, and Done is never an orphan row", async ({
@@ -353,11 +441,11 @@ async function dropPdf(page: Page, name: string, pages: string[]) {
   );
 }
 
-async function dropImage(page: Page) {
-  await page.evaluate(async () => {
+async function dropImage(page: Page, colour = "#2f6fe0") {
+  await page.evaluate(async (colour) => {
     const canvas = new OffscreenCanvas(64, 48);
     const context = canvas.getContext("2d")!;
-    context.fillStyle = "#2f6fe0";
+    context.fillStyle = colour;
     context.fillRect(0, 0, 64, 48);
     const png = await canvas.convertToBlob({ type: "image/png" });
     const data = new DataTransfer();
@@ -367,7 +455,35 @@ async function dropImage(page: Page) {
         new DragEvent(type, { dataTransfer: data, bubbles: true })
       );
     }
-  });
+  }, colour);
+}
+
+/** Drops one image per colour and waits until each is stored and Searchable. */
+async function captureImages(page: Page, colours: string[]) {
+  const tiles = page
+    .getByRole("list", { name: "All Memories" })
+    .getByRole("listitem", { name: /^(Image|Fake Image Title)/ });
+  for (const [i, colour] of colours.entries()) {
+    await dropImage(page, colour);
+    await expect(tiles).toHaveCount(i + 1);
+    await expect(tiles.first().getByRole("progressbar")).toBeHidden({
+      timeout: 15_000,
+    });
+  }
+  await expect
+    .poll(
+      async () =>
+        (
+          (await (await page.request.get("/api/memories")).json()) as {
+            memories: { indexState: string }[];
+          }
+        ).memories.every((m) => m.indexState === "searchable"),
+      { timeout: 25_000 }
+    )
+    .toBe(true);
+  await page.reload();
+  await expect(tiles).toHaveCount(colours.length);
+  return tiles;
 }
 
 /** The bar's controls, left to right, and Close at the end. */
@@ -378,7 +494,7 @@ async function toolbarControls(viewer: Locator) {
   );
 }
 
-test("the PDF viewer's toolbar never overlaps at 320px or 200% text, Close stays last, and a failed page can be retried", async ({
+test("the PDF viewer's toolbar never overlaps at 320px or 200% text, Close returns focus to the Memory, and a failed page can be retried", async ({
   page,
 }) => {
   await signIn(page);
@@ -440,6 +556,13 @@ test("the PDF viewer's toolbar never overlaps at 320px or 200% text, Close stays
     }
   }
 
+  // Close, by its button, hands focus back to the PDF's tile.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await tile.click();
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(tile).toBeFocused();
+
   // A page whose image will not load keeps its sheet, its Page N name and a
   // Try Again that fetches it again.
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -478,7 +601,7 @@ test("the PDF viewer's toolbar never overlaps at 320px or 200% text, Close stays
   await expect(viewer.getByRole("img", { name: "Page 1" })).toBeVisible();
 });
 
-test("the image viewer's toolbar never overlaps at 320px or 200% text, and arrows, Escape and Close still work", async ({
+test("the image viewer's toolbar never overlaps at 320px or 200% text, and Escape returns focus to the Memory", async ({
   page,
 }) => {
   await signIn(page);
@@ -537,7 +660,119 @@ test("the image viewer's toolbar never overlaps at 320px or 200% text, and arrow
   }
 });
 
-test("coarse pointers get 44px targets in the detail and the viewers", async ({
+const stageImage = (viewer: Locator) =>
+  viewer.locator("img[alt]:not([alt=''])");
+
+test("the image viewer moves between images by arrow, button and swipe, stops at the ends, and Close returns focus", async ({
+  page,
+}) => {
+  await signIn(page);
+  const tiles = await captureImages(page, ["#2f6fe0", "#e0502f", "#2fe08a"]);
+  await tiles.first().click();
+  const viewer = page.getByRole("dialog");
+  const src = async () =>
+    (await stageImage(viewer).last().getAttribute("src")) ?? "";
+  await expect(stageImage(viewer)).toHaveCount(1);
+  const seen = [await src()];
+  const next = viewer.getByRole("button", { name: "Next Image" });
+  const previous = viewer.getByRole("button", { name: "Previous Image" });
+  await expect(previous).toHaveAttribute("aria-disabled", "true");
+
+  // → and the Next button go on; each image is a different Memory's file.
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(src).not.toBe(seen[0]);
+  seen.push(await src());
+  await next.click();
+  await expect.poll(src).not.toBe(seen[1]);
+  seen.push(await src());
+  expect(new Set(seen).size).toBe(3);
+  // The last image: Next is disabled but stays focusable, and → does nothing.
+  await expect(next).toHaveAttribute("aria-disabled", "true");
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(400);
+  expect(await src()).toBe(seen[2]);
+
+  // ← and Previous come back the same way.
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(src).toBe(seen[1]);
+  await previous.click();
+  await expect.poll(src).toBe(seen[0]);
+  await expect(previous).toHaveAttribute("aria-disabled", "true");
+
+  // A swipe left goes on, a swipe right comes back (past 120px).
+  await settle(page);
+  const swipe = async (from: number, to: number) => {
+    const y = 450;
+    await page.mouse.move(from, y);
+    await page.mouse.down();
+    await page.mouse.move((from + to) / 2, y, { steps: 4 });
+    await page.mouse.move(to, y, { steps: 4 });
+    await page.mouse.up();
+  };
+  await swipe(900, 300);
+  await expect.poll(src).toBe(seen[1]);
+  await settle(page);
+  await swipe(300, 900);
+  await expect.poll(src).toBe(seen[0]);
+  // A short drag is not a swipe: it springs back to the same image.
+  await settle(page);
+  await swipe(700, 640);
+  await page.waitForTimeout(400);
+  expect(await src()).toBe(seen[0]);
+
+  // Close, by its button, hands focus to the image last shown (the second).
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(src).toBe(seen[1]);
+  await viewer.getByRole("button", { name: "Close" }).click();
+  await expect(viewer).toBeHidden();
+  await expect(tiles.nth(1)).toBeFocused();
+});
+
+test("with reduced motion an image change does not slide, and without it the image comes in from the side", async ({
+  page,
+}) => {
+  await signIn(page);
+  const tiles = await captureImages(page, ["#2f6fe0", "#e0502f"]);
+  /** How far the incoming image is from centre two frames after ArrowRight. */
+  const offsetAfterNext = async () => {
+    const viewer = page.getByRole("dialog");
+    return viewer.evaluate(async (root) => {
+      const pictures = () => [
+        ...root.querySelectorAll<HTMLImageElement>("img[alt]:not([alt=''])"),
+      ];
+      const before = pictures().map((img) => img.src);
+      root.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })
+      );
+      for (let i = 0; i < 3; i++)
+        await new Promise((r) => requestAnimationFrame(r));
+      const incoming = pictures().find((img) => !before.includes(img.src));
+      if (!incoming) return Infinity;
+      const box = incoming.getBoundingClientRect();
+      return Math.abs(box.x + box.width / 2 - window.innerWidth / 2);
+    });
+  };
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await tiles.first().click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await settle(page);
+  expect(await offsetAfterNext()).toBeGreaterThan(40);
+  await page.keyboard.press("Escape");
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await tiles.first().click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await settle(page);
+  expect(await offsetAfterNext()).toBeLessThan(2);
+  // The new image is there and readable, and Escape still closes.
+  await expect(stageImage(page.getByRole("dialog")).last()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toBeHidden();
+});
+
+test("coarse pointers get 44px targets in the detail and in both viewers", async ({
   browser,
 }) => {
   const context = await browser.newContext({
@@ -546,26 +781,75 @@ test("coarse pointers get 44px targets in the detail and the viewers", async ({
     isMobile: true,
   });
   const page = await context.newPage();
+  /** Every button, link and summary in `scope` is at least 44px each way. */
+  const touchSized = async (scope: Locator, what: string) => {
+    // A switch's 44px hit area is a pseudo-element (shared Switch, A's); its
+    // visible box is 20px, so it is judged by Playwright's own hit-testing.
+    const controls = await scope
+      .locator("button:visible:not([role=switch]), a:visible, summary:visible")
+      .all();
+    expect(controls.length, what).toBeGreaterThan(0);
+    for (const control of controls) {
+      const b = await boxOf(control);
+      const name =
+        (await control.getAttribute("aria-label")) ??
+        ((await control.innerText()) || (await control.textContent())) ??
+        "";
+      expect(
+        Math.round(b.height),
+        `${what}: ${name} height`
+      ).toBeGreaterThanOrEqual(44);
+      // Icon buttons are square; text buttons are as wide as their words.
+      if (!(await control.innerText()).trim())
+        expect(
+          Math.round(b.width),
+          `${what}: ${name} width`
+        ).toBeGreaterThanOrEqual(44);
+    }
+  };
   try {
     await signIn(page);
     await paste(page, "Touch target check");
-    const tile = page.getByRole("listitem", { name: /Touch target check/ });
-    await tile.tap();
+    await captureImages(page, ["#2f6fe0", "#e0502f"]);
+    await dropPdf(page, "Touch rules.pdf", ["One", "Two"]);
+    const wall = page.getByRole("list", { name: "All Memories" });
+    const pdf = wall.getByRole("listitem", { name: "Touch rules, PDF" });
+    await expect(pdf).toBeVisible();
+    await expect(pdf.getByRole("progressbar")).toBeHidden({ timeout: 15_000 });
+    await expect
+      .poll(
+        async () =>
+          (
+            (await (await page.request.get("/api/memories")).json()) as {
+              memories: { kind: string; indexState: string }[];
+            }
+          ).memories.some(
+            (m) => m.kind === "pdf" && m.indexState === "searchable"
+          ),
+        { timeout: 25_000 }
+      )
+      .toBe(true);
+    await page.reload();
+
+    await wall.getByRole("listitem", { name: /Touch target check/ }).tap();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    for (const control of await dialog
-      .locator("button:visible, [role=switch]:visible, summary:visible")
-      .all()) {
-      const b = await boxOf(control);
-      // Switch hit area is its 44px label row via the pseudo-element; the
-      // visible box can be smaller, so judge the buttons and the summary.
-      const role = await control.getAttribute("role");
-      if (role === "switch") continue;
-      expect(
-        Math.round(b.height),
-        await control.innerText()
-      ).toBeGreaterThanOrEqual(44);
-    }
+    await touchSized(dialog, "Memory detail");
+    await dialog.getByRole("button", { name: "Close" }).tap();
+    await expect(dialog).toBeHidden();
+
+    await wall.getByRole("listitem", { name: "Touch rules, PDF" }).tap();
+    await expect(dialog.getByRole("img", { name: "Page 1" })).toBeVisible();
+    await touchSized(dialog, "PDF viewer");
+    await dialog.getByRole("button", { name: "Close" }).tap();
+    await expect(dialog).toBeHidden();
+
+    await wall
+      .getByRole("listitem", { name: /^(Image|Fake Image Title)/ })
+      .first()
+      .tap();
+    await expect(stageImage(dialog)).toBeVisible();
+    await touchSized(dialog, "Image viewer");
   } finally {
     await context.close();
   }

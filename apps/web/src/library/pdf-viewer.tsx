@@ -18,6 +18,7 @@ import {
   cn,
 } from "@spark/ui";
 import { api } from "../api";
+import { restoreLibraryFocus } from "./focus";
 import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
 import { memoryName, UploadBadge } from "./memory-tile";
 import { VIEWER_CLOSE, ViewerBar } from "./r1-c-viewer-bar";
@@ -189,6 +190,7 @@ function Viewer({
         scroller.current?.focus({ preventScroll: true });
       }}
       presentation="fullscreen"
+      onCloseAutoFocus={(event) => restoreLibraryFocus(event, memory.id)}
       className="flex h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none bg-canvas shadow-none"
       closeClassName={VIEWER_CLOSE}
     >
