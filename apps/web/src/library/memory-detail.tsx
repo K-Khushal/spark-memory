@@ -8,9 +8,12 @@ import { FREE_ALLOWANCE } from "@spark/core";
 import {
   Button,
   Dialog,
+  DialogBody,
   DialogContent,
+  DialogFooter,
   DialogTitle,
   Textarea,
+  cn,
 } from "@spark/ui";
 import type { Draft } from "./drafts";
 import {
@@ -124,6 +127,7 @@ function Fields({
   const [fields, setFields] = useState<Draft>(
     () => edit?.fields ?? textOf(memory)
   );
+  const body = useRef<HTMLDivElement>(null);
   const bodyField = useRef<HTMLTextAreaElement>(null);
   const titleField = useRef<HTMLTextAreaElement>(null);
   const autosave = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -159,58 +163,91 @@ function Fields({
     }
   };
 
+  const referenceOnly = isReferenceOnly(memory);
+  const restorable = !!edit?.refused?.length;
+  const failedOrIndexing =
+    memory.indexState === "failed" || memory.indexState === "indexing";
+  // The status zone takes room only while it has something to say; the
+  // Index state line stays mounted inside it so screen readers hear changes.
+  const hasStatus =
+    referenceOnly || failedOrIndexing || !!memory.deepFetch || restorable;
+
   return (
     <DialogContent
+      presentation="sheet"
       onCloseAutoFocus={(event) => restoreLibraryFocus(event, id)}
       aria-describedby={undefined}
-      // Focus the dialog, not the title: focusing the title would select it.
+      // Focus the scrolling body, not the title (focusing the title would
+      // select it): ↑ ↓ and Space scroll the reading at once.
       onOpenAutoFocus={(e) => {
         e.preventDefault();
-        (e.currentTarget as HTMLElement | null)?.focus();
+        body.current?.focus({ preventScroll: true });
       }}
       onKeyDown={onKeyDown}
-      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col gap-3 overflow-y-auto p-4 sm:p-6 [&_label]:whitespace-normal"
+      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col"
     >
-      <DialogTitle className="sr-only">Memory</DialogTitle>
-      <TitleField
-        ref={titleField}
-        value={shown.title}
-        onChange={(title) => change({ ...shown, title })}
-        maxLength={FREE_ALLOWANCE.titleMaxChars}
-        // A link with no title of its own goes by its host, as on the wall.
-        placeholder={
-          memory.kind === "link" || memory.kind === "video"
-            ? memoryName(memory) || "Title"
-            : "Title"
-        }
-        className="mr-8"
-      />
-      {memory.kind === "video" ? (
-        <VideoReader memory={memory} seconds={seconds} />
-      ) : memory.kind === "link" ? (
-        <Reader memory={memory} />
-      ) : (
-        <Textarea
-          ref={bodyField}
-          value={shown.body}
-          onChange={(e) => change({ ...shown, body: e.target.value })}
-          aria-label="Text"
-          dir="auto"
-          className="max-h-[55dvh] min-h-40 flex-1 overflow-y-auto border-0 bg-transparent px-0"
-        />
-      )}
-      <input
-        value={shown.captureNote}
-        onChange={(e) => change({ ...shown, captureNote: e.target.value })}
-        maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
-        placeholder="Capture Note"
-        aria-label="Capture Note"
-        dir="auto"
-        className="h-10 min-w-0 shrink-0 rounded-control bg-sunken px-3 text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
-      />
-      <CategoryEditor key={memory.id} memory={memory} onSave={onCategories} />
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 pt-1">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <DialogBody
+        ref={body}
+        tabIndex={-1}
+        className="flex flex-col gap-6 pt-4 pb-4 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:pt-6"
+      >
+        <DialogTitle className="sr-only">Memory</DialogTitle>
+        {/* In the body, not above it: a title at 200% text can be taller than
+            the screen, and the one scroll region must still reach Done. */}
+        <div className="flex flex-col gap-1">
+          <div className="pr-8 pointer-coarse:pr-12">
+            <TitleField
+              ref={titleField}
+              value={shown.title}
+              onChange={(title) => change({ ...shown, title })}
+              maxLength={FREE_ALLOWANCE.titleMaxChars}
+              // A link with no title of its own goes by its host, as on the wall.
+              placeholder={
+                memory.kind === "link" || memory.kind === "video"
+                  ? memoryName(memory) || "Title"
+                  : "Title"
+              }
+            />
+          </div>
+          {memory.kind === "video" ? (
+            <VideoReader memory={memory} seconds={seconds} />
+          ) : memory.kind === "link" ? (
+            <Reader memory={memory} />
+          ) : (
+            <Textarea
+              ref={bodyField}
+              value={shown.body}
+              onChange={(e) => change({ ...shown, body: e.target.value })}
+              aria-label="Text"
+              dir="auto"
+              // Reads as text (base/24); the 12px inset keeps the focus ring off
+              // the glyphs while the words line up with the Title above.
+              className="-mx-3 w-[calc(100%+1.5rem)] max-w-none border-0 bg-transparent p-3 text-base focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:text-[1rem]"
+            />
+          )}
+        </div>
+        <div className="flex flex-col gap-2">
+          <input
+            value={shown.captureNote}
+            onChange={(e) => change({ ...shown, captureNote: e.target.value })}
+            maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
+            placeholder="Capture Note"
+            aria-label="Capture Note"
+            dir="auto"
+            className="h-10 min-w-0 shrink-0 rounded-control bg-sunken px-3 pointer-coarse:h-(--size-touch) text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
+          />
+          <CategoryEditor
+            key={memory.id}
+            memory={memory}
+            onSave={onCategories}
+          />
+        </div>
+        <div
+          role="group"
+          aria-label="Actions"
+          className="flex flex-wrap items-center gap-x-4 gap-y-2"
+        >
+          <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
           <Button
             variant="quiet"
             size="sm"
@@ -221,46 +258,50 @@ function Fields({
           >
             <Trash2Icon aria-hidden /> Delete
           </Button>
+        </div>
+      </DialogBody>
+      <div
+        className={cn(
+          "flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 sm:px-6",
+          hasStatus && "pt-3"
+        )}
+      >
+        {referenceOnly && <ReferenceOnlyBadge className="text-sm" />}
+        <IndexStatus memory={memory} />
+        <DeepFetchStatus memory={memory} onTryAgain={onRetryDeepFetch} />
+        {memory.indexState === "failed" && (
+          <Button
+            variant="quiet"
+            size="sm"
+            onClick={() => onRetryIndexing(memory)}
+          >
+            <RotateCwIcon aria-hidden /> Retry
+          </Button>
+        )}
+        {restorable && (
+          <Button
+            variant="quiet"
+            size="sm"
+            onClick={() => {
+              const restored = edits.restoreEdit(id);
+              if (restored) setFields(restored);
+              // The button goes; focus moves to the restored text.
+              (bodyField.current ?? titleField.current)?.focus();
+            }}
+          >
+            Restore Your Edit
+          </Button>
+        )}
+      </div>
+      <DialogFooter className="justify-between">
+        <div className="flex flex-wrap items-center gap-2">
           <MoreLikeThis memory={memory} onSelect={onMoreLikeThis} />
           <SearchByImage memory={memory} onSelect={onSearchByImage} />
-          <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
         </div>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {isReferenceOnly(memory) && (
-              <ReferenceOnlyBadge className="text-sm" />
-            )}
-            <IndexStatus memory={memory} />
-            <DeepFetchStatus memory={memory} onTryAgain={onRetryDeepFetch} />
-            {memory.indexState === "failed" && (
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={() => onRetryIndexing(memory)}
-              >
-                <RotateCwIcon aria-hidden /> Retry
-              </Button>
-            )}
-          </div>
-          {!!edit?.refused?.length && (
-            <Button
-              variant="quiet"
-              size="sm"
-              onClick={() => {
-                const restored = edits.restoreEdit(id);
-                if (restored) setFields(restored);
-                // The button goes; focus moves to the restored text.
-                (bodyField.current ?? titleField.current)?.focus();
-              }}
-            >
-              Restore Your Edit
-            </Button>
-          )}
-          <Button variant="primary" size="sm" onClick={onClose}>
-            Done
-          </Button>
-        </div>
-      </div>
+        <Button variant="primary" size="sm" onClick={onClose}>
+          Done
+        </Button>
+      </DialogFooter>
     </DialogContent>
   );
 }
@@ -278,15 +319,14 @@ function Reader({ memory }: { memory: Memory }) {
   const text = memory.body || memory.description || "";
   const href = webLink(memory.sourceUrl);
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex flex-col gap-3">
       {href && <SourceLink href={href} host={hostOf(memory)} />}
       {text && (
+        // The Memory detail body is the one scrolling region.
         <article
-          // Scrolls on its own, so the keyboard needs to reach it.
-          tabIndex={0}
           aria-label="Text"
           dir="auto"
-          className="max-h-[55dvh] min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-chip text-base break-words text-ink focus-visible:outline-2 focus-visible:outline-ring"
+          className="text-base break-words text-ink"
         >
           {text
             .split(/\n\s*\n/)

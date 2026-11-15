@@ -68,7 +68,7 @@ it("keeps the transcript to one Tab stop, moved by the arrow keys", async () => 
         (b) => b.tabIndex === 0
       );
     expect(stops().map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Play at 0:00",
+      "Play At 0:00",
     ]);
     const key = (name: string) =>
       act(async () => {
@@ -80,18 +80,18 @@ it("keeps the transcript to one Tab stop, moved by the arrow keys", async () => 
     await key("ArrowDown");
     await key("ArrowDown");
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      "Play at 1:35"
+      "Play At 1:35"
     );
     await key("ArrowDown");
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      "Play at 1:35"
+      "Play At 1:35"
     );
     expect(stops().map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Play at 1:35",
+      "Play At 1:35",
     ]);
     await key("Home");
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      "Play at 0:00"
+      "Play At 0:00"
     );
   } finally {
     await act(async () => root.unmount());
@@ -100,11 +100,11 @@ it("keeps the transcript to one Tab stop, moved by the arrow keys", async () => 
 });
 
 it.each([
-  ["unavailable", "Transcript Unavailable"],
-  ["over_allowance", "Transcript Unavailable, Over 60 Minutes"],
+  ["unavailable", ["Transcript Unavailable"]],
+  ["over_allowance", ["Transcript Unavailable", "Over 60 Minutes"]],
 ] as const)(
-  "says why a %s transcript is missing, in one line",
-  async (state, line) => {
+  "says a %s transcript is missing in separate compact labels",
+  async (state, labels) => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     const host = document.createElement("div");
     const root = createRoot(host);
@@ -120,10 +120,73 @@ it.each([
           />
         )
       );
-      expect(host.textContent).toContain(line);
+      const status = host.querySelector('[role="status"]')!;
+      expect(
+        [...status.querySelectorAll("span")].map((s) => s.textContent)
+      ).toEqual([...labels]);
     } finally {
       await act(async () => root.unmount());
       host.remove();
     }
   }
 );
+
+const POSTER = "/preserved/poster.jpg";
+const withPoster = (image: unknown) => ({
+  sourceUrl: "https://youtu.be/abcdefghijk",
+  video: null,
+  description: null,
+  image: image as never,
+});
+
+it("shows Spark's preserved poster behind Play when there is one, and never a third party's", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(<VideoReader memory={withPoster({ thumbnailUrl: POSTER })} />)
+    );
+    const poster = host.querySelector("button img");
+    expect(poster?.getAttribute("src")).toBe(POSTER);
+    expect(poster?.getAttribute("alt")).toBe("");
+    // The label stays a button name, whatever is behind it.
+    expect(host.querySelector("button")?.textContent).toBe("Play At 0:00");
+    // A poster that will not load leaves the plain panel, still playable.
+    await act(async () => {
+      poster!.dispatchEvent(new Event("error"));
+    });
+    expect(host.querySelector("button img")).toBeNull();
+    expect(host.querySelector("button")?.textContent).toBe("Play At 0:00");
+    expect(host.querySelector("iframe")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("is a flat panel with no poster, and Play names its moment in Title Case", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        <VideoReader
+          memory={{
+            ...withPoster(null),
+            sourceUrl: "https://youtu.be/abcdefghijk?t=3725",
+          }}
+        />
+      )
+    );
+    expect(host.querySelector("img")).toBeNull();
+    const play = host.querySelector("button")!;
+    expect(play.textContent).toBe("Play At 1:02:05");
+    expect(play.className).toContain("aspect-video");
+    expect(play.className).toContain("pointer-coarse:min-h-(--size-touch)");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

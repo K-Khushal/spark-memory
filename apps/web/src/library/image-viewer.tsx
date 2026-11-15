@@ -15,6 +15,7 @@ import { DURATION, EASING, SPRING } from "@spark/ui/tokens";
 import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
 import { MoreLikeThis } from "./why";
 import { memoryName, UploadBadge } from "./memory-tile";
+import { VIEWER_CLOSE, ViewerBar } from "./r1-c-viewer-bar";
 import type { Memory, WallMemory } from "./use-library";
 
 /** A swipe moves on past 120px, or when flung. */
@@ -107,89 +108,95 @@ export function ImageViewer({
               e.preventDefault();
               (e.currentTarget as HTMLElement | null)?.focus();
             }}
-            className="h-dvh w-screen max-w-none overflow-hidden rounded-none bg-canvas shadow-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
-            closeClassName="z-10 size-11 bg-transparent"
+            presentation="fullscreen"
+            className="flex h-dvh w-screen max-w-none flex-col overflow-hidden rounded-none bg-canvas shadow-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+            closeClassName={VIEWER_CLOSE}
           >
             <DialogTitle className="sr-only">{memoryName(memory)}</DialogTitle>
-            <AnimatePresence
-              initial={false}
-              custom={direction}
-              mode="popLayout"
+            <ViewerBar
+              start={
+                memory.upload ? (
+                  <UploadBadge
+                    upload={memory.upload}
+                    onRetry={() => onRetry(memory.id)}
+                    onDelete={() => remove(memory)}
+                    className="h-11"
+                  />
+                ) : (
+                  <IndexBadge
+                    memory={memory}
+                    onRetry={() => onRetryIndexing(memory)}
+                    // No Memory detail for images: the viewer says why.
+                    withReason
+                    className="max-w-full"
+                  />
+                )
+              }
             >
-              <motion.div
-                key={memory.id}
+              {!stranded && (
+                <>
+                  <MoreLikeThis
+                    memory={memory}
+                    onSelect={onMoreLikeThis}
+                    compact
+                  />
+                  <SearchByImage
+                    memory={memory}
+                    onSelect={onSearchByImage}
+                    compact
+                  />
+                  <CategoryEditor
+                    compact
+                    key={memory.id}
+                    memory={memory}
+                    onSave={onCategories}
+                  />
+                  <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
+                  <Button
+                    variant="quiet"
+                    size="icon"
+                    aria-label="Delete"
+                    onClick={() => remove(memory)}
+                  >
+                    <Trash2Icon aria-hidden />
+                  </Button>
+                </>
+              )}
+            </ViewerBar>
+            {/* The stage is what is left under the bar: the image is sized to it. */}
+            <div className="relative min-h-0 flex-1 [--gutter-y:6rem] [container-type:size] md:[--gutter-y:2.5rem]">
+              <AnimatePresence
+                initial={false}
                 custom={direction}
-                variants={slide}
-                initial="enter"
-                animate="centre"
-                exit="leave"
-                drag="x"
-                dragDirectionLock
-                dragConstraints={{ left: 0, right: 0 }}
-                dragElastic={edgeElastic(index, memories.length)}
-                dragSnapToOrigin
-                onDragEnd={onDragEnd}
-                className={cn(
-                  "absolute inset-0 grid touch-pan-y justify-items-center px-4 pt-32 pb-20 md:px-16 md:pt-16 md:pb-6",
-                  tall ? "items-start overflow-y-auto" : "items-center"
-                )}
+                mode="popLayout"
               >
-                <Picture
-                  memory={memory}
-                  tall={tall}
-                  stranded={stranded}
-                  onBroken={onBroken}
-                />
-              </motion.div>
-            </AnimatePresence>
-            {memory.upload ? (
-              <UploadBadge
-                upload={memory.upload}
-                onRetry={() => onRetry(memory.id)}
-                onDelete={() => remove(memory)}
-                className="absolute top-16 left-3 h-11 md:top-3"
-              />
-            ) : (
-              <IndexBadge
-                memory={memory}
-                onRetry={() => onRetryIndexing(memory)}
-                // No Memory detail for images: the viewer says why.
-                withReason
-                className="absolute top-16 left-3 max-w-[calc(100%-1.5rem)] md:top-5.5"
-              />
-            )}
-            {!stranded && (
-              <div className="absolute top-3 right-16 flex items-center gap-3">
-                <MoreLikeThis
-                  memory={memory}
-                  onSelect={onMoreLikeThis}
-                  compact
-                  className="h-11"
-                />
-                <SearchByImage
-                  memory={memory}
-                  onSelect={onSearchByImage}
-                  compact
-                  className="h-11"
-                />
-                <CategoryEditor
-                  compact
+                <motion.div
                   key={memory.id}
-                  memory={memory}
-                  onSave={onCategories}
-                />
-                <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
-                <Button
-                  variant="quiet"
-                  size="icon"
-                  aria-label="Delete"
-                  className="size-11"
-                  onClick={() => remove(memory)}
+                  custom={direction}
+                  variants={slide}
+                  initial="enter"
+                  animate="centre"
+                  exit="leave"
+                  drag="x"
+                  dragDirectionLock
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={edgeElastic(index, memories.length)}
+                  dragSnapToOrigin
+                  onDragEnd={onDragEnd}
+                  className={cn(
+                    "absolute inset-0 grid touch-pan-y justify-items-center px-4 pt-4 pb-20 md:px-16 md:pb-6",
+                    tall ? "items-start overflow-y-auto" : "items-center"
+                  )}
                 >
-                  <Trash2Icon aria-hidden />
-                </Button>
-              </div>
-            )}
+                  <Picture
+                    memory={memory}
+                    tall={tall}
+                    stranded={stranded}
+                    onBroken={onBroken}
+                  />
+                </motion.div>
+              </AnimatePresence>
+            </div>
             <Step side="left" disabled={index <= 0} onClick={() => go(-1)} />
             <Step
               side="right"
@@ -252,7 +259,7 @@ function Picture({
         aspectRatio: `${image.width} / ${image.height}`,
         width: tall
           ? `min(100%, ${image.width}px, 45rem)`
-          : `min(100%, ${image.width}px, calc((100dvh - 9rem) * ${aspect}))`,
+          : `min(100%, ${image.width}px, calc((100cqh - var(--gutter-y)) * ${aspect}))`,
         backgroundImage: placeholder ? `url(${placeholder})` : undefined,
       }}
     >
@@ -301,7 +308,7 @@ function Step({
       onClick={disabled ? undefined : onClick}
       aria-label={side === "left" ? "Previous Image" : "Next Image"}
       className={cn(
-        "absolute bottom-4 size-11 md:top-1/2 md:bottom-auto md:-translate-y-1/2",
+        "absolute bottom-4 md:top-1/2 md:bottom-auto md:-translate-y-1/2",
         side === "left" ? "left-3" : "right-3",
         disabled && "cursor-default opacity-30 hover:bg-transparent"
       )}

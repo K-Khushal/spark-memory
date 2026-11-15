@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { CATEGORY_NAMES, MAX_CATEGORIES } from "@spark/core";
 import { ChevronDownIcon, Clock3Icon, TagsIcon } from "lucide-react";
-import { Button, FilterChip } from "@spark/ui";
+import { Button, FilterChip, cn } from "@spark/ui";
 import { useOwnCategoryNames } from "./own-categories";
 import type { Memory } from "./use-library";
 
@@ -41,7 +41,13 @@ export function CategoryEditor({
     );
   return (
     <details
-      className="group relative shrink-0 rounded-control bg-sunken px-3 py-1 text-sm text-ink"
+      className={cn(
+        "group relative shrink-0 rounded-control text-sm text-ink",
+        // A viewer toolbar's control is an icon button: same box as its neighbours.
+        compact
+          ? "size-9 pointer-coarse:size-(--size-touch)"
+          : "bg-sunken px-3 py-1"
+      )}
       onToggle={(e) => {
         if (e.currentTarget.open) {
           setSelected(memory.categories);
@@ -51,7 +57,12 @@ export function CategoryEditor({
     >
       <summary
         aria-label={`Categories: ${label}`}
-        className="flex min-h-8 cursor-pointer items-center justify-between gap-2 rounded-chip focus-visible:outline-2 focus-visible:outline-ring"
+        className={cn(
+          "flex min-h-8 cursor-pointer items-center rounded-chip focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-(--size-touch)",
+          compact
+            ? "size-full justify-center rounded-control hover:bg-sunken"
+            : "justify-between gap-2"
+        )}
       >
         {compact ? (
           <>
@@ -80,7 +91,7 @@ export function CategoryEditor({
       <div
         className={
           compact
-            ? "fixed inset-x-4 top-16 z-20 mt-2 max-h-[60dvh] overflow-y-auto rounded-panel bg-surface p-3 shadow-overlay sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:w-72"
+            ? "fixed inset-x-4 z-20 mt-2 max-h-[60dvh] overflow-y-auto rounded-panel bg-surface p-3 shadow-overlay sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:w-72"
             : undefined
         }
       >

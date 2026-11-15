@@ -9,7 +9,7 @@ export function SourceLink({ href, host }: { href: string; host: string }) {
       rel="noopener noreferrer nofollow"
       referrerPolicy="no-referrer"
       dir="ltr"
-      className="inline-flex min-h-6 max-w-full items-center gap-1 self-start rounded-chip text-sm text-ink-muted transition-colors duration-(--duration-press) hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+      className="inline-flex min-h-6 max-w-full pointer-coarse:min-h-(--size-touch) items-center gap-1 self-start rounded-chip text-sm text-ink-muted transition-colors duration-(--duration-press) hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
     >
       <span className="truncate" translate="no">
         {host}
