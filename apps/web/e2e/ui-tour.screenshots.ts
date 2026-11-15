@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { signIn, stubTurnstile, fromOwnAddress } from "./sign-in";
 import {
   installLibrary,
+  settle,
   setSection,
   step,
   tile,
@@ -194,6 +195,8 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     await page.goto("/");
     await expect(wall).toBeVisible({ timeout: 30_000 });
     await expect(wall.getByRole("listitem").first()).toBeVisible();
+    // A cached wall can paint before the shell registers its shortcuts.
+    await settle(page);
   };
   const closeAll = async () => {
     await page.keyboard.press("Escape");
@@ -206,7 +209,7 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
   await step(
     page,
     "library-loading",
-    "Library on a slow first load: the blank canvas until the Library arrives (12 seconds in)",
+    "Library on a slow first load: static loading tiles until the Library arrives",
     async () => {
       mock.delay = 12_000;
       void page.goto("/");
@@ -277,10 +280,19 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     "Filtered to a Category",
     async () => {
       await openWall();
-      await page
-        .getByRole("list", { name: "Category" })
-        .getByRole("button", { name: "Recipe" })
-        .click();
+      const categories = page.getByRole("list", {
+        name: "Category",
+        exact: true,
+      });
+      const recipe = categories.getByRole("button", {
+        name: "Recipe",
+        exact: true,
+      });
+      if (!(await recipe.isVisible()))
+        await categories
+          .getByRole("button", { name: "More", exact: true })
+          .click();
+      await recipe.click();
       await expect(
         page.getByRole("list", { name: "Filtered Memories" })
       ).toBeVisible();
@@ -598,10 +610,19 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
         .getByRole("list", { name: "Kind" })
         .getByRole("button", { name: /PDF/ })
         .click();
-      await page
-        .getByRole("list", { name: "Category" })
-        .getByRole("button", { name: "Recipe" })
-        .click();
+      const categories = page.getByRole("list", {
+        name: "Category",
+        exact: true,
+      });
+      const recipe = categories.getByRole("button", {
+        name: "Recipe",
+        exact: true,
+      });
+      if (!(await recipe.isVisible()))
+        await categories
+          .getByRole("button", { name: "More", exact: true })
+          .click();
+      await recipe.click();
       await expect(
         page
           .getByRole("list", { name: "Kind" })
@@ -1490,7 +1511,11 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
         .getByRole("button", { name: "Delete", exact: true })
         .click();
       await wait(2200);
-      await p.getByRole("button", { name: "Undo" }).click();
+      await p
+        .locator("[data-sonner-toast]")
+        .filter({ hasText: "Deleted" })
+        .getByRole("button", { name: "Undo", exact: true })
+        .click();
       await wait(800);
     }
   );

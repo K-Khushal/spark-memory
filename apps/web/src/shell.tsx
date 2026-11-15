@@ -381,7 +381,7 @@ export function PhoneNavigation({
         <MenuTrigger asChild>
           <button
             type="button"
-            aria-label="Navigation"
+            aria-label="Spark Navigation"
             className="-ml-2 flex h-9 items-center gap-1 rounded-control px-2 font-display text-md font-semibold transition-[background-color,transform] duration-(--duration-press) ease-out hover:bg-sunken active:scale-[0.97] pointer-coarse:min-h-(--size-touch)"
           >
             Spark

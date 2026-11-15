@@ -37,7 +37,12 @@ const parts: Part[] = [
  * instant search with three Direct Matches and its full one, late, with two.
  */
 async function stub(page: Page) {
-  const outage = { on: true, delay: 0 };
+  const outage: {
+    on: boolean;
+    delay: number;
+    query: string;
+    wait?: Promise<void>;
+  } = { on: true, delay: 0, query: "boom" };
   await signIn(page);
   await page.request.post("/api/memories", {
     headers: { origin: new URL(page.url()).origin },
@@ -111,9 +116,10 @@ async function stub(page: Page) {
       page?: string;
     };
     const q = body.q.trim();
-    if (q === "boom" && outage.on)
+    if (q === outage.query && outage.on)
       return route.fulfill({ status: 500, json: {} });
-    if (q === "boom" && outage.delay)
+    if (q === outage.query && outage.wait) await outage.wait;
+    if (q === outage.query && outage.delay)
       await new Promise((done) => setTimeout(done, outage.delay));
     if (q === "slow") await new Promise((done) => setTimeout(done, 1500));
     if (q === "shift") {
@@ -255,7 +261,7 @@ test("a search that fails says so the same way in the menu and on the wall, and 
   ).toBeVisible();
   await page.getByRole("button", { name: "Clear Search" }).first().click();
 
-  const wall = page.locator("main > div[aria-busy]");
+  const wall = page.locator("[data-library-wall]");
   await expect(wall).toHaveAttribute("aria-busy", "false");
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("slow");
@@ -367,34 +373,46 @@ test("Try Again says it is searching again, and marks the menu and the wall busy
   await expect(list).toHaveAttribute("aria-busy", "false");
 
   outage.on = false;
-  outage.delay = 1200;
+  let release!: () => void;
+  outage.wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   await dialog.getByRole("option", { name: "Try Again" }).click();
   await expect(list).toHaveAttribute("aria-busy", "true");
   await expect(dialog.getByRole("status")).toHaveText("Searching Again");
+  release();
+  outage.wait = undefined;
   await expect(list).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
 
   // The wall.
   outage.on = true;
   outage.delay = 0;
-  await page.getByPlaceholder("Search…").fill("boom!");
-  await page.getByPlaceholder("Search…").fill("boom");
+  // Use a fresh request key; the first retry deliberately cached a successful answer.
+  outage.query = "boom wall";
+  await page.getByPlaceholder("Search…").fill(outage.query);
   await expect(list.getByText("Search Is Unreachable")).toBeVisible();
   await page.keyboard.press("Enter");
-  const wall = page.locator("main > div[aria-busy]");
+  const wall = page.locator("[data-library-wall]");
   await expect(
     page.getByRole("heading", { name: "Search Is Unreachable" })
   ).toBeVisible();
   await expect(wall).toHaveAttribute("aria-busy", "false");
   outage.on = false;
-  outage.delay = 1200;
+  outage.wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   await page.getByRole("button", { name: "Try Again" }).click();
   await expect(wall).toHaveAttribute("aria-busy", "true");
   // Announced from outside the busy container, or it could be held back until the busy state clears.
   await expect(
     page.getByRole("status").filter({ hasText: "Searching Again" })
   ).toBeAttached();
-  // Read once, while it is busy: a retrying assertion would wait for the busy state to end.
-  expect(await wall.getByText("Searching Again").count()).toBe(0);
+  // The visible action reflects the retry while the separate live region announces it.
+  await expect(
+    wall.getByRole("button", { name: "Searching Again" })
+  ).toBeVisible();
+  release();
+  outage.wait = undefined;
   await expect(wall).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
 });
 

@@ -1,27 +1,53 @@
 import { useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { DURATION, EASING } from "@spark/ui/tokens";
 import { CATEGORY_NAMES, MAX_CATEGORIES } from "@spark/core";
 import {
   Button,
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogBody,
+  DialogFooter,
+  inputModality,
+  useBottomObstruction,
   DialogTitle,
   FilterChip,
 } from "@spark/ui";
 
-/** One bar: keyboard selection and its actions appear and leave at once. */
+/** One bar: pointer entry rises once; keyboard entry and every exit are immediate. */
 export function SelectionBar({
   count,
+  onHeight,
   ownNames,
   onClear,
   onDelete,
   onCategories,
 }: {
   count: number;
+  onHeight?: (height: number) => void;
   ownNames: string[];
   onClear: () => void;
   onDelete: () => void;
   onCategories: (categories: string[]) => void;
 }) {
+  const reduced = useReducedMotion();
+  const bar = useRef<HTMLDivElement>(null);
+  useBottomObstruction(bar);
+  // Content needs the same clearance; the shared hook owns toast placement.
+  useEffect(() => {
+    const element = bar.current;
+    if (!element || !onHeight) return;
+    const measure = () => onHeight(element.getBoundingClientRect().height);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    return () => {
+      observer.disconnect();
+      onHeight(0);
+    };
+  }, [onHeight]);
+  const [keyboard] = useState(() => inputModality() === "keyboard");
   const [open, setOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [announcement, setAnnouncement] = useState("");
@@ -62,15 +88,20 @@ export function SelectionBar({
       <div role="status" aria-live="polite" className="sr-only">
         {announcement}
       </div>
-      <div
+      <motion.div
+        ref={bar}
+        initial={keyboard ? false : { opacity: 0, y: reduced ? 0 : 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: DURATION.press / 1000, ease: EASING.out }}
         role="region"
         aria-label="Selection"
-        className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-1 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay md:left-60"
+        className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-2 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay md:left-60"
       >
         <span className="px-2 tabular-nums">
           {count.toLocaleString()} Selected
         </span>
         <Button
+          wrap
           size="sm"
           className="min-h-11"
           variant="outline"
@@ -78,15 +109,9 @@ export function SelectionBar({
         >
           Delete
         </Button>
+
         <Button
-          size="sm"
-          className="min-h-11"
-          variant="outline"
-          onClick={() => setOpen(true)}
-        >
-          Categories
-        </Button>
-        <Button
+          wrap
           size="sm"
           className="min-h-11"
           variant="quiet"
@@ -94,7 +119,16 @@ export function SelectionBar({
         >
           Clear
         </Button>
-      </div>
+        <Button
+          wrap
+          size="sm"
+          className="min-h-11"
+          variant="primary"
+          onClick={() => setOpen(true)}
+        >
+          Categories
+        </Button>
+      </motion.div>
       <Dialog
         open={open}
         onOpenChange={(next) => {
@@ -103,48 +137,56 @@ export function SelectionBar({
         }}
       >
         <DialogContent
+          presentation="sheet"
           aria-describedby={undefined}
-          className="max-h-[80dvh] overflow-y-auto p-6"
+          className="flex max-h-[80dvh] flex-col overflow-hidden"
         >
-          <DialogTitle>Categories</DialogTitle>
-          <div className="flex flex-wrap gap-2 py-4">
-            {[...CATEGORY_NAMES, ...ownNames].map((name) => (
-              <FilterChip
-                key={name}
-                title={name}
-                className="h-auto min-h-11 max-w-full py-2"
-                aria-pressed={categories.includes(name)}
-                disabled={
-                  !categories.includes(name) &&
-                  categories.length >= MAX_CATEGORIES
-                }
-                onClick={() =>
-                  setCategories((now) =>
-                    now.includes(name)
-                      ? now.filter((c) => c !== name)
-                      : [...now, name]
-                  )
-                }
-              >
-                <span className="min-w-0 wrap-anywhere text-start" dir="auto">
-                  {name}
-                </span>
-              </FilterChip>
-            ))}
-          </div>
-          <Button
-            variant="primary"
-            size="sm"
-            className="min-h-11"
-            disabled={!categories.length}
-            onClick={() => {
-              setOpen(false);
-              finish(() => onCategories(categories));
-              setCategories([]);
-            }}
-          >
-            Set Categories
-          </Button>
+          <DialogHeader>
+            <DialogTitle className="wrap-anywhere">Categories</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <div className="flex flex-wrap gap-2">
+              {[...CATEGORY_NAMES, ...ownNames].map((name) => (
+                <FilterChip
+                  key={name}
+                  title={name}
+                  className="h-auto min-h-11 max-w-full py-2"
+                  aria-pressed={categories.includes(name)}
+                  disabled={
+                    !categories.includes(name) &&
+                    categories.length >= MAX_CATEGORIES
+                  }
+                  onClick={() =>
+                    setCategories((now) =>
+                      now.includes(name)
+                        ? now.filter((c) => c !== name)
+                        : [...now, name]
+                    )
+                  }
+                >
+                  <span className="min-w-0 wrap-anywhere text-start" dir="auto">
+                    {name}
+                  </span>
+                </FilterChip>
+              ))}
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              wrap
+              variant="primary"
+              size="sm"
+              className="min-h-11 disabled:opacity-50"
+              disabled={!categories.length}
+              onClick={() => {
+                setOpen(false);
+                finish(() => onCategories(categories));
+                setCategories([]);
+              }}
+            >
+              Set Categories
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { paste } from "./a11y-support";
 import { fromOwnAddress, signIn, stubTurnstile } from "./sign-in";
 
@@ -204,7 +205,10 @@ test("the phone wordmark is a Navigation menu that reaches Settings and returns"
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page, "admin@example.test");
-  const trigger = page.getByRole("button", { name: "Navigation", exact: true });
+  const trigger = page.getByRole("button", {
+    name: "Spark Navigation",
+    exact: true,
+  });
   // The page that mounts it is stream B's (B3); until then there is nothing to test.
   test.skip(
     (await trigger.count()) === 0,
@@ -309,7 +313,9 @@ test.describe("dialog entrances", () => {
       await expect(page.getByRole("dialog")).toBeHidden();
     }
     // The menu too, opened by pointer: 180ms scale becomes a 150ms fade.
-    await page.getByRole("button", { name: "Navigation", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Spark Navigation", exact: true })
+      .click();
     await expect(page.getByRole("menu")).toBeVisible();
     const menu = await motion(page, "[data-slot=menu-content]");
     expect(menu.name).toBe("spark-fade-in");
@@ -436,9 +442,16 @@ test.describe("PhoneNavigation", () => {
     await page.setViewportSize({ width: 390, height: 700 });
     await page.goto(FIXTURES);
     const trigger = page.getByRole("button", {
-      name: "Navigation",
+      name: "Spark Navigation",
       exact: true,
     });
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .withRules(["label-content-name-mismatch"])
+          .analyze()
+      ).violations
+    ).toEqual([]);
     await trigger.focus();
     await page.keyboard.press("Enter");
     const menu = page.getByRole("menu", { name: "Navigation" });
@@ -467,7 +480,9 @@ test.describe("PhoneNavigation", () => {
     await expect(page.getByRole("menu")).toHaveCount(0);
 
     // The destination marks itself current; Library is one choice back.
-    await page.getByRole("button", { name: "Navigation", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Spark Navigation", exact: true })
+      .click();
     const here = page.getByRole("menuitem", { name: "Settings" });
     await expect(here).toHaveAttribute("aria-current", "page");
     await page.getByRole("menuitem", { name: "Library" }).click();
@@ -477,7 +492,9 @@ test.describe("PhoneNavigation", () => {
   test("pointer open grows from its trigger in 180ms", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 700 });
     await page.goto(FIXTURES);
-    await page.getByRole("button", { name: "Navigation", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Spark Navigation", exact: true })
+      .click();
     await expect(page.getByRole("menu")).toBeVisible();
     const m = await motion(page, "[data-slot=menu-content]");
     expect(m.name).toBe("spark-menu-in");

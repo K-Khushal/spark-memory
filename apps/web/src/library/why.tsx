@@ -1,3 +1,4 @@
+import { rootFontScale } from "./root-font-scale";
 import { formatTimestamp, sourceOf } from "@spark/core";
 import { SparklesIcon } from "lucide-react";
 import { Button, Chip } from "@spark/ui";
@@ -118,7 +119,10 @@ export function whyLabel({
 }
 
 /** Height a why-chip takes under a result tile (h-6 plus its margin). */
-export const WHY_HEIGHT = 30;
+export const WHY_HEIGHT = 28;
+
+/** Caption height follows the same root text scaling as the chip. */
+export const whyHeight = () => WHY_HEIGHT * rootFontScale();
 
 /** What matched most strongly in a result, under its tile: the highlighter for a Direct Match. */
 export function WhyChip({ found, direct }: { found: Found; direct: boolean }) {
@@ -128,7 +132,7 @@ export function WhyChip({ found, direct }: { found: Found; direct: boolean }) {
   return (
     <Chip
       tone={direct ? "spark" : "why"}
-      className="mt-1.5"
+      className="mt-1 max-w-full"
       dir="auto"
       title={label}
     >

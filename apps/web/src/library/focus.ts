@@ -24,7 +24,11 @@ export function focusWall({ onlyIfLost = false, preventScroll = false } = {}) {
   const target =
     document.querySelector<HTMLElement>(
       'main [role="listitem"][tabindex="0"]'
-    ) ?? document.querySelector<HTMLElement>('main h2[tabindex="-1"]');
+    ) ??
+    document.querySelector<HTMLElement>(
+      'main h2[tabindex="-1"], main [data-search] [data-slot="state-block"] h2'
+    );
+  if (target && !target.hasAttribute("tabindex")) target.tabIndex = -1;
   target?.focus({ preventScroll });
   return !!target;
 }
