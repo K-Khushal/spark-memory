@@ -126,7 +126,7 @@ for (const width of [320, 390]) {
         }, scale);
         if (scale === 1) {
           const navigation = await page
-            .getByRole("button", { name: "Navigation", exact: true })
+            .getByRole("button", { name: "Spark Navigation", exact: true })
             .boundingBox();
           const capture = await page
             .getByRole("button", { name: "Capture", exact: true })
@@ -228,7 +228,7 @@ test("phone Navigation preserves the query, filters and scroll on return", async
     .poll(() => page.evaluate(() => window.scrollY))
     .toBeGreaterThan(400);
   const navigation = page.getByRole("button", {
-    name: "Navigation",
+    name: "Spark Navigation",
     exact: true,
   });
   // Click the visible sticky header without an automation scroll-to-element first.

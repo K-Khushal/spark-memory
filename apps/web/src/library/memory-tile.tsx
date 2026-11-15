@@ -1,3 +1,4 @@
+import { rootFontScale } from "./root-font-scale";
 import { Fragment, useState, type ReactNode } from "react";
 import { IndexBadge, isPartly, PartlyIndexedBadge } from "./index-state";
 import { PlayIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
@@ -19,19 +20,6 @@ const TITLE = { lineHeight: 26 };
 const BODY = { charWidth: 7, lineHeight: 20 };
 const MAX_LINES = 12;
 
-// One computed-style read per frame, shared by every virtualised tile.
-let frameScale: number | undefined;
-const rem = () => {
-  if (frameScale === undefined) {
-    frameScale =
-      parseFloat(getComputedStyle(document.documentElement).fontSize) / 16 || 1;
-    requestAnimationFrame(() => {
-      frameScale = undefined;
-    });
-  }
-  return frameScale;
-};
-
 /** A tile's text: runs of blank lines fold into one, so no tile is mostly empty. */
 export const tileText = (body: string | null) =>
   (body ?? "").replace(/\n\s*\n(\s*\n)+/g, "\n\n");
@@ -48,7 +36,7 @@ function lineCount(text: string, charsPerLine: number) {
 
 /** How a text tile lays out at `width`: its title and text lines, and its height. */
 export function tileLayout(memory: WallMemory, width: number) {
-  const k = rem();
+  const k = rootFontScale();
   const inner = Math.max(1, width - PADDING * k);
   const title = memory.title ? 1 : 0;
   const body = Math.min(
@@ -78,7 +66,7 @@ const linkText = (memory: WallMemory) =>
 
 /** How a link tile lays out at `width`: name, a few lines of text, then the Source line. */
 export function linkLayout(memory: WallMemory, width: number) {
-  const k = rem();
+  const k = rootFontScale();
   const inner = Math.max(1, width - PADDING * k);
   const title = 1;
   const text = linkText(memory);

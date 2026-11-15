@@ -25,6 +25,7 @@ describe("ending a session", () => {
     const auth = readFileSync(join(__dirname, "auth.ts"), "utf8");
     expect(auth).toMatch(/clearHeldShares/);
     expect(auth).toMatch(/clearUserCaches/);
+    expect(auth).toMatch(/clearLibraryView/);
   });
 
   /** Source files (not tests) under src/. */

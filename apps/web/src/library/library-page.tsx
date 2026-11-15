@@ -1,3 +1,4 @@
+import { readLibraryView, rememberLibraryView } from "./library-view";
 import "./library-wall.css";
 import { emptySelection, select } from "./selection";
 import { SelectionBar } from "./selection-bar";
@@ -8,7 +9,6 @@ import {
   QueryImageChip,
   useImageQuery,
   type ImageQueryProps,
-  type ImageQuery,
 } from "./image-query";
 import type { SearchChips } from "@spark/core";
 import { isWordless, requestKey } from "./search-session";
@@ -82,24 +82,16 @@ import { whyHeight, WhyChip, whyLabel } from "./why";
 
 const WALL_COLUMNS = { minWidth: 220, gap: 12, max: 6 };
 
-/** Only the current owner's transient view survives a route change, never a reload. */
-let libraryView:
-  | {
-      owner: string;
-      query: string;
-      chips: SearchChips;
-      visual?: ImageQuery;
-      like?: Memory;
-      scroll: number;
-    }
-  | undefined;
-
 /**
  * The Library: sidebar (a top bar on phones) beside the masonry wall of
  * Memories (DESIGN.md → Pick). ⌘V Captures, ⌘K searches, a tile opens its
  * Memory.
  */
-export function LibraryPage({
+export function LibraryPage(props: { session: AppSession; admin: boolean }) {
+  return <LibraryForSession key={props.session.user.id} {...props} />;
+}
+
+function LibraryForSession({
   session,
   admin,
 }: {
@@ -113,9 +105,7 @@ export function LibraryPage({
   const bar = useRef<HTMLDivElement>(null);
   useStickyInset(bar);
   const library = useLibrary(session.user.id);
-  const [returnView] = useState(() =>
-    libraryView?.owner === session.user.id ? libraryView : undefined
-  );
+  const [returnView] = useState(() => readLibraryView(session.user.id));
   const restoringView = useRef(!!returnView);
   const navigationScroll = useRef<number | undefined>(undefined);
   const { desk, memory: linked } = useRouteSearch({ from: "/" });
@@ -216,7 +206,7 @@ export function LibraryPage({
         ? (returnView?.scroll ?? 0)
         : window.scrollY,
     };
-    libraryView = saved;
+    rememberLibraryView(saved);
     const rememberScroll = () => {
       if (!restoringView.current) saved.scroll = window.scrollY;
     };
@@ -234,7 +224,7 @@ export function LibraryPage({
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
         window.scrollTo({
-          top: returnView?.scroll ?? libraryView?.scroll ?? 0,
+          top: returnView?.scroll ?? 0,
         });
         restoringView.current = false;
       });
@@ -576,17 +566,24 @@ export function LibraryPage({
     <div
       className="flex min-h-dvh bg-canvas"
       onPointerDownCapture={(event) => {
-        if ((event.target as Element).closest('[aria-label="Navigation"]'))
+        if (
+          (event.target as Element).closest(
+            '[aria-label="Spark Navigation"], [role="menu"][aria-label="Navigation"]'
+          )
+        )
           navigationScroll.current = window.scrollY;
       }}
       onKeyDownCapture={(event) => {
         if (
           ["Enter", " "].includes(event.key) &&
-          (event.target as Element).closest('[aria-label="Navigation"]')
+          (event.target as Element).closest(
+            '[aria-label="Spark Navigation"], [role="menu"][aria-label="Navigation"]'
+          )
         )
           navigationScroll.current = window.scrollY;
       }}
       onClickCapture={(event) => {
+        const view = readLibraryView(session.user.id);
         if (
           event.button === 0 &&
           !event.metaKey &&
@@ -596,9 +593,9 @@ export function LibraryPage({
           (event.target as Element).closest(
             'a[href="/settings"], a[href="/admin"]'
           ) &&
-          libraryView?.owner === session.user.id
+          view
         ) {
-          libraryView.scroll = navigationScroll.current ?? window.scrollY;
+          view.scroll = navigationScroll.current ?? window.scrollY;
           // Menu focus restoration and router scroll resets belong to the destination.
           restoringView.current = true;
         }
@@ -1157,11 +1154,6 @@ function SearchResults({
         >
           {results.direct.length ? "Direct Matches" : "No Direct Matches"}
         </h2>
-        {!results.direct.length && !results.related.length && (
-          <Button className="mb-3" variant="outline" onClick={onClearSearch}>
-            Clear Search
-          </Button>
-        )}
         {results.direct.length > 0 ? (
           <ResultWall
             label="Direct Matches"
