@@ -1,6 +1,14 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Loader2Icon, Trash2Icon } from "lucide-react";
-import { Button, Dialog, DialogContent, DialogTitle } from "@spark/ui";
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogBody,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+} from "@spark/ui";
 import {
   formatSize,
   type AllowanceUsage,
@@ -49,7 +57,7 @@ export function UsageSection({
 }) {
   const resets = `Resets at ${time.format(new Date(usage.resetsAt))}`;
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-3">
       <Gauge
         label="Storage"
         meter={usage.storage}
@@ -126,6 +134,8 @@ function Largest({
   rows: Heaviest[];
   onDelete: (id: string) => Promise<boolean>;
 }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const [asked, setAsked] = useState<Heaviest>();
   const [pending, setPending] = useState(false);
 
@@ -139,7 +149,7 @@ function Largest({
 
   return (
     <>
-      <ul aria-label="Largest Memories" className="flex flex-col">
+      <ul ref={list} aria-label="Largest Memories" className="flex flex-col">
         {rows.map((row) => {
           const name = nameOf(row);
           const size = formatSize(row.bytes);
@@ -157,7 +167,10 @@ function Largest({
                 size="icon"
                 className="md:-mr-2"
                 aria-label={`Delete ${name}, ${size}`}
-                onClick={() => setAsked(row)}
+                onClick={(event) => {
+                  trigger.current = event.currentTarget;
+                  setAsked(row);
+                }}
               >
                 <Trash2Icon aria-hidden />
               </Button>
@@ -172,15 +185,30 @@ function Largest({
         }}
       >
         <DialogContent
-          className="max-h-[calc(100dvh-2rem)] max-w-md overflow-y-auto p-6"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            requestAnimationFrame(() => {
+              const next = trigger.current?.isConnected
+                ? trigger.current
+                : list.current?.querySelector<HTMLButtonElement>("button");
+              (next ?? document.getElementById("content"))?.focus();
+            });
+          }}
+          presentation="sheet"
+          className="flex max-h-[calc(100dvh-2rem)] max-w-md flex-col overflow-hidden"
           aria-describedby={undefined}
         >
-          <div className="flex flex-col gap-5">
-            <DialogTitle className="pr-8 wrap-anywhere">
-              {asked ? `Delete ${nameOf(asked)}?` : "Delete?"}
-            </DialogTitle>
-            <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex min-h-0 flex-col">
+            <DialogBody className="p-0 sm:px-0">
+              <DialogHeader>
+                <DialogTitle className="wrap-anywhere">
+                  {asked ? `Delete ${nameOf(asked)}?` : "Delete?"}
+                </DialogTitle>
+              </DialogHeader>
+            </DialogBody>
+            <DialogFooter>
               <Button
+                wrap
                 variant="quiet"
                 disabled={pending}
                 onClick={() => setAsked(undefined)}
@@ -188,6 +216,7 @@ function Largest({
                 Cancel
               </Button>
               <Button
+                wrap
                 variant="primary"
                 className="min-w-24"
                 disabled={pending}
@@ -201,7 +230,7 @@ function Largest({
                 )}
                 <span className={pending ? "sr-only" : undefined}>Delete</span>
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

@@ -59,7 +59,7 @@ test("popup, Grant Access and region overlay", async () => {
     await popup.reload();
     await fixture.bringToFront();
     await expect(popup.getByRole("status")).toHaveText(
-      /Saved|Already in Your Library/
+      /Captured|Already in Your Library/
     );
     await shoot("popup-saved");
 
@@ -71,7 +71,7 @@ test("popup, Grant Access and region overlay", async () => {
     await shoot("popup-queued");
     await context.setOffline(false);
     await popup.getByRole("button", { name: "Try Again" }).click();
-    await expect(popup.getByRole("status")).toHaveText("Saved");
+    await expect(popup.getByRole("status")).toHaveText("Captured");
 
     // Keyboard only: Tab reaches every control and each shows a ring.
     await popup.setViewportSize({ width: 320, height: 500 });

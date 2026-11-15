@@ -18,3 +18,5 @@ root.setProperty("--ease-out", `cubic-bezier(${EASING.out.join(",")})`);
 
 root.setProperty("--font-md", `${TYPE_SCALE.md.size}px`);
 root.setProperty("--font-base", `${TYPE_SCALE.base.size}px`);
+
+root.setProperty("--duration-preview", `${DURATION.preview}ms`);

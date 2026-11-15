@@ -172,7 +172,7 @@ export function Onboarding({
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{
-                    duration: DURATION.small / 1000,
+                    duration: DURATION.preview / 1000,
                     ease: EASING.out,
                   }}
                   className="mt-6 flex min-w-0 flex-wrap items-center gap-3"

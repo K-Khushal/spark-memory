@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { CrossfadeIcon } from "@spark/ui";
 import { browser } from "wxt/browser";
 import "../../lib/theme";
 import "@spark/ui/fonts.css";
@@ -46,11 +47,22 @@ function Popup() {
         </a>
       </header>
       <p role="status">
-        {result.state === "saved" && (
-          <span key="captured" className="feedback" aria-hidden>
-            ✓{" "}
-          </span>
-        )}
+        <CrossfadeIcon
+          on={result.state === "saved"}
+          from={<span />}
+          to={
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="m5 12 4 4L19 6" />
+            </svg>
+          }
+        />
         {("label" in result && result.label) || labels[result.state]}
       </p>
       {result.state === "signed-out" && (
@@ -115,11 +127,33 @@ function Popup() {
             aria-label={noteState === "Add Note" ? "Add Note" : undefined}
             disabled={!note.trim() || noteState === "Saving"}
           >
-            {noteState === "Note Added" && (
-              <span className="feedback" aria-hidden>
-                ✓{" "}
-              </span>
-            )}
+            <CrossfadeIcon
+              on={noteState === "Note Added"}
+              from={
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              }
+              to={
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="m5 12 4 4L19 6" />
+                </svg>
+              }
+            />
             {noteState}
           </button>
         </form>

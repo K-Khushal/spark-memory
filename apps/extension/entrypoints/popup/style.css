@@ -118,14 +118,24 @@ textarea::placeholder {
   }
 }
 
-.feedback {
-  animation: confirm 150ms var(--ease-out);
+[data-slot="crossfade"] {
+  position: relative;
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  vertical-align: middle;
 }
-@keyframes confirm {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+[data-slot="crossfade"] > [data-face] {
+  display: grid;
+  place-items: center;
+  transition: opacity var(--duration-preview) var(--ease-out);
+}
+[data-slot="crossfade"] > [data-face="to"] {
+  position: absolute;
+  inset: 0;
+}
+[data-slot="crossfade"][data-on="false"] > [data-face="to"],
+[data-slot="crossfade"][data-on="true"] > [data-face="from"] {
+  opacity: 0;
 }

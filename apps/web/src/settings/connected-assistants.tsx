@@ -1,7 +1,16 @@
 import { CheckIcon, CopyIcon } from "lucide-react";
-import { motion } from "motion/react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Button, Dialog, DialogContent, DialogTitle, Input } from "@spark/ui";
+import {
+  CrossfadeIcon,
+  Button,
+  Dialog,
+  DialogContent,
+  DialogBody,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  Input,
+} from "@spark/ui";
 import { api } from "../api";
 import { ActivityDialog } from "./assistant-activity";
 import { ConnectionGuide } from "./connection-guide";
@@ -46,6 +55,8 @@ export function ConnectedAssistants() {
   const [copied, setCopied] = useState(false);
   const [guide, setGuide] = useState(false);
   const list = useRef<HTMLUListElement>(null);
+  const activityButton = useRef<HTMLButtonElement>(null);
+  const revokeButton = useRef<HTMLButtonElement>(null);
   const guideButton = useRef<HTMLButtonElement>(null);
   const pending = state.phase === "pending";
   useEffect(() => {
@@ -152,20 +163,28 @@ export function ConnectedAssistants() {
                 </span>
               </div>
               <Button
+                wrap
                 variant="quiet"
                 size="sm"
                 aria-label={`Activity of ${a.name}`}
-                onClick={() => setViewing(a)}
+                onClick={(event) => {
+                  activityButton.current = event.currentTarget;
+                  setViewing(a);
+                }}
               >
                 Activity
               </Button>
               <Button
+                wrap
                 variant="quiet"
                 size="sm"
                 className="md:-mr-3"
                 disabled={pending}
                 aria-label={`Revoke ${a.name}`}
-                onClick={() => setConfirming(a)}
+                onClick={(event) => {
+                  revokeButton.current = event.currentTarget;
+                  setConfirming(a);
+                }}
               >
                 Revoke
               </Button>
@@ -179,6 +198,7 @@ export function ConnectedAssistants() {
       )}
       <div>
         <Button
+          wrap
           ref={guideButton}
           variant="outline"
           onClick={() => setGuide(true)}
@@ -201,7 +221,7 @@ export function ConnectedAssistants() {
             required
             autoComplete="off"
           />
-          <Button type="submit" variant="outline" disabled={pending}>
+          <Button wrap type="submit" variant="outline" disabled={pending}>
             Create Token
           </Button>
         </div>
@@ -221,6 +241,7 @@ export function ConnectedAssistants() {
             onFocus={(e) => e.currentTarget.select()}
           />
           <Button
+            wrap
             variant="outline"
             onClick={async () => {
               try {
@@ -231,24 +252,17 @@ export function ConnectedAssistants() {
               }
             }}
           >
-            <motion.span
-              key={String(copied)}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.15 }}
-            >
-              {copied ? (
-                <CheckIcon aria-hidden className="size-4" />
-              ) : (
-                <CopyIcon aria-hidden className="size-4" />
-              )}
-            </motion.span>
+            <CrossfadeIcon on={copied} from={<CopyIcon />} to={<CheckIcon />} />
             {copied ? "Copied" : "Copy Token"}
           </Button>
           <span role="status" className="sr-only">
             {copied ? "Copied" : ""}
           </span>
-          <Button variant="outline" onClick={() => setState({ phase: "idle" })}>
+          <Button
+            wrap
+            variant="outline"
+            onClick={() => setState({ phase: "idle" })}
+          >
             Done
           </Button>
         </div>
@@ -258,15 +272,20 @@ export function ConnectedAssistants() {
           <p role="alert">
             {state.message ?? "Could Not Update Connected Assistants"}
           </p>
-          <Button variant="outline" onClick={() => void retry()}>
+          <Button wrap variant="outline" onClick={() => void retry()}>
             Try Again
           </Button>
         </div>
       )}
-      <ConnectionGuide open={guide} onOpenChange={setGuide} />
+      <ConnectionGuide
+        open={guide}
+        onOpenChange={setGuide}
+        onReturnFocus={() => guideButton.current?.focus()}
+      />
       {viewing && (
         <ActivityDialog
           assistant={viewing}
+          onReturnFocus={() => activityButton.current?.focus()}
           onClose={() => setViewing(undefined)}
         />
       )}
@@ -275,15 +294,25 @@ export function ConnectedAssistants() {
         onOpenChange={(open) => open || pending || setConfirming(undefined)}
       >
         <DialogContent
-          className="max-h-[calc(100dvh-2rem)] max-w-md overflow-y-auto p-6"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            if (revokeButton.current?.isConnected) revokeButton.current.focus();
+          }}
+          presentation="sheet"
+          className="flex max-h-[calc(100dvh-2rem)] max-w-md flex-col overflow-hidden"
           aria-describedby={undefined}
         >
-          <div className="flex flex-col gap-5">
-            <DialogTitle className="pr-8 wrap-anywhere" dir="auto">
-              Revoke {confirming?.name} Access
-            </DialogTitle>
-            <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex min-h-0 flex-col">
+            <DialogBody className="p-0 sm:px-0">
+              <DialogHeader>
+                <DialogTitle className="wrap-anywhere" dir="auto">
+                  Revoke {confirming?.name} Access
+                </DialogTitle>
+              </DialogHeader>
+            </DialogBody>
+            <DialogFooter>
               <Button
+                wrap
                 variant="quiet"
                 disabled={pending}
                 onClick={() => setConfirming(undefined)}
@@ -291,13 +320,14 @@ export function ConnectedAssistants() {
                 Cancel
               </Button>
               <Button
+                wrap
                 variant="primary"
                 disabled={pending}
                 onClick={() => confirming && void revoke(confirming)}
               >
                 Revoke
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         </DialogContent>
       </Dialog>

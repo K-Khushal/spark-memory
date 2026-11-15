@@ -283,6 +283,7 @@ export function ImportSection({ userId }: { userId: string }) {
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex flex-wrap gap-2">
         <Button
+          wrap
           variant="outline"
           disabled={busy || (!!active && job.state !== "loading")}
           onClick={() => exportInput.current?.click()}
@@ -290,6 +291,7 @@ export function ImportSection({ userId }: { userId: string }) {
           Import URLs
         </Button>
         <Button
+          wrap
           variant="outline"
           disabled={busy || !!active}
           onClick={() => filesInput.current?.click()}
@@ -297,6 +299,7 @@ export function ImportSection({ userId }: { userId: string }) {
           Choose Images
         </Button>
         <Button
+          wrap
           variant="outline"
           disabled={busy || !!active}
           onClick={() => folderInput.current?.click()}
@@ -375,7 +378,7 @@ export function ImportSection({ userId }: { userId: string }) {
             </div>
             <progress
               aria-label="Import Progress"
-              className="h-2 w-full appearance-none [&::-webkit-progress-bar]:bg-sunken [&::-webkit-progress-value]:bg-ink [&::-moz-progress-bar]:bg-ink"
+              className="h-1 w-full appearance-none [&::-webkit-progress-bar]:bg-sunken [&::-webkit-progress-value]:bg-ink [&::-moz-progress-bar]:bg-ink"
               max={job.total}
               value={
                 job.state === "loading" ? job.loaded : job.done + job.skipped
@@ -385,6 +388,7 @@ export function ImportSection({ userId }: { userId: string }) {
               <div className="flex flex-wrap gap-2">
                 {job.state === "running" && (
                   <Button
+                    wrap
                     variant="outline"
                     disabled={busy}
                     onClick={() => void action("pause")}
@@ -394,6 +398,7 @@ export function ImportSection({ userId }: { userId: string }) {
                 )}
                 {job.state === "paused" && (
                   <Button
+                    wrap
                     variant="outline"
                     disabled={busy}
                     onClick={() => void action("resume")}
@@ -402,6 +407,7 @@ export function ImportSection({ userId }: { userId: string }) {
                   </Button>
                 )}
                 <Button
+                  wrap
                   variant="quiet"
                   disabled={busy}
                   onClick={() => void action("cancel")}
@@ -422,6 +428,7 @@ export function ImportSection({ userId }: { userId: string }) {
             </span>
             {images.some((m) => m.upload?.step === "failed") && (
               <Button
+                wrap
                 variant="outline"
                 onClick={() => images.forEach((m) => captures.retry(m.id))}
               >
@@ -433,7 +440,7 @@ export function ImportSection({ userId }: { userId: string }) {
         {error && (
           <div className="flex flex-wrap items-center gap-2">
             <span role="alert">{error}</span>
-            <Button variant="outline" onClick={() => void reload()}>
+            <Button wrap variant="outline" onClick={() => void reload()}>
               Try Again
             </Button>
           </div>

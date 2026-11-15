@@ -14,21 +14,22 @@ import {
   Button,
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogBody,
+  DialogFooter,
   DialogTitle,
+  DialogTrigger,
   Input,
   Toaster,
+  StateBlock,
+  SkeletonGate,
+  Skeleton,
 } from "@spark/ui";
 import { confirmsDeletion } from "@spark/core";
 import type { Session } from "../auth";
 import { useStickyInset } from "../sticky-inset";
 import { UsageSection } from "./usage";
-import {
-  Centred,
-  DeskSidebar,
-  SkipLink,
-  useLibraryDesk,
-  useSignOut,
-} from "../shell";
+import { DeskSidebar, SkipLink, useLibraryDesk, useSignOut } from "../shell";
 import {
   EXPORT_DOWNLOAD_URL,
   useAccount,
@@ -86,43 +87,56 @@ export function SettingsPage({
           </span>
         </div>
         {failed ? (
-          <Centred title="Settings Are Unreachable">
-            <Button variant="outline" onClick={account.reload}>
+          <StateBlock
+            level={1}
+            align="centre"
+            title="Settings Are Unreachable"
+            className="px-4 py-12"
+          >
+            <Button wrap variant="outline" onClick={account.reload}>
               Try Again
             </Button>
-          </Centred>
+          </StateBlock>
         ) : (
-          <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12 ">
+          <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12">
             <h1 className="sr-only font-display text-xl font-semibold md:not-sr-only">
               Settings
             </h1>
-            {loading ? (
-              <SettingsSkeleton />
-            ) : (
-              <>
-                <Section title="Appearance">
-                  <Appearance />
-                </Section>
-                <Section title="Usage">
-                  <UsageSection usage={usage} onDelete={account.deleteMemory} />
-                </Section>
-                <Section title="Sessions">
-                  <Sessions account={account} />
-                </Section>
-                <Section title="Connected Assistants">
-                  <ConnectedAssistants />
-                </Section>
-                <Section title="Import">
-                  <ImportSection userId={session.user.id} />
-                </Section>
-                <Section title="Export" live>
-                  <Export account={account} />
-                </Section>
-                <Section title="Delete Account">
-                  <DeleteAccount email={email} account={account} />
-                </Section>
-              </>
-            )}
+            <SkeletonGate
+              loading={loading}
+              label="Loading Settings"
+              className="flex flex-col gap-6"
+              skeleton={<SettingsSkeleton />}
+            >
+              {usage && (
+                <>
+                  <Section title="Appearance">
+                    <Appearance />
+                  </Section>
+                  <Section title="Usage">
+                    <UsageSection
+                      usage={usage}
+                      onDelete={account.deleteMemory}
+                    />
+                  </Section>
+                  <Section title="Sessions">
+                    <Sessions account={account} />
+                  </Section>
+                  <Section title="Connected Assistants">
+                    <ConnectedAssistants />
+                  </Section>
+                  <Section title="Import">
+                    <ImportSection userId={session.user.id} />
+                  </Section>
+                  <Section title="Export" live>
+                    <Export account={account} />
+                  </Section>
+                  <Section title="Delete Account">
+                    <DeleteAccount email={email} account={account} />
+                  </Section>
+                </>
+              )}
+            </SkeletonGate>
           </div>
         )}
       </main>
@@ -149,7 +163,7 @@ function Section({
       </h2>
       <div
         aria-live={live ? "polite" : undefined}
-        className="flex flex-col gap-2"
+        className="flex flex-col gap-3"
       >
         {children}
       </div>
@@ -248,6 +262,7 @@ function Sessions({ account }: { account: Account }) {
       {sessions.length > 1 && (
         <div className="pt-1">
           <Button
+            wrap
             variant="outline"
             aria-disabled={account.pending === "everywhere"}
             onClick={() =>
@@ -272,26 +287,32 @@ function SessionRow({
 }) {
   const active = lastActive(session.lastActiveAt);
   return (
-    <li className="flex min-h-12 items-center gap-3 border-b border-line py-1 last:border-b-0">
-      <span className="min-w-0 flex-1 wrap-anywhere text-sm" dir="auto">
+    <li className="flex min-h-12 flex-wrap items-center gap-3 border-b border-line py-1 last:border-b-0">
+      <span
+        className="min-w-0 flex-1 basis-40 wrap-anywhere text-sm"
+        dir="auto"
+      >
         {session.device}
       </span>
-      {session.current ? (
-        <span className="shrink-0 text-sm text-ink-muted">This Device</span>
-      ) : (
-        <>
-          <span className="text-sm text-ink-muted tabular">{active}</span>
-          <Button
-            variant="quiet"
-            size="sm"
-            className="md:-mr-3"
-            aria-label={`Sign Out ${session.device}, ${active}`}
-            onClick={onRevoke}
-          >
-            Sign Out
-          </Button>
-        </>
-      )}
+      <div className="flex shrink-0 items-center gap-3">
+        {session.current ? (
+          <span className="shrink-0 text-sm text-ink-muted">This Device</span>
+        ) : (
+          <>
+            <span className="text-sm text-ink-muted tabular">{active}</span>
+            <Button
+              wrap
+              variant="quiet"
+              size="sm"
+              className="md:-mr-3"
+              aria-label={`Sign Out ${session.device}, ${active}`}
+              onClick={onRevoke}
+            >
+              Sign Out
+            </Button>
+          </>
+        )}
+      </div>
     </li>
   );
 }
@@ -323,7 +344,7 @@ function Export({ account }: { account: Account }) {
       }}
     >
       {ready && state === "ready" && (
-        <Button variant="primary" asChild>
+        <Button wrap variant="primary" asChild>
           {/* When it expires is in its accessible name, not a caption. */}
           <a
             href={EXPORT_DOWNLOAD_URL}
@@ -335,6 +356,7 @@ function Export({ account }: { account: Account }) {
       )}
       {(state !== "ready" || canExportAgain) && (
         <Button
+          wrap
           variant="outline"
           aria-disabled={state === "building"}
           onClick={() => state === "building" || void account.startExport()}
@@ -382,11 +404,6 @@ function DeleteAccount({
 
   return (
     <>
-      <div>
-        <Button variant="outline" onClick={() => setOpen(true)}>
-          Delete Account
-        </Button>
-      </div>
       <Dialog
         open={open}
         onOpenChange={(next) => {
@@ -396,36 +413,49 @@ function DeleteAccount({
           if (!next) setTyped("");
         }}
       >
+        <div>
+          <DialogTrigger asChild>
+            <Button wrap variant="outline">
+              Delete Account
+            </Button>
+          </DialogTrigger>
+        </div>
         <DialogContent
-          className="max-h-[calc(100dvh-2rem)] max-w-md overflow-y-auto p-6"
+          presentation="sheet"
+          className="flex max-h-[calc(100dvh-2rem)] max-w-md flex-col overflow-hidden"
           aria-describedby={undefined}
         >
           <form
             onSubmit={(e) => void submit(e)}
-            className="flex flex-col gap-5"
+            className="flex min-h-0 flex-col"
           >
-            <DialogTitle className="pr-8 wrap-anywhere">
-              Delete Your Account and Every Memory
-            </DialogTitle>
-            <div className="flex flex-col gap-2">
-              <label htmlFor={field} className="text-sm text-ink-muted">
-                Type <span className="wrap-anywhere text-ink">{email}</span>
-              </label>
-              <Input
-                id={field}
-                name="email"
-                type="text"
-                inputMode="email"
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                autoComplete="off"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-            </div>
-            <div className="flex flex-wrap justify-end gap-2">
+            <DialogHeader>
+              <DialogTitle className="wrap-anywhere">
+                Delete Your Account and Every Memory
+              </DialogTitle>
+            </DialogHeader>
+            <DialogBody>
+              <div className="flex flex-col gap-2">
+                <label htmlFor={field} className="text-sm text-ink-muted">
+                  Type <span className="wrap-anywhere text-ink">{email}</span>
+                </label>
+                <Input
+                  id={field}
+                  name="email"
+                  type="text"
+                  inputMode="email"
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+              </div>
+            </DialogBody>
+            <DialogFooter>
               <Button
+                wrap
                 type="button"
                 variant="quiet"
                 disabled={pending}
@@ -434,6 +464,7 @@ function DeleteAccount({
                 Cancel
               </Button>
               <Button
+                wrap
                 type="submit"
                 variant="primary"
                 className="h-auto min-h-9 max-w-full py-2 whitespace-normal sm:min-w-36"
@@ -444,7 +475,7 @@ function DeleteAccount({
                   Delete Account
                 </span>
               </Button>
-            </div>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -454,22 +485,12 @@ function DeleteAccount({
 
 /** Delay the static placeholder so cached responses never flash it. */
 function SettingsSkeleton() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setVisible(true), 150);
-    return () => clearTimeout(timer);
-  }, []);
-  if (!visible) return null;
   return (
-    <div
-      role="status"
-      aria-label="Loading Settings"
-      className="flex flex-col gap-6"
-    >
+    <div className="flex flex-col gap-6">
       {[0, 1, 2].map((key) => (
-        <div key={key} aria-hidden className="flex flex-col gap-3">
-          <div className="h-6 w-28 rounded-control bg-sunken" />
-          <div className="h-12 rounded-control bg-sunken" />
+        <div key={key} className="flex flex-col gap-3">
+          <Skeleton className="h-6 w-28" />
+          <Skeleton className="h-12" />
         </div>
       ))}
     </div>
@@ -488,6 +509,7 @@ function Appearance() {
     <div role="group" aria-label="Appearance" className="flex flex-wrap gap-2">
       {(["system", "light", "dark"] as const).map((value) => (
         <Button
+          wrap
           key={value}
           variant={choice === value ? "primary" : "outline"}
           aria-pressed={choice === value}
