@@ -1061,13 +1061,13 @@ export function indexingStore(
       return !!row;
     },
 
-    async spentTodayMicros(): Promise<number> {
+    async spentTodayMicros(now?: Date): Promise<number> {
       const [row] = await db
         .select({
           micros: sql<string>`coalesce(sum(${spendDay.costMicros}), 0)`,
         })
         .from(spendDay)
-        .where(eq(spendDay.day, today));
+        .where(eq(spendDay.day, now ? now.toISOString().slice(0, 10) : today));
       return Number(row?.micros ?? 0);
     },
 
@@ -1323,7 +1323,8 @@ export function indexingStore(
     async stalled(
       minutes = 60,
       limit = 500,
-      freshOnly = false
+      freshOnly = false,
+      now?: Date
     ): Promise<
       {
         id: string;
@@ -1346,7 +1347,9 @@ export function indexingStore(
             eq(memory.indexState, "indexing"),
             lt(
               memory.updatedAt,
-              sql`now() - make_interval(mins => ${minutes})`
+              now
+                ? new Date(now.getTime() - minutes * 60_000)
+                : sql`now() - make_interval(mins => ${minutes})`
             ),
             unleased,
             allStored,

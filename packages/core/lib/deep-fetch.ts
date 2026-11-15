@@ -22,8 +22,6 @@ export const DEEP_FETCH = {
   leaseMinutes: 10,
   /** Queued this soon counts as Fetching, so the wall keeps asking. */
   soonSeconds: 300,
-  /** Queues delays a message 24 hours at most: longer waits rely on the sweep. */
-  maxQueueDelaySeconds: 12 * 3600,
   /** Memories the hourly sweep sends at most. */
   sweepBatch: 50,
   /**

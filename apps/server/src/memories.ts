@@ -1,4 +1,4 @@
-import { wakeImportImage } from "./import-queue";
+import { wakeImportImage } from "./queues";
 import { Hono, type Context, type Env } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { createMiddleware } from "hono/factory";
@@ -40,7 +40,7 @@ import {
   type FileStore,
 } from "./files";
 import { extensionCors, sameOrigin } from "./origin";
-import { enqueueDeepFetch } from "./deep-fetch-queue";
+import { enqueueDeepFetch } from "./queues";
 import { enqueue, enqueueEmbed, providers } from "./indexing";
 import { limitExceeded, rateLimited } from "./rate-limit";
 

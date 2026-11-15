@@ -1,3 +1,4 @@
+import { queueDelaySeconds } from "@spark/core";
 import {
   accountJobs,
   DELETION_GRACE_MINUTES,
@@ -47,7 +48,7 @@ export async function consumeAccount(batch: AccountBatch, env: Bindings) {
           const outcome = await continueDeletion(db, env.FILES, body.userId);
           if (outcome === "waiting") {
             await env.ACCOUNT_QUEUE.send(body, {
-              delaySeconds: DELETION_RECHECK_SECONDS,
+              delaySeconds: queueDelaySeconds(DELETION_RECHECK_SECONDS),
             }).catch(() => console.error("account: deletion not re-sent"));
           }
           console.log(`account: deletion ${outcome}`);
@@ -66,7 +67,7 @@ export async function consumeAccount(batch: AccountBatch, env: Bindings) {
         } else {
           console.error("account: deletion step failed");
         }
-        message.retry({ delaySeconds: RETRY_SECONDS });
+        message.retry({ delaySeconds: queueDelaySeconds(RETRY_SECONDS) });
       }
     }
   } finally {
@@ -238,8 +239,8 @@ export async function buildExport(
 
 /**
  * Hourly (with the upload sweep): deletions still pending and exports whose
- * message was lost go back on the queue; expired and replaced exports'
- * ZIPs are removed.
+ * message was lost go back on the queue; expired and replaced Library
+ * export files are removed.
  */
 export async function sweepAccounts(env: Bindings, calls?: CronCalls) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);

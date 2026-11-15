@@ -1,4 +1,4 @@
-import { sendImport } from "./import-queue";
+import { sendImport } from "./queues";
 import type { CronCalls } from "./cron-budget";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -138,15 +138,7 @@ export async function consumeImports(
             env,
             { ...message.body, lease: result.lease },
             result.dueAt
-              ? Math.min(
-                  43_200,
-                  Math.max(
-                    0,
-                    Math.ceil(
-                      (new Date(result.dueAt).getTime() - now.getTime()) / 1000
-                    )
-                  )
-                )
+              ? (new Date(result.dueAt).getTime() - now.getTime()) / 1000
               : 2
           );
         message.ack();

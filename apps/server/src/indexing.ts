@@ -1,3 +1,4 @@
+import { queueDelaySeconds } from "@spark/core";
 import {
   EMBEDDING,
   embeddingSpace,
@@ -20,7 +21,7 @@ import {
   type Priority,
 } from "@spark/indexing";
 import type { CronCalls } from "./cron-budget";
-import { enqueueDeepFetch } from "./deep-fetch-queue";
+import { enqueueDeepFetch } from "./queues";
 import type { Bindings, IndexMessage } from "./env";
 import { spendStore } from "./spend";
 
@@ -98,7 +99,9 @@ export async function enqueueEmbed(
         priority: "background",
         task: "embed",
       },
-      delaySeconds ? { delaySeconds } : undefined
+      delaySeconds
+        ? { delaySeconds: queueDelaySeconds(delaySeconds) }
+        : undefined
     );
   } catch {
     console.error("indexing: embed enqueue failed");
@@ -165,87 +168,87 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
           : undefined;
       },
     });
-    await Promise.all(
-      batch.messages.map(async (message) => {
-        const { memoryId, run, generation, priority, task } = message.body;
-        let outcome: IndexOutcome;
-        try {
-          outcome = await index({
-            memoryId,
-            run,
-            generation,
-            priority,
-            task,
-            attempt: message.attempts,
-          });
-        } catch {
-          // The database, most likely: the same message, later.
-          outcome = {
-            result: "retry",
-            delaySeconds: backoffSeconds(message.attempts),
-          };
-        }
-        // A title may be edited while the initial run still owns the lease.
-        // Keep that delayed embed job alive; its eventual write checks revision.
-        if (
-          task === "embed" &&
-          outcome.result === "skipped" &&
-          (await store.waitingForIndexing({ memoryId, generation }))
-        ) {
-          // Waiting for another run is not a failed attempt. A slow initial
-          // run must not exhaust this job's retry limit and defer it an hour.
-          await env.REINDEX_QUEUE.send(message.body, {
-            delaySeconds: EMBEDDING.editDelaySeconds,
-          });
-          message.ack();
-          return;
-        }
-        if (outcome.result === "retry") {
-          message.retry({ delaySeconds: outcome.delaySeconds });
-        } else if (outcome.result === "paused") {
-          // Waiting on the budget is not an attempt: a new message, later.
-          // If that cannot be sent, the hourly sweep sends it once the
-          // budget allows; a retry here would count towards dead-lettering.
-          await env.REINDEX_QUEUE.send(message.body, {
-            delaySeconds: outcome.delaySeconds,
-          }).catch(() => console.error("indexing: pause not re-sent"));
-          message.ack();
-        } else {
-          message.ack();
-        }
-        // A message from before generations were sent claims nothing: it
-        // cannot say which Memory with its id it was for.
-        if (outcome.result === "searchable" && generation) {
-          // Sent from the Worker, not the tile: Indexing can finish after
-          // the dashboard is closed. The Capture stored whether Do Not
-          // Track was off, and only the first Searchable run is counted.
-          const timing = await store
-            .claimFirstSearchable(memoryId, generation)
-            .catch(() => undefined);
-          if (timing) {
-            pending.push({
-              distinctId: timing.userId,
-              event: {
-                event: "time_to_searchable",
-                properties: {
-                  kind: timing.kind,
-                  milliseconds: timing.milliseconds,
-                },
+    for (const message of batch.messages) {
+      const { memoryId, run, generation, priority, task } = message.body;
+      let outcome: IndexOutcome;
+      try {
+        outcome = await index({
+          memoryId,
+          run,
+          generation,
+          priority,
+          task,
+          attempt: message.attempts,
+        });
+      } catch {
+        // The database, most likely: the same message, later.
+        outcome = {
+          result: "retry",
+          delaySeconds: queueDelaySeconds(backoffSeconds(message.attempts)),
+        };
+      }
+      // A title may be edited while the initial run still owns the lease.
+      // Keep that delayed embed job alive; its eventual write checks revision.
+      if (
+        task === "embed" &&
+        outcome.result === "skipped" &&
+        (await store.waitingForIndexing({ memoryId, generation }))
+      ) {
+        // Waiting for another run is not a failed attempt. A slow initial
+        // run must not exhaust this job's retry limit and defer it an hour.
+        await env.REINDEX_QUEUE.send(message.body, {
+          delaySeconds: queueDelaySeconds(EMBEDDING.editDelaySeconds),
+        });
+        message.ack();
+        continue;
+      }
+      if (outcome.result === "retry") {
+        message.retry({
+          delaySeconds: queueDelaySeconds(outcome.delaySeconds),
+        });
+      } else if (outcome.result === "paused") {
+        // Waiting on the budget is not an attempt: a new message, later.
+        // If that cannot be sent, the hourly sweep sends it once the
+        // budget allows; a retry here would count towards dead-lettering.
+        await env.REINDEX_QUEUE.send(message.body, {
+          delaySeconds: queueDelaySeconds(outcome.delaySeconds),
+        }).catch(() => console.error("indexing: pause not re-sent"));
+        message.ack();
+      } else {
+        message.ack();
+      }
+      // A message from before generations were sent claims nothing: it
+      // cannot say which Memory with its id it was for.
+      if (outcome.result === "searchable" && generation) {
+        // Sent from the Worker, not the tile: Indexing can finish after
+        // the dashboard is closed. The Capture stored whether Do Not
+        // Track was off, and only the first Searchable run is counted.
+        const timing = await store
+          .claimFirstSearchable(memoryId, generation)
+          .catch(() => undefined);
+        if (timing) {
+          pending.push({
+            distinctId: timing.userId,
+            event: {
+              event: "time_to_searchable",
+              properties: {
+                kind: timing.kind,
+                milliseconds: timing.milliseconds,
               },
-            });
-          }
+            },
+          });
         }
-        // Gather may just have come back thin: its Deep fetch is queued (by
-        // the same write) and goes out now. Duplicates are fenced by its lease.
-        if (generation && outcome.result !== "retry" && task !== "embed") {
-          const target = await deepFetchStore(db)
-            .pending(memoryId, generation)
-            .catch(() => undefined);
-          if (target) await enqueueDeepFetch(env, target);
-        }
-        console.log(`indexing: ${task ?? priority} ${outcome.result}`);
-      })
-    );
+      }
+      // Gather may just have come back thin: its Deep fetch is queued (by
+      // the same write) and goes out now. Duplicates are fenced by its lease.
+      if (generation && outcome.result !== "retry" && task !== "embed") {
+        const target = await deepFetchStore(db)
+          .pending(memoryId, generation)
+          .catch(() => undefined);
+        if (target) await enqueueDeepFetch(env, target);
+      }
+      console.log(`indexing: ${task ?? priority} ${outcome.result}`);
+    }
   } finally {
     await close();
   }
@@ -265,7 +268,11 @@ export async function consumeIndexing(batch: IndexBatch, env: Bindings) {
 }
 
 /** Memories left Indexing (a message lost or never sent) go back on the background queue. */
-export async function requeueStalled(env: Bindings, calls?: CronCalls) {
+export async function requeueStalled(
+  env: Bindings,
+  calls?: CronCalls,
+  now?: Date
+) {
   const { db, close } = openDatabase(env.HYPERDRIVE.connectionString);
   try {
     const store = spendStore(env, db);
@@ -275,7 +282,7 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
     // Past the budget, background work is waiting on purpose (with its own
     // delayed message): only fresh work, which the budget never holds, goes.
     const spent =
-      (await store.spentTodayMicros()) >= (await store.dailyBudgetMicros());
+      (await store.spentTodayMicros(now)) >= (await store.dailyBudgetMicros());
     const recovery = spent
       ? []
       : await store.retryGather(calls?.remaining("indexing") ?? 100);
@@ -291,7 +298,7 @@ export async function requeueStalled(env: Bindings, calls?: CronCalls) {
     const room = calls?.remaining("indexing");
     // Past the budget, the limit applies to fresh work only. Filtering after
     // the limit would drop a fresh Memory sitting behind background rows.
-    const stalled = await store.stalled(60, room ?? 500, spent);
+    const stalled = await store.stalled(60, room ?? 500, spent, now);
     let sent = 0;
     for (const { id, run, generation, priority } of stalled) {
       if (calls && !calls.take("indexing")) break;
