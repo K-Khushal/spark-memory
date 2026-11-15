@@ -356,6 +356,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
   });
 
   it("reconciles a reserved provider receipt without counting its cost twice", async () => {
+    const before = await store().spentTodayMicros();
     const id = crypto.randomUUID();
     const call = {
       id,
@@ -375,6 +376,7 @@ describe.skipIf(!databaseUrl)("Indexing", () => {
       .where(eq(schema.aiCall.id, id));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ costMicros: 21, estimated: false });
+    expect((await store().spentTodayMicros()) - before).toBe(21);
   });
 
   it("adds up AI spend per day atomically, and keeps each call per Memory", async () => {

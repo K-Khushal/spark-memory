@@ -3,7 +3,7 @@ import pg from "pg";
 import { INDEXING } from "@spark/core";
 import { requeueStalled } from "../src/indexing";
 import { requeueDeepFetches } from "../src/deep-fetch";
-import { enqueueDeepFetch } from "../src/deep-fetch-queue";
+import { enqueueDeepFetch } from "../src/queues";
 import {
   databaseUrl,
   deepFetchQueue,
@@ -321,7 +321,7 @@ describe.skipIf(!databaseUrl)("Deep fetch", () => {
     expect(await read(call, id)).toMatchObject({ preservation: "preserved" });
   });
 
-  it("sends a wait a queue can hold as a delayed message, and leaves a longer one to the sweep", async () => {
+  it("sends a wait a queue can hold as a delayed message, and clamps a longer wait", async () => {
     const target = {
       memoryId: crypto.randomUUID(),
       generation: crypto.randomUUID(),
@@ -332,6 +332,7 @@ describe.skipIf(!databaseUrl)("Deep fetch", () => {
     await enqueueDeepFetch(env(), { ...target, delaySeconds: 20 * 86400 });
     expect(deepFetchQueue.sent.slice(before)).toEqual([
       { body: target, delaySeconds: 3600 },
+      { body: target, delaySeconds: 43200 },
     ]);
   });
 

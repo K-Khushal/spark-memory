@@ -125,8 +125,11 @@ export function jevMatchJudge({
       }
       signal.throwIfAborted();
       const reply = await client.judge(query, sent, signal);
-      await record(id, reply.inputTokens, hold.id).catch(() =>
-        console.error("search: judging estimate not reconciled")
+      await record(id, reply.inputTokens, hold.id).catch((error: unknown) =>
+        console.error("search: judging estimate not reconciled", {
+          receiptId: id,
+          error,
+        })
       );
       // A question Jev left unanswered is not ruled on: the thresholds stand.
       return new Map(

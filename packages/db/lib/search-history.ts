@@ -42,10 +42,24 @@ export function searchHistory(db: Database, userId: string) {
           on conflict(user_id, query) do update set searched_at = now()`);
         await tx.execute(sql`insert into search_event(user_id, query, memory_id, position, reformulation)
           values (${userId}, ${q}, ${click?.memoryId ?? null}::uuid, ${click?.position ?? null}, ${reformulation})`);
-        await tx.execute(sql`delete from recent_search where user_id = ${userId} and id not in
+        if (
+          (
+            await tx.execute(
+              sql`select 1 from recent_search where user_id = ${userId} offset 20 limit 1`
+            )
+          ).rows.length
+        )
+          await tx.execute(sql`delete from recent_search where user_id = ${userId} and id not in
           (select id from recent_search where user_id = ${userId} and searched_at > now() - interval '30 days'
           order by searched_at desc, id limit 20)`);
-        await tx.execute(sql`delete from search_event where user_id = ${userId} and id not in
+        if (
+          (
+            await tx.execute(
+              sql`select 1 from search_event where user_id = ${userId} offset 1000 limit 1`
+            )
+          ).rows.length
+        )
+          await tx.execute(sql`delete from search_event where user_id = ${userId} and id not in
           (select id from search_event where user_id = ${userId} and occurred_at > now() - interval '30 days'
           order by occurred_at desc, id limit 1000)`);
       });
