@@ -17,6 +17,7 @@ export type LibraryOverlaysProps = {
   instant: Results | "failed" | undefined;
   onRetrySearch: () => void;
   retryingSearch: boolean;
+  onSearchStatus: (message: string) => void;
   onSearchOpenChange: (open: boolean) => void;
   onDraft: (value: string) => void;
   onShowOnWall: (query: string) => void;
@@ -61,6 +62,7 @@ export function LibraryOverlays({
   instant,
   onRetrySearch,
   retryingSearch,
+  onSearchStatus,
   onSearchOpenChange,
   onDraft,
   onShowOnWall,
@@ -102,6 +104,7 @@ export function LibraryOverlays({
         instant={instant}
         onRetry={onRetrySearch}
         retrying={retryingSearch}
+        onStatus={onSearchStatus}
         onOpenChange={onSearchOpenChange}
         onDraft={onDraft}
         onShowOnWall={onShowOnWall}

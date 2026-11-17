@@ -647,19 +647,31 @@ function TextTile({
   );
 }
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** The same word-prefix terms drive highlights and visible passage evidence. */
+const highlightTerms = (query: string) => [
+  ...new Set(
+    query
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => word.length > 1)
+  ),
+];
+const highlightPattern = (terms: string[]) =>
+  new RegExp(`(?<![\\p{L}\\p{N}])(${terms.join("|")})`, "giu");
+
+export function passageIsHighlighted(text: string, query: string) {
+  const terms = highlightTerms(query);
+  return (
+    terms.length > 0 &&
+    terms.every((term) => highlightPattern([term]).test(text))
+  );
+}
 
 /** `text` with each query word marked where a word starts with it. */
 export function Highlighted({ text, query }: { text: string; query: string }) {
-  const words = query
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => w.length > 1);
+  const words = highlightTerms(query);
   if (!words.length) return <>{text}</>;
-  const re = new RegExp(
-    `(?<![\\p{L}\\p{N}])(${words.map(escape).join("|")})`,
-    "giu"
-  );
+  const re = highlightPattern(words);
   return (
     <>
       {text

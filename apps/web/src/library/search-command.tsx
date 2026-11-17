@@ -1,5 +1,11 @@
 import { ImageQueryControls, type ImageQueryProps } from "./image-query";
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useRecentSearches } from "./search-history";
 import { restoreLibraryFocus } from "./focus";
 import {
@@ -36,6 +42,7 @@ export function SearchCommand({
   instant,
   onRetry,
   retrying,
+  onStatus,
   onOpenChange,
   onDraft,
   onShowOnWall,
@@ -51,6 +58,7 @@ export function SearchCommand({
   onRetry: () => void;
   /** Between Try Again and the next answer. */
   retrying: boolean;
+  onStatus: (message: string) => void;
   onOpenChange: (open: boolean) => void;
   onDraft: (value: string) => void;
   onShowOnWall: (query: string) => void;
@@ -118,6 +126,9 @@ export function SearchCommand({
         ? failure
         : list?.note
       : undefined;
+  useEffect(() => {
+    onStatus(open ? (note ?? "") : "");
+  }, [open, note, onStatus]);
 
   return (
     <CommandDialog
@@ -266,17 +277,13 @@ export function SearchCommand({
           </>
         )}
       </CommandList>
-      <div role="status" className="sr-only">
-        {note}
-      </div>
     </CommandDialog>
   );
 }
 
 /**
  * A line in the ⌘K list where results would be. A listbox may hold only
- * options and groups, so it is drawn here and read out by the live region
- * after the list (`note` below).
+ * options and groups, so it is drawn here and read out by the shared Library live region (`onStatus`).
  */
 function ListNote({ children }: { children: string }) {
   return (

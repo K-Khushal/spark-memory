@@ -458,3 +458,39 @@ test("text tiles fit font-shaped paragraphs without an empty badge row", async (
       .toBe(true);
   }
 });
+
+test("font-aware measurement of a 10k wall stays within the cold and cached budgets", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await signIn(page);
+  const cost = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const family = getComputedStyle(document.documentElement).getPropertyValue(
+      "--font-sans"
+    );
+    await document.fonts.load(`400 13px ${family}`, "Garden नमस्ते");
+    await document.fonts.ready;
+    // Exercise the actual browser canvas and loaded fonts, not a width stub.
+    const modulePath = "/src/library/title-lines.ts";
+    const { bodyLines } = await import(/* @vite-ignore */ modulePath);
+    const bodies = Array.from(
+      { length: 10_000 },
+      (_, i) =>
+        `Measurement ${i}: Garden tools stay dry beside the shed.\n\n${"日本語の資料。 नमस्ते दुनिया. مرحبا بالعالم. Wide WWW and narrow iii. ".repeat(8)}`
+    );
+    const run = () => {
+      const start = performance.now();
+      let lines = 0;
+      for (const body of bodies) lines += bodyLines(body, 188, 12);
+      return { ms: performance.now() - start, lines };
+    };
+    return { cold: run(), cached: run() };
+  });
+  console.log(`10k body measurement: ${JSON.stringify(cost)}`);
+  expect(cost.cold.lines).toBeGreaterThan(10_000);
+  expect(cost.cached.lines).toBe(cost.cold.lines);
+  // Generous CPU budgets for shared CI runners; retain the actual timings in output.
+  expect(cost.cold.ms).toBeLessThan(10_000);
+  expect(cost.cached.ms).toBeLessThan(1_000);
+});

@@ -68,7 +68,13 @@ import { useStickyInset } from "../sticky-inset";
 import { productMetrics } from "./product-metrics";
 import { createActivation } from "./activation";
 import { Onboarding, recordActivation } from "./onboarding";
-import { MemoryTile, tileHeight, tileLayout, tileLabel } from "./memory-tile";
+import {
+  MemoryTile,
+  passageIsHighlighted,
+  tileHeight,
+  tileLayout,
+  tileLabel,
+} from "./memory-tile";
 import { LibraryOverlaysHost } from "./overlays-host";
 import { pdfMatch, type PdfMatch } from "./pdf-match";
 import { focusWall } from "./focus";
@@ -126,6 +132,7 @@ function LibraryForSession({
   const [activation] = useState(() => createActivation(recordActivation));
   const onActivated = useCallback(() => activation.know(), [activation]);
   const [searchOpen, setSearchOpen] = useState(desk === "search");
+  const [commandStatus, setCommandStatus] = useState("");
   const [overlaysEpoch, setOverlaysEpoch] = useState(0);
   const [overlaysDown, setOverlaysDown] = useState(false);
   const previousSearch = useRef("");
@@ -738,13 +745,21 @@ function LibraryForSession({
         </div>
         <h1 className="sr-only">Library</h1>
         {/* Outside the busy wall below, or a screen reader may hold it back
-            until the busy state clears. Always mounted, so Try Again is heard. */}
-        <div role="status" className="sr-only">
-          {first === "failed"
-            ? wallSearch.retrying
-              ? "Searching Again"
-              : "Search Is Unreachable"
-            : ""}
+            until the busy state clears. Explicit aria-live keeps this shared region
+            exposed when Search's modal hides the surrounding page. */}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {searchOpen
+            ? commandStatus
+            : first === "failed"
+              ? wallSearch.retrying
+                ? "Searching Again"
+                : "Search Is Unreachable"
+              : ""}
         </div>
         {library.state === "ready" && (
           <div className="peer">
@@ -893,6 +908,7 @@ function LibraryForSession({
             wallSearch.retry();
           }}
           retryingSearch={instantSearch.retrying || wallSearch.retrying}
+          onSearchStatus={setCommandStatus}
           onSearchOpenChange={(open) => {
             setSearchOpen(open);
             if (!open) metrics.abandoned();
@@ -1077,10 +1093,10 @@ function ResultWall({
                     tile.width - (tile.width < 200 ? 24 : 32) * rootFontScale(),
                     100
                   ) <= tileLayout(m, tile.width).body &&
-                  (m.body ?? "")
-                    .slice(m.part.start, m.part.end)
-                    .toLowerCase()
-                    .includes(query.toLowerCase())
+                  passageIsHighlighted(
+                    (m.body ?? "").slice(m.part.start, m.part.end),
+                    query
+                  )
                 }
               />
             ) : undefined

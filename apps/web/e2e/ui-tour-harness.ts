@@ -229,6 +229,7 @@ export function writeIndex() {
     "# Spark UI tour",
     "",
     `Commit: ${execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()}`,
+    `dirty: ${execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim() ? "yes" : "no"}`,
     `Fixture SHA256: ${createHash("sha256")
       .update(readFileSync(resolve("e2e/ui-tour-fixtures.ts")))
       .digest("hex")}`,

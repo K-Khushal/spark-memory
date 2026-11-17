@@ -85,3 +85,36 @@ describe("a link tile's layout", () => {
       );
   });
 });
+
+it("uses Text for a visible passage whose highlighted query terms are separated", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { Highlighted, passageIsHighlighted } = await import("./memory-tile");
+  const text = "Garden storage keeps the hand tools dry.";
+  expect(
+    renderToStaticMarkup(Highlighted({ text, query: "garden tools" }))
+  ).toContain("<mark>Garden</mark>");
+  expect(
+    renderToStaticMarkup(Highlighted({ text, query: "garden tools" }))
+  ).toContain("<mark>tools</mark>");
+  expect(passageIsHighlighted(text, "garden tools")).toBe(true);
+  const { WhyChip } = await import("./why");
+  expect(
+    renderToStaticMarkup(
+      WhyChip({
+        found: {
+          ...note({ body: text }),
+          part: { kind: "passage", field: "body", start: 0, end: text.length },
+        },
+        direct: true,
+        visiblePassage: passageIsHighlighted(text, "garden tools"),
+      })
+    )
+  ).toContain("<span>Text</span>");
+  expect(
+    passageIsHighlighted("Gardener stores toolshed plans", "garden tools")
+  ).toBe(true);
+  expect(passageIsHighlighted("The garden has stools", "garden tools")).toBe(
+    false
+  );
+  expect(passageIsHighlighted(text, "a I")).toBe(false);
+});
