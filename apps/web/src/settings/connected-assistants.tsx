@@ -162,7 +162,7 @@ export function ConnectedAssistants() {
     </>
   );
   return (
-    <div className="flex flex-col gap-4" aria-busy={pending}>
+    <div className="flex flex-col" aria-busy={pending}>
       {assistants.length > 0 ? (
         <ul
           ref={list}
@@ -213,7 +213,9 @@ export function ConnectedAssistants() {
         </ul>
       ) : (
         state.phase !== "pending" && (
-          <p className="text-sm text-ink-muted">No Connected Assistants</p>
+          <p className="flex min-h-12 items-center text-sm text-ink-muted">
+            No Connected Assistants
+          </p>
         )
       )}
       <div className="flex min-h-12 flex-wrap items-center gap-3">

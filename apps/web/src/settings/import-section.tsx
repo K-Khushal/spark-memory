@@ -94,7 +94,10 @@ export function ImportSection({ userId }: { userId: string }) {
             const id = failedId;
             failedId = undefined;
             void importFile(userId, `${jobId}/${id}`, null)
-              .then(() => setRestart((value) => value + 1))
+              .then(() => {
+                setError(undefined);
+                setRestart((value) => value + 1);
+              })
               .catch(() =>
                 setError("Images Could Not Be Removed From This Device")
               );
@@ -310,7 +313,7 @@ export function ImportSection({ userId }: { userId: string }) {
   };
   const active = job && !["done", "cancelled"].includes(job.state);
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div className="flex min-w-0 flex-col">
       <div className="flex flex-col">
         <SettingsRow label="Import URLs">
           <Button
