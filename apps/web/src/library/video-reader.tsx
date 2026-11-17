@@ -7,7 +7,6 @@ import {
   videoTimestamp,
   youtubeId,
 } from "@spark/core";
-import { cn } from "@spark/ui";
 import { SourceLink } from "./source-link";
 import type { Memory } from "./use-library";
 
@@ -33,6 +32,9 @@ export function VideoReader({
     memory.sourceUrl && /^https?:\/\//i.test(memory.sourceUrl)
       ? memory.sourceUrl
       : undefined;
+  const sourceHref = id
+    ? `https://www.youtube.com/watch?v=${id}&t=${Math.floor(moment)}s`
+    : source;
   const along = (event: KeyboardEvent) => {
     const last = transcript.length - 1;
     const to =
@@ -69,20 +71,14 @@ export function VideoReader({
           <PlayPanel
             poster={memory.image?.thumbnailUrl}
             host={sourceHost(source ?? "") ?? ""}
+            sourceHref={sourceHref}
             onClick={() => setPlaying(true)}
           >
             Play From {formatTimestamp(moment)}
           </PlayPanel>
         ))}
-      {source && (
-        <SourceLink
-          href={
-            id
-              ? `https://www.youtube.com/watch?v=${id}&t=${Math.floor(moment)}s`
-              : source
-          }
-          host={sourceHost(source) ?? source}
-        />
+      {source && (!id || playing) && (
+        <SourceLink href={sourceHref!} host={sourceHost(source) ?? source} />
       )}
       {transcript.length ? (
         <ol aria-label="Transcript" onKeyDown={along} className="space-y-3">
@@ -154,28 +150,45 @@ function StatusChip({ children }: { children: ReactNode }) {
 function PlayPanel({
   poster,
   host,
+  sourceHref,
   onClick,
   children,
 }: {
   poster: string | undefined;
   host: string;
+  sourceHref: string | undefined;
   onClick: () => void;
   children: ReactNode;
 }) {
   const [broken, setBroken] = useState(false);
   const showing = poster && !broken;
+  if (!showing)
+    return (
+      <div className="flex min-h-16 w-full shrink-0 items-center rounded-control border border-line hover:bg-sunken">
+        <button
+          type="button"
+          onClick={onClick}
+          className="flex min-h-16 min-w-0 flex-1 items-center gap-2 rounded-control px-3 py-2 text-start text-sm font-medium text-ink transition-transform duration-(--duration-press) ease-out active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring pointer-coarse:min-h-(--size-touch)"
+        >
+          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-ink text-canvas">
+            <PlayIcon className="size-4" aria-hidden />
+          </span>
+          {children}
+        </button>
+        {sourceHref && (
+          <div className="max-w-[35%] min-w-0 pr-3">
+            <SourceLink href={sourceHref} host={host} />
+          </div>
+        )}
+      </div>
+    );
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "relative flex w-full shrink-0 items-center gap-2 overflow-hidden text-sm font-medium text-ink transition-[background-color,transform] duration-(--duration-press) ease-out hover:bg-sunken focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.98] pointer-coarse:min-h-(--size-touch)",
-        showing
-          ? "aspect-video justify-center rounded-tile bg-sunken"
-          : "min-h-16 rounded-control border border-line px-3 py-2 text-start"
-      )}
-    >
-      {showing && (
+    <div className="flex flex-col gap-3">
+      <button
+        type="button"
+        onClick={onClick}
+        className="relative flex aspect-video w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-tile bg-sunken text-sm font-medium text-ink transition-[background-color,transform] duration-(--duration-press) ease-out hover:bg-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.98] pointer-coarse:min-h-(--size-touch)"
+      >
         <img
           src={poster}
           alt=""
@@ -183,34 +196,15 @@ function PlayPanel({
           onError={() => setBroken(true)}
           className="absolute inset-0 size-full object-cover"
         />
-      )}
-      {/* Over a poster the label sits on the fixed dark plate, as video badges do. */}
-      <span
-        data-theme={showing ? "dark" : undefined}
-        className={cn(
-          "relative inline-flex items-center gap-2",
-          showing && "rounded-control bg-canvas px-3 py-2 text-ink"
-        )}
-      >
         <span
-          className={
-            showing
-              ? ""
-              : "grid size-8 shrink-0 place-items-center rounded-full bg-ink text-canvas"
-          }
+          data-theme="dark"
+          className="relative inline-flex items-center gap-2 rounded-control bg-canvas px-3 py-2 text-ink"
         >
           <PlayIcon className="size-4" aria-hidden />
+          {children}
         </span>
-        {children}
-      </span>
-      {!showing && (
-        <span
-          aria-hidden
-          className="ml-auto min-w-0 truncate text-sm font-normal text-ink-muted"
-        >
-          {host}
-        </span>
-      )}
-    </button>
+      </button>
+      {sourceHref && <SourceLink href={sourceHref} host={host} />}
+    </div>
   );
 }
