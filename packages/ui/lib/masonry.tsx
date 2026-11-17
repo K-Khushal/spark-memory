@@ -328,11 +328,13 @@ export function Masonry<T>({
         entering.delete(key);
         if (now < openUntil && near(tile.getBoundingClientRect().top)) {
           tile.dataset.enter = "true";
-          tile.addEventListener(
-            "animationend",
-            () => delete tile.dataset.enter,
-            { once: true }
-          );
+          // animationend bubbles: only the tile's own entrance ends it.
+          const done = (event: AnimationEvent) => {
+            if (event.target !== tile) return;
+            tile.removeEventListener("animationend", done);
+            delete tile.dataset.enter;
+          };
+          tile.addEventListener("animationend", done);
         }
       }
       const offset = TRANSLATE.exec(to);
