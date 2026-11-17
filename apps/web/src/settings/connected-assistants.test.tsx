@@ -96,6 +96,15 @@ afterEach(async () => {
   host.remove();
 });
 
+it("opens token creation only after Connect Assistant", async () => {
+  await show([]);
+  expect(document.querySelector("#assistant-name")).toBeNull();
+  await click(button("Connect Assistant"));
+  expect(
+    document.querySelector('[role="dialog"] #assistant-name')
+  ).not.toBeNull();
+});
+
 describe("Connected Assistants in Settings", () => {
   it("shows each assistant with its last activity, or that it was never used", async () => {
     const today = new Date().toISOString();

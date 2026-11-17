@@ -9,17 +9,17 @@ test("Settings theme, chosen connection recipe and narrow layout", async ({
   await signIn(page);
   await page.goto("/settings");
   await expect(page.getByRole("meter", { name: "Storage" })).toBeVisible();
-  const appearance = page.getByRole("group", { name: "Appearance" });
-  await appearance.getByRole("button", { name: "Dark", exact: true }).click();
+  const appearance = page.getByRole("radiogroup", { name: "Appearance" });
+  await appearance.getByRole("radio", { name: "Dark", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload();
   await expect(
-    appearance.getByRole("button", { name: "Dark", exact: true })
-  ).toHaveAttribute("aria-pressed", "true");
+    appearance.getByRole("radio", { name: "Dark", exact: true })
+  ).toHaveAttribute("aria-checked", "true");
   for (const width of [320, 390, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await expect(
-      page.getByRole("switch", { name: "Import All Today" })
+      page.getByRole("switch", { name: "Spread Over Days" })
     ).toBeVisible();
     expect(
       await page.evaluate(
@@ -85,7 +85,7 @@ test("Settings theme, chosen connection recipe and narrow layout", async ({
   });
   await deletion.click();
   await expect(
-    page.getByRole("dialog", { name: "Delete Your Account and Every Memory" })
+    page.getByRole("dialog", { name: "Delete Account" })
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(deletion).toBeFocused();

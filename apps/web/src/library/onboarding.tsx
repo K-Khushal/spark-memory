@@ -46,6 +46,13 @@ export function Onboarding({
   const [busy, setBusy] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const pending = useRef(false);
+  const [extensionAvailable] = useState(
+    () =>
+      !window.matchMedia?.("(pointer: coarse)").matches &&
+      /Chrome|Chromium|Firefox/.test(navigator.userAgent) &&
+      !/Android|Mobile/.test(navigator.userAgent)
+  );
+  const passedExtension = useRef(false);
   const sampleCount = memories.filter((m) => m.sample).length;
   const first = memories.find((m) => !m.sample);
   useEffect(() => {
@@ -114,15 +121,32 @@ export function Onboarding({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state?.step, state?.paused, first?.id]);
 
+  useEffect(() => {
+    if (
+      state?.step === "extension" &&
+      !state.paused &&
+      !extensionAvailable &&
+      !passedExtension.current
+    ) {
+      passedExtension.current = true;
+      void update("capture");
+    }
+    // The server owns progress; only pass this step once per mounted flow.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.step, state?.paused, extensionAvailable]);
+  const steps = extensionAvailable
+    ? ["disclosure", "extension", "capture", "indexing", "search"]
+    : ["disclosure", "capture", "indexing", "search"];
+  const stepIndex =
+    state?.step === "done"
+      ? steps.length - 1
+      : Math.max(0, steps.indexOf(state?.step ?? "disclosure"));
   if (!state && !failed) return null;
   const finished = state?.step === "done" && state.paused;
   // Finished, with Samples left: only the one action that removes them.
   if (finished && !sampleCount) return null;
   return (
-    <section
-      aria-label="Get Started"
-      className="border-b border-line px-4 py-5 md:px-6"
-    >
+    <section aria-label="Get Started" className="border-b border-line px-6">
       <MotionConfig reducedMotion="user">
         {failed && !state ? (
           <div className="flex flex-wrap items-center gap-3">
@@ -133,39 +157,36 @@ export function Onboarding({
           </div>
         ) : (
           state && (
-            <>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2
-                  className={
-                    finished ? "sr-only" : "font-display text-lg font-semibold"
-                  }
-                >
+            <div
+              className={`flex max-w-3xl flex-col justify-center gap-3 sm:flex-row sm:items-center sm:justify-start ${finished ? "min-h-12" : "h-26 sm:h-16"}`}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                {!finished && (
+                  <div
+                    className="flex shrink-0 gap-1"
+                    aria-label={`Step ${stepIndex + 1} of ${steps.length}`}
+                  >
+                    {steps.map((step, index) => (
+                      <span
+                        key={step}
+                        className={`h-1 w-4 transition-colors duration-(--duration-press) ease-(--ease-out) motion-reduce:transition-none ${index <= stepIndex ? "bg-ink" : "bg-line"}`}
+                      />
+                    ))}
+                  </div>
+                )}
+                <h2 className={finished ? "sr-only" : "text-base font-medium"}>
                   {state.paused ? "Get Started" : headings[state.step]}
                 </h2>
-                <div className="flex flex-wrap items-center gap-2">
-                  {finished ? null : state.paused ? (
-                    <Button
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => void update(state.step)}
-                    >
-                      Resume
-                    </Button>
-                  ) : (
-                    // The AI disclosure is the one step that is not skippable.
-                    state.step !== "done" &&
-                    state.step !== "disclosure" && (
-                      <Button
-                        variant="quiet"
-                        disabled={busy}
-                        onClick={() => void update(state.step, true)}
-                      >
-                        Skip
-                      </Button>
-                    )
-                  )}
-                </div>
               </div>
+              {state.paused && !finished && (
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void update(state.step)}
+                >
+                  Resume
+                </Button>
+              )}
               {!state.paused && (
                 <motion.div
                   key={state.step}
@@ -175,14 +196,14 @@ export function Onboarding({
                     duration: DURATION.preview / 1000,
                     ease: EASING.out,
                   }}
-                  className="mt-6 flex min-w-0 flex-wrap items-center gap-3"
+                  className="flex min-w-0 flex-wrap items-center gap-3"
                   aria-busy={busy}
                 >
                   {state.step === "disclosure" && (
                     <>
                       <p className="max-w-prose text-sm">
-                        AI reads your Memories to Index them, unless you turn on
-                        AI Opt-Out for a Memory.
+                        AI reads your Memories to make them Searchable, unless
+                        you turn on AI Opt-Out for a Memory.
                       </p>
                       <Button
                         variant="primary"
@@ -197,14 +218,15 @@ export function Onboarding({
                   )}
                   {state.step === "extension" && (
                     <>
-                      <a
-                        className="rounded-control border border-line-strong px-3 py-2 text-sm font-medium underline-offset-4 hover:underline"
-                        href="https://github.com/K-Khushal/spark-memory/blob/main/docs/extension.md"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Install Extension
-                      </a>
+                      <Button variant="outline" asChild>
+                        <a
+                          href="https://github.com/K-Khushal/spark-memory/blob/main/docs/extension.md"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Install Extension
+                        </a>
+                      </Button>
                       <Button
                         variant="primary"
                         disabled={busy}
@@ -270,10 +292,33 @@ export function Onboarding({
                       Finish
                     </Button>
                   )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {finished ? null : state.paused ? (
+                      <Button
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => void update(state.step)}
+                      >
+                        Resume
+                      </Button>
+                    ) : (
+                      // The AI disclosure is the one step that is not skippable.
+                      state.step !== "done" &&
+                      state.step !== "disclosure" && (
+                        <Button
+                          variant="quiet"
+                          disabled={busy}
+                          onClick={() => void update(state.step, true)}
+                        >
+                          Skip
+                        </Button>
+                      )
+                    )}
+                  </div>
                 </motion.div>
               )}
-              <div className={sampleCount ? "mt-6" : undefined}>
-                {sampleCount > 0 && (
+              <div>
+                {sampleCount > 0 && (finished || state.step === "done") && (
                   <Button
                     variant="quiet"
                     disabled={busy}
@@ -285,7 +330,7 @@ export function Onboarding({
                   </Button>
                 )}
               </div>
-            </>
+            </div>
           )
         )}
       </MotionConfig>

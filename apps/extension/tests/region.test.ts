@@ -32,7 +32,8 @@ it("removes the overlay and waits two paint frames before releasing the crop", a
     settled = true;
     return result;
   });
-  const layer = root.querySelector('[role="dialog"]')!;
+  const layer = root.querySelector<HTMLElement>('[role="dialog"]')!;
+  expect(layer.style.outline).toBe("");
   layer.dispatchEvent(
     new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })
   );

@@ -9,7 +9,7 @@ test("onboarding resumes, captures, searches samples and removes them together",
   await signIn(page);
   const flow = page.getByRole("region", { name: "Get Started" });
   await expect(
-    flow.getByText(/AI reads your Memories to Index them/)
+    flow.getByText(/AI reads your Memories to make them Searchable/)
   ).toBeVisible();
   await flow.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(
@@ -58,4 +58,28 @@ test("onboarding resumes, captures, searches samples and removes them together",
   await expect(flow.getByRole("button", { name: "Resume" })).toHaveCount(0);
   await flow.getByRole("button", { name: "Remove Samples" }).click();
   await expect(page.getByRole("listitem", { name: /Sample/ })).toHaveCount(0);
+});
+
+test("coarse pointers pass the extension step and show four ticks", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    hasTouch: true,
+    viewport: { width: 390, height: 844 },
+  });
+  const page = await context.newPage();
+  try {
+    await signIn(page);
+    const flow = page.getByRole("region", { name: "Get Started" });
+    await flow.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(
+      flow.getByRole("heading", { name: "Capture a Memory" })
+    ).toBeVisible();
+    await expect(
+      flow.getByRole("link", { name: "Install Extension" })
+    ).toHaveCount(0);
+    await expect(flow.getByLabel("Step 2 of 4")).toBeVisible();
+  } finally {
+    await context.close();
+  }
 });

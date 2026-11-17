@@ -57,7 +57,7 @@ export function UsageSection({
 }) {
   const resets = `Resets at ${time.format(new Date(usage.resetsAt))}`;
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col">
       <Gauge
         label="Storage"
         meter={usage.storage}
@@ -100,7 +100,7 @@ function Gauge({
   const id = useId();
   const value = text(meter);
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-h-12 flex-col justify-center gap-2 border-b border-line py-2 last:border-b-0">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <span id={id} className="text-sm">
           {label}
@@ -116,10 +116,10 @@ function Gauge({
         aria-valuemax={meter.limit}
         aria-valuenow={Math.min(meter.used, meter.limit)}
         aria-valuetext={detail ? `${value}. ${detail}` : value}
-        className="h-1 overflow-hidden rounded-control bg-sunken"
+        className="h-1 overflow-hidden rounded-full bg-line"
       >
         <div
-          className="h-full rounded-control bg-ink"
+          className="h-full rounded-full bg-ink"
           style={{ width: `${Math.round(share(meter) * 10_000) / 100}%` }}
         />
       </div>

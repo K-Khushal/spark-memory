@@ -9,6 +9,9 @@ test("connect an assistant, complete MCP handshake, then revoke", async ({
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await signIn(page);
   await page.goto("/settings");
+  await page
+    .getByRole("button", { name: "Connect Assistant", exact: true })
+    .click();
   await page.getByLabel("Assistant Name").fill("Claude Code");
   await page.getByRole("button", { name: "Create Token" }).click();
   const token = await page.getByLabel("Copy Token Now").inputValue();
@@ -205,15 +208,22 @@ test("personal access token limit is labeled and revoking frees a slot", async (
     expect(issued.status()).toBe(201);
   }
   await page.goto("/settings");
+  await page
+    .getByRole("button", { name: "Connect Assistant", exact: true })
+    .click();
   await page.getByLabel("Assistant Name").fill("One More Assistant");
   await page.getByRole("button", { name: "Create Token" }).click();
   await expect(page.getByRole("alert")).toHaveText("Token Limit Reached");
+  await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "Revoke Limited Assistant 0", exact: true })
     .click();
   await page
     .getByRole("dialog", { name: "Revoke Limited Assistant 0" })
     .getByRole("button", { name: "Revoke", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Connect Assistant", exact: true })
     .click();
   await page.getByRole("button", { name: "Create Token" }).click();
   await expect(page.getByLabel("Copy Token Now")).toHaveValue(

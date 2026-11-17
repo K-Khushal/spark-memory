@@ -22,6 +22,9 @@ export default defineConfig({
       : process.env.WXT_EXTENSION_KEY
         ? { key: process.env.WXT_EXTENSION_KEY }
         : {}),
+    web_accessible_resources: [
+      { resources: ["fonts/instrument.woff2"], matches: ["<all_urls>"] },
+    ],
     permissions: [
       "activeTab",
       "storage",

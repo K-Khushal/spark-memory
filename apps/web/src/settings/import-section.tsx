@@ -1,3 +1,4 @@
+import { SettingsRow } from "./row";
 import { clearImportFiles, importFile } from "./import-files";
 import { useEffect, useRef, useState } from "react";
 import { checkImage } from "@spark/capture";
@@ -78,16 +79,33 @@ export function ImportSection({ userId }: { userId: string }) {
         setError("Images Could Not Be Removed From This Device")
       );
   }, [job?.id, job?.state, userId]);
+  const [restart, setRestart] = useState(0);
+  const drain = useRef<Promise<void> | undefined>(undefined);
   const [captures] = useState(() => {
     let jobId: string | undefined;
+    let failedId: string | undefined;
     return {
       ...imageCapture({
         setMemories: setImages,
         transport: importImageTransport(userId, () => jobId),
         notify: toast,
-        onSaved: () => {},
+        onSaved: () => {
+          if (failedId && jobId) {
+            const id = failedId;
+            failedId = undefined;
+            void importFile(userId, `${jobId}/${id}`, null)
+              .then(() => setRestart((value) => value + 1))
+              .catch(() =>
+                setError("Images Could Not Be Removed From This Device")
+              );
+          }
+        },
         inOrder: (_id, task) => task(),
       }),
+      failed: () => failedId,
+      fail: (id: string | undefined) => {
+        failedId = id;
+      },
       setJobId: (id: string | undefined) => {
         jobId = id;
       },
@@ -98,17 +116,25 @@ export function ImportSection({ userId }: { userId: string }) {
   useEffect(() => {
     if (job?.state !== "running") return;
     let stopped = false;
-    void (async () => {
+    const previous = drain.current;
+    const work = (async () => {
+      await previous;
+      if (stopped) return;
       const { ids } = await read<{ ids: string[] }>(
         endpoint[":id"].images.$get({ param: { id: job.id } })
       );
       for (const id of ids) {
         if (stopped) break;
         const file = await importFile(userId, `${job.id}/${id}`);
+        if (stopped) break;
         if (!file) {
           setError("Open Import On The Original Device");
           continue;
         } // Another device can show progress; originals stay on the choosing device.
+        if (captures.failed() === id) {
+          captures.cancel(id);
+          captures.fail(undefined);
+        }
         await captures.capture([file], [id]);
         const outcome = await captures.outcome(id);
         if (outcome === "stored")
@@ -117,15 +143,19 @@ export function ImportSection({ userId }: { userId: string }) {
           setError("Daily Allowance Or Storage Is Full");
           break;
         } else {
+          captures.fail(id);
           setError("Image Could Not Be Captured");
           break;
         }
       }
-    })().catch(() => !stopped && setError("Images Did Not Finish"));
+    })().catch(() => {
+      if (!stopped) setError("Images Did Not Finish");
+    });
+    drain.current = work;
     return () => {
       stopped = true;
     };
-  }, [job?.id, job?.state, day, userId, captures, endpoint]);
+  }, [job?.id, job?.state, day, userId, captures, endpoint, restart]);
   const loadImages = async (files: File[]) => {
     if (!files.length || busy) return;
     setBusy(true);
@@ -139,7 +169,7 @@ export function ImportSection({ userId }: { userId: string }) {
         files.reduce((bytes, file) => bytes + file.size, 0) >
         FREE_ALLOWANCE.storageBytes
       )
-        throw new Error("Choose Images Under 1 GB In Total");
+        throw new Error("Import Images Under 1 GB In Total");
       const id = crypto.randomUUID();
       const created = await read<{ job: Job }>(
         endpoint.create.$post({ json: { id, total: files.length, spread } })
@@ -281,31 +311,40 @@ export function ImportSection({ userId }: { userId: string }) {
   const active = job && !["done", "cancelled"].includes(job.state);
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
-        <Button
-          wrap
-          variant="outline"
-          disabled={busy || (!!active && job.state !== "loading")}
-          onClick={() => exportInput.current?.click()}
-        >
-          Import URLs
-        </Button>
-        <Button
-          wrap
-          variant="outline"
-          disabled={busy || !!active}
-          onClick={() => filesInput.current?.click()}
-        >
-          Choose Images
-        </Button>
-        <Button
-          wrap
-          variant="outline"
-          disabled={busy || !!active}
-          onClick={() => folderInput.current?.click()}
-        >
-          Choose Folder
-        </Button>
+      <div className="flex flex-col">
+        <SettingsRow label="Import URLs">
+          <Button
+            wrap
+            variant="outline"
+            size="sm"
+            disabled={busy || (!!active && job.state !== "loading")}
+            onClick={() => exportInput.current?.click()}
+          >
+            Import URLs
+          </Button>
+        </SettingsRow>
+        <SettingsRow label="Import Images">
+          <Button
+            wrap
+            variant="outline"
+            size="sm"
+            disabled={busy || !!active}
+            onClick={() => filesInput.current?.click()}
+          >
+            Import Images
+          </Button>
+        </SettingsRow>
+        <SettingsRow label="Import Folder">
+          <Button
+            wrap
+            variant="outline"
+            size="sm"
+            disabled={busy || !!active}
+            onClick={() => folderInput.current?.click()}
+          >
+            Import Folder
+          </Button>
+        </SettingsRow>
       </div>
       <input
         ref={exportInput}
@@ -345,12 +384,12 @@ export function ImportSection({ userId }: { userId: string }) {
         }}
       />
       {!active && (
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex min-h-12 items-center justify-between gap-3 border-b border-line text-sm">
+          Spread Over Days
           <Switch
-            checked={!spread}
-            onCheckedChange={(checked) => setSpread(!checked)}
+            checked={spread}
+            onCheckedChange={(checked) => setSpread(checked)}
           />
-          Import All Today
         </label>
       )}
       <div className="flex flex-col gap-2 text-sm tabular-nums">
@@ -371,14 +410,13 @@ export function ImportSection({ userId }: { userId: string }) {
                 }
               </span>
               <span>
-                {job.done.toLocaleString()} Done /{" "}
-                {job.skipped.toLocaleString()} Skipped /{" "}
-                {job.total.toLocaleString()} Total
+                {job.done.toLocaleString()} of {job.total.toLocaleString()}{" "}
+                Imported, {job.skipped.toLocaleString()} Skipped
               </span>
             </div>
             <progress
               aria-label="Import Progress"
-              className="h-1 w-full appearance-none [&::-webkit-progress-bar]:bg-sunken [&::-webkit-progress-value]:bg-ink [&::-moz-progress-bar]:bg-ink"
+              className="h-1 w-full appearance-none rounded-full [&::-webkit-progress-bar]:bg-line [&::-webkit-progress-value]:bg-ink [&::-moz-progress-bar]:bg-ink"
               max={job.total}
               value={
                 job.state === "loading" ? job.loaded : job.done + job.skipped
@@ -430,7 +468,10 @@ export function ImportSection({ userId }: { userId: string }) {
               <Button
                 wrap
                 variant="outline"
-                onClick={() => images.forEach((m) => captures.retry(m.id))}
+                onClick={() => {
+                  setError(undefined);
+                  setRestart((value) => value + 1);
+                }}
               >
                 Retry Images
               </Button>
@@ -440,7 +481,16 @@ export function ImportSection({ userId }: { userId: string }) {
         {error && (
           <div className="flex flex-wrap items-center gap-2">
             <span role="alert">{error}</span>
-            <Button wrap variant="outline" onClick={() => void reload()}>
+            <Button
+              wrap
+              variant="outline"
+              onClick={() => {
+                if (job?.state === "running") {
+                  setError(undefined);
+                  setRestart((value) => value + 1);
+                } else void reload();
+              }}
+            >
               Try Again
             </Button>
           </div>

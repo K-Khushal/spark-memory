@@ -119,7 +119,7 @@ test("import progress fits worst-case counts, narrow widths, zoom and RTL", asyn
   for (const state of Object.keys(states)) {
     await page.goto(`/settings?importDemo=${encodeURIComponent(state)}`);
     await expect(
-      page.getByRole("heading", { name: "Import", exact: true })
+      page.getByRole("heading", { name: "Library", exact: true })
     ).toBeVisible();
     // A test-only fixture picker; data still enters through the production API boundary.
     await page.evaluate((states) => {

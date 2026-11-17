@@ -35,7 +35,12 @@ const worker = self as unknown as {
   addEventListener: (type: string, on: (event: WorkerEvent) => void) => void;
 };
 
-const shell = shellCacheName(__SPARK_SW_VERSION__);
+const shell = shellCacheName(`${__SPARK_SW_VERSION__}-fonts`);
+
+const fonts = [
+  "/fonts/assistant-instrument-sans.woff2",
+  "/fonts/assistant-bricolage.woff2",
+];
 
 const redirect = (to: string, from: Request) =>
   Response.redirect(new URL(to, from.url).toString(), 303);
@@ -83,10 +88,14 @@ worker.addEventListener("install", (event) => {
     caches
       .open(shell)
       .then((cache) =>
-        cache.add(
-          new Request(new URL(OFFLINE_PATH, worker.location.origin), {
-            cache: "reload",
-          })
+        Promise.all(
+          [OFFLINE_PATH, ...fonts].map((path) =>
+            cache.add(
+              new Request(new URL(path, worker.location.origin), {
+                cache: "reload",
+              })
+            )
+          )
         )
       )
       .then(() => worker.skipWaiting())
@@ -112,7 +121,20 @@ worker.addEventListener("activate", (event) => {
 
 worker.addEventListener("fetch", (event) => {
   const { request } = event;
-  if (isSharePost(request, worker.location.origin)) {
+  const url = new URL(request.url);
+  if (
+    request.method === "GET" &&
+    url.origin === worker.location.origin &&
+    fonts.includes(url.pathname)
+  ) {
+    event.respondWith(
+      caches
+        .open(shell)
+        .then(
+          async (cache) => (await cache.match(url.pathname)) ?? fetch(request)
+        )
+    );
+  } else if (isSharePost(request, worker.location.origin)) {
     event.respondWith(receiveShare(request));
   } else if (request.mode === "navigate" && request.method === "GET") {
     event.respondWith(navigate(request));

@@ -1,6 +1,6 @@
 import type { THEMES } from "@spark/ui/tokens";
 /** Runs entirely in the isolated page world. The page never receives pixels. */
-export async function selectRegion(themes: typeof THEMES) {
+export async function selectRegion(themes: typeof THEMES, fontUrl?: string) {
   const theme =
     themes[
       matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
@@ -17,16 +17,16 @@ export async function selectRegion(themes: typeof THEMES) {
     "aria-label",
     "Select Region. Arrow Keys Resize. Control Arrow Keys Move. Enter Captures. Escape Cancels."
   );
-  layer.style.cssText = `position:fixed;inset:0;cursor:crosshair;touch-action:none;outline:2px solid ${theme.ring};outline-offset:-2px`;
+  layer.style.cssText = `position:fixed;inset:0;cursor:crosshair;touch-action:none;background:rgb(0 0 0 / 20%)`;
   const box = document.createElement("div");
   // Sized directly (not scaled), so its edge stays a crisp 2px line on any page.
-  box.style.cssText = `position:absolute;pointer-events:none;background:${theme.spark}40;outline:2px solid ${theme.ring};outline-offset:-1px;display:none`;
+  box.style.cssText = `position:absolute;pointer-events:none;background:transparent;border:1px solid white;outline:1px solid black;box-shadow:0 0 0 100vmax rgb(0 0 0 / 40%);display:none`;
   const cancel = document.createElement("button");
   cancel.textContent = "Cancel";
-  cancel.style.cssText = `position:absolute;right:16px;top:16px;min-width:80px;min-height:44px;border:2px solid ${theme["line-strong"]};border-radius:8px;background:${theme.surface};color:${theme.ink};font:500 15px system-ui;cursor:pointer`;
+  cancel.style.cssText = `position:absolute;right:16px;top:16px;min-width:80px;min-height:44px;border:1px solid ${theme["line-strong"]};border-radius:8px;background:${theme.surface};color:${theme.ink};font:500 13px Instrument,system-ui;cursor:pointer`;
   // The page's own focus styles never reach a closed shadow root.
   const focus = document.createElement("style");
-  focus.textContent = `button:focus-visible{outline:2px solid ${theme.ring};outline-offset:2px}`;
+  focus.textContent = `${fontUrl ? `@font-face{font-family:Instrument;src:url("${fontUrl}") format("woff2");font-weight:100 900}` : ""}button:focus-visible{outline:2px solid ${theme.ring};outline-offset:2px}`;
   layer.append(box, cancel);
   root.append(focus, layer);
   document.documentElement.append(host);
@@ -93,6 +93,7 @@ export async function selectRegion(themes: typeof THEMES) {
     let keyboard = { x: Math.min(200, width), y: Math.min(200, height) };
     const draw = (b: { x: number; y: number }) => {
       if (!a) return;
+      layer.style.background = "transparent";
       box.style.display = "block";
       box.style.left = Math.min(a.x, b.x) + "px";
       box.style.top = Math.min(a.y, b.y) + "px";
