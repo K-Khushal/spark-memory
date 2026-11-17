@@ -570,7 +570,7 @@ test("320px at 200% text: every screen reflows without sideways scrolling", asyn
   await fits("Search results");
   await page.getByRole("button", { name: "Clear Search" }).click();
 
-  await wall.getByRole("listitem", { name: /Lemon tart/ }).dblclick();
+  await wall.getByRole("listitem", { name: /Lemon tart/ }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await fits("Memory detail");
   await page.keyboard.press("Escape");

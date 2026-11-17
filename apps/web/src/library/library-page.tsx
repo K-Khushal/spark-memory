@@ -740,7 +740,11 @@ function LibraryForSession({
         {/* Outside the busy wall below, or a screen reader may hold it back
             until the busy state clears. Always mounted, so Try Again is heard. */}
         <div role="status" className="sr-only">
-          {first === "failed" && wallSearch.retrying ? "Searching Again" : ""}
+          {first === "failed"
+            ? wallSearch.retrying
+              ? "Searching Again"
+              : "Search Is Unreachable"
+            : ""}
         </div>
         {library.state === "ready" && (
           <div className="peer">
@@ -1135,9 +1139,6 @@ function SearchResults({
           align="centre"
           className="min-h-[60dvh] justify-center px-4"
         >
-          <span className="sr-only" role="status">
-            {retrying ? "Searching Again" : "Search Is Unreachable"}
-          </span>
           <Button
             wrap
             variant="outline"
