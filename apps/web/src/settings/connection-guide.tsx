@@ -1,6 +1,10 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CheckIcon, CopyIcon, ChevronDownIcon } from "lucide-react";
 import {
+  Menu,
+  MenuTrigger,
+  MenuContent,
+  MenuCheckboxItem,
   CrossfadeIcon,
   Button,
   Dialog,
@@ -59,8 +63,7 @@ function CopyBlock({ label, text }: { label: string; text: string }) {
 
 function Guide({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-3">
-      <h3 className="text-sm font-medium">{title}</h3>
+    <section aria-label={title} className="flex flex-col gap-3">
       <ol className="flex flex-col gap-3 text-sm">{children}</ol>
     </section>
   );
@@ -80,7 +83,6 @@ export function ConnectionGuide({
   onReturnFocus?: () => void;
 }) {
   const url = serverUrl();
-  const clientId = useId();
   const [client, setClient] = useState("Claude Code");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -100,18 +102,29 @@ export function ConnectionGuide({
         </DialogHeader>
         <DialogBody className="flex flex-col gap-6 pb-4">
           <div className="flex flex-col gap-2 text-sm">
-            <label htmlFor={clientId}>Assistant</label>
-            <select
-              id={clientId}
-              name="assistant-client"
-              className="min-h-11 w-full min-w-0 rounded-control border border-line-strong bg-canvas px-3 text-ink"
-              value={client}
-              onChange={(event) => setClient(event.target.value)}
-            >
-              {["Claude Code", "Claude Desktop", "Codex"].map((name) => (
-                <option key={name}>{name}</option>
-              ))}
-            </select>
+            <Menu>
+              <MenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  aria-label={`Assistant: ${client}`}
+                  className="min-h-11 w-full justify-between focus-visible:outline-offset-0"
+                >
+                  {client}
+                  <ChevronDownIcon aria-hidden className="size-4" />
+                </Button>
+              </MenuTrigger>
+              <MenuContent className="w-(--radix-dropdown-menu-trigger-width) min-w-(--radix-dropdown-menu-trigger-width)">
+                {["Claude Code", "Claude Desktop", "Codex"].map((name) => (
+                  <MenuCheckboxItem
+                    key={name}
+                    checked={client === name}
+                    onCheckedChange={() => setClient(name)}
+                  >
+                    {name}
+                  </MenuCheckboxItem>
+                ))}
+              </MenuContent>
+            </Menu>
           </div>
           {client === "Claude Code" && (
             <Guide title="Claude Code">

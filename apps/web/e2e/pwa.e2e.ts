@@ -141,6 +141,19 @@ test("offline, opening Spark shows the offline page", async ({
   await expect(
     page.getByRole("heading", { name: "Spark Is Offline" })
   ).toBeVisible();
+  const fonts = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return ["Instrument", "Bricolage"].map((family) => ({
+      family,
+      loaded: [...document.fonts].some(
+        (font) => font.family === family && font.status === "loaded"
+      ),
+    }));
+  });
+  expect(fonts).toEqual([
+    { family: "Instrument", loaded: true },
+    { family: "Bricolage", loaded: true },
+  ]);
   await context.setOffline(false);
 });
 

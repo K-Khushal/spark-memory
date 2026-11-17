@@ -148,7 +148,7 @@ export function Onboarding({
   return (
     <section
       aria-label="Get Started"
-      className="@container border-b border-line px-6"
+      className={`@container px-4 md:px-6 ${state?.step === "disclosure" && !memories.length ? "flex min-h-[50dvh] items-center justify-center" : "border-b border-line"}`}
     >
       <MotionConfig reducedMotion="user">
         {failed && !state ? (
@@ -165,9 +165,11 @@ export function Onboarding({
         ) : (
           state && (
             <div
-              className={`flex max-w-3xl flex-col justify-center gap-3 sm:flex-row sm:items-center sm:justify-start ${finished ? "min-h-12" : "h-26 sm:h-16 @max-[12rem]:h-auto @max-[12rem]:min-h-26 @max-[12rem]:py-3"}`}
+              className={`flex w-full flex-col justify-center gap-3 ${state.step === "disclosure" ? "max-w-xl py-6" : `max-w-3xl sm:flex-row sm:items-center ${finished ? "min-h-12" : "min-h-26 py-3 sm:min-h-16"}`}`}
             >
-              <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <div
+                className={`flex min-w-0 flex-wrap items-center ${state.step === "disclosure" ? "gap-3" : "gap-2"}`}
+              >
                 {!finished && (
                   <div
                     role="group"
@@ -182,7 +184,15 @@ export function Onboarding({
                     ))}
                   </div>
                 )}
-                <h2 className={finished ? "sr-only" : "text-base font-medium"}>
+                <h2
+                  className={
+                    finished
+                      ? "sr-only"
+                      : state.step === "disclosure"
+                        ? "font-display text-xl font-semibold"
+                        : "text-base font-medium"
+                  }
+                >
                   {state.paused ? "Get Started" : headings[state.step]}
                 </h2>
               </div>
@@ -205,7 +215,7 @@ export function Onboarding({
                     duration: DURATION.preview / 1000,
                     ease: EASING.out,
                   }}
-                  className="flex min-w-0 flex-wrap items-center gap-3"
+                  className={`flex min-w-0 flex-wrap items-center ${state.step === "disclosure" ? "gap-3" : "gap-2"}`}
                   aria-busy={busy}
                 >
                   {state.step === "disclosure" && (
@@ -278,16 +288,16 @@ export function Onboarding({
                           Capture Again
                         </Button>
                       )}
-                      <Button
-                        wrap
-                        variant="primary"
-                        disabled={
-                          busy || !first || first.indexState === "indexing"
-                        }
-                        onClick={() => void update("search")}
-                      >
-                        Try Search
-                      </Button>
+                      {first && first.indexState !== "indexing" && (
+                        <Button
+                          wrap
+                          variant="primary"
+                          disabled={busy}
+                          onClick={() => void update("search")}
+                        >
+                          Try Search
+                        </Button>
+                      )}
                     </>
                   )}
                   {state.step === "search" && (

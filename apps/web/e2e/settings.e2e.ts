@@ -90,7 +90,7 @@ test("see this device, export the Library, delete the account", async ({
 
   // The export builds in the background (the local account queue), then
   // downloads as a ZIP.
-  await page.getByRole("button", { name: "Export Library" }).click();
+  await page.getByRole("button", { name: "Export" }).click();
   const download = page.getByRole("link", { name: /^Download, Until / });
   await expect(download).toBeVisible({ timeout: 15_000 });
   const res = await page.request.get((await download.getAttribute("href"))!);
@@ -101,9 +101,7 @@ test("see this device, export the Library, delete the account", async ({
   // The expiry is in the link's name, with no tooltip or caption beside it.
   expect(await download.getAttribute("title")).toBeNull();
   // After the cooldown the one button slot offers Download and a new export.
-  await expect(
-    page.getByRole("button", { name: "Export Library" })
-  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Export" })).toHaveCount(0);
   await page.route("**/api/account/export", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     const res = await route.fetch();
@@ -113,9 +111,7 @@ test("see this device, export the Library, delete the account", async ({
   });
   await page.reload();
   await page.getByRole("button", { name: /^Download Options, Until / }).click();
-  await expect(
-    page.getByRole("menuitem", { name: "Export Library" })
-  ).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Export" })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.unroute("**/api/account/export");
 

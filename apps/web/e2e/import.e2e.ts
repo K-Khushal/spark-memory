@@ -7,7 +7,9 @@ test("import an export, persist progress through reload, and cancel without losi
 }) => {
   await signIn(page);
   await page.goto("/settings");
-  await expect(page.getByRole("button", { name: "Import URLs" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Import Into Library" })
+  ).toBeVisible();
   await page.getByLabel("Import File", { exact: true }).setInputFiles({
     name: "urls.txt",
     mimeType: "text/plain",

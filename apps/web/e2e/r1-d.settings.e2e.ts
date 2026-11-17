@@ -19,7 +19,7 @@ test("Settings theme, chosen connection recipe and narrow layout", async ({
   for (const width of [320, 390, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await expect(
-      page.getByRole("switch", { name: "Spread Over Days" })
+      page.getByRole("button", { name: "Import Into Library" })
     ).toBeVisible();
     expect(
       await page.evaluate(
@@ -30,14 +30,17 @@ test("Settings theme, chosen connection recipe and narrow layout", async ({
   await page.getByRole("button", { name: "Connection Guide" }).click();
   const dialog = page.getByRole("dialog", { name: "Connection Guide" });
   await expect(
-    dialog.getByRole("heading", { name: "Claude Code", exact: true })
+    dialog.getByRole("button", { name: "Assistant: Claude Code", exact: true })
   ).toBeVisible();
   await expect(
     dialog.getByRole("heading", { name: "Codex", exact: true })
   ).toHaveCount(0);
-  await dialog.getByLabel("Assistant", { exact: true }).selectOption("Codex");
+  await dialog.getByRole("button", { name: "Assistant: Claude Code" }).click();
+  await page
+    .getByRole("menuitemcheckbox", { name: "Codex", exact: true })
+    .click();
   await expect(
-    dialog.getByRole("heading", { name: "Claude Code", exact: true })
+    dialog.getByRole("button", { name: "Assistant: Claude Code", exact: true })
   ).toHaveCount(0);
   await expect(
     dialog.getByRole("button", { name: "Copy codex mcp add", exact: true })
