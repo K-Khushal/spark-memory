@@ -31,7 +31,10 @@ test("keyboard Capture, Search, open, Delete returns visible focus to the Librar
   await expect(
     page.getByRole("dialog", { name: "Memory", exact: true })
   ).toBeVisible();
-  await tabTo(page, "Delete");
+  await tabTo(page, "More");
+  await page.keyboard.press("Enter");
+  const remove = page.getByRole("menuitem", { name: "Delete", exact: true });
+  await expect(remove).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(
