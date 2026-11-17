@@ -813,6 +813,9 @@ function LibraryForSession({
                 <Wall
                   label="All Memories"
                   memories={library.memories}
+                  // A different filter, query or search mode is a different
+                  // list, not an edit of this one: it never glides.
+                  glideKey={`library:${requestKey(request)}`}
                   query=""
                   onOpen={openMemory}
                   tiles={tiles}
@@ -934,12 +937,15 @@ type TileActions = {
 function Wall({
   label,
   memories,
+  glideKey,
   query,
   onOpen,
   tiles,
 }: {
   label: string;
   memories: WallMemory[];
+  /** Names the list shown: it changes with the filters, query and mode. */
+  glideKey: string;
   query: string;
   onOpen: (memory: Memory) => void;
   tiles: TileActions;
@@ -960,7 +966,7 @@ function Wall({
       onOpen={open}
       onPreview={open}
       // Only a Memory moved to the top by a repeat Capture glides there.
-      glideKey="library"
+      glideKey={glideKey}
       glide={memories.some((m) => m.resurfaced)}
       renderItem={(m, tile) => (
         <MemoryTile memory={m} query={query} width={tile.width} {...tiles} />

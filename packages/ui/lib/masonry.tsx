@@ -40,6 +40,20 @@ const travel: {
 } = { at: new Map() };
 
 const TRANSLATE = /translate\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px\)/;
+const MATRIX = /^matrix\(([^)]+)\)$/;
+
+/**
+ * Where a tile is drawn right now, as the `translate(x, y)` the wall writes:
+ * read from the computed style, so a glide still running counts at the
+ * offset it has reached. Undefined when the style says nothing usable.
+ */
+function drawnAt(tile: HTMLElement): string | undefined {
+  const transform = getComputedStyle(tile).transform;
+  const matrix = MATRIX.exec(transform)?.[1]?.split(",").map(Number);
+  if (matrix?.length === 6 && matrix.every(Number.isFinite))
+    return `translate(${matrix[4]}px, ${matrix[5]}px)`;
+  return TRANSLATE.test(transform) ? transform : undefined;
+}
 
 /**
  * Asks whichever wall holds the item `key` to scroll to it and focus it, once
@@ -268,6 +282,9 @@ export function Masonry<T>({
   // Positions can settle a render after `items` change (measuring), so a
   // change keeps the glide open briefly.
   const wall = useRef({});
+  // The glide each tile is running, so an update that lands mid-glide
+  // starts from where the tile is drawn, not from its old destination.
+  const running = useRef(new Map<string, Animation>());
   const placed = useRef({
     items,
     keys: undefined as readonly string[] | undefined,
@@ -321,7 +338,21 @@ export function Masonry<T>({
       at.set(key, to);
       const from = before.at.get(key);
       if (glide && from && from !== to) {
-        tile.animate([{ transform: from }, { transform: to }], timing);
+        const gliding = running.current.get(key);
+        // Retarget a superseded glide from the offset it has reached.
+        const start = (gliding && drawnAt(tile)) || from;
+        gliding?.cancel();
+        const animation = tile.animate(
+          [{ transform: start }, { transform: to }],
+          timing
+        );
+        running.current.set(key, animation);
+        const forget = () => {
+          if (running.current.get(key) === animation)
+            running.current.delete(key);
+        };
+        animation.addEventListener("finish", forget);
+        animation.addEventListener("cancel", forget);
       }
       // A tile new to this wall fades and grows once, where it stands.
       if (entering.has(key)) {

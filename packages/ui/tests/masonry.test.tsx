@@ -8,7 +8,12 @@ import { Masonry, type MasonrySelection } from "../index";
 
 let host: HTMLElement;
 let root: Root;
-const animate = vi.fn();
+/** A stand-in for a running Animation: enough for the wall to retarget it. */
+const fakeAnimation = () => ({
+  cancel: vi.fn(),
+  addEventListener: vi.fn(),
+});
+const animate = vi.fn((..._args: unknown[]) => fakeAnimation());
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -19,6 +24,7 @@ beforeEach(() => {
   });
   Object.assign(HTMLElement.prototype, { animate });
   animate.mockClear();
+  animate.mockImplementation(() => fakeAnimation());
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -71,6 +77,48 @@ it("a Capture at the front glides the tiles that moved and enters the new one", 
   // Only the tile new to the wall enters (260ms fade and scale, by CSS).
   expect(tile("new").dataset.enter).toBe("true");
   expect(tile("a").dataset.enter).toBeUndefined();
+});
+
+it("an update that lands mid-glide retargets from where the tile is drawn and cancels the old glide", async () => {
+  const before = items(["a", "b", "c", "d", "e", "f"]);
+  await render(wall(before, { glideKey: "library" }));
+  await render(wall([{ id: "n1" }, ...before], { glideKey: "library" }));
+  const superseded = animate.mock.results.find(
+    (_, i) =>
+      (animate.mock.calls[i]![0] as { transform: string }[])[1]!.transform ===
+      tile("a").style.transform
+  )!.value as ReturnType<typeof fakeAnimation>;
+  expect(superseded).toBeDefined();
+  animate.mockClear();
+
+  // 60ms later the tile is drawn part-way between its old place and the new.
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation(((
+    node: Element,
+    pseudo?: string | null
+  ) => {
+    const style = real(node, pseudo);
+    return (node as HTMLElement).dataset?.key === "a"
+      ? new Proxy(style, {
+          get: (target, prop) =>
+            prop === "transform"
+              ? "matrix(1, 0, 0, 1, 40, 25)"
+              : Reflect.get(target, prop),
+        })
+      : style;
+  }) as typeof window.getComputedStyle);
+  await render(
+    wall([{ id: "n2" }, { id: "n1" }, ...before], { glideKey: "library" })
+  );
+
+  const second = animate.mock.calls
+    .map(([frames]) => frames as { transform: string }[])
+    .filter((frames) => frames[1]!.transform === tile("a").style.transform);
+  expect(second).toHaveLength(1);
+  // Starts at the sampled mid position, not at the previous destination.
+  expect(second[0]![0]!.transform).toBe("translate(40px, 25px)");
+  expect(superseded.cancel).toHaveBeenCalled();
+  vi.restoreAllMocks();
 });
 
 it("a removal glides the neighbours and nothing enters", async () => {
