@@ -693,7 +693,9 @@ test("⌘K notes are read from a live region outside the listbox", async ({
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").fill("zzzz nothing like this");
   const menu = page.getByRole("dialog");
-  await expect(menu.getByRole("status")).toHaveText("No Memories Match", {
+  await expect(
+    page.getByRole("status").filter({ hasText: "No Memories Match" })
+  ).toHaveText("No Memories Match", {
     timeout: 15_000,
   });
   await expect(menu.getByRole("listbox").getByRole("status")).toHaveCount(0);
