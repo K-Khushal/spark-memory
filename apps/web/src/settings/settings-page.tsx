@@ -332,7 +332,7 @@ function Export({ account }: { account: Account }) {
   useEffect(() => {
     if (hadFocus.current)
       box.current?.querySelector<HTMLElement>("a, button")?.focus();
-  }, [state]);
+  }, [state, canExportAgain]);
 
   return (
     <div
