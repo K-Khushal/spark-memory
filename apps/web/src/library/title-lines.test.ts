@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { estimate, wrapLines } from "./title-lines";
+/** @vitest-environment happy-dom */
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { estimate, titleFonts, titleLines, wrapLines } from "./title-lines";
 
 // A monospace stand-in for the canvas: ten pixels a character.
 const mono = (text: string) => text.length * 10;
@@ -32,5 +33,40 @@ describe("wrapLines", () => {
   it("wraps text with no spaces between its characters", () => {
     expect(wrapLines("日本語のデザイン資料メモ", 70, estimate(10))).toBe(2);
     expect(wrapLines("नमस्ते", 400, estimate(10))).toBe(1);
+  });
+});
+
+describe("titleLines once the font has loaded", () => {
+  // A canvas whose glyphs are 20px ("W"), 4px ("i") or 10px (the rest).
+  const glyph = (c: string) => (c === "W" ? 20 : c === "i" ? 4 : 10);
+  beforeAll(async () => {
+    vi.spyOn(document, "createElement").mockImplementation(
+      () =>
+        ({
+          getContext: () => ({
+            font: "",
+            measureText: (text: string) => ({
+              width: [...text].reduce((n, c) => n + glyph(c), 0),
+            }),
+          }),
+        }) as never
+    );
+    titleFonts.markLoaded();
+  });
+  afterAll(() => vi.restoreAllMocks());
+
+  it("sends wide glyphs to a second line that an average width would leave on one", () => {
+    // 12 W's are 240px: past a 200px line, though 12 characters "should" fit.
+    expect(titleLines("W".repeat(12), 200, 17)).toBe(2);
+    expect(titleLines("W".repeat(8), 200, 17)).toBe(1);
+  });
+
+  it("keeps narrow glyphs on one line that an average width would wrap", () => {
+    // 60 i's are 240px, but as a long word they wrap by character: 2 lines
+    // at 200px, and 1 once the line is wide enough.
+    expect(titleLines("i".repeat(60), 300, 17)).toBe(1);
+    expect(titleLines("i".repeat(60), 200, 17)).toBe(2);
+    // Words of i's: 30 of them with spaces are 30*4 + 29*10.
+    expect(titleLines("iii ".repeat(20).trim(), 600, 17)).toBe(1);
   });
 });

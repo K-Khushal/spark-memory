@@ -197,6 +197,23 @@ for (const width of [320, 390]) {
         expect(toast!.x).toBeGreaterThanOrEqual(0);
         expect(toast!.x + toast!.width).toBeLessThanOrEqual(width);
         expect(toast!.y).toBeGreaterThanOrEqual(0);
+        if (scale === 1) {
+          // The count and every control share one row, each 44px to touch.
+          const tops = await bar.getByRole("button").evaluateAll((els) =>
+            els.map((el) => {
+              const r = el.getBoundingClientRect();
+              return {
+                y: Math.round(r.y),
+                h: Math.round(r.height),
+                w: Math.round(r.width),
+              };
+            })
+          );
+          expect(tops).toHaveLength(3);
+          expect(new Set(tops.map((t) => t.y)).size).toBe(1);
+          for (const t of tops)
+            expect(Math.min(t.h, t.w)).toBeGreaterThanOrEqual(44);
+        }
         const selection = await bar.boundingBox();
         expect(selection!.y + selection!.height).toBeLessThanOrEqual(
           844 - 16 * scale + 1

@@ -134,6 +134,10 @@ if (typeof document !== "undefined" && document.fonts) {
  * titles again once it has.
  */
 export const titleFonts = {
+  /** For tests: the display font is in. */
+  markLoaded() {
+    fontsLoaded = true;
+  },
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => void listeners.delete(listener);
@@ -150,16 +154,13 @@ const cache = new Map<string, number>();
 export function titleLines(title: string, innerWidth: number, size: number) {
   const k = rootFontScale();
   const width = innerWidth / k - 1; // a pixel of slack: wrap late, never early
-  const rough = estimate(size);
-  const roughWidth = rough(title);
-  // Far from the edge either way, nothing needs measuring.
-  if (roughWidth * 1.45 <= width) return 1;
-  if (roughWidth * 0.62 > width * TITLE_MAX_LINES) return TITLE_MAX_LINES;
+  // Once the font is in, a title is always measured: no shortcut from an
+  // average character width, which "WWWW" and "iiii" both defeat.
   const ctx = fontsLoaded ? canvas() : null;
   const key = `${ctx ? 1 : 0}|${size}|${Math.round(width)}|${title}`;
   const known = cache.get(key);
   if (known !== undefined) return known;
-  let measure = rough;
+  let measure = estimate(size);
   if (ctx) {
     ctx.font = `500 ${size}px ${spec()}`;
     measure = (text) => ctx.measureText(text).width;

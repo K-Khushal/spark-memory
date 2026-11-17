@@ -317,7 +317,9 @@ function ImageTile({
   }, []);
   return (
     <figure className="group h-full cursor-pointer">
-      <div className={tileFrame}>
+      {/* The frame clips to the tile's radius, so the footer strip's bottom
+          corners follow the outline; the focus ring sits outside, on the wall's item. */}
+      <div className={cn(tileFrame, "overflow-hidden")}>
         <div
           className={cn(
             "relative min-h-0 flex-1 overflow-hidden bg-sunken bg-cover bg-center",
