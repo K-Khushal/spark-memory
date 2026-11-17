@@ -890,7 +890,11 @@ test("detail Delete in More offers Undo and viewer AI Opt-Out is checked in More
   await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(tile).toHaveCount(0);
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await page
+    .locator("[data-sonner-toast]")
+    .filter({ hasText: "Deleted" })
+    .getByRole("button", { name: "Undo", exact: true })
+    .click();
   await expect(tile).toBeVisible();
   const images = await captureImages(page, ["#2f6fe0"]);
   await images.first().click();
