@@ -14,5 +14,6 @@ export function openDatabase(connectionString: string): {
   close: () => Promise<void>;
 } {
   const pool = new Pool({ connectionString, max: 5 });
+  pool.on("error", () => {});
   return { db: drizzle({ client: pool, schema }), close: () => pool.end() };
 }
