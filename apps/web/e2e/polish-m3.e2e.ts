@@ -47,9 +47,14 @@ test("video Memory detail is keyboard-reachable end to end", async ({
   await expect(
     transcript.getByRole("button", { name: "Play at 0:37" })
   ).toBeFocused();
-  // One Tab leaves the transcript for the Capture Note, ring showing.
+  // One Tab leaves the transcript for the Capture Note, focus showing (an
+  // outline, or the text-field edge once Memory detail uses the one field).
   await page.keyboard.press("Tab");
   const note = page.getByRole("textbox", { name: "Capture Note" });
   await expect(note).toBeFocused();
-  await expect(note).toHaveCSS("outline-style", "solid");
+  const shown = await note.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return style.outlineStyle === "solid" || style.boxShadow.includes("inset");
+  });
+  expect(shown).toBe(true);
 });

@@ -28,8 +28,10 @@ export const SKELETON_DELAY = DURATION.preview;
 /**
  * Shows `skeleton` while `loading`, but only once the wait passes 150ms, so a
  * quick load never flashes it. When the content arrives the skeleton fades out
- * over it in 150ms. Children render only when not loading. The wrapper is
- * `aria-busy` while loading and says "Loading" to assistive tech.
+ * over it in 150ms. `immediate` shows it on the first frame of that loading
+ * cycle instead (a cold load has nothing else to show). Children render only
+ * when not loading. The wrapper is `aria-busy` while loading and says
+ * "Loading" to assistive tech.
  */
 export function SkeletonGate({
   loading,
@@ -37,27 +39,30 @@ export function SkeletonGate({
   children,
   label = "Loading",
   className,
+  immediate = false,
 }: {
   loading: boolean;
   skeleton: ReactNode;
   children: ReactNode;
   label?: string;
   className?: string;
+  /** Show the skeleton on the first frame of this loading cycle. */
+  immediate?: boolean;
 }) {
-  const [waited, setWaited] = useState(false);
+  const [waited, setWaited] = useState(immediate && loading);
   const [leaving, setLeaving] = useState(false);
   const [wasLoading, setWasLoading] = useState(loading);
   if (wasLoading !== loading) {
     setWasLoading(loading);
     // Each loading cycle waits its own 150ms, even straight after a fade-out.
-    if (loading) setWaited(false);
+    if (loading) setWaited(immediate);
     setLeaving(!loading && waited);
   }
   useEffect(() => {
-    if (!loading) return;
+    if (!loading || immediate) return;
     const timer = setTimeout(() => setWaited(true), SKELETON_DELAY);
     return () => clearTimeout(timer);
-  }, [loading]);
+  }, [loading, immediate]);
   useEffect(() => {
     if (!leaving) return;
     const timer = setTimeout(() => {

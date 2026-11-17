@@ -21,29 +21,29 @@ The Library is a Pinterest-style masonry wall of Memories beside a quiet left si
 - The **sidebar** holds the wordmark, Capture, Search (⌘K), the Memory kinds, the colour filters and the Categories. It has no counts or headings, because the groups are separated by space alone.
 - The **wall** is full-width and virtualised. Tiles show the Memory itself. A title appears under a tile only when the visual does not already show it.
 - **Search** opens the ⌘K menu with instant results. Enter puts the results on the wall: Direct Matches first, Related Matches below, each tile with its strongest why-chip.
-- **Why-chips** name the part that matched, in a word or the passage itself: Title, Capture Note, Tag, Text, Text in Image, Description, Source, Overview, Image, Page 3 (a PDF's page), or “the words of the passage”. The spark tone marks a Direct Match. Every result tile keeps room for one, so a chip arriving never moves the wall.
+- **Why-chips** name the part that matched, in a word or the passage itself: Title, Capture Note, Tag, Text, Text in Image, Description, Source, Overview, Image, Page 3 (a PDF's page), or “the words of the passage”. The spark tone marks a Direct Match. Every result tile keeps a 36px footer inside its frame for one, so a chip arriving never moves the wall. A chip that only repeats the filter in force is not shown.
 - **Quick preview** (Enter) shows the Memory large with what Spark knows. A permanent details pane was left out, because the preview covers it and the wall keeps its width.
-- **On a phone** the sidebar becomes a top bar (wordmark, Search, Capture) over one scrolling row of kind and colour filters. The wordmark is a menu named Navigation: Library, Settings, and Admin for the owner. There is no tab dock.
+- **On a phone** the sidebar becomes a top bar (wordmark, Search, Capture) over one scrolling row of kind and colour filters. The wordmark is a menu named Navigation: Library, Settings, and Admin for the owner. There is no tab dock. The wall is two lanes.
 
 The reference build is `apps/web/src/prototypes/` at `/prototypes`. `?data=library|empty|huge` gives the break-ui states.
 
 ## Colour
 
-| Token         | Light     | Dark      | Use                                                       |
-| ------------- | --------- | --------- | --------------------------------------------------------- |
-| `canvas`      | `#FFFFFF` | `#0F1012` | Page and wall                                             |
-| `surface`     | `#FFFFFF` | `#1A1B1E` | Raised things: menus, dialogs, the selected sidebar item  |
-| `sunken`      | `#F4F5F7` | `#151619` | Sidebar, wells, why-chips                                 |
-| `ink`         | `#111214` | `#EDEEF0` | Text, primary buttons (ink fill, canvas text)             |
-| `ink-muted`   | `#5E6066` | `#9D9FA5` | Secondary text, idle sidebar items; at least 5.7:1        |
-| `line`        | `#E5E6EA` | `#26282C` | Dividers and the sticky phone bar's edge                  |
-| `line-strong` | `#898B91` | `#696B71` | Edges that are a control's only boundary (at least 3:1)   |
-| `ring`        | `#111214` | `#EDEEF0` | Focus outline, 2px, 2px offset                            |
-| `spark`       | `#FFE15A` | `#FFE15A` | The highlighter: `mark`, the Direct match chip, selection |
-| `on-spark`    | `#111214` | `#111214` | Text on `spark`                                           |
-| `danger`      | `#C4321C` | `#FF8A73` | Index state Failed only                                   |
-| `indexing`    | `#8F5B00` | `#F0B85C` | Index state Indexing                                      |
-| `searchable`  | `#24774A` | `#74CF95` | Searchable, shown only right after it changes             |
+| Token         | Light     | Dark      | Use                                                                    |
+| ------------- | --------- | --------- | ---------------------------------------------------------------------- |
+| `canvas`      | `#FFFFFF` | `#0F1012` | Page and wall                                                          |
+| `surface`     | `#FFFFFF` | `#1A1B1E` | Raised things: menus, dialogs, the selected sidebar item               |
+| `sunken`      | `#F4F5F7` | `#151619` | Sidebar, wells, why-chips                                              |
+| `ink`         | `#111214` | `#EDEEF0` | Text, primary buttons (ink fill, canvas text)                          |
+| `ink-muted`   | `#5E6066` | `#9D9FA5` | Secondary text, idle sidebar items; at least 5.7:1                     |
+| `line`        | `#E5E6EA` | `#26282C` | Dividers and the sticky phone bar's edge                               |
+| `line-strong` | `#898B91` | `#696B71` | Edges that are a control's only boundary (at least 3:1)                |
+| `ring`        | `#111214` | `#EDEEF0` | Focus outline, 2px, 2px offset. Text fields: a 2px ink edge, no offset |
+| `spark`       | `#FFE15A` | `#FFE15A` | The highlighter: `mark`, the Direct match chip, selection              |
+| `on-spark`    | `#111214` | `#111214` | Text on `spark`                                                        |
+| `danger`      | `#C4321C` | `#FF8A73` | Index state Failed only                                                |
+| `indexing`    | `#8F5B00` | `#F0B85C` | Index state Indexing                                                   |
+| `searchable`  | `#24774A` | `#74CF95` | Searchable, shown only right after it changes                          |
 
 - Neutrals (`canvas` to `ring`) stay within OKLCH chroma 0.012. Above 0.003 the hue must sit between 200° and 290°, which is cool. The test fails otherwise.
 - `--edge` (black at 10%, white at 10% in dark) is the faint ring on floating surfaces and the inset outline on tiles.
@@ -57,7 +57,7 @@ The reference build is `apps/web/src/prototypes/` at `/prototypes`. `?data=libra
 - Hindi uses the bundled Noto Sans Devanagari. Japanese and Arabic fall back to the system's Noto faces. Every title carries `dir="auto"`.
 - Scale (size / leading in px): `2xs` 11/16, `xs` 12/16, `sm` 13/20, `base` 15/24, `md` 17/26, `lg` 22/30, `xl` 28/34, `2xl` 40/44, `3xl` 56/58. `sm` is the UI default; `base` is reading text.
 - Weights: 400, 500 for selected and titles, 600 for display. Tracking `-0.02em` at 22px and up. Never all caps.
-- Tile titles truncate to one line. The full title is the tile's accessible name and appears in Quick preview.
+- Tile titles clamp to two lines. The full title is the tile's accessible name and appears in Quick preview.
 
 ## Spacing, radius, elevation
 
@@ -73,29 +73,36 @@ Lucide at 16px, `currentColor`. Every icon-only button has an `aria-label`. Emoj
 
 Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DURATION`, `EASING`, `SPRING`) and as `--duration-*` and `--ease-*` in CSS. `DURATION.preview` (150ms) is the opacity-only fade. Nothing animates on keyboard-driven or high-frequency actions: typing, filters, counts, field growth, the ⌘K menu, a keyboard-opened menu.
 
-| What                                                               | Motion                                                                                                                                                         |
-| ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Press on a button, chip or tile                                    | `scale(0.97)` (tiles `0.98`) on `:active`, 120ms `ease-out`                                                                                                    |
-| Hover                                                              | Colour only, 120ms. Tiles also fade a 1px `raised` shadow in (`hover-raise`, fine pointer); no lift, no scale                                                  |
-| ⌘K menu, Escape                                                    | None. Opens and closes on the next frame                                                                                                                       |
-| Dialog with `presentation="dialog"`, by pointer                    | Opacity 0 to 1 and scale .98 to 1 from its centre, 180ms `ease-out`. Exit: opacity only, 120ms                                                                 |
-| The same, from the keyboard; and any dialog with no `presentation` | Opacity 150ms, no scale or slide (Quick preview). Full-screen viewers (image, PDF) do the same whatever opened them                                            |
-| Phone sheet (below 640px)                                          | Rises from 8% below with opacity, 260ms `ease-drawer`; leaves in 180ms. Reduced motion: opacity only. The sheet has no grab handle and no drag                 |
-| Menu opened by pointer                                             | Opacity and scale .98 to 1 from its trigger, 180ms `ease-out`; exit opacity 120ms. Opened from the keyboard: immediate both ways                               |
-| Sidebar active item                                                | The raised surface glides to the new item, 180ms `ease-out`, when a pointer moved it. Keyboard and reduced motion: it jumps                                    |
-| Checkbox                                                           | The check mark draws with `stroke-dashoffset`, 120ms; the box fills with colour, 120ms                                                                         |
-| Copied, Note Added, Captured                                       | The icon cross-fades to its confirmed twin, 150ms                                                                                                              |
-| Quick preview                                                      | Opacity 150ms, no scale or slide (keyboard-driven and frequent)                                                                                                |
-| Filters updating                                                   | None. Results swap in place                                                                                                                                    |
-| Full results replacing instant                                     | Tiles and ⌘K rows that change place glide there together, 180ms `ease-out`; new ones appear; no stagger. Reduced motion: none                                  |
-| Tiles moving between Direct and Related                            | Glide from where they stood, 180ms `ease-out`, instead of appearing. Reduced motion: none                                                                      |
-| A resurfaced Memory                                                | A repeat Capture moves its Memory to the top: it and the tiles it passes glide, 180ms `ease-out`. Reduced motion: none                                         |
-| A new Capture landing on the wall                                  | Fades and scales from 0.96, 260ms `ease-out`; neighbours stay put                                                                                              |
-| Bulk bar                                                           | By pointer or touch the whole bar rises 4px with opacity, 120ms `ease-out`. By keyboard it appears at once. It always leaves at once (see the exception below) |
-| Loading                                                            | A static skeleton after 150ms of waiting (a quicker load shows none), no shimmer or pulse; it fades out over the content in 150ms                              |
-| Image viewer, next or previous                                     | Slides 30% on `SPRING.settle` with a 180ms fade; swipes track 1:1                                                                                              |
-| Upload progress ring                                               | `stroke-dashoffset`, 180ms `ease-out`                                                                                                                          |
-| Toasts                                                             | Sonner's defaults                                                                                                                                              |
+| What                                                               | Motion                                                                                                                                                                                              |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Press on a button, chip or tile                                    | `scale(0.97)` (tiles `0.98`) on `:active`, 120ms `ease-out`                                                                                                                                         |
+| Hover                                                              | Colour only, 120ms. Tiles also fade a 1px `raised` shadow in (`hover-raise`, fine pointer); no lift, no scale                                                                                       |
+| ⌘K menu, Escape                                                    | None. Opens and closes on the next frame                                                                                                                                                            |
+| Dialog with `presentation="dialog"`, by pointer                    | Opacity 0 to 1 and scale .98 to 1 from its centre, 180ms `ease-out`. Exit: opacity only, 120ms                                                                                                      |
+| The same, from the keyboard; and any dialog with no `presentation` | Opacity 150ms, no scale or slide (Quick preview). Full-screen viewers (image, PDF) do the same whatever opened them                                                                                 |
+| Phone sheet (below 640px)                                          | Rises from 8% below with opacity, 260ms `ease-drawer`; leaves in 180ms. Reduced motion: opacity only. The sheet has no grab handle and no drag                                                      |
+| Menu opened by pointer                                             | Opacity and scale .98 to 1 from its trigger, 180ms `ease-out`; exit opacity 120ms. Opened from the keyboard: immediate both ways                                                                    |
+| Sidebar active item                                                | The raised surface glides to the new item, 180ms `ease-out`, when a pointer moved it. Keyboard and reduced motion: it jumps                                                                         |
+| Checkbox                                                           | The check mark draws with `stroke-dashoffset`, 120ms; the box fills with colour, 120ms                                                                                                              |
+| Copied, Note Added, Captured                                       | The icon cross-fades to its confirmed twin, 150ms                                                                                                                                                   |
+| Quick preview                                                      | Opacity 150ms, no scale or slide (keyboard-driven and frequent)                                                                                                                                     |
+| Filters updating                                                   | None. Results swap in place                                                                                                                                                                         |
+| Full results replacing instant                                     | Tiles and ⌘K rows that change place glide there together, 180ms `ease-out`; new ones appear; no stagger. Reduced motion: none                                                                       |
+| Tiles moving between Direct and Related                            | Glide from where they stood, 180ms `ease-out`, instead of appearing. Reduced motion: none                                                                                                           |
+| A resurfaced Memory                                                | A repeat Capture moves its Memory to the top: it and the tiles it passes glide, 180ms `ease-out`. Reduced motion: none                                                                              |
+| A Capture landing, a Delete, an Undo                               | The new tile fades and scales from 0.96, 260ms `ease-out`. Tiles that change place glide there, 180ms `ease-out`, `transform` only, no stagger. A removed tile leaves at once. Reduced motion: none |
+| An image arriving on a tile                                        | Opacity 0 to 1 over its ThumbHash, 150ms `ease-out`. Already-cached images (complete on mount) do not fade                                                                                          |
+| Cold load of the Library                                           | The skeleton shows on the first frame. Every later load keeps the 150ms wait                                                                                                                        |
+| Segmented control (Appearance)                                     | The `surface` thumb glides to the choice, 180ms `ease-out`, when a pointer moved it. Keyboard and reduced motion: it jumps. Same rule as the sidebar indicator                                      |
+| Get Started step change                                            | Step content opacity 150ms. Progress ticks change colour in 120ms. The band's height never changes                                                                                                  |
+| Tile check control                                                 | Its `surface` plate fades in on tile hover, 120ms; shown at once on a coarse pointer when selection is active                                                                                       |
+| Phone sheet opened from a keyboard                                 | Opacity only, 150ms `ease-out`                                                                                                                                                                      |
+| Toast placement                                                    | No motion of its own; the next toast uses the new place                                                                                                                                             |
+| Bulk bar                                                           | By pointer or touch the whole bar rises 4px with opacity, 120ms `ease-out`. By keyboard it appears at once. It always leaves at once (see the exception below)                                      |
+| Loading                                                            | A static skeleton after 150ms of waiting (a quicker load shows none; a cold load shows it at once), no shimmer or pulse; it fades out over the content in 150ms                                     |
+| Image viewer, next or previous                                     | Slides 30% on `SPRING.settle` with a 180ms fade; swipes track 1:1                                                                                                                                   |
+| Upload progress ring                                               | `stroke-dashoffset`, 180ms `ease-out`                                                                                                                                                               |
+| Toasts                                                             | Sonner's defaults                                                                                                                                                                                   |
 
 - Never `ease-in`, never `transition: all`, nothing over 300ms. Animate `transform` and `opacity` only, with two exceptions: `stroke-dashoffset` (the upload ring and the check mark). No staggered or scroll-triggered entrances, no blur, no animated height, width or padding, no spring on an ordinary dialog, no motion on typing. `SPRING.fling` (350ms) is over the house maximum and is not used.
 - **Input-mode exception:** the same control may move for a pointer and not for a key. Dialogs, menus, the bulk bar and the sidebar indicator read `<html data-input>` (`pointer` or `keyboard`, set by `trackInputModality` in `@spark/ui`) and are immediate when the last input was a key.
@@ -109,7 +116,12 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 - **A phone sheet** is opt-in: `DialogContent presentation="sheet"` below 640px is bottom-aligned, full width, at most `92dvh`, top corners `panel`, clears the home indicator and rides above the on-screen keyboard. Build it from `DialogHeader`, `DialogBody` (the one scrolling region) and `DialogFooter` (actions, 8px apart, always visible). Padding is 16px on a phone, 24px from 640px. From 640px it is the centred dialog: `max-w-md` for a form, `max-w-2xl` for reading.
 - **Empty and error states** are `StateBlock`: one heading and one action, no description. A whole screen centres it (`Centred`); a state inside a page, such as a search's recovery, aligns to the start next to what it concerns.
 - **Loading** is `Skeleton` blocks (sunken, tile radius) inside `SkeletonGate`, with the wall's own columns and gaps, so nothing jumps when the Memories arrive.
-- **Toasts** are overlay surfaces (`surface`, `ink`, the `--edge` ring and `overlay` shadow) with an ink action carrying a canvas label, in both themes. They sit above anything pinned to the bottom edge: a bar calls `useBottomObstruction` with its element, and the toaster stands at the safe-area edge plus the bar's measured height plus 12px.
+- **A disabled primary button** is `sunken` with `ink-muted` text and the faint `--edge` ring, never a faded ink slab, so it recedes in both themes.
+- **Toasts** are overlay surfaces (`surface`, `ink`, the `--edge` ring and `overlay` shadow) with an ink action carrying a canvas label, in both themes. They sit above anything pinned to the bottom edge: a bar calls `useBottomObstruction` with its element, and the toaster stands at the safe-area edge plus the bar's measured height plus 12px. Below 640px, while any dialog or sheet is open, toasts move to the top (a sheet can stand 92dvh tall), one at a time.
+
+## Settings
+
+Flat groups of rows, no cards: each group has one quiet label (`text-sm`, `ink-muted`), then 48px rows with the label at the start and the control or value at the end, a hairline between rows, groups 40px apart. Appearance is a segmented control (a `sunken` track, a `surface` thumb). Meters are a 4px `line` track with an `ink` fill. One primary action per group at most; a destructive one is a quiet `danger` button.
 
 ## Interaction baseline
 
@@ -118,7 +130,9 @@ Motion explains a change; it is never decoration. Values are in `tokens.ts` (`DU
 - **⌘V / Ctrl V** Captures the clipboard on the Library, outside text fields and dialogs. Off the Library (Settings, Admin), paste is left alone. The Capture button does the same for pointer and touch.
 - **Optimistic Capture**: the Memory lands first on the wall as Indexing, and a toast says "Captured" with **Undo**. Failed shows on the tile with a Retry.
 - **Index state on tiles** shows only while a Memory is not Searchable: Indexing, or Failed with a Retry whose label says why. Over images it sits on the same fixed dark plate as the upload badge; the image viewer, which has no Memory detail, shows the reason in place of "Failed". The wall asks after Indexing Memories every 2 s, backing off to 30 s, and stops once none are left. While a text tile shows a badge, its last line makes room for it, so the wall never moves when Indexing finishes.
-- **AI Opt-Out** is a switch in Memory detail and the image viewer. Memory detail also shows why Indexing failed, with Retry.
+- **Memory detail** has a header (the title, then one meta line: kind, Source host, Capture day) and a property list under the content: Capture Note, Category and AI Opt-Out as labelled 44px rows. Delete is in its More menu, not beside a switch. Why Indexing failed, with Retry, is one line under the title.
+- **AI Opt-Out** is a labelled row in Memory detail. The image and PDF viewers have no property list: there it is a checked item in their More menu, beside Delete.
+- **Zero results** say "No Memories Match" with Clear Search, centred in the wall area.
 - **Preservation on image tiles** shows only while an image is not yet Preserved: a progress ring while it uploads, Failed with Try Again (or Delete, after a reload cut the upload short). A stored image shows no badge, because every stored image is Preserved.
 - **Links**: a paste that is exactly one URL Captures a link. Its tile shows the page's title and description, and a last line with its Source host and, while it lasts, Index state or **Reference Only** (no text was kept). Capturing a page again moves its Memory to the top with "Already in Your Library". Memory detail is the reader view: the Source link, then the Preserved text as plain paragraphs. No page image, font or script is ever loaded from the Source.
 - **PDFs**: a dropped or chosen PDF lands at once; its first 30 pages are drawn in the browser while it uploads. Its tile is the first page with a **PDF** plate (the ink plate badges over imagery use). It opens in `PdfViewer`: the Indexed pages one under another, opened at the page that matched with the matched passage marked above it, ← → a page at a time, Open PDF for the whole file. A PDF over 30 pages says **Partly Indexed** (beside the controls; at the end of the pages on a phone), and its wall tile wears the same words on the badge plate once it is Searchable, quiet and uncoloured.

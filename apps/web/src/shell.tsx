@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   ChevronDownIcon,
@@ -22,6 +22,7 @@ import {
   MenuTrigger,
   StateBlock,
   toast,
+  useScrollFade,
 } from "@spark/ui";
 import { DURATION, EASING } from "@spark/ui/tokens";
 import { authClient, endSession } from "./auth";
@@ -126,7 +127,7 @@ export function DeskSearchField({
     <div
       className={cn(
         "group/search flex min-h-9 min-w-0 items-center gap-2 rounded-control bg-surface shadow-raised pointer-coarse:min-h-(--size-touch)",
-        (imageControl || onClear) && "pr-1"
+        ((imageControl && !active) || onClear) && "pr-1"
       )}
     >
       <button
@@ -144,13 +145,9 @@ export function DeskSearchField({
         </span>
         {!active && <Kbd className="hidden md:inline-flex">{MOD}K</Kbd>}
       </button>
-      {imageControl && (
-        <div
-          className={cn(
-            "hidden shrink-0 group-focus-within/search:block",
-            active && "block"
-          )}
-        >
+      {/* While a search is active the field's text takes this slot; Search By Image stays in ⌘K. */}
+      {imageControl && !active && (
+        <div className="hidden shrink-0 group-focus-within/search:block">
           {imageControl}
         </div>
       )}
@@ -213,6 +210,8 @@ export function DeskSidebar({
   /** A filter narrows the Library, so All Memories is not what is showing. */
   filtered?: boolean;
 }) {
+  const filtersScroll = useRef<HTMLDivElement>(null);
+  useScrollFade(filtersScroll);
   useLibraryShortcuts({
     onSearch,
     onToggleSearch: onToggleSearch ?? onSearch,
@@ -265,7 +264,10 @@ export function DeskSidebar({
             </ul>
           </nav>
           {/* Long lists scroll here; the person's own corner stays put. */}
-          <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+          <div
+            ref={filtersScroll}
+            className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1"
+          >
             {filters}
           </div>
           <div className="flex shrink-0 flex-col gap-1">

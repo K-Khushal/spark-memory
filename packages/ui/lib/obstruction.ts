@@ -42,6 +42,43 @@ export function useBottomObstruction(
   }, [element, active]);
 }
 
+// Open dialogs and sheets register too, so the toaster can move out of the way
+// of their actions (a phone sheet can stand 92dvh tall).
+const layers = new Set<symbol>();
+const layerListeners = new Set<() => void>();
+let layerCount = 0;
+
+function publishLayers() {
+  if (layers.size === layerCount) return;
+  layerCount = layers.size;
+  layerListeners.forEach((listener) => listener());
+}
+
+/** Registers one open dialog or sheet while the caller is mounted. */
+export function useOpenLayer() {
+  useEffect(() => {
+    const id = Symbol("open-layer");
+    layers.add(id);
+    publishLayers();
+    return () => {
+      layers.delete(id);
+      publishLayers();
+    };
+  }, []);
+}
+
+/** How many dialogs or sheets are open right now. */
+export function useOpenLayerCount(): number {
+  return useSyncExternalStore(
+    (listener) => {
+      layerListeners.add(listener);
+      return () => layerListeners.delete(listener);
+    },
+    () => layerCount,
+    () => 0
+  );
+}
+
 /** The tallest registered bottom obstruction in px (0 when there is none). */
 export function useBottomObstructionHeight(): number {
   return useSyncExternalStore(

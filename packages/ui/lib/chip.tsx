@@ -54,8 +54,9 @@ export function FilterChip({ className, ...props }: ComponentProps<"button">) {
 
 /**
  * A colour filter swatch; `name` is its accessible label. The button is the
- * hit box (28px, 44px on a coarse pointer); the painted dot stays 28px with a
- * `line-strong` edge, so White and Black both read on either canvas.
+ * hit box (28px, 44px on a coarse pointer); the painted disc is 16px with the
+ * inset `--edge` ring, so White and Black both read on either canvas; the
+ * chosen one wears a 2px ink ring at 2px offset.
  */
 export function Swatch({
   hex,
@@ -76,7 +77,7 @@ export function Swatch({
     >
       <span
         aria-hidden
-        className="block size-full rounded-full shadow-[inset_0_0_0_1px_var(--line-strong)] transition-transform duration-(--duration-press) ease-out group-active/swatch:scale-[0.97] group-aria-pressed/swatch:ring-2 group-aria-pressed/swatch:ring-ink group-aria-pressed/swatch:ring-offset-2 group-aria-pressed/swatch:ring-offset-canvas pointer-coarse:size-7"
+        className="block size-4 rounded-full shadow-[inset_0_0_0_1px_var(--edge)] transition-transform duration-(--duration-press) ease-out group-active/swatch:scale-[0.97] group-aria-pressed/swatch:ring-2 group-aria-pressed/swatch:ring-ink group-aria-pressed/swatch:ring-offset-2 group-aria-pressed/swatch:ring-offset-canvas"
         style={{ backgroundColor: hex }}
       />
     </button>

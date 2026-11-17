@@ -61,7 +61,7 @@ describe("overlay motion (DESIGN.md → Motion)", () => {
 
   it("a keyboard-opened dialog only fades", () => {
     expect(css).toMatch(
-      /html\[data-input="keyboard"\]\s*\[data-slot="dialog-content"\]\[data-presentation="dialog"\]\[data-state="open"\] \{\s*animation: spark-fade-in var\(--duration-preview\)/
+      /\[data-slot="dialog-content"\]\[data-presentation="dialog"\]\[data-opened-by="keyboard"\]\[data-state="open"\] \{\s*animation: spark-fade-in var\(--duration-preview\)/
     );
   });
 
@@ -79,6 +79,31 @@ describe("overlay motion (DESIGN.md → Motion)", () => {
           `data-slot="${slot}"\\][^{]*data-state="open"\\] \\{\\s*animation: spark-fade-in var\\(--duration-preview\\)`
         )
       );
+  });
+
+  it("a sheet opened from a keyboard only fades (keyed to how it opened, so a click never replays it), after the rise rule", () => {
+    const rule =
+      /\[data-slot="dialog-content"\]\[data-presentation="sheet"\]\[data-opened-by="keyboard"\]\[data-state="open"\] \{\s*animation: spark-fade-in var\(--duration-preview\) var\(--ease-out\)/;
+    expect(css).toMatch(rule);
+    expect(css.search(rule)).toBeGreaterThan(
+      css.indexOf("animation: spark-sheet-in")
+    );
+  });
+
+  it("the tile check plate fades in 120ms and a new tile enters in 260ms", () => {
+    expect(css).toMatch(
+      /@utility check-plate \{[^@]*transition: opacity var\(--duration-press\) var\(--ease-out\)/
+    );
+    expect(css).toMatch(
+      /\[data-enter="true"\] \{\s*animation: spark-tile-in var\(--duration-panel\) var\(--ease-out\)/
+    );
+    expect(css).toMatch(
+      /@keyframes spark-tile-in \{\s*from \{\s*opacity: 0;\s*scale: 0\.96;/
+    );
+  });
+
+  it("the light scrim lets the wall read behind a dialog", () => {
+    expect(css).toContain("--scrim: rgb(17 18 20 / 0.24);");
   });
 
   it("the ⌘K menu is not given any entrance", () => {
@@ -107,6 +132,24 @@ describe("toastOffset", () => {
 
 describe("controls", () => {
   const button = readFileSync(new URL("button.tsx", libDir), "utf8");
+  const chip = readFileSync(new URL("chip.tsx", libDir), "utf8");
+
+  it("a disabled primary button is sunken with muted text, not a faded ink slab", () => {
+    const primary = /primary:\s*"([^"]+)"/.exec(button)?.[1] ?? "";
+    for (const cls of [
+      "disabled:bg-sunken",
+      "disabled:text-ink-muted",
+      "disabled:opacity-100",
+    ])
+      expect(primary).toContain(cls);
+    expect(button).toMatch(/danger: "text-danger hover:bg-sunken/);
+  });
+
+  it("a filter chip is 32px on a fine pointer and the touch target on a coarse one", () => {
+    const filter = chip.slice(chip.indexOf("export function FilterChip"));
+    expect(filter).toContain(" h-8 ");
+    expect(filter).toContain("pointer-coarse:min-h-(--size-touch)");
+  });
 
   it("every Button size grows to the touch target on a coarse pointer", () => {
     const sizes = /size: \{([^}]+)\}/.exec(button)?.[1] ?? "";

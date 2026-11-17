@@ -1,7 +1,17 @@
-import { useCallback, useEffect, useState, type ComponentProps } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { XIcon } from "lucide-react";
 import { cn } from "./cn";
+import { useOpenLayer } from "./obstruction";
+import { inputModality } from "./input-modality";
+import { useScrollFade } from "./scroll-fade";
 
 // shadcn/ui Dialog, restyled. How it moves is in styles.css (DESIGN.md →
 // Motion): a pointer-opened dialog fades and grows from .98, a keyboard-opened
@@ -32,7 +42,7 @@ export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       className={cn(
-        "flex shrink-0 flex-col gap-1 px-4 pt-4 pr-14 pb-2 sm:px-6 sm:pt-6 sm:pb-3",
+        "flex shrink-0 flex-col gap-1 px-4 pt-4 pr-14 pb-2 sm:px-6 sm:pt-6 sm:pr-14 sm:pb-3 pointer-coarse:pr-16",
         className
       )}
       {...props}
@@ -40,10 +50,21 @@ export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
   );
 }
 
-/** The one scrolling region of a dialog laid out with header and footer. */
-export function DialogBody({ className, ...props }: ComponentProps<"div">) {
+/**
+ * The one scrolling region of a dialog laid out with header and footer. Its
+ * last 24px fade into the footer while there is more to read.
+ */
+export function DialogBody({
+  className,
+  ref,
+  ...props
+}: ComponentProps<"div">) {
+  const body = useRef<HTMLDivElement>(null);
+  useImperativeHandle(ref, () => body.current!);
+  useScrollFade(body);
   return (
     <div
+      ref={body}
       data-slot="dialog-body"
       className={cn(
         "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-2 sm:px-6",
@@ -116,6 +137,12 @@ function useKeyboardInset(element: HTMLElement | null, enabled: boolean) {
   }, [element, enabled]);
 }
 
+/** Counts the dialog as an open layer while its content is mounted. */
+function OpenLayer() {
+  useOpenLayer();
+  return null;
+}
+
 /** How a dialog stands. `sheet`: bottom-aligned below 640px, centred above. */
 /** Opt-in presentations; leave it unset for the plain fade. */
 export type DialogPresentation = "dialog" | "sheet" | "fullscreen";
@@ -150,6 +177,11 @@ export function DialogContent({
   const setRef = useCallback(
     (element: HTMLDivElement | null) => {
       setNode(element);
+      // How it was asked for, fixed as it mounts: a click inside a
+      // keyboard-opened dialog must not swap the entrance and replay it
+      // under the pointer. (This wrapper outlives the content, so it is
+      // read here, not in state.)
+      if (element) element.dataset.openedBy = inputModality();
       if (typeof ref === "function") ref(element);
       else if (ref) ref.current = element;
     },
@@ -177,6 +209,7 @@ export function DialogContent({
         }}
         {...props}
       >
+        <OpenLayer />
         {children}
         <DialogPrimitive.Close
           className={cn(

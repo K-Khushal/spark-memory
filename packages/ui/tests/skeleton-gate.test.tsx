@@ -78,3 +78,25 @@ it("waits a fresh 150ms when loading starts again inside the fade-out", () => {
   tick(1);
   expect(bones()).not.toBeNull();
 });
+
+it("`immediate` shows the skeleton on the first frame, then fades it as usual", () => {
+  act(() =>
+    root.render(
+      <SkeletonGate loading skeleton={<i id="bones" />} immediate>
+        <p id="content">Loaded</p>
+      </SkeletonGate>
+    )
+  );
+  expect(bones()).not.toBeNull();
+  expect(host.querySelector("#content")).toBeNull();
+  act(() =>
+    root.render(
+      <SkeletonGate loading={false} skeleton={<i id="bones" />} immediate>
+        <p id="content">Loaded</p>
+      </SkeletonGate>
+    )
+  );
+  expect(layer()?.getAttribute("data-leaving")).toBe("true");
+  tick(150);
+  expect(layer()).toBeNull();
+});
