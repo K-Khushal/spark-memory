@@ -193,7 +193,12 @@ export function Onboarding({
                         : "text-base font-medium"
                   }
                 >
-                  {state.paused ? "Get Started" : headings[state.step]}
+                  {state.paused
+                    ? "Get Started"
+                    : state.step === "indexing" &&
+                        first?.indexState === "searchable"
+                      ? "Searchable"
+                      : headings[state.step]}
                 </h2>
               </div>
               {state.paused && !finished && (
@@ -215,7 +220,7 @@ export function Onboarding({
                     duration: DURATION.preview / 1000,
                     ease: EASING.out,
                   }}
-                  className={`flex min-w-0 flex-wrap items-center ${state.step === "disclosure" ? "gap-3" : "gap-2"}`}
+                  className={`flex min-w-0 items-center ${state.step === "disclosure" ? "flex-wrap gap-3" : "flex-nowrap gap-2"}`}
                   aria-busy={busy}
                 >
                   {state.step === "disclosure" && (
@@ -264,30 +269,31 @@ export function Onboarding({
                   )}
                   {state.step === "indexing" && (
                     <>
-                      <span role="status" className="text-sm">
-                        {first?.indexState === "searchable"
-                          ? "Searchable"
-                          : first?.indexState === "failed"
+                      {first?.indexState !== "searchable" && (
+                        <span role="status" className="text-sm">
+                          {first?.indexState === "failed"
                             ? "Failed"
                             : "Indexing"}
-                      </span>
-                      {first ? (
-                        <Button
-                          wrap
-                          variant="outline"
-                          onClick={() => onOpen(first)}
-                        >
-                          Open Memory
-                        </Button>
-                      ) : (
-                        <Button
-                          wrap
-                          variant="outline"
-                          onClick={() => void update("capture")}
-                        >
-                          Capture Again
-                        </Button>
+                        </span>
                       )}
+                      {first?.indexState !== "searchable" &&
+                        (first ? (
+                          <Button
+                            wrap
+                            variant="outline"
+                            onClick={() => onOpen(first)}
+                          >
+                            Open Memory
+                          </Button>
+                        ) : (
+                          <Button
+                            wrap
+                            variant="outline"
+                            onClick={() => void update("capture")}
+                          >
+                            Capture Again
+                          </Button>
+                        ))}
                       {first && first.indexState !== "indexing" && (
                         <Button
                           wrap
@@ -321,31 +327,29 @@ export function Onboarding({
                       Finish
                     </Button>
                   )}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {finished ? null : state.paused ? (
+                  {finished ? null : state.paused ? (
+                    <Button
+                      wrap
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void update(state.step)}
+                    >
+                      Resume
+                    </Button>
+                  ) : (
+                    // The AI disclosure is the one step that is not skippable.
+                    state.step !== "done" &&
+                    state.step !== "disclosure" && (
                       <Button
                         wrap
-                        variant="outline"
+                        variant="quiet"
                         disabled={busy}
-                        onClick={() => void update(state.step)}
+                        onClick={() => void update(state.step, true)}
                       >
-                        Resume
+                        Skip
                       </Button>
-                    ) : (
-                      // The AI disclosure is the one step that is not skippable.
-                      state.step !== "done" &&
-                      state.step !== "disclosure" && (
-                        <Button
-                          wrap
-                          variant="quiet"
-                          disabled={busy}
-                          onClick={() => void update(state.step, true)}
-                        >
-                          Skip
-                        </Button>
-                      )
-                    )}
-                  </div>
+                    )
+                  )}
                 </motion.div>
               )}
               <div>
