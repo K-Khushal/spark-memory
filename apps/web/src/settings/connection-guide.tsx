@@ -113,7 +113,7 @@ export function ConnectionGuide({
                   <ChevronDownIcon aria-hidden className="size-4" />
                 </Button>
               </MenuTrigger>
-              <MenuContent>
+              <MenuContent className="w-(--radix-dropdown-menu-trigger-width) min-w-(--radix-dropdown-menu-trigger-width)">
                 {["Claude Code", "Claude Desktop", "Codex"].map((name) => (
                   <MenuCheckboxItem
                     key={name}

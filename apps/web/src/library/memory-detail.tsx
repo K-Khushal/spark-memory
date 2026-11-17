@@ -158,8 +158,6 @@ function Fields({
   const [fields, setFields] = useState<Draft>(
     () => edit?.fields ?? textOf(memory)
   );
-  // The body field opens to its writing height at first focus and stays.
-  const [writing, setWriting] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   const footer = useRef<HTMLDivElement | null>(null);
   // The sheet mounts in a portal after this renders: wait for the footer.
@@ -280,7 +278,7 @@ function Fields({
                 link: "Link",
                 social_post: "Post",
               }[memory.kind],
-              ...(["link", "video", "social"].includes(memory.kind) &&
+              ...(["link", "video", "social_post"].includes(memory.kind) &&
               memory.sourceUrl
                 ? [hostOf(memory)]
                 : []),
@@ -305,36 +303,25 @@ function Fields({
             <Reader memory={memory} />
           ) : (
             <>
-              {!writing && (
-                <Button
-                  variant="quiet"
-                  size="sm"
-                  className="self-start"
-                  onClick={() => {
-                    setWriting(true);
-                    requestAnimationFrame(() => bodyField.current?.focus());
-                  }}
-                >
-                  Edit
-                </Button>
-              )}
+              <Button
+                variant="quiet"
+                size="sm"
+                className="self-start"
+                onClick={() => bodyField.current?.focus()}
+              >
+                Edit
+              </Button>
               <Textarea
                 ref={bodyField}
                 value={shown.body}
                 onChange={(e) => change({ ...shown, body: e.target.value })}
                 aria-label="Text"
-                onFocus={() => setWriting(true)}
                 dir="auto"
-                // Reads as text (base/24) with no chrome at rest, sized to what it
-                // holds: a one-line note is one line. The surface appears on hover
-                // (colour, 120ms) and the ring on focus. Once you start writing,
-                // or when it is empty, it keeps a 96px well to write in: it never
-                // shrinks again on blur, because that would move Done out from
-                // under a press. Reading and editing share the content glyph origin.
-
+                // Focus preserves the reading geometry. Only content changes
+                // resize the field, so entering Edit never moves its glyphs.
                 className={cn(
                   "min-h-0 w-full rounded-control border-transparent bg-transparent px-0 py-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
-                  (writing || !shown.body) && "min-h-24"
+                  !shown.body && "min-h-24"
                 )}
               />
             </>

@@ -11,6 +11,7 @@ import {
   MenuContent,
   MenuItem,
   MenuCheckboxItem,
+  MenuSeparator,
   toast,
 } from "@spark/ui";
 import { createApiClient } from "@spark/api-client";
@@ -354,9 +355,16 @@ export function ImportSection({ userId }: { userId: string }) {
               Folder
             </MenuItem>
             {!active && (
-              <MenuCheckboxItem checked={spread} onCheckedChange={setSpread}>
-                Spread Over Days
-              </MenuCheckboxItem>
+              <>
+                <MenuSeparator />
+                <MenuCheckboxItem
+                  checked={spread}
+                  onCheckedChange={setSpread}
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  Spread Over Days
+                </MenuCheckboxItem>
+              </>
             )}
           </MenuContent>
         </Menu>

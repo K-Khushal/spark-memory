@@ -141,7 +141,32 @@ test("Memory detail is a sheet on a phone and a centred dialog on a desktop, in 
   }
 });
 
-test("a note reads as text until touched: no chrome at rest, one line for one line, 96px once you write and no shift when you leave", async ({
+for (const width of [1440, 390]) {
+  for (const entry of ["Text", "Edit"] as const) {
+    test(`entering edit via ${entry} keeps the body glyph origin at ${width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await signIn(page);
+      await paste(page, "A short note with a stable reading origin");
+      await page.getByRole("listitem", { name: /A short note/ }).click();
+      const dialog = page.getByRole("dialog");
+      const text = dialog.getByRole("textbox", { name: "Text", exact: true });
+      await settle(page);
+      const before = await boxOf(text);
+      if (entry === "Text") await text.click();
+      else
+        await dialog.getByRole("button", { name: "Edit", exact: true }).click();
+      await expect(text).toBeFocused();
+      const after = await boxOf(text);
+      expect(after.y).toBeCloseTo(before.y, 0);
+      expect(after.x).toBeCloseTo(before.x, 0);
+      expect(after.height).toBeCloseTo(before.height, 0);
+    });
+  }
+}
+
+test("a note reads as text until touched: no chrome at rest, one line for one line, no shift on focus or blur", async ({
   page,
 }) => {
   await signIn(page);
@@ -173,7 +198,7 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
   });
   const rest = (await boxOf(text)).height;
   expect(rest).toBeLessThan(60);
-  // Base text on a 24px leading, 12px inset on every side.
+  // Base text on a 24px leading, zero horizontal inset.
   expect(
     await text.evaluate((el) => {
       const s = getComputedStyle(el);
@@ -190,13 +215,12 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
     .not.toBe("rgba(0, 0, 0, 0)");
   expect((await chrome()).border).toBe("1px");
   expect((await boxOf(text)).height).toBe(rest);
-  // Tab reaches it with a visible ring, and only then does it open to 96px.
+  // Edit focuses it with a visible edge and preserves its reading height.
   await page.mouse.move(0, 0);
   await dialog.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(text).toBeFocused();
   expect((await chrome()).outline).toBe("2px");
-  expect((await boxOf(text)).height).toBeGreaterThanOrEqual(96);
-  expect((await boxOf(text)).height).toBeLessThanOrEqual(100);
+  expect((await boxOf(text)).height).toBe(rest);
   // Typing grows it with no height transition.
   await text.fill(Array.from({ length: 12 }, (_, i) => `Line ${i}`).join("\n"));
   expect((await boxOf(text)).height).toBeGreaterThan(250);
@@ -207,7 +231,7 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
   const before = await boxOf(done);
   await dialog.getByRole("textbox", { name: "Capture Note" }).focus();
   expect(await boxOf(done)).toEqual(before);
-  expect((await boxOf(text)).height).toBeGreaterThanOrEqual(96);
+  expect((await boxOf(text)).height).toBe(rest);
   await text.fill("Line 0\nLine 11");
   // Press Done with the field still focused: it closes on that one press.
   await done.click();
