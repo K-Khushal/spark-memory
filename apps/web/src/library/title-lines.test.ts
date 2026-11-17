@@ -1,6 +1,12 @@
 /** @vitest-environment happy-dom */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { estimate, titleFonts, titleLines, wrapLines } from "./title-lines";
+import {
+  bodyLines,
+  estimate,
+  titleFonts,
+  titleLines,
+  wrapLines,
+} from "./title-lines";
 
 // A monospace stand-in for the canvas: ten pixels a character.
 const mono = (text: string) => text.length * 10;
@@ -54,6 +60,14 @@ describe("titleLines once the font has loaded", () => {
     titleFonts.markLoaded();
   });
   afterAll(() => vi.restoreAllMocks());
+
+  it("measures body glyphs, preserved paragraphs, normal whitespace and clamping", () => {
+    expect(bodyLines("WWWWWW", 100, 12)).toBe(2);
+    expect(bodyLines("iiiiii", 100, 12)).toBe(1);
+    expect(bodyLines("hello\n\nworld\n", 100, 12)).toBe(3);
+    expect(bodyLines("hello\n\nworld\n", 200, 12, false)).toBe(1);
+    expect(bodyLines("WWWWWW", 30, 2)).toBe(2);
+  });
 
   it("sends wide glyphs to a second line that an average width would leave on one", () => {
     // 12 W's are 240px: past a 200px line, though 12 characters "should" fit.

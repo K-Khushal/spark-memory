@@ -89,6 +89,7 @@ export function wrapLines(
 let context: CanvasRenderingContext2D | null | undefined;
 let fontStack: string | undefined;
 let fontsLoaded = false;
+let fontRevision = 0;
 const listeners = new Set<() => void>();
 
 /** The canvas the whole wall measures with (none in a test DOM). */
@@ -120,8 +121,11 @@ const displayFontReady = () =>
 
 if (typeof document !== "undefined" && document.fonts) {
   const update = () => {
-    if (fontsLoaded || !displayFontReady()) return;
+    if (!displayFontReady()) return;
     fontsLoaded = true;
+    fontRevision++;
+    cache.clear();
+    bodyCache.clear();
     for (const notify of listeners) notify();
   };
   fontsLoaded = displayFontReady();
@@ -173,4 +177,46 @@ export function titleLines(title: string, innerWidth: number, size: number) {
 
 /** True once the display font has loaded: re-render the wall then, so its titles are measured again. */
 export const useTitleFonts = () =>
-  useSyncExternalStore(titleFonts.subscribe, titleFonts.loaded, () => false);
+  useSyncExternalStore(
+    titleFonts.subscribe,
+    () => fontRevision,
+    () => 0
+  );
+
+const bodyCache = new Map<string, number>();
+/** Cached font-aware wrapping, including fallback shaping and paragraph breaks. */
+export function bodyLines(
+  text: string,
+  innerWidth: number,
+  max: number,
+  paragraphs = true
+) {
+  const k = rootFontScale();
+  const width = Math.max(1, innerWidth);
+  const key = `${fontRevision}|${fontsLoaded}|${width}|${k}|${max}|${paragraphs}|${text}`;
+  const known = bodyCache.get(key);
+  if (known !== undefined) return known;
+  const ctx = canvas();
+  let measure = estimate(13 * k);
+  if (ctx) {
+    const family =
+      getComputedStyle(document.documentElement)
+        .getPropertyValue("--font-sans")
+        .trim() || "sans-serif";
+    ctx.font = `400 ${13 * k}px ${family}`;
+    measure = (piece) => ctx.measureText(piece).width;
+  }
+  // pre-line preserves paragraph breaks, collapses spaces and ignores the
+  // final newline. Normal link descriptions collapse all whitespace.
+  const paragraphsToMeasure = paragraphs
+    ? text.replace(/\n$/, "").split("\n")
+    : [text];
+  const lines = paragraphsToMeasure.reduce(
+    (sum, line) => sum + wrapLines(line, width, measure, max),
+    0
+  );
+  const result = Math.min(max, lines);
+  if (bodyCache.size > 20_000) bodyCache.clear();
+  bodyCache.set(key, result);
+  return result;
+}

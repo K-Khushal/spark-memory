@@ -432,7 +432,35 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     const t = tile(page, title);
     await t.scrollIntoViewIfNeeded();
     await t.click();
-    await expect(page.getByRole("dialog")).toBeVisible();
+    const expectedTitle =
+      mock.memories.find((m) => m.title?.startsWith(title))?.title ?? title;
+    const dialog = page.getByRole("dialog", {
+      name: /Garden Report|Complete Field Guide|Harbour at Dusk/.test(title)
+        ? expectedTitle
+        : "Memory",
+      exact: true,
+    });
+    await expect(dialog).toBeVisible();
+    if (title === "Garden Report 2026" || title === "Complete Field Guide") {
+      await expect(
+        dialog.getByRole("img", { name: "Page 1", exact: true })
+      ).toBeVisible();
+    } else {
+      const editor = dialog.getByRole("textbox", {
+        name: "Title",
+        exact: true,
+      });
+      if (await editor.count())
+        await expect(editor).toHaveValue(new RegExp("^" + title));
+      else await expect(dialog).toHaveAccessibleName(expectedTitle);
+    }
+    if (title === "Complete Field Guide")
+      await expect(
+        dialog
+          .getByText("Partly Indexed", { exact: true })
+          .filter({ visible: true })
+      ).toBeVisible();
+    await settle(page);
   };
   await step(
     page,
@@ -525,13 +553,38 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     "Memory detail while the text is being edited",
     async () => {
       await open("Cardamom Buns");
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Edit", exact: true })
+        .click();
       const text = page.getByRole("textbox", { name: "Text" });
-      await text.click();
       await text.press("End");
       await text.pressSequentially(" Bake at 200 degrees for 18 minutes.");
     },
     opts
   );
+
+  await step(
+    page,
+    "detail-video-poster",
+    "Video reader with a preserved 16:9 poster asset",
+    async () => {
+      const image = {
+        ...kinds.image.image!,
+        url: "/tour/video-poster.svg",
+        thumbnailUrl: "/tour/video-poster.svg",
+        width: 1600,
+        height: 900,
+      };
+      kinds.video.image = image;
+      await open("How Plants Follow the Sun");
+      await expect(
+        page.getByRole("dialog").locator('img[src="/tour/video-poster.svg"]')
+      ).toBeVisible();
+    },
+    opts
+  );
+  kinds.video.image = null;
 
   // Bulk selection.
   await step(
@@ -1092,7 +1145,10 @@ test("settings and admin", async ({ page, context }) => {
     "settings-assistants-connected",
     "Connected Assistants: one assistant listed with Activity and Revoke",
     async () => {
-      await page.getByRole("button", { name: "Close", exact: true }).click();
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Done", exact: true })
+        .click();
       await expect(
         page.getByRole("list", { name: "Connected Assistants" })
       ).toBeVisible();
@@ -1527,12 +1583,15 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
     line: string,
     size: { width: number; height: number },
     script: (page: Page) => Promise<void>,
-    colorScheme: "light" | "dark" = "light"
+    colorScheme: "light" | "dark" = "light",
+    reducedMotion: "reduce" | "no-preference" = "no-preference"
   ) {
     const context = await browser.newContext({
       storageState: state,
       viewport: size,
       colorScheme,
+      reducedMotion,
+      hasTouch: size.width < 640,
       recordVideo: { dir: resolve(VIDEOS, ".raw"), size },
     });
     await installLibrary(context, mock);
@@ -1555,6 +1614,42 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
       await video?.saveAs(resolve(VIDEOS, name));
       recordVideo(name, line);
     }
+  }
+  const coldContext = await browser.newContext({
+    storageState: state,
+    viewport: { width: 1440, height: 900 },
+    recordVideo: {
+      dir: resolve(VIDEOS, ".raw"),
+      size: { width: 1440, height: 900 },
+    },
+  });
+  const coldMock: Mock = { ...mock, delay: 800, listFails: true };
+  await installLibrary(coldContext, coldMock);
+  const cold = await coldContext.newPage();
+  try {
+    await cold.goto("/");
+    await expect(
+      cold.locator('main [data-slot="skeleton"]').first()
+    ).toBeVisible();
+    await expect(
+      cold.getByRole("heading", { name: "Library Is Unreachable" })
+    ).toBeVisible();
+    coldMock.listFails = false;
+    await cold.getByRole("button", { name: "Try Again", exact: true }).click();
+    await expect(
+      cold.locator('main [data-slot="skeleton"]').first()
+    ).toBeVisible();
+    await expect(
+      cold.getByRole("list", { name: "All Memories" })
+    ).toBeVisible();
+  } finally {
+    const video = cold.video();
+    await coldContext.close();
+    await video?.saveAs(resolve(VIDEOS, "cold-load-and-retry.webm"));
+    recordVideo(
+      "cold-load-and-retry.webm",
+      "Cold first-frame skeleton, Library recovery and subsequent delayed skeleton gate"
+    );
   }
   const desktop = { width: 1440, height: 900 };
   const phone = { width: 390, height: 844 };
@@ -1726,6 +1821,36 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
       await wait(1200);
     }
   );
+  for (const reduced of [false, true]) {
+    await film(
+      `search-sheet-${reduced ? "reduced" : "standard"}.webm`,
+      "Rapid Search toggle and typing with a delayed full response, settled reshuffle, pointer and keyboard phone sheet exits",
+      phone,
+      async (p) => {
+        mock.searchDelay = 900;
+        await p.keyboard.press("ControlOrMeta+k");
+        await p.getByPlaceholder("Search…").fill("garden");
+        await p.keyboard.press("Escape");
+        await p.keyboard.press("ControlOrMeta+k");
+        await p.getByPlaceholder("Search…").fill("garden");
+        await wait(1800);
+        await p.keyboard.press("Enter");
+        await wait(900);
+        mock.searchDelay = 0;
+        await p.goto("/");
+        await tile(p, "Cardamom Buns").click();
+        await settle(p);
+        await p.getByRole("button", { name: "Close", exact: true }).click();
+        await settle(p);
+        await tile(p, "Cardamom Buns").focus();
+        await p.keyboard.press("Enter");
+        await settle(p);
+        await p.keyboard.press("Escape");
+      },
+      "light",
+      reduced ? "reduce" : "no-preference"
+    );
+  }
   await rm(resolve(VIDEOS, ".raw"), { recursive: true, force: true });
 });
 

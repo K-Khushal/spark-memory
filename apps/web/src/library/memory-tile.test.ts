@@ -34,7 +34,15 @@ describe("a text tile's layout", () => {
     const { title, body, height } = tileLayout(note(), 300);
     expect(title).toBe(0);
     // 16 + 16 padding, one 20px line, 8 and 24 for the badge row.
-    expect(height).toBe(32 + body * 20 + 8 + 24);
+    expect(height).toBe(32 + body * 20);
+  });
+
+  it("reserves a badge row only when it is rendered", () => {
+    const plain = tileLayout(note(), 300).height;
+    expect(tileLayout(note({ sample: true }), 300).height - plain).toBe(32);
+    expect(
+      tileLayout(note({ indexState: "indexing" }), 300).height - plain
+    ).toBe(32);
   });
 
   it("gives a one-line title one line and a long one two, never three", () => {
@@ -50,7 +58,7 @@ describe("a text tile's layout", () => {
 
   it("uses 12px padding and a smaller title on a phone lane", () => {
     const phone = tileLayout(note({ title: "Plumber" }), 179);
-    expect(phone.height).toBe(24 + 24 + 8 + phone.body * 20 + 8 + 24);
+    expect(phone.height).toBe(24 + 24 + 8 + phone.body * 20);
   });
 });
 
@@ -76,4 +84,37 @@ describe("a link tile's layout", () => {
         linkLayout(link({ kind }), 300).height
       );
   });
+});
+
+it("uses Text for a visible passage whose highlighted query terms are separated", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { Highlighted, passageIsHighlighted } = await import("./memory-tile");
+  const text = "Garden storage keeps the hand tools dry.";
+  expect(
+    renderToStaticMarkup(Highlighted({ text, query: "garden tools" }))
+  ).toContain("<mark>Garden</mark>");
+  expect(
+    renderToStaticMarkup(Highlighted({ text, query: "garden tools" }))
+  ).toContain("<mark>tools</mark>");
+  expect(passageIsHighlighted(text, "garden tools")).toBe(true);
+  const { WhyChip } = await import("./why");
+  expect(
+    renderToStaticMarkup(
+      WhyChip({
+        found: {
+          ...note({ body: text }),
+          part: { kind: "passage", field: "body", start: 0, end: text.length },
+        },
+        direct: true,
+        visiblePassage: passageIsHighlighted(text, "garden tools"),
+      })
+    )
+  ).toContain("<span>Text</span>");
+  expect(
+    passageIsHighlighted("Gardener stores toolshed plans", "garden tools")
+  ).toBe(true);
+  expect(passageIsHighlighted("The garden has stools", "garden tools")).toBe(
+    false
+  );
+  expect(passageIsHighlighted(text, "a I")).toBe(false);
 });

@@ -1,3 +1,4 @@
+import { rootFontScale } from "./root-font-scale";
 import { readLibraryView, rememberLibraryView } from "./library-view";
 import "./library-wall.css";
 import { emptySelection, select } from "./selection";
@@ -67,7 +68,14 @@ import { useStickyInset } from "../sticky-inset";
 import { productMetrics } from "./product-metrics";
 import { createActivation } from "./activation";
 import { Onboarding, recordActivation } from "./onboarding";
-import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
+import {
+  MemoryTile,
+  estimateTileHeight,
+  passageIsHighlighted,
+  tileHeight,
+  tileLayout,
+  tileLabel,
+} from "./memory-tile";
 import { LibraryOverlaysHost } from "./overlays-host";
 import { pdfMatch, type PdfMatch } from "./pdf-match";
 import { focusWall } from "./focus";
@@ -80,7 +88,7 @@ import {
   type Results,
 } from "./use-search";
 import { whyHeight, WhyChip, whyLabel } from "./why";
-import { useTitleFonts } from "./title-lines";
+import { bodyLines, useTitleFonts } from "./title-lines";
 import { usePhoneWall, wallColumns } from "./wall-geometry";
 
 /** Set once the Library has shown on this page load: a later visit keeps the 150ms wait. */
@@ -125,6 +133,7 @@ function LibraryForSession({
   const [activation] = useState(() => createActivation(recordActivation));
   const onActivated = useCallback(() => activation.know(), [activation]);
   const [searchOpen, setSearchOpen] = useState(desk === "search");
+  const [commandStatus, setCommandStatus] = useState("");
   const [overlaysEpoch, setOverlaysEpoch] = useState(0);
   const [overlaysDown, setOverlaysDown] = useState(false);
   const previousSearch = useRef("");
@@ -737,9 +746,21 @@ function LibraryForSession({
         </div>
         <h1 className="sr-only">Library</h1>
         {/* Outside the busy wall below, or a screen reader may hold it back
-            until the busy state clears. Always mounted, so Try Again is heard. */}
-        <div role="status" className="sr-only">
-          {first === "failed" && wallSearch.retrying ? "Searching Again" : ""}
+            until the busy state clears. Explicit aria-live keeps this shared region
+            exposed when Search's modal hides the surrounding page. */}
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {searchOpen
+            ? commandStatus
+            : first === "failed"
+              ? wallSearch.retrying
+                ? "Searching Again"
+                : "Search Is Unreachable"
+              : ""}
         </div>
         {library.state === "ready" && (
           <div className="peer">
@@ -888,6 +909,7 @@ function LibraryForSession({
             wallSearch.retry();
           }}
           retryingSearch={instantSearch.retrying || wallSearch.retrying}
+          onSearchStatus={setCommandStatus}
           onSearchOpenChange={(open) => {
             setSearchOpen(open);
             if (!open) metrics.abandoned();
@@ -967,7 +989,7 @@ function Wall({
 }) {
   const open = (i: number) => memories[i] && onOpen(memories[i]);
   const columns = wallColumns(usePhoneWall());
-  const items = useFontRemeasure(memories);
+  const { items, heightVersion } = useFontRemeasure(memories);
   return (
     <Masonry
       minColumnWidth={columns.minWidth}
@@ -979,6 +1001,8 @@ function Wall({
       items={items}
       getKey={(m) => m.id}
       getHeight={tileHeight}
+      estimateHeight={estimateTileHeight}
+      heightVersion={heightVersion}
       getLabel={tileLabel}
       onOpen={open}
       onPreview={open}
@@ -1027,7 +1051,7 @@ function ResultWall({
 }) {
   const open = (i: number) => found[i] && onOpen(found[i]);
   const columns = wallColumns(usePhoneWall());
-  const items = useFontRemeasure(found);
+  const { items, heightVersion } = useFontRemeasure(found);
   const why = (m: Found) =>
     direct === undefined ? undefined : whyLabel(m, chips);
   return (
@@ -1041,6 +1065,8 @@ function ResultWall({
       items={items}
       getKey={(m) => m.id}
       getHeight={tileHeight}
+      estimateHeight={estimateTileHeight}
+      heightVersion={heightVersion}
       // A tile with something to say gets the fixed footer; one with nothing
       // (or only a filter's own words) gets none, and no height for it.
       getCaption={(m) => (why(m) ? whyHeight() : 0)}
@@ -1057,7 +1083,27 @@ function ResultWall({
           width={tile.width}
           footer={
             why(m) ? (
-              <WhyChip found={m} direct={!!direct} chips={chips} />
+              <WhyChip
+                found={m}
+                direct={!!direct}
+                chips={chips}
+                visiblePassage={
+                  m.kind === "text" &&
+                  m.part?.kind === "passage" &&
+                  m.part.field === "body" &&
+                  m.part.end <= 800 &&
+                  !!query.trim() &&
+                  bodyLines(
+                    (m.body ?? "").slice(0, m.part.end),
+                    tile.width - (tile.width < 200 ? 24 : 32) * rootFontScale(),
+                    100
+                  ) <= tileLayout(m, tile.width).body &&
+                  passageIsHighlighted(
+                    (m.body ?? "").slice(m.part.start, m.part.end),
+                    query
+                  )
+                }
+              />
             ) : undefined
           }
           {...tiles}
@@ -1072,10 +1118,11 @@ function ResultWall({
  * its titles at the real font (a new array, same Memories: nothing moves
  * but what was mismeasured).
  */
-function useFontRemeasure<T>(items: readonly T[]): readonly T[] {
-  const loaded = useTitleFonts();
+function useFontRemeasure<T>(items: readonly T[]) {
+  const heightVersion = useTitleFonts();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => [...items], [items, loaded]);
+  const measuredItems = useMemo(() => [...items], [items, heightVersion]);
+  return { items: measuredItems, heightVersion };
 }
 
 /** Direct Matches first, Related Matches apart (DESIGN.md → Interaction baseline). */
@@ -1109,10 +1156,15 @@ function SearchResults({
   if (results === "failed") {
     return (
       <div data-search="failed">
-        <StateBlock title="Search Is Unreachable">
+        <StateBlock
+          title="Search Is Unreachable"
+          align="centre"
+          className="min-h-[60dvh] justify-center px-4"
+        >
           <Button
             wrap
             variant="outline"
+            data-wall-action
             aria-disabled={retrying}
             className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
             onClick={() => !retrying && onRetry()}
@@ -1185,7 +1237,11 @@ function SearchResults({
           tabIndex={-1}
           className="mb-3 text-sm font-medium text-ink outline-none"
         >
-          {results.direct.length ? "Direct Matches" : "No Direct Matches"}
+          {results.direct.length
+            ? "Direct Matches"
+            : results.settled
+              ? "No Direct Matches"
+              : "Direct Matches"}
         </h2>
         {results.direct.length > 0 ? (
           <ResultWall

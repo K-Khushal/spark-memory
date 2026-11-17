@@ -5,6 +5,7 @@ import { api } from "../api";
 import { sharedFlight, type Flight } from "./shared-flight";
 import {
   requestKey,
+  isWordless,
   searchCache,
   searchSession,
   shownAnswer,
@@ -128,6 +129,18 @@ export function useSearch(
     searchSession({
       fetch: fetchHits,
       onAnswer: (next) => {
+        // A word search's empty instant page is provisional. Keep the wall
+        // until its full answer (or settled fallback) can replace it.
+        if (
+          keepPrevious &&
+          next &&
+          !("failed" in next) &&
+          next.mode === "instant" &&
+          !next.settled &&
+          !next.hits.length &&
+          !isWordless(next.key)
+        )
+          return;
         setAnswer(next);
         setRetrying(false);
       },

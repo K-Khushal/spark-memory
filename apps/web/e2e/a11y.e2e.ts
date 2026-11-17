@@ -570,7 +570,7 @@ test("320px at 200% text: every screen reflows without sideways scrolling", asyn
   await fits("Search results");
   await page.getByRole("button", { name: "Clear Search" }).click();
 
-  await wall.getByRole("listitem", { name: /Lemon tart/ }).dblclick();
+  await wall.getByRole("listitem", { name: /Lemon tart/ }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await fits("Memory detail");
   await page.keyboard.press("Escape");
@@ -693,7 +693,9 @@ test("⌘K notes are read from a live region outside the listbox", async ({
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").fill("zzzz nothing like this");
   const menu = page.getByRole("dialog");
-  await expect(menu.getByRole("status")).toHaveText("No Memories Match", {
+  await expect(
+    page.getByRole("status").filter({ hasText: "No Memories Match" })
+  ).toHaveText("No Memories Match", {
     timeout: 15_000,
   });
   await expect(menu.getByRole("listbox").getByRole("status")).toHaveCount(0);

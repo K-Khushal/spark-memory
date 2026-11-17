@@ -401,3 +401,254 @@ test("a pointer-selected Checkbox leaves Escape and Search shortcuts available",
     page.getByRole("dialog", { name: "Search", exact: true })
   ).toBeVisible();
 });
+
+test("text tiles fit font-shaped paragraphs without an empty badge row", async ({
+  page,
+  context,
+}) => {
+  const notes = tourMemories()
+    .filter((m) => m.kind === "text")
+    .slice(0, 5)
+    .map((m, i) => ({
+      ...m,
+      title: null,
+      sample: false,
+      indexState: "searchable" as const,
+      body: [
+        "Call the plumber before Friday.",
+        "Wide words WWWWWW and narrow iiiiii wrap differently.\n\nKeep the paragraph gap.",
+        "日本語の資料とデザインを保存します。長い文章も読みやすく。",
+        "नमस्ते दुनिया यह मेरी छोटी सी याद है",
+        "مرحبا بالعالم هذه ملاحظة قصيرة للحفظ",
+      ][i]!,
+    }));
+  await installLibrary(context, {
+    memories: notes,
+    delay: 0,
+    listFails: false,
+    searchFails: false,
+    onboarding: FINISHED,
+    answers: {},
+  });
+  await signIn(page);
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => document.fonts.ready);
+    const tiles = page
+      .getByRole("list", { name: "All Memories" })
+      .getByRole("listitem");
+    await expect(tiles).toHaveCount(notes.length);
+    await expect
+      .poll(() =>
+        tiles.evaluateAll((items) =>
+          items
+            .map((item) => {
+              const body = item.querySelector("p")!;
+              const content = body.parentElement!;
+              const style = getComputedStyle(content);
+              const expected =
+                body.getBoundingClientRect().height +
+                parseFloat(style.paddingTop) +
+                parseFloat(style.paddingBottom);
+              return Math.abs(item.getBoundingClientRect().height - expected);
+            })
+            .every((gap) => gap <= 1)
+        )
+      )
+      .toBe(true);
+  }
+});
+
+test("font-aware measurement of a 10k wall stays within the cold and cached budgets", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await signIn(page);
+  const cost = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const family = getComputedStyle(document.documentElement).getPropertyValue(
+      "--font-sans"
+    );
+    await document.fonts.load(`400 13px ${family}`, "Garden नमस्ते");
+    await document.fonts.ready;
+    // Exercise the actual browser canvas and loaded fonts, not a width stub.
+    const modulePath = "/src/library/title-lines.ts";
+    const { bodyLines } = await import(/* @vite-ignore */ modulePath);
+    const bodies = Array.from(
+      { length: 10_000 },
+      (_, i) =>
+        `Measurement ${i}: Garden tools stay dry beside the shed.\n\n${"日本語の資料。 नमस्ते दुनिया. مرحبا بالعالم. Wide WWW and narrow iii. ".repeat(8)}`
+    );
+    const run = () => {
+      const start = performance.now();
+      let lines = 0;
+      for (const body of bodies) lines += bodyLines(body, 188, 12);
+      return { ms: performance.now() - start, lines };
+    };
+    return { cold: run(), cached: run() };
+  });
+  console.log(`10k body measurement: ${JSON.stringify(cost)}`);
+  expect(cost.cold.lines).toBeGreaterThan(10_000);
+  expect(cost.cached.lines).toBe(cost.cold.lines);
+  // Generous CPU budgets for shared CI runners; retain the actual timings in output.
+  expect(cost.cold.ms).toBeLessThan(10_000);
+  expect(cost.cached.ms).toBeLessThan(1_000);
+});
+
+test("a 10k Library paints with bounded precision and idle refinement leaves visible tiles still", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => {
+    const cost = {
+      bodies: 0,
+      shapingMs: 0,
+      responseAt: 0,
+      idleChunks: 0,
+      maxIdleMs: 0,
+      first: undefined as
+        undefined | { bodies: number; shapingMs: number; firstPaintMs: number },
+    };
+    Object.assign(window, { wallMeasurementCost: cost });
+    const idle = window.requestIdleCallback.bind(window);
+    window.requestIdleCallback = (callback, options) =>
+      idle((deadline) => {
+        const start = performance.now();
+        callback(deadline);
+        cost.idleChunks++;
+        cost.maxIdleMs = Math.max(cost.maxIdleMs, performance.now() - start);
+      }, options);
+    const font = Object.getOwnPropertyDescriptor(
+      CanvasRenderingContext2D.prototype,
+      "font"
+    )!;
+    Object.defineProperty(CanvasRenderingContext2D.prototype, "font", {
+      ...font,
+      set(value: string) {
+        if (/^400 13px/.test(value)) cost.bodies++;
+        font.set!.call(this, value);
+      },
+    });
+    const measure = CanvasRenderingContext2D.prototype.measureText;
+    CanvasRenderingContext2D.prototype.measureText = function (text) {
+      const start = performance.now();
+      const result = measure.call(this, text);
+      cost.shapingMs += performance.now() - start;
+      return result;
+    };
+    const fetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await fetch(...args);
+      if (
+        !cost.responseAt &&
+        new URL(response.url).pathname === "/api/memories"
+      )
+        cost.responseAt = performance.now();
+      return response;
+    };
+    const observer = new MutationObserver(() => {
+      if (
+        cost.first ||
+        !document.querySelector('main [aria-label="All Memories"] > [data-key]')
+      )
+        return;
+      observer.disconnect();
+      requestAnimationFrame(() => {
+        cost.first = {
+          bodies: cost.bodies,
+          shapingMs: cost.shapingMs,
+          firstPaintMs: performance.now() - cost.responseAt,
+        };
+      });
+    });
+    observer.observe(document, { childList: true, subtree: true });
+  });
+  const template = tourMemories().find((m) => m.kind === "text")!;
+  const memories = Array.from({ length: 10_000 }, (_, i) => ({
+    ...template,
+    id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    title: null,
+    sample: false,
+    indexState: "searchable" as const,
+    body: `Memory ${i}: Garden tools stay dry beside the shed. ${"Wide WWW and narrow iii tools for the weekend. ".repeat(i % 7)}`,
+  }));
+  await installLibrary(context, {
+    memories,
+    delay: 0,
+    listFails: false,
+    searchFails: false,
+    onboarding: FINISHED,
+    answers: {},
+  });
+  await signIn(page);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { wallMeasurementCost: { first?: object } })
+            .wallMeasurementCost.first
+      )
+    )
+    .toBeTruthy();
+  const cost = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          wallMeasurementCost: {
+            first: { bodies: number; shapingMs: number; firstPaintMs: number };
+          };
+        }
+      ).wallMeasurementCost.first
+  );
+  console.log(`10k first-paint measurement: ${JSON.stringify(cost)}`);
+  expect(cost.bodies).toBeGreaterThan(0);
+  expect(cost.bodies).toBeLessThanOrEqual(200);
+  // This includes the estimate/layout/React work after the response, not only canvas shaping.
+  expect(cost.firstPaintMs).toBeLessThan(1500);
+  const positions = () =>
+    page
+      .locator('main [aria-label="All Memories"] > [data-key]')
+      .evaluateAll((nodes) =>
+        Object.fromEntries(
+          nodes
+            .filter((node) => {
+              const r = node.getBoundingClientRect();
+              return r.top >= 0 && r.bottom <= innerHeight;
+            })
+            .map(
+              (node) =>
+                [
+                  node.getAttribute("data-key")!,
+                  node.getBoundingClientRect().top,
+                ] as const
+            )
+        )
+      );
+  const before = await positions();
+  await page.waitForTimeout(1000); // let several actual idle chunks refine offscreen items
+  const after = await positions();
+  for (const [key, top] of Object.entries(before))
+    expect(after[key]).toBeCloseTo(top, 0);
+  // A large jump must also retain its viewport while earlier skipped items finish in idle time.
+  await page.evaluate(() => scrollTo(0, 150_000));
+  await page.waitForTimeout(300);
+  const jumped = await positions();
+  expect(Object.keys(jumped).length).toBeGreaterThan(0);
+  await page.waitForTimeout(1000);
+  const settled = await positions();
+  for (const [key, top] of Object.entries(jumped))
+    expect(settled[key]).toBeCloseTo(top, 0);
+  const idle = await page.evaluate(() => {
+    const { idleChunks, maxIdleMs } = (
+      window as unknown as {
+        wallMeasurementCost: { idleChunks: number; maxIdleMs: number };
+      }
+    ).wallMeasurementCost;
+    return { chunks: idleChunks, maxMs: maxIdleMs };
+  });
+  console.log(`10k idle refinement: ${JSON.stringify(idle)}`);
+  expect(idle.chunks).toBeGreaterThan(0);
+  // The deterministic Masonry test checks the 6ms budget; tolerate runner scheduling here.
+  expect(idle.maxMs).toBeLessThan(50);
+});

@@ -382,7 +382,9 @@ test("Try Again says it is searching again, and marks the menu and the wall busy
   });
   await dialog.getByRole("option", { name: "Try Again" }).click();
   await expect(list).toHaveAttribute("aria-busy", "true");
-  await expect(dialog.getByRole("status")).toHaveText("Searching Again");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Searching Again" })
+  ).toHaveCount(1);
   release();
   outage.wait = undefined;
   await expect(list).toHaveAttribute("aria-busy", "false", { timeout: 5000 });
@@ -400,6 +402,19 @@ test("Try Again says it is searching again, and marks the menu and the wall busy
     page.getByRole("heading", { name: "Search Is Unreachable" })
   ).toBeVisible();
   await expect(wall).toHaveAttribute("aria-busy", "false");
+  // Reopening a failed query must not announce the same failure from two regions.
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(list.getByText("Search Is Unreachable")).toBeVisible();
+  const failureStatus = page
+    .locator('[role="status"]')
+    .filter({ hasText: "Search Is Unreachable" });
+  await expect(failureStatus).toHaveCount(1);
+  expect(
+    await failureStatus.evaluate(
+      (node) => node.closest('[aria-hidden="true"]') !== null
+    )
+  ).toBe(false);
+  await page.keyboard.press("Escape");
   outage.on = false;
   outage.wait = new Promise<void>((resolve) => {
     release = resolve;

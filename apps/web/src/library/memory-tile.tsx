@@ -16,17 +16,14 @@ import { placeholderUrl } from "@spark/capture";
 import { formatTimestamp, sourceHost } from "@spark/core";
 import { Checkbox, cn, type MasonrySelection } from "@spark/ui";
 import type { UploadState } from "./image-capture";
-import { titleLines } from "./title-lines";
+import { bodyLines, titleLines } from "./title-lines";
 import type { WallMemory } from "./use-library";
 
 // Masonry places tiles before they render, so a tile's height is worked out
-// from its text at the column's width: padding, the title's lines (measured,
-// at most two), then whole lines of text up to MAX_LINES. Character widths
-// lean wide (wide scripts count double), so text gets a line too many rather
-// than one cut. Sizes in px at a 16px root; scaled by the root font size, so
-// a larger browser text size keeps whole lines.
+// from its text at the column width. Body lines use the browser's own font
+// shaping and whitespace rules, cached until fonts, width or text size change.
 const GAP = 8;
-const BODY = { charWidth: 7, lineHeight: 20 };
+const BODY = { lineHeight: 20 };
 const MAX_LINES = 12;
 
 /** A tile narrower than this sits in a phone's two lanes: 12px padding, a smaller title. */
@@ -42,36 +39,33 @@ const titleFont = (width: number) =>
 /** A tile's text: runs of blank lines fold into one, so no tile is mostly empty. */
 export const tileText = (body: string | null) =>
   (body ?? "").replace(/\n\s*\n(\s*\n)+/g, "\n\n");
-const WIDE =
-  /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\uff00-\uffef]/gu;
-
-function lineCount(text: string, charsPerLine: number) {
-  const per = Math.max(1, charsPerLine);
-  return text.split("\n").reduce((n, line) => {
-    const chars = line.length + (line.match(WIDE)?.length ?? 0);
-    return n + Math.max(1, Math.ceil(chars / per));
-  }, 0);
-}
+/** Whether the text tile actually renders a badge. */
+const textBadge = (memory: WallMemory) =>
+  memory.sample ||
+  (!memory.upload && (isPartly(memory) || memory.indexState !== "searchable"));
 
 /** How a text tile lays out at `width`: its title and text lines, and its height. */
-export function tileLayout(memory: WallMemory, width: number) {
+export function tileLayout(memory: WallMemory, width: number, precise = true) {
   const k = rootFontScale();
   const pad = padding(width);
   const inner = Math.max(1, width - 2 * pad * k);
   const font = titleFont(width);
-  const title = memory.title ? titleLines(memory.title, inner, font.size) : 0;
-  const body = Math.min(
-    MAX_LINES - title,
-    lineCount(tileText(memory.body), Math.floor(inner / (BODY.charWidth * k)))
-  );
+  const title = memory.title
+    ? precise
+      ? titleLines(memory.title, inner, font.size)
+      : estimatedLines(memory.title, inner / k, font.size, 2)
+    : 0;
+  const text = tileText(memory.body).slice(0, 800);
+  const body = precise
+    ? bodyLines(text, inner, MAX_LINES - title)
+    : estimatedLines(text, inner / k, 13, MAX_LINES - title);
   const height =
     k *
     (2 * pad +
       title * font.lineHeight +
       (title ? GAP : 0) +
       body * BODY.lineHeight +
-      GAP +
-      24);
+      (textBadge(memory) ? GAP + 24 : 0));
   return { title, body, height };
 }
 
@@ -100,17 +94,26 @@ const linkBadge = (memory: WallMemory) =>
   isReferenceOnly(memory) || memory.indexState !== "searchable";
 
 /** How a link tile lays out at `width`: name, a few lines of text, the Source line, a badge line while one shows. */
-export function linkLayout(memory: WallMemory, width: number) {
+export function linkLayout(memory: WallMemory, width: number, precise = true) {
   const k = rootFontScale();
   const pad = padding(width);
   const inner = Math.max(1, width - 2 * pad * k);
   const font = titleFont(width);
-  const title = titleLines(memoryName(memory), inner, font.size);
+  const title = precise
+    ? titleLines(memoryName(memory), inner, font.size)
+    : estimatedLines(memoryName(memory), inner / k, font.size, 2);
   const text = linkText(memory);
   const body = text
     ? Math.min(
         LINK.maxTextLines,
-        lineCount(text, Math.floor(inner / (BODY.charWidth * k)))
+        precise
+          ? bodyLines(text, inner, LINK.maxTextLines, false)
+          : estimatedLines(
+              text.replace(/\s+/g, " "),
+              inner / k,
+              13,
+              LINK.maxTextLines
+            )
       )
     : 0;
   const badge = linkBadge(memory);
@@ -127,6 +130,34 @@ export function linkLayout(memory: WallMemory, width: number) {
 
 /** Very tall or wide images are cropped on the wall, never in the viewer. */
 const ASPECT = { min: 0.4, max: 2.5 };
+
+/** No canvas, font lookup or word segmentation on the full-wall layout path. */
+const estimatedLines = (
+  text: string,
+  width: number,
+  size: number,
+  max: number
+) =>
+  Math.min(
+    max,
+    text
+      .split("\n")
+      .reduce(
+        (lines, paragraph) =>
+          lines +
+          Math.max(
+            1,
+            Math.ceil((paragraph.length * size * 0.55) / Math.max(1, width))
+          ),
+        0
+      )
+  );
+
+export function estimateTileHeight(memory: WallMemory, width: number) {
+  if (isLinkTile(memory)) return linkLayout(memory, width, false).height;
+  if (memory.image) return tileHeight(memory, width);
+  return tileLayout(memory, width, false).height;
+}
 
 /** A tile's height at `width`: an image keeps its shape, text fits its lines. */
 export function tileHeight(memory: WallMemory, width: number) {
@@ -259,23 +290,9 @@ const flatSurface =
   "overflow-hidden bg-canvas hover:bg-sunken dark:bg-surface dark:hover:bg-sunken";
 
 /** The fixed 36px footer of a result tile, holding its why-chip. */
-function Footer({
-  children,
-  strip = false,
-  compact,
-}: {
-  children: ReactNode;
-  /** An image's strip: its own `surface`, the chip 8px in. A text tile's footer is on the tile and on its text edge. */
-  strip?: boolean;
-  compact: boolean;
-}) {
+function Footer({ children }: { children: ReactNode }) {
   return (
-    <div
-      className={cn(
-        "flex h-9 shrink-0 items-center",
-        strip ? "bg-surface px-2" : compact ? "px-3" : "px-4"
-      )}
-    >
+    <div className="flex h-9 shrink-0 items-center border-t border-line bg-surface px-2">
       {children}
     </div>
   );
@@ -284,7 +301,6 @@ function Footer({
 /** An image Memory: its thumbnail over its ThumbHash, and its upload while it lasts. */
 function ImageTile({
   memory,
-  width,
   footer,
   onRetry,
   onBroken,
@@ -368,11 +384,7 @@ function ImageTile({
           )}
           {badge}
         </div>
-        {footer && (
-          <Footer strip compact={isCompact(width)}>
-            {footer}
-          </Footer>
-        )}
+        {footer && <Footer>{footer}</Footer>}
       </div>
     </figure>
   );
@@ -612,7 +624,7 @@ function LinkTile({
             </div>
           )}
         </div>
-        {footer && <Footer compact={isCompact(width)}>{footer}</Footer>}
+        {footer && <Footer>{footer}</Footer>}
       </div>
     </figure>
   );
@@ -663,29 +675,43 @@ function TextTile({
               query={query}
             />
           </p>
-          <div className="relative mt-auto h-6 shrink-0 [&>span]:right-0 [&>span]:bottom-0">
-            {badge}
-          </div>
+          {textBadge(memory) && (
+            <div className="relative mt-auto h-6 shrink-0 [&>span]:right-0 [&>span]:bottom-0">
+              {badge}
+            </div>
+          )}
         </div>
-        {footer && <Footer compact={isCompact(width)}>{footer}</Footer>}
+        {footer && <Footer>{footer}</Footer>}
       </div>
     </figure>
   );
 }
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** The same word-prefix terms drive highlights and visible passage evidence. */
+const highlightTerms = (query: string) => [
+  ...new Set(
+    query
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => word.length > 1)
+  ),
+];
+const highlightPattern = (terms: string[]) =>
+  new RegExp(`(?<![\\p{L}\\p{N}])(${terms.join("|")})`, "giu");
+
+export function passageIsHighlighted(text: string, query: string) {
+  const terms = highlightTerms(query);
+  return (
+    terms.length > 0 &&
+    terms.every((term) => highlightPattern([term]).test(text))
+  );
+}
 
 /** `text` with each query word marked where a word starts with it. */
 export function Highlighted({ text, query }: { text: string; query: string }) {
-  const words = query
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => w.length > 1);
+  const words = highlightTerms(query);
   if (!words.length) return <>{text}</>;
-  const re = new RegExp(
-    `(?<![\\p{L}\\p{N}])(${words.map(escape).join("|")})`,
-    "giu"
-  );
+  const re = highlightPattern(words);
   return (
     <>
       {text
