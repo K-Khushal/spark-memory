@@ -53,7 +53,7 @@ test("a Capture goes Indexing, then Searchable, and is found by what Indexing wr
   await page
     .getByRole("textbox", { name: "Text" })
     .fill("Bergamot cake, no AI");
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Close" }).click();
   const optedOut = wall.getByRole("listitem", {
     name: "Bergamot cake, no AI",
   });

@@ -103,7 +103,8 @@ test("drop a PDF: its pages are drawn and uploaded, its text is Indexed, and a s
   // Deleted from the viewer: gone, files and all.
   await page.getByRole("button", { name: "Clear Search" }).click();
   await tile.click();
-  await viewer.getByRole("button", { name: "Delete" }).click();
+  await viewer.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   await expect(tile).toBeHidden();
   await expect
     .poll(async () => (await page.request.get("/api/memories")).json(), {

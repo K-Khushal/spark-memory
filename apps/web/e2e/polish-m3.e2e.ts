@@ -45,7 +45,7 @@ test("video Memory detail is keyboard-reachable end to end", async ({
   await stops.focus();
   await page.keyboard.press("ArrowDown");
   await expect(
-    transcript.getByRole("button", { name: "Play at 0:37" })
+    transcript.getByRole("button", { name: "Play From 0:37", exact: true })
   ).toBeFocused();
   // One Tab leaves the transcript for the Capture Note, focus showing (an
   // outline, or the text-field edge once Memory detail uses the one field).

@@ -1092,7 +1092,7 @@ test("settings and admin", async ({ page, context }) => {
     "settings-assistants-connected",
     "Connected Assistants: one assistant listed with Activity and Revoke",
     async () => {
-      await page.getByRole("button", { name: "Done", exact: true }).click();
+      await page.getByRole("button", { name: "Close", exact: true }).click();
       await expect(
         page.getByRole("list", { name: "Connected Assistants" })
       ).toBeVisible();

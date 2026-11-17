@@ -6,7 +6,11 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from "react";
-import { ArrowUpRightIcon, Trash2Icon } from "lucide-react";
+import {
+  ArrowUpRightIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { isPartlyIndexed } from "@spark/core";
 import {
@@ -19,9 +23,14 @@ import {
 } from "@spark/ui";
 import { api } from "../api";
 import { restoreLibraryFocus } from "./focus";
-import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
+import { IndexBadge, type IndexingProps } from "./index-state";
 import { memoryName, UploadBadge } from "./memory-tile";
-import { VIEWER_CLOSE, ViewerBar } from "./r1-c-viewer-bar";
+import {
+  VIEWER_ARROW,
+  VIEWER_CLOSE,
+  ViewerBar,
+  ViewerMore,
+} from "./r1-c-viewer-bar";
 import type { PdfMatch } from "./pdf-match";
 import type { WallMemory } from "./use-library";
 import { MoreLikeThis } from "./why";
@@ -148,6 +157,7 @@ function Viewer({
   };
   const shown = Array.isArray(pages) ? pages : undefined;
   const stranded = memory.upload?.step === "stranded";
+  const [pageAt, setPageAt] = useState(match.page ?? 1);
 
   useOpenAt(scroller, shown, match.page);
 
@@ -165,6 +175,11 @@ function Viewer({
     });
   };
   const onKeyDown = (event: KeyboardEvent) => {
+    if (
+      event.target instanceof Element &&
+      event.target.closest('[role="menu"], details')
+    )
+      return;
     if (event.key === "ArrowRight") go(1);
     else if (event.key === "ArrowLeft") go(-1);
     else return;
@@ -197,6 +212,7 @@ function Viewer({
       <DialogTitle className="sr-only">{memoryName(memory)}</DialogTitle>
       {/* A solid bar, so pages never scroll under the controls. */}
       <ViewerBar
+        memory={memory}
         start={
           memory.upload ? (
             <UploadBadge
@@ -220,13 +236,6 @@ function Viewer({
         {!stranded && (
           <>
             <MoreLikeThis memory={memory} onSelect={onMoreLikeThis} compact />
-            <CategoryEditor
-              compact
-              key={memory.id}
-              memory={memory}
-              onSave={onCategories}
-            />
-            <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
             {memory.image && !memory.upload && (
               <Button asChild variant="quiet" size="sm">
                 <a href={memory.image.url} target="_blank" rel="noreferrer">
@@ -236,19 +245,33 @@ function Viewer({
                 </a>
               </Button>
             )}
-            <Button
-              variant="quiet"
-              size="icon"
-              aria-label="Delete"
-              onClick={remove}
-            >
-              <Trash2Icon aria-hidden />
-            </Button>
+            <CategoryEditor
+              compact
+              key={memory.id}
+              memory={memory}
+              onSave={onCategories}
+            />
+            <ViewerMore
+              memory={memory}
+              onAiOptOut={onAiOptOut}
+              onDelete={remove}
+            />
           </>
         )}
       </ViewerBar>
       <div
         ref={scroller}
+        onScroll={() => {
+          const box = scroller.current;
+          if (!box || !shown) return;
+          const at = shown.findLast(
+            (p) =>
+              (box.querySelector<HTMLElement>(`[data-page="${p.page}"]`)
+                ?.offsetTop ?? Infinity) <=
+              box.scrollTop + 24
+          );
+          setPageAt(at?.page ?? 1);
+        }}
         // A tab stop too, so the keyboard can always come back to scrolling.
         tabIndex={0}
         aria-label="Pages"
@@ -286,6 +309,34 @@ function Viewer({
           )}
         </div>
       </div>
+      {shown && pageAt > shown[0]!.page && (
+        <Button
+          variant="quiet"
+          size="icon"
+          aria-label="Previous Page"
+          className={cn(VIEWER_ARROW, "left-4")}
+          onClick={() => {
+            scroller.current?.focus();
+            go(-1);
+          }}
+        >
+          <ChevronLeftIcon aria-hidden />
+        </Button>
+      )}
+      {shown && pageAt < shown[shown.length - 1]!.page && (
+        <Button
+          variant="quiet"
+          size="icon"
+          aria-label="Next Page"
+          className={cn(VIEWER_ARROW, "right-4")}
+          onClick={() => {
+            scroller.current?.focus();
+            go(1);
+          }}
+        >
+          <ChevronRightIcon aria-hidden />
+        </Button>
+      )}
     </DialogContent>
   );
 }

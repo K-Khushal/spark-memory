@@ -49,7 +49,7 @@ test("connect an assistant, complete MCP handshake, then revoke", async ({
     "get_memory",
     "search_memories",
   ]);
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   if (process.env.MCP_SCREENSHOTS === "1") {
     for (const width of [1440, 390])
       for (const colorScheme of ["light", "dark"] as const) {

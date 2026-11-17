@@ -666,6 +666,7 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
     const isolatedUrl = new URL(databaseUrl!);
     isolatedUrl.pathname = `/${database}`;
     const isolated = new Client({ connectionString: isolatedUrl.href });
+    isolated.on("error", () => {});
     const bindings = env({
       HYPERDRIVE: { connectionString: isolatedUrl.href },
     });
@@ -770,6 +771,7 @@ describe.skipIf(!databaseUrl)("hybrid search", () => {
           [ids[0]]
         );
         const blocker = new Client({ connectionString: isolatedUrl.href });
+        blocker.on("error", () => {});
         await blocker.connect();
         try {
           await blocker.query("BEGIN");

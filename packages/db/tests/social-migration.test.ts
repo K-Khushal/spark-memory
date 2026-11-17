@@ -72,6 +72,7 @@ describe.skipIf(!databaseUrl)("existing social Sources migration", () => {
   };
   const apply = async () => {
     const client = new Client({ connectionString: testUrl });
+    client.on("error", () => {});
     const notices: string[] = [];
     client.on("notice", (notice) => notices.push(notice.message ?? ""));
     await client.connect();
@@ -166,6 +167,7 @@ describe.skipIf(!databaseUrl)("existing social Sources migration", () => {
       "https://twitter.com/ana/status/999"
     );
     const client = new Client({ connectionString: testUrl });
+    client.on("error", () => {});
     await client.connect();
     try {
       await client.query("BEGIN");
