@@ -21,3 +21,12 @@ export function formatCost(micros: number): string {
     currency: "USD",
   });
 }
+
+/** A compact, unambiguous day for admin tables. */
+export function formatDay(at: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).format(new Date(at));
+}

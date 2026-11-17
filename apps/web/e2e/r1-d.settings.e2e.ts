@@ -9,17 +9,17 @@ test("Settings theme, chosen connection recipe and narrow layout", async ({
   await signIn(page);
   await page.goto("/settings");
   await expect(page.getByRole("meter", { name: "Storage" })).toBeVisible();
-  const appearance = page.getByRole("group", { name: "Appearance" });
-  await appearance.getByRole("button", { name: "Dark", exact: true }).click();
+  const appearance = page.getByRole("radiogroup", { name: "Appearance" });
+  await appearance.getByRole("radio", { name: "Dark", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.reload();
   await expect(
-    appearance.getByRole("button", { name: "Dark", exact: true })
-  ).toHaveAttribute("aria-pressed", "true");
+    appearance.getByRole("radio", { name: "Dark", exact: true })
+  ).toHaveAttribute("aria-checked", "true");
   for (const width of [320, 390, 1440]) {
     await page.setViewportSize({ width, height: 844 });
     await expect(
-      page.getByRole("switch", { name: "Import All Today" })
+      page.getByRole("switch", { name: "Spread Over Days" })
     ).toBeVisible();
     expect(
       await page.evaluate(
@@ -85,7 +85,7 @@ test("Settings theme, chosen connection recipe and narrow layout", async ({
   });
   await deletion.click();
   await expect(
-    page.getByRole("dialog", { name: "Delete Your Account and Every Memory" })
+    page.getByRole("dialog", { name: "Delete Account" })
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(deletion).toBeFocused();
@@ -138,4 +138,35 @@ test("Admin tables and Settings remain reachable at 200% text", async ({
       document.documentElement.style.fontSize = "";
     });
   }
+});
+
+test("account deletion failure stays beside the confirmation field", async ({
+  page,
+}) => {
+  const email = await signIn(page);
+  await page.goto("/settings");
+  await page.route("**/api/account", (route) =>
+    route.request().method() === "DELETE"
+      ? route.fulfill({ status: 500, json: { error: "unavailable" } })
+      : route.fallback()
+  );
+  await page
+    .getByRole("button", { name: "Delete Account", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Delete Account",
+    exact: true,
+  });
+  await dialog.getByRole("textbox").fill(email);
+  await dialog
+    .getByRole("button", { name: "Delete Account", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toHaveText("Delete Did Not Finish");
+  await expect(dialog.getByRole("textbox")).toHaveAttribute(
+    "aria-invalid",
+    "true"
+  );
+  await expect(
+    dialog.getByRole("button", { name: "Cancel", exact: true })
+  ).toBeVisible();
 });

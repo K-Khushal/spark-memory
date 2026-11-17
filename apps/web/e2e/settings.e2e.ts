@@ -100,7 +100,7 @@ test("see this device, export the Library, delete the account", async ({
 
   // The expiry is in the link's name, with no tooltip or caption beside it.
   expect(await download.getAttribute("title")).toBeNull();
-  // Within the hour only Download; once it has passed, Export Library too.
+  // After the cooldown the one button slot offers Download and a new export.
   await expect(
     page.getByRole("button", { name: "Export Library" })
   ).toHaveCount(0);
@@ -112,10 +112,11 @@ test("see this device, export the Library, delete the account", async ({
     await route.fulfill({ response: res, json: body });
   });
   await page.reload();
-  await expect(download).toBeVisible();
+  await page.getByRole("button", { name: /^Download Options, Until / }).click();
   await expect(
-    page.getByRole("button", { name: "Export Library" })
+    page.getByRole("menuitem", { name: "Export Library" })
   ).toBeVisible();
+  await page.keyboard.press("Escape");
   await page.unroute("**/api/account/export");
 
   // Deleting needs the address typed. ⌘K in that field stays on Settings.

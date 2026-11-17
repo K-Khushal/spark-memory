@@ -17,7 +17,12 @@ it("retains an offline Capture, retries idempotently, and never sends it as anot
     send: async (row) => {
       if (!online) throw new TypeError("offline");
       sent.push(row.capture.id!);
-      return { id: row.capture.id!, revision: 1, captureNote: null };
+      return {
+        id: row.capture.id!,
+        revision: 1,
+        title: null,
+        captureNote: null,
+      };
     },
   });
   const id = crypto.randomUUID();
@@ -45,7 +50,12 @@ it("does not let a refused Capture block the next one or resurrect discarded row
     send: async (row) => {
       if ("url" in row.capture && row.capture.url.endsWith("bad"))
         throw new ApiError(400);
-      return { id: row.capture.id!, revision: 1, captureNote: null };
+      return {
+        id: row.capture.id!,
+        revision: 1,
+        title: null,
+        captureNote: null,
+      };
     },
   });
   await box.add({
@@ -141,6 +151,7 @@ it("returns this Capture's result even when an alarm flush runs concurrently", a
   const send = vi.fn().mockImplementation(async (row) => ({
     id: row.capture.id,
     revision: 1,
+    title: null,
     captureNote: null,
   }));
   const box = createOutbox({
@@ -180,7 +191,12 @@ it("sends a new online Capture after flushing a full backlog of refused rows", a
     send: async (pending) => {
       if ("url" in pending.capture && pending.capture.url.endsWith("bad"))
         throw new ApiError(400);
-      return { id: pending.capture.id!, revision: 1, captureNote: null };
+      return {
+        id: pending.capture.id!,
+        revision: 1,
+        title: null,
+        captureNote: null,
+      };
     },
   });
   expect(await box.submit(row)).toMatchObject({ id: row.capture.id });

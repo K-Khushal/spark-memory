@@ -6,6 +6,8 @@ import "../../lib/theme";
 import "@spark/ui/fonts.css";
 import "../popup/style.css";
 
+document.body.dataset.permission = "true";
+
 function Permission() {
   const [job, setJob] = useState<PermissionCapture>();
   const [label, setLabel] = useState("Grant Access");
@@ -47,7 +49,7 @@ function Permission() {
             .finally(() => setBusy(false));
         }}
       >
-        {busy ? "Saving" : "Grant Access"}
+        {busy ? "Capturing" : "Grant Access"}
       </button>
       {label !== "Grant Access" && <p role="status">{label}</p>}
       <button

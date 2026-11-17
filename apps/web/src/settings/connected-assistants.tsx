@@ -58,6 +58,7 @@ export function ConnectedAssistants() {
     const timer = setTimeout(() => setCopied(false), 2000);
     return () => clearTimeout(timer);
   }, [copied]);
+  const [connecting, setConnecting] = useState(false);
   const [guide, setGuide] = useState(false);
   const list = useRef<HTMLUListElement>(null);
   const activityButton = useRef<HTMLButtonElement>(null);
@@ -146,8 +147,22 @@ export function ConnectedAssistants() {
       setState({ phase: "failed" });
     }
   }
+  const feedback = (
+    <>
+      {state.phase === "failed" && (
+        <div className="flex flex-col gap-2">
+          <p role="alert">
+            {state.message ?? "Could Not Update Connected Assistants"}
+          </p>
+          <Button wrap variant="outline" onClick={() => void retry()}>
+            Try Again
+          </Button>
+        </div>
+      )}
+    </>
+  );
   return (
-    <div className="flex flex-col gap-4" aria-busy={pending}>
+    <div className="flex flex-col" aria-busy={pending}>
       {assistants.length > 0 ? (
         <ul
           ref={list}
@@ -157,9 +172,9 @@ export function ConnectedAssistants() {
           {assistants.map((a) => (
             <li
               key={a.id}
-              className="flex min-h-14 min-w-0 flex-wrap items-center gap-2 border-b border-line py-1 last:border-b-0"
+              className="flex min-h-12 min-w-0 flex-wrap items-center gap-2 border-b border-line py-1 last:border-b-0"
             >
-              <div className="flex min-w-0 basis-full flex-col sm:flex-1 sm:basis-auto">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2">
                 <span className="wrap-anywhere text-sm" dir="auto">
                   {a.name}
                 </span>
@@ -183,7 +198,7 @@ export function ConnectedAssistants() {
                 wrap
                 variant="quiet"
                 size="sm"
-                className="md:-mr-3"
+                className="text-danger md:-mr-3"
                 disabled={pending}
                 aria-label={`Revoke ${a.name}`}
                 onClick={(event) => {
@@ -198,90 +213,125 @@ export function ConnectedAssistants() {
         </ul>
       ) : (
         state.phase !== "pending" && (
-          <p className="text-sm text-ink-muted">No Connected Assistants</p>
+          <p className="flex min-h-12 items-center text-sm text-ink-muted">
+            No Connected Assistants
+          </p>
         )
       )}
-      <div>
+      <div className="flex min-h-12 flex-wrap items-center gap-3">
+        <Button size="sm" variant="primary" onClick={() => setConnecting(true)}>
+          Connect Assistant
+        </Button>
         <Button
           wrap
           ref={guideButton}
-          variant="outline"
+          size="sm"
+          variant="quiet"
           onClick={() => setGuide(true)}
         >
           Connection Guide
         </Button>
       </div>
-      <form onSubmit={(e) => void create(e)} className="flex flex-col gap-2">
-        <label htmlFor="assistant-name" className="text-sm text-ink-muted">
-          Assistant Name
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <Input
-            className="flex-1 basis-40"
-            id="assistant-name"
-            name="assistant-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={80}
-            required
-            autoComplete="off"
-          />
-          <Button wrap type="submit" variant="outline" disabled={pending}>
-            Create Token
-          </Button>
-        </div>
-      </form>
-      {state.phase === "issued" && (
-        <div className="flex flex-col gap-2">
-          <label htmlFor="assistant-token" className="text-sm text-ink-muted">
-            Copy Token Now
-          </label>
-          <Input
-            id="assistant-token"
-            name="assistant-token"
-            autoComplete="off"
-            spellCheck={false}
-            value={state.token}
-            readOnly
-            onFocus={(e) => e.currentTarget.select()}
-          />
-          <Button
-            wrap
-            variant="outline"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(state.token);
-                setCopied(true);
-              } catch {
-                document.getElementById("assistant-token")?.focus();
-              }
-            }}
-          >
-            <CrossfadeIcon on={copied} from={<CopyIcon />} to={<CheckIcon />} />
-            {copied ? "Copied" : "Copy Token"}
-          </Button>
-          <span role="status" className="sr-only">
-            {copied ? "Copied" : ""}
-          </span>
-          <Button
-            wrap
-            variant="outline"
-            onClick={() => setState({ phase: "idle" })}
-          >
-            Done
-          </Button>
-        </div>
-      )}
-      {state.phase === "failed" && (
-        <div className="flex flex-col gap-2">
-          <p role="alert">
-            {state.message ?? "Could Not Update Connected Assistants"}
-          </p>
-          <Button wrap variant="outline" onClick={() => void retry()}>
-            Try Again
-          </Button>
-        </div>
-      )}
+      <Dialog
+        open={connecting}
+        onOpenChange={(open) => {
+          if (!pending) {
+            setConnecting(open);
+            if (!open && state.phase === "issued") setState({ phase: "idle" });
+          }
+        }}
+      >
+        <DialogContent
+          presentation="sheet"
+          aria-describedby={undefined}
+          className="flex max-h-[92dvh] max-w-md flex-col overflow-hidden"
+        >
+          <DialogHeader>
+            <DialogTitle>Connect Assistant</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <form
+              onSubmit={(e) => void create(e)}
+              className="flex flex-col gap-2"
+            >
+              <label
+                htmlFor="assistant-name"
+                className="text-sm text-ink-muted"
+              >
+                Assistant Name
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  className="flex-1 basis-40"
+                  id="assistant-name"
+                  name="assistant-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={80}
+                  required
+                  autoComplete="off"
+                />
+                <Button wrap type="submit" variant="outline" disabled={pending}>
+                  Create Token
+                </Button>
+              </div>
+            </form>
+            {state.phase === "issued" && (
+              <div className="flex flex-col gap-2">
+                <label
+                  htmlFor="assistant-token"
+                  className="text-sm text-ink-muted"
+                >
+                  Copy Token Now
+                </label>
+                <Input
+                  id="assistant-token"
+                  name="assistant-token"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={state.token}
+                  readOnly
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <Button
+                  wrap
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(state.token);
+                      setCopied(true);
+                    } catch {
+                      document.getElementById("assistant-token")?.focus();
+                    }
+                  }}
+                >
+                  <CrossfadeIcon
+                    on={copied}
+                    from={<CopyIcon />}
+                    to={<CheckIcon />}
+                  />
+                  {copied ? "Copied" : "Copy Token"}
+                </Button>
+                <span role="status" className="sr-only">
+                  {copied ? "Copied" : ""}
+                </span>
+                <Button
+                  wrap
+                  variant="outline"
+                  onClick={() => {
+                    setState({ phase: "idle" });
+                    setConnecting(false);
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            )}
+            {feedback}
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
+      {!connecting && feedback}
       <ConnectionGuide
         open={guide}
         onOpenChange={setGuide}

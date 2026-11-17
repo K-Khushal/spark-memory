@@ -339,7 +339,7 @@ export default defineBackground(() => {
       return sent
         ? {
             state: sent.id === row.capture.id ? "saved" : "duplicate",
-            memory: sent,
+            memory: { ...sent, title: sent.title ?? tab.title ?? null },
             owner,
           }
         : { state: "queued" };
@@ -412,7 +412,7 @@ export default defineBackground(() => {
         const [result] = await browser.scripting.executeScript({
           target: { tabId },
           func: selectRegion,
-          args: [THEMES],
+          args: [THEMES, browser.runtime.getURL("/fonts/instrument.woff2")],
         });
         region = result?.result;
         if (!region) return { state: "error", label: "Cancelled" };
@@ -527,7 +527,10 @@ export default defineBackground(() => {
     return sent
       ? {
           state: sent.id === id ? "saved" : "duplicate",
-          memory: sent,
+          memory: {
+            ...sent,
+            title: sent.title ?? page?.title ?? tab.title ?? null,
+          },
           owner,
         }
       : { state: "queued" };
