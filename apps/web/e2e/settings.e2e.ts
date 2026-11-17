@@ -112,7 +112,7 @@ test("see this device, export the Library, delete the account", async ({
     await route.fulfill({ response: res, json: body });
   });
   await page.reload();
-  await page.getByRole("button", { name: "Download", exact: true }).click();
+  await page.getByRole("button", { name: /^Download Options, Until / }).click();
   await expect(
     page.getByRole("menuitem", { name: "Export Library" })
   ).toBeVisible();

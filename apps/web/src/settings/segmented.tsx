@@ -22,7 +22,7 @@ export function Segmented({
           aria-hidden
           className="pointer-events-none absolute @max-[9rem]:hidden inset-y-0 left-0 w-1/3 rounded-control bg-surface shadow-raised motion-reduce:transition-none"
           style={{
-            transform: `translateX(${choices.indexOf(value) * 100}%)`,
+            transform: `translateX(${Math.max(0, choices.indexOf(value)) * 100}%)`,
             transition:
               pointer && !reduced
                 ? `transform ${DURATION.small}ms cubic-bezier(${EASING.out.join(",")})`

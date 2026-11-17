@@ -146,23 +146,31 @@ export function Onboarding({
   // Finished, with Samples left: only the one action that removes them.
   if (finished && !sampleCount) return null;
   return (
-    <section aria-label="Get Started" className="border-b border-line px-6">
+    <section
+      aria-label="Get Started"
+      className="@container border-b border-line px-6"
+    >
       <MotionConfig reducedMotion="user">
         {failed && !state ? (
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="font-medium">Get Started Is Unreachable</h2>
-            <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+            <Button
+              wrap
+              variant="outline"
+              onClick={() => setAttempt((n) => n + 1)}
+            >
               Try Again
             </Button>
           </div>
         ) : (
           state && (
             <div
-              className={`flex max-w-3xl flex-col justify-center gap-3 sm:flex-row sm:items-center sm:justify-start ${finished ? "min-h-12" : "h-26 sm:h-16"}`}
+              className={`flex max-w-3xl flex-col justify-center gap-3 sm:flex-row sm:items-center sm:justify-start ${finished ? "min-h-12" : "h-26 sm:h-16 @max-[12rem]:h-auto @max-[12rem]:min-h-26 @max-[12rem]:py-3"}`}
             >
-              <div className="flex min-w-0 items-center gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-3">
                 {!finished && (
                   <div
+                    role="group"
                     className="flex shrink-0 gap-1"
                     aria-label={`Step ${stepIndex + 1} of ${steps.length}`}
                   >
@@ -180,6 +188,7 @@ export function Onboarding({
               </div>
               {state.paused && !finished && (
                 <Button
+                  wrap
                   variant="outline"
                   disabled={busy}
                   onClick={() => void update(state.step)}
@@ -201,11 +210,12 @@ export function Onboarding({
                 >
                   {state.step === "disclosure" && (
                     <>
-                      <p className="max-w-prose text-sm">
+                      <p className="min-w-0 flex-1 text-sm @max-[12rem]:basis-full">
                         AI reads your Memories to make them Searchable, unless
                         you turn on AI Opt-Out for a Memory.
                       </p>
                       <Button
+                        wrap
                         variant="primary"
                         disabled={busy}
                         onClick={() =>
@@ -218,7 +228,7 @@ export function Onboarding({
                   )}
                   {state.step === "extension" && (
                     <>
-                      <Button variant="outline" asChild>
+                      <Button wrap variant="outline" asChild>
                         <a
                           href="https://github.com/K-Khushal/spark-memory/blob/main/docs/extension.md"
                           target="_blank"
@@ -228,6 +238,7 @@ export function Onboarding({
                         </a>
                       </Button>
                       <Button
+                        wrap
                         variant="primary"
                         disabled={busy}
                         onClick={() => void update("capture")}
@@ -237,7 +248,7 @@ export function Onboarding({
                     </>
                   )}
                   {state.step === "capture" && (
-                    <Button variant="primary" onClick={onCapture}>
+                    <Button wrap variant="primary" onClick={onCapture}>
                       Capture <Kbd>{MOD}V</Kbd>
                     </Button>
                   )}
@@ -251,11 +262,16 @@ export function Onboarding({
                             : "Indexing"}
                       </span>
                       {first ? (
-                        <Button variant="outline" onClick={() => onOpen(first)}>
+                        <Button
+                          wrap
+                          variant="outline"
+                          onClick={() => onOpen(first)}
+                        >
                           Open Memory
                         </Button>
                       ) : (
                         <Button
+                          wrap
                           variant="outline"
                           onClick={() => void update("capture")}
                         >
@@ -263,6 +279,7 @@ export function Onboarding({
                         </Button>
                       )}
                       <Button
+                        wrap
                         variant="primary"
                         disabled={
                           busy || !first || first.indexState === "indexing"
@@ -275,6 +292,7 @@ export function Onboarding({
                   )}
                   {state.step === "search" && (
                     <Button
+                      wrap
                       variant="primary"
                       onClick={() =>
                         onSearch(sampleCount ? "bookshop with a cat" : "")
@@ -285,6 +303,7 @@ export function Onboarding({
                   )}
                   {state.step === "done" && (
                     <Button
+                      wrap
                       variant="outline"
                       disabled={busy}
                       onClick={() => void update("done", true)}
@@ -295,6 +314,7 @@ export function Onboarding({
                   <div className="flex flex-wrap items-center gap-2">
                     {finished ? null : state.paused ? (
                       <Button
+                        wrap
                         variant="outline"
                         disabled={busy}
                         onClick={() => void update(state.step)}
@@ -306,6 +326,7 @@ export function Onboarding({
                       state.step !== "done" &&
                       state.step !== "disclosure" && (
                         <Button
+                          wrap
                           variant="quiet"
                           disabled={busy}
                           onClick={() => void update(state.step, true)}
@@ -320,6 +341,7 @@ export function Onboarding({
               <div>
                 {sampleCount > 0 && (finished || state.step === "done") && (
                   <Button
+                    wrap
                     variant="quiet"
                     disabled={busy}
                     onClick={() =>

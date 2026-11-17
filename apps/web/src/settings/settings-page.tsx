@@ -349,8 +349,13 @@ function Export({ account }: { account: Account }) {
       {ready && state === "ready" && canExportAgain ? (
         <Menu>
           <MenuTrigger asChild>
-            <Button variant="outline" size="sm" className="min-w-36">
-              Download
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-w-36"
+              aria-label={`Download Options, Until ${until(ready.expiresAt)}`}
+            >
+              <DownloadIcon aria-hidden /> Download
             </Button>
           </MenuTrigger>
           <MenuContent align="end">
