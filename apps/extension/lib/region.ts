@@ -17,7 +17,7 @@ export async function selectRegion(themes: typeof THEMES, fontUrl?: string) {
     "aria-label",
     "Select Region. Arrow Keys Resize. Control Arrow Keys Move. Enter Captures. Escape Cancels."
   );
-  layer.style.cssText = `position:fixed;inset:0;cursor:crosshair;touch-action:none;background:rgb(0 0 0 / 20%)`;
+  layer.style.cssText = `position:fixed;inset:0;cursor:crosshair;touch-action:none;outline:none;background:rgb(0 0 0 / 20%)`;
   const box = document.createElement("div");
   // Sized directly (not scaled), so its edge stays a crisp 2px line on any page.
   box.style.cssText = `position:absolute;pointer-events:none;background:transparent;border:1px solid white;outline:1px solid black;box-shadow:0 0 0 100vmax rgb(0 0 0 / 40%);display:none`;
