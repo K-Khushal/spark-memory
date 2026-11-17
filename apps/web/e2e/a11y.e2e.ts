@@ -293,7 +293,7 @@ for (const theme of THEMES) {
       await closeDialog(page, true);
       await openTile(page, /Garden Film/);
       await expect(
-        page.getByRole("button", { name: /^Play At/i }).first()
+        page.getByRole("button", { name: /^Play From/i }).first()
       ).toBeVisible();
       await scanned("Video reader");
       await closeDialog(page, true);

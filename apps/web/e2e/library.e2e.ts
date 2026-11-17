@@ -90,7 +90,7 @@ test("paste a Memory, find it by a typo, delete it with Undo", async ({
   const restore = page.getByRole("button", { name: "Restore Your Edit" });
   await expect(restore).toBeVisible();
   // Done without Restore keeps the other page's crash copy.
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Close" }).click();
   await expect(restore).toBeHidden();
   await tile.click();
   await expect(note).toHaveValue("");
@@ -117,14 +117,16 @@ test("paste a Memory, find it by a typo, delete it with Undo", async ({
     .click();
 
   // Delete, then Undo: it comes back.
-  await page.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   await expect(tile).toBeHidden();
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(tile).toBeVisible();
 
   // Delete for good once the Undo window has passed.
   await tile.click();
-  await page.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   await expect(page.getByText("Deleted").last()).toBeVisible();
   await expect
     .poll(async () => (await page.request.get("/api/memories")).json(), {

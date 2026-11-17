@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { CATEGORY_NAMES, MAX_CATEGORIES } from "@spark/core";
 import { ChevronDownIcon, Clock3Icon, TagsIcon } from "lucide-react";
 import { Button, FilterChip, cn } from "@spark/ui";
@@ -19,12 +19,15 @@ export function CategoryEditor({
   memory,
   onSave,
   compact = false,
+  labelledBy,
 }: {
   memory: Memory;
   onSave?: CategoryEdit;
   /** Fixed-width control for viewer toolbars; the accessible name keeps the Categories. */
   compact?: boolean;
+  labelledBy?: string;
 }) {
+  const valueId = useId();
   const [selected, setSelected] = useState<string[]>(memory.categories);
   const [state, setState] = useState<"idle" | "saving" | "failed">("idle");
   const own = useOwnCategoryNames();
@@ -45,8 +48,8 @@ export function CategoryEditor({
         "group relative shrink-0 rounded-control text-sm text-ink",
         // A viewer toolbar's control is an icon button: same box as its neighbours.
         compact
-          ? "size-9 pointer-coarse:size-(--size-touch)"
-          : "bg-sunken px-3 py-1"
+          ? "min-h-9 max-sm:w-9 pointer-coarse:min-h-(--size-touch) pointer-coarse:max-sm:w-(--size-touch)"
+          : "min-w-0 border border-line-strong bg-surface px-3"
       )}
       onToggle={(e) => {
         if (e.currentTarget.open) {
@@ -57,10 +60,11 @@ export function CategoryEditor({
     >
       <summary
         aria-label={`Categories: ${label}`}
+        aria-labelledby={labelledBy ? `${labelledBy} ${valueId}` : undefined}
         className={cn(
           "flex min-h-8 cursor-pointer items-center rounded-chip focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:min-h-(--size-touch)",
           compact
-            ? "size-full justify-center rounded-control hover:bg-sunken"
+            ? "min-h-9 justify-center gap-2 rounded-control px-2 hover:bg-sunken pointer-coarse:min-h-(--size-touch)"
             : "justify-between gap-2"
         )}
       >
@@ -71,10 +75,13 @@ export function CategoryEditor({
             ) : (
               <TagsIcon aria-hidden className="size-4" />
             )}
-            <span className="sr-only">{label}</span>
+            <span id={valueId} className="max-sm:sr-only">
+              Categories
+            </span>
           </>
         ) : (
           <span
+            id={valueId}
             className={`min-w-0 wrap-anywhere${pending ? " text-ink-muted" : ""}`}
             dir="auto"
           >

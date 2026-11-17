@@ -10,7 +10,7 @@ import {
   useSyncExternalStore,
   type KeyboardEvent,
 } from "react";
-import { RotateCwIcon, Trash2Icon } from "lucide-react";
+import { MoreHorizontalIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
 import { FREE_ALLOWANCE } from "@spark/core";
 import {
   Button,
@@ -20,12 +20,17 @@ import {
   DialogFooter,
   DialogTitle,
   Textarea,
+  Input,
+  Switch,
+  Menu,
+  MenuTrigger,
+  MenuContent,
+  MenuItem,
   cn,
   useBottomObstruction,
 } from "@spark/ui";
 import type { Draft } from "./drafts";
 import {
-  AiOptOutSwitch,
   DeepFetchStatus,
   IndexStatus,
   type IndexingProps,
@@ -41,6 +46,10 @@ import { SourceLink } from "./source-link";
 import type { Memory } from "./use-library";
 import { VideoReader } from "./video-reader";
 import { MoreLikeThis } from "./why";
+
+const captureDay = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+});
 
 const AUTOSAVE_MS = 800;
 
@@ -199,12 +208,9 @@ function Fields({
 
   const referenceOnly = isReferenceOnly(memory);
   const restorable = !!edit?.refused?.length;
-  const failedOrIndexing =
-    memory.indexState === "failed" || memory.indexState === "indexing";
   // The status zone takes room only while it has something to say; the
   // Index state line stays mounted inside it so screen readers hear changes.
-  const hasStatus =
-    referenceOnly || failedOrIndexing || !!memory.deepFetch || restorable;
+  const hasStatus = referenceOnly || !!memory.deepFetch || restorable;
 
   return (
     <DialogContent
@@ -220,16 +226,36 @@ function Fields({
       onKeyDown={onKeyDown}
       className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col"
     >
+      <div className="absolute top-3 right-12 z-10 pointer-coarse:right-16">
+        <Menu>
+          <MenuTrigger asChild>
+            <Button variant="quiet" size="icon" aria-label="More">
+              <MoreHorizontalIcon aria-hidden />
+            </Button>
+          </MenuTrigger>
+          <MenuContent align="end">
+            <MenuItem
+              className="text-danger"
+              onSelect={() => {
+                onDelete(memory);
+                onClose();
+              }}
+            >
+              <Trash2Icon aria-hidden /> Delete
+            </MenuItem>
+          </MenuContent>
+        </Menu>
+      </div>
       <DialogBody
         ref={body}
         tabIndex={-1}
-        className="flex flex-col gap-6 pt-4 pb-4 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:pt-6"
+        className="flex flex-col gap-6 pt-4 pb-6 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:pt-6"
       >
         <DialogTitle className="sr-only">Memory</DialogTitle>
         {/* In the body, not above it: a title at 200% text can be taller than
             the screen, and the one scroll region must still reach Done. */}
         <div className="flex flex-col gap-1">
-          <div className="pr-8 pointer-coarse:pr-12">
+          <div className="pr-20 pointer-coarse:pr-24">
             <TitleField
               ref={titleField}
               value={shown.title}
@@ -242,6 +268,32 @@ function Fields({
                   : "Title"
               }
             />
+          </div>
+          <div className="pr-20 text-xs wrap-anywhere text-ink-muted pointer-coarse:pr-24">
+            {[
+              memory.kind === "text"
+                ? "Text"
+                : memory.kind === "pdf"
+                  ? "PDF"
+                  : memory.kind[0]!.toUpperCase() + memory.kind.slice(1),
+              ...(["link", "video", "social"].includes(memory.kind) &&
+              memory.sourceUrl
+                ? [hostOf(memory)]
+                : []),
+              captureDay.format(new Date(memory.capturedAt)),
+            ].join(" · ")}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <IndexStatus memory={memory} />
+            {memory.indexState === "failed" && (
+              <Button
+                variant="quiet"
+                size="sm"
+                onClick={() => onRetryIndexing(memory)}
+              >
+                <RotateCwIcon aria-hidden /> Retry
+              </Button>
+            )}
           </div>
           {memory.kind === "video" ? (
             <VideoReader memory={memory} seconds={seconds} />
@@ -259,48 +311,59 @@ function Fields({
               // (colour, 120ms) and the ring on focus. Once you start writing,
               // or when it is empty, it keeps a 96px well to write in: it never
               // shrinks again on blur, because that would move Done out from
-              // under a press. The 12px inset keeps the ring off the glyphs
-              // and the words in line with the Title above.
+              // under a press. Its edge aligns with the property controls.
               onFocus={() => setWriting(true)}
               className={cn(
-                "-mx-3 min-h-0 w-[calc(100%+1.5rem)] max-w-none border-0 bg-transparent p-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken focus-visible:outline-2 focus-visible:outline-ring pointer-coarse:text-[1rem]",
+                "min-h-0 w-full rounded-control border-transparent bg-transparent p-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
                 (writing || !shown.body) && "min-h-24"
               )}
             />
           )}
         </div>
-        <div className="flex flex-col gap-2">
-          <input
-            value={shown.captureNote}
-            onChange={(e) => change({ ...shown, captureNote: e.target.value })}
-            maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
-            placeholder="Capture Note"
-            aria-label="Capture Note"
-            dir="auto"
-            className="h-10 min-w-0 shrink-0 rounded-control bg-sunken px-3 pointer-coarse:h-(--size-touch) text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring md:text-sm"
-          />
-          <CategoryEditor
-            key={memory.id}
-            memory={memory}
-            onSave={onCategories}
-          />
-        </div>
-        <div
-          role="group"
-          aria-label="Actions"
-          className="flex flex-wrap items-center gap-x-4 gap-y-2"
-        >
-          <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
-          <Button
-            variant="quiet"
-            size="sm"
-            onClick={() => {
-              onDelete(memory);
-              onClose();
-            }}
-          >
-            <Trash2Icon aria-hidden /> Delete
-          </Button>
+        <div className="divide-y divide-line border-t border-line pt-4">
+          <div className="grid min-h-11 grid-cols-1 items-center gap-2 py-1 sm:grid-cols-[7rem_minmax(0,1fr)]">
+            <label
+              htmlFor={`capture-note-${id}`}
+              className="text-sm text-ink-muted"
+            >
+              Capture Note
+            </label>
+            <Input
+              id={`capture-note-${id}`}
+              size="sm"
+              value={shown.captureNote}
+              onChange={(e) =>
+                change({ ...shown, captureNote: e.target.value })
+              }
+              maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
+              dir="auto"
+            />
+          </div>
+          <div className="grid min-h-11 grid-cols-1 items-center gap-2 py-1 sm:grid-cols-[7rem_minmax(0,1fr)]">
+            <span id={`category-${id}`} className="text-sm text-ink-muted">
+              Category
+            </span>
+            <CategoryEditor
+              key={memory.id}
+              memory={memory}
+              onSave={onCategories}
+              labelledBy={`category-${id}`}
+            />
+          </div>
+          <div className="grid min-h-11 grid-cols-1 items-center gap-2 py-1 sm:grid-cols-[7rem_minmax(0,1fr)]">
+            <label
+              htmlFor={`ai-opt-out-${id}`}
+              className="text-sm text-ink-muted"
+            >
+              AI Opt-Out
+            </label>
+            <Switch
+              id={`ai-opt-out-${id}`}
+              className="justify-self-end"
+              checked={memory.aiOptOut}
+              onCheckedChange={(on) => onAiOptOut(memory, on)}
+            />
+          </div>
         </div>
       </DialogBody>
       <div
@@ -310,17 +373,7 @@ function Fields({
         )}
       >
         {referenceOnly && <ReferenceOnlyBadge className="text-sm" />}
-        <IndexStatus memory={memory} />
         <DeepFetchStatus memory={memory} onTryAgain={onRetryDeepFetch} />
-        {memory.indexState === "failed" && (
-          <Button
-            variant="quiet"
-            size="sm"
-            onClick={() => onRetryIndexing(memory)}
-          >
-            <RotateCwIcon aria-hidden /> Retry
-          </Button>
-        )}
         {restorable && (
           <Button
             variant="quiet"
@@ -341,7 +394,12 @@ function Fields({
           <MoreLikeThis memory={memory} onSelect={onMoreLikeThis} />
           <SearchByImage memory={memory} onSelect={onSearchByImage} />
         </div>
-        <Button variant="primary" size="sm" onClick={onClose}>
+        <Button
+          variant="primary"
+          size="sm"
+          className="sm:hidden"
+          onClick={onClose}
+        >
           Done
         </Button>
       </DialogFooter>

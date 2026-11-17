@@ -8,14 +8,19 @@ import {
   motion,
   type PanInfo,
 } from "motion/react";
-import { ChevronLeftIcon, ChevronRightIcon, Trash2Icon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { Button, Dialog, DialogContent, DialogTitle, cn } from "@spark/ui";
 import { DURATION, EASING, SPRING } from "@spark/ui/tokens";
-import { AiOptOutSwitch, IndexBadge, type IndexingProps } from "./index-state";
+import { IndexBadge, type IndexingProps } from "./index-state";
 import { MoreLikeThis } from "./why";
 import { memoryName, UploadBadge } from "./memory-tile";
-import { VIEWER_CLOSE, ViewerBar } from "./r1-c-viewer-bar";
+import {
+  VIEWER_ARROW,
+  VIEWER_CLOSE,
+  ViewerBar,
+  ViewerMore,
+} from "./r1-c-viewer-bar";
 import type { Memory, WallMemory } from "./use-library";
 
 /** A swipe moves on past 120px, or when flung. */
@@ -62,11 +67,23 @@ export function ImageViewer({
   const go = (step: -1 | 1) => {
     const next = memories[index + step];
     if (!next) return;
+    if (
+      document.activeElement instanceof HTMLButtonElement &&
+      /^(Next|Previous) Image$/.test(
+        document.activeElement.getAttribute("aria-label") ?? ""
+      )
+    )
+      document.activeElement.closest<HTMLElement>('[role="dialog"]')?.focus();
     setDirection(step);
     onOpen(next.id);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
+    if (
+      event.target instanceof Element &&
+      event.target.closest('[role="menu"], details')
+    )
+      return;
     if (event.key === "ArrowRight") go(1);
     else if (event.key === "ArrowLeft") go(-1);
     else return;
@@ -115,6 +132,7 @@ export function ImageViewer({
           >
             <DialogTitle className="sr-only">{memoryName(memory)}</DialogTitle>
             <ViewerBar
+              memory={memory}
               start={
                 memory.upload ? (
                   <UploadBadge
@@ -152,15 +170,11 @@ export function ImageViewer({
                     memory={memory}
                     onSave={onCategories}
                   />
-                  <AiOptOutSwitch memory={memory} onChange={onAiOptOut} />
-                  <Button
-                    variant="quiet"
-                    size="icon"
-                    aria-label="Delete"
-                    onClick={() => remove(memory)}
-                  >
-                    <Trash2Icon aria-hidden />
-                  </Button>
+                  <ViewerMore
+                    memory={memory}
+                    onAiOptOut={onAiOptOut}
+                    onDelete={() => remove(memory)}
+                  />
                 </>
               )}
             </ViewerBar>
@@ -288,8 +302,7 @@ function Picture({
 }
 
 /**
- * Previous or Next. At the ends it is aria-disabled, not disabled: it stays
- * focusable, so focus never drops to the page and ← → keep working.
+ * Previous or Next, hidden at the boundary and on touch where swipes page.
  */
 function Step({
   side,
@@ -301,20 +314,16 @@ function Step({
   onClick: () => void;
 }) {
   const Icon = side === "left" ? ChevronLeftIcon : ChevronRightIcon;
+  if (disabled) return null;
   return (
     <Button
       variant="quiet"
       size="icon"
-      aria-disabled={disabled}
       onClick={disabled ? undefined : onClick}
       aria-label={side === "left" ? "Previous Image" : "Next Image"}
-      className={cn(
-        "absolute bottom-4 md:top-1/2 md:bottom-auto md:-translate-y-1/2",
-        side === "left" ? "left-3" : "right-3",
-        disabled && "cursor-default opacity-30 hover:bg-transparent"
-      )}
+      className={cn(VIEWER_ARROW, side === "left" ? "left-4" : "right-4")}
     >
-      <Icon className="size-5" aria-hidden />
+      <Icon className="size-4" aria-hidden />
     </Button>
   );
 }
