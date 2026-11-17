@@ -41,7 +41,7 @@ The reference build is `apps/web/src/prototypes/` at `/prototypes`. `?data=libra
 | `ring`        | `#111214` | `#EDEEF0` | Focus outline, 2px, 2px offset. Text fields: a 2px ink edge, no offset |
 | `spark`       | `#FFE15A` | `#FFE15A` | The highlighter: `mark`, the Direct match chip, selection              |
 | `on-spark`    | `#111214` | `#111214` | Text on `spark`                                                        |
-| `danger`      | `#C4321C` | `#FF8A73` | Index state Failed only                                                |
+| `danger`      | `#C4321C` | `#FF8A73` | Index state Failed, destructive actions and validation errors          |
 | `indexing`    | `#8F5B00` | `#F0B85C` | Index state Indexing                                                   |
 | `searchable`  | `#24774A` | `#74CF95` | Searchable, shown only right after it changes                          |
 
