@@ -107,7 +107,7 @@ test("Memory detail is a sheet on a phone and a centred dialog on a desktop, in 
         expect(box.y).toBeGreaterThan(0);
       }
       // Close and Done are both on screen with the footer always visible.
-      for (const name of ["Close", "Done"]) {
+      for (const name of width < 640 ? ["Close", "Done"] : ["Close"]) {
         const button = dialog.getByRole("button", { name, exact: true });
         await expect(button).toBeInViewport({ ratio: 1 });
       }
@@ -123,14 +123,14 @@ test("Memory detail is a sheet on a phone and a centred dialog on a desktop, in 
           }).length
       );
       expect(scrollers).toBe(1);
-      // Delete and AI Opt-Out are grouped as Actions; More Like This is named.
-      const actions = dialog.getByRole("group", { name: "Actions" });
       await expect(
-        actions.getByRole("button", { name: "Delete" })
+        dialog.getByRole("switch", { name: "AI Opt-Out" })
       ).toBeVisible();
+      await dialog.getByRole("button", { name: "More", exact: true }).click();
       await expect(
-        actions.getByRole("switch", { name: "AI Opt-Out" })
+        page.getByRole("menuitem", { name: "Delete" })
       ).toBeVisible();
+      await page.keyboard.press("Escape");
       expect(await overflows(page)).toBe(false);
       await shot(page, `detail-text-${theme}-${width}`);
       // Close, by its button, hands focus back to the Memory it opened from.
@@ -168,7 +168,7 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
   // At rest: nothing drawn, and as tall as its one line (24px + 12px inset twice).
   expect(await chrome()).toEqual({
     background: "rgba(0, 0, 0, 0)",
-    border: "0px",
+    border: "1px",
     outline: "0px",
   });
   const rest = (await boxOf(text)).height;
@@ -188,7 +188,7 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
   await expect
     .poll(async () => (await chrome()).background)
     .not.toBe("rgba(0, 0, 0, 0)");
-  expect((await chrome()).border).toBe("0px");
+  expect((await chrome()).border).toBe("1px");
   expect((await boxOf(text)).height).toBe(rest);
   // Tab reaches it with a visible ring, and only then does it open to 96px.
   await page.mouse.move(0, 0);
@@ -204,7 +204,7 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
   // Leaving it moves nothing: Done is where it was when the press began, so
   // pressing it straight after typing (focus still in the field) lands.
   await text.fill("Line 0");
-  const done = dialog.getByRole("button", { name: "Done", exact: true });
+  const done = dialog.getByRole("button", { name: "Close", exact: true });
   const before = await boxOf(done);
   await dialog.getByRole("textbox", { name: "Capture Note" }).focus();
   expect(await boxOf(done)).toEqual(before);
@@ -378,13 +378,13 @@ test("a video plays only after Play, and says unavailable and over the limit as 
   await page.getByRole("listitem", { name: /Long Lecture/ }).click();
   const dialog = page.getByRole("dialog");
   const play = dialog.getByRole("button", {
-    name: "Play At 1:35",
+    name: "Play From 1:35",
     exact: true,
   });
   await expect(play).toBeVisible();
   // A flat 16:9 panel with a target of at least 44px, and no network yet.
   const box = await boxOf(play);
-  expect(Math.abs(box.width / box.height - 16 / 9)).toBeLessThan(0.02);
+  expect(box.height).toBe(64);
   expect(box.height).toBeGreaterThanOrEqual(44);
   expect(requests).toEqual([]);
   await expect(dialog.locator("iframe")).toHaveCount(0);
@@ -695,7 +695,7 @@ test("the image viewer moves between images by arrow, button and swipe, stops at
   const seen = [await src()];
   const next = viewer.getByRole("button", { name: "Next Image" });
   const previous = viewer.getByRole("button", { name: "Previous Image" });
-  await expect(previous).toHaveAttribute("aria-disabled", "true");
+  await expect(previous).toBeHidden();
 
   // → and the Next button go on; each image is a different Memory's file.
   await page.keyboard.press("ArrowRight");
@@ -706,7 +706,7 @@ test("the image viewer moves between images by arrow, button and swipe, stops at
   seen.push(await src());
   expect(new Set(seen).size).toBe(3);
   // The last image: Next is disabled but stays focusable, and → does nothing.
-  await expect(next).toHaveAttribute("aria-disabled", "true");
+  await expect(next).toBeHidden();
   await page.keyboard.press("ArrowRight");
   await page.waitForTimeout(400);
   expect(await src()).toBe(seen[2]);
@@ -716,7 +716,7 @@ test("the image viewer moves between images by arrow, button and swipe, stops at
   await expect.poll(src).toBe(seen[1]);
   await previous.click();
   await expect.poll(src).toBe(seen[0]);
-  await expect(previous).toHaveAttribute("aria-disabled", "true");
+  await expect(previous).toBeHidden();
 
   // A swipe left goes on, a swipe right comes back (past 120px).
   await settle(page);
@@ -872,4 +872,36 @@ test("coarse pointers get 44px targets in the detail and in both viewers", async
   } finally {
     await context.close();
   }
+});
+
+test("detail Delete in More offers Undo and viewer AI Opt-Out is checked in More", async ({
+  page,
+}) => {
+  await signIn(page);
+  await paste(page, "Memory to delete and restore");
+  const tile = page.getByRole("listitem", {
+    name: /Memory to delete and restore/,
+  });
+  await tile.click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "More", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(tile).toHaveCount(0);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(tile).toBeVisible();
+  const images = await captureImages(page, ["#2f6fe0"]);
+  await images.first().click();
+  const viewer = page.getByRole("dialog");
+  await viewer.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitemcheckbox", { name: "AI Opt-Out" }).click();
+  await viewer.getByRole("button", { name: "More", exact: true }).click();
+  await expect(
+    page.getByRole("menuitemcheckbox", { name: "AI Opt-Out" })
+  ).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+  await viewer.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(images.first()).toBeFocused();
 });

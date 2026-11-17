@@ -72,7 +72,8 @@ test("drop images: one is Captured and uploaded, one over 25 MB is refused; view
 
   // Delete for good once the Undo window has passed: the files go too.
   await tile.click();
-  await viewer.getByRole("button", { name: "Delete" }).click();
+  await viewer.getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   await expect(tile).toBeHidden();
   await expect
     .poll(async () => (await page.request.get("/api/memories")).json(), {
@@ -202,14 +203,14 @@ test("the viewer keeps focus at the last image, so the arrow keys still work", a
   const viewer = page.getByRole("dialog");
   const next = viewer.getByRole("button", { name: "Next Image" });
   const previous = viewer.getByRole("button", { name: "Previous Image" });
-  await expect(previous).toHaveAttribute("aria-disabled", "true");
+  await expect(previous).toBeHidden();
   await next.focus();
   await page.keyboard.press("Enter");
   // The last image: Next is unavailable but keeps focus.
-  await expect(next).toHaveAttribute("aria-disabled", "true");
+  await expect(next).toBeHidden();
   await expect(next).toBeFocused();
   await page.keyboard.press("Enter"); // nothing further
   await page.keyboard.press("ArrowLeft");
-  await expect(next).toHaveAttribute("aria-disabled", "false");
-  await expect(previous).toHaveAttribute("aria-disabled", "true");
+  await expect(next).toBeVisible();
+  await expect(previous).toBeHidden();
 });

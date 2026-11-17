@@ -89,7 +89,7 @@ test("video transcript timestamps open the privacy-enhanced player", async ({
   const tile = page.getByRole("listitem", { name: /Garden Film/ });
   await tile.click();
   await expect(
-    page.getByRole("button", { name: /^Play At 12:40$/i })
+    page.getByRole("button", { name: /^Play From 12:40$/i })
   ).toHaveCount(2);
   await expect(page.locator("iframe[title='YouTube Player']")).toHaveCount(0);
   for (const width of [1440, 390])
@@ -115,7 +115,7 @@ test("video transcript timestamps open the privacy-enhanced player", async ({
   );
   await page
     .getByRole("list", { name: "Transcript" })
-    .getByRole("button", { name: /^Play At 12:40$/i })
+    .getByRole("button", { name: /^Play From 12:40$/i })
     .click();
   await expect(page.locator("iframe[title='YouTube Player']")).toHaveAttribute(
     "src",
@@ -156,7 +156,7 @@ test("transcript worst cases stay reachable at narrow widths and zoom", async ({
     document.documentElement.dataset.theme = "dark";
   });
   await expect(
-    page.getByRole("button", { name: /^Play At 59:59$/i })
+    page.getByRole("button", { name: /^Play From 59:59$/i })
   ).toBeVisible();
   expect(
     await page.evaluate(

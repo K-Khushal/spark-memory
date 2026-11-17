@@ -68,9 +68,10 @@ export function VideoReader({
         ) : (
           <PlayPanel
             poster={memory.image?.thumbnailUrl}
+            host={sourceHost(source ?? "") ?? ""}
             onClick={() => setPlaying(true)}
           >
-            Play At {formatTimestamp(moment)}
+            Play From {formatTimestamp(moment)}
           </PlayPanel>
         ))}
       {source && (
@@ -97,7 +98,7 @@ export function VideoReader({
                 }}
                 tabIndex={i === stop ? 0 : -1}
                 onFocus={() => setStop(i)}
-                aria-label={`Play At ${formatTimestamp(s.seconds)}`}
+                aria-label={`Play From ${formatTimestamp(s.seconds)}`}
                 onClick={() => {
                   setMoment(s.seconds);
                   setPlaying(true);
@@ -147,15 +148,17 @@ function StatusChip({ children }: { children: ReactNode }) {
 
 /**
  * Where the player will be: the preserved poster when there is one, else a
- * flat sunken 16:9 panel. A 44px Play target either way; no glass, no zoom.
+ * compact Play row. Both remain explicit actions before the player loads.
  * The poster is Spark's own preserved copy: nothing from YouTube loads yet.
  */
 function PlayPanel({
   poster,
+  host,
   onClick,
   children,
 }: {
   poster: string | undefined;
+  host: string;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -166,7 +169,10 @@ function PlayPanel({
       type="button"
       onClick={onClick}
       className={cn(
-        "relative flex aspect-video w-full shrink-0 items-center justify-center gap-2 overflow-hidden rounded-tile bg-sunken text-sm font-medium text-ink transition-[background-color,transform] duration-(--duration-press) ease-out hover:bg-line focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.98] pointer-coarse:min-h-(--size-touch)"
+        "relative flex w-full shrink-0 items-center gap-2 overflow-hidden text-sm font-medium text-ink transition-[background-color,transform] duration-(--duration-press) ease-out hover:bg-sunken focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.98] pointer-coarse:min-h-(--size-touch)",
+        showing
+          ? "aspect-video justify-center rounded-tile bg-sunken"
+          : "min-h-16 rounded-control border border-line px-3 py-2 text-start"
       )}
     >
       {showing && (
@@ -186,9 +192,25 @@ function PlayPanel({
           showing && "rounded-control bg-canvas px-3 py-2 text-ink"
         )}
       >
-        <PlayIcon className="size-4" aria-hidden />
+        <span
+          className={
+            showing
+              ? ""
+              : "grid size-8 shrink-0 place-items-center rounded-full bg-ink text-canvas"
+          }
+        >
+          <PlayIcon className="size-4" aria-hidden />
+        </span>
         {children}
       </span>
+      {!showing && (
+        <span
+          aria-hidden
+          className="ml-auto min-w-0 truncate text-sm font-normal text-ink-muted"
+        >
+          {host}
+        </span>
+      )}
     </button>
   );
 }

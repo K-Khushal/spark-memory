@@ -68,7 +68,7 @@ it("keeps the transcript to one Tab stop, moved by the arrow keys", async () => 
         (b) => b.tabIndex === 0
       );
     expect(stops().map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Play At 0:00",
+      "Play From 0:00",
     ]);
     const key = (name: string) =>
       act(async () => {
@@ -80,18 +80,18 @@ it("keeps the transcript to one Tab stop, moved by the arrow keys", async () => 
     await key("ArrowDown");
     await key("ArrowDown");
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      "Play At 1:35"
+      "Play From 1:35"
     );
     await key("ArrowDown");
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      "Play At 1:35"
+      "Play From 1:35"
     );
     expect(stops().map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Play At 1:35",
+      "Play From 1:35",
     ]);
     await key("Home");
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      "Play At 0:00"
+      "Play From 0:00"
     );
   } finally {
     await act(async () => root.unmount());
@@ -151,13 +151,15 @@ it("shows Spark's preserved poster behind Play when there is one, and never a th
     expect(poster?.getAttribute("src")).toBe(POSTER);
     expect(poster?.getAttribute("alt")).toBe("");
     // The label stays a button name, whatever is behind it.
-    expect(host.querySelector("button")?.textContent).toBe("Play At 0:00");
+    expect(host.querySelector("button")?.textContent).toBe("Play From 0:00");
     // A poster that will not load leaves the plain panel, still playable.
     await act(async () => {
       poster!.dispatchEvent(new Event("error"));
     });
     expect(host.querySelector("button img")).toBeNull();
-    expect(host.querySelector("button")?.textContent).toBe("Play At 0:00");
+    expect(host.querySelector("button")?.textContent).toContain(
+      "Play From 0:00"
+    );
     expect(host.querySelector("iframe")).toBeNull();
   } finally {
     await act(async () => root.unmount());
@@ -182,8 +184,9 @@ it("is a flat panel with no poster, and Play names its moment in Title Case", as
     );
     expect(host.querySelector("img")).toBeNull();
     const play = host.querySelector("button")!;
-    expect(play.textContent).toBe("Play At 1:02:05");
-    expect(play.className).toContain("aspect-video");
+    expect(play.textContent).toContain("Play From 1:02:05");
+    expect(play.className).not.toContain("aspect-video");
+    expect(play.className).toContain("min-h-16");
     expect(play.className).toContain("pointer-coarse:min-h-(--size-touch)");
   } finally {
     await act(async () => root.unmount());
