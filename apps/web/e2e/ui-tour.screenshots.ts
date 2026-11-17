@@ -1,4 +1,4 @@
-import { expect, chromium, test, type Page } from "@playwright/test";
+import { expect, chromium, devices, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,6 +19,8 @@ import {
   FINISHED,
   prepareOut,
   failures,
+  POPUP,
+  SIZES,
 } from "./ui-tour-harness";
 import { pick, tourMemories } from "./ui-tour-fixtures";
 
@@ -401,7 +403,7 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
       await page.getByPlaceholder("Search…").fill("zzzz nothing here");
       await page.waitForTimeout(900);
       await page.keyboard.press("Enter");
-      await expect(page.getByText("No Direct Matches").first()).toBeVisible();
+      await expect(page.getByText("No Memories Match").first()).toBeVisible();
     },
     opts
   );
@@ -797,6 +799,7 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
 });
 
 test("new account: Get Started, samples and the empty Library", async ({
+  browser,
   page,
   context,
 }) => {
@@ -964,12 +967,13 @@ test("new account: Get Started, samples and the empty Library", async ({
   await step(
     page,
     "library-empty-get-started",
-    "An empty Library on its first visit: No Memories Yet under Get Started",
+    "An empty Library on its first visit: Get Started alone, with no heading under it",
     async () => {
       await page.goto("/");
+      await expect(flow).toBeVisible();
       await expect(
         page.getByRole("heading", { name: "No Memories Yet" })
-      ).toBeVisible();
+      ).toBeHidden();
     }
   );
   await step(
@@ -995,6 +999,36 @@ test("new account: Get Started, samples and the empty Library", async ({
     },
     { recover: () => page.keyboard.press("Escape") }
   );
+  // A phone has no extension to install: Continue goes straight to Capture.
+  const phone = await browser.newContext({
+    ...devices["Pixel 7"],
+    deviceScaleFactor: 1,
+  });
+  try {
+    const phonePage = await phone.newPage();
+    await signInFresh(phonePage, "phone");
+    const phoneFlow = phonePage.getByRole("region", { name: "Get Started" });
+    await step(
+      phonePage,
+      "onboarding-phone",
+      "Get Started on a phone: Continue goes straight to Capture, with no Install Extension step",
+      async () => {
+        await phonePage.goto("/");
+        await phoneFlow
+          .getByRole("button", { name: "Continue", exact: true })
+          .click();
+        await expect(
+          phoneFlow.getByRole("heading", { name: "Capture a Memory" })
+        ).toBeVisible();
+        await expect(
+          phoneFlow.getByRole("link", { name: "Install Extension" })
+        ).toHaveCount(0);
+      },
+      { ...chain, sizes: [SIZES[1]] }
+    );
+  } finally {
+    await phone.close();
+  }
 });
 
 test("settings and admin", async ({ page, context }) => {
@@ -1012,7 +1046,7 @@ test("settings and admin", async ({ page, context }) => {
       data: { id: crypto.randomUUID(), body, captureNote: null },
     });
   const chain = { recover: async () => {} };
-  const full = { fullPage: true, recover: async () => {} };
+  const full = { scrolled: true, recover: async () => {} };
 
   await step(
     page,
@@ -1274,6 +1308,19 @@ test("share target and offline page", async ({ page }) => {
   );
 });
 
+/**
+ * The popup's own font, not the browser's for extension pages: Chrome sets
+ * `body { font-family: system }` there, and the popup's stylesheet must win.
+ */
+async function expectPopupFont(popup: Page) {
+  await popup.evaluate(() => document.fonts.ready);
+  await expect
+    .poll(() =>
+      popup.evaluate(() => getComputedStyle(document.body).fontFamily)
+    )
+    .toMatch(/^"?Instrument Sans/);
+}
+
 test("extension popup, Grant Access and region overlay", async () => {
   test.setTimeout(420_000);
   setSection("Browser Extension");
@@ -1320,9 +1367,10 @@ test("extension popup, Grant Access and region overlay", async () => {
       "Extension popup before sign-in: Sign In and Try Again",
       async () => {
         await open();
+        await expectPopupFont(popup);
         await expect(popup.getByRole("status")).toHaveText("Sign In");
       },
-      { recover: async () => {} }
+      { recover: async () => {}, sizes: POPUP, fitContent: true }
     );
     const dashboard = await context.newPage();
     await signInFresh(dashboard, "extension");
@@ -1332,11 +1380,14 @@ test("extension popup, Grant Access and region overlay", async () => {
       "Extension popup after saving the page, with the Capture Note field",
       async () => {
         await open();
+        await expectPopupFont(popup);
         await expect(popup.getByRole("status")).toHaveText(
           /Captured|Already in Your Library/
         );
+        // The captured title shows under the status.
+        await expect(popup.locator(".memory-title")).toBeVisible();
       },
-      { recover: async () => {} }
+      { recover: async () => {}, sizes: POPUP, fitContent: true }
     );
     await step(
       popup,
@@ -1347,7 +1398,7 @@ test("extension popup, Grant Access and region overlay", async () => {
           .getByRole("textbox", { name: "Capture Note" })
           .fill("For the balcony box");
       },
-      { recover: async () => {} }
+      { recover: async () => {}, sizes: POPUP, fitContent: true }
     );
     await step(
       popup,
@@ -1360,7 +1411,11 @@ test("extension popup, Grant Access and region overlay", async () => {
         await fixture.bringToFront();
         await expect(popup.getByRole("status")).toHaveText("Waiting to Send");
       },
-      { recover: () => context.setOffline(false) }
+      {
+        recover: () => context.setOffline(false),
+        sizes: POPUP,
+        fitContent: true,
+      }
     );
     const grantId = "permission-tour";
     await worker.evaluate(async (grantId) => {
@@ -1434,7 +1489,8 @@ test("extension popup, Grant Access and region overlay", async () => {
         await fixture.mouse.down();
         await fixture.mouse.move(560, 400, { steps: 4 });
       },
-      { recover: () => fixture.keyboard.press("Escape") }
+      // The overlay is a desktop page's: no phone variant.
+      { recover: () => fixture.keyboard.press("Escape"), sizes: [SIZES[0]] }
     );
   } finally {
     await context.close();

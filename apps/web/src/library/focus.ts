@@ -2,8 +2,9 @@ import { focusMasonryKey } from "@spark/ui";
 import { focusDeskControl } from "../shell";
 
 /**
- * Focus on the wall: its roving tab stop, else (a search that found nothing,
- * or failed) the results heading, so the next key reads what happened.
+ * Focus on the wall: its roving tab stop, else (a search that found nothing)
+ * the one action beside that (Clear Search), else (a failed one) the results
+ * heading, so the next key reads what happened.
  * False when the wall has neither. With `onlyIfLost` it moves nothing unless
  * focus has fallen to the page itself (the control that held it is gone), and
  * never while a dialog is open or a field is being typed in.
@@ -24,6 +25,9 @@ export function focusWall({ onlyIfLost = false, preventScroll = false } = {}) {
   const target =
     document.querySelector<HTMLElement>(
       'main [role="listitem"][tabindex="0"]'
+    ) ??
+    document.querySelector<HTMLElement>(
+      "main [data-search] [data-wall-action]"
     ) ??
     document.querySelector<HTMLElement>(
       'main h2[tabindex="-1"], main [data-search] [data-slot="state-block"] h2'

@@ -1,24 +1,39 @@
 import { rootFontScale } from "./root-font-scale";
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { IndexBadge, isPartly, PartlyIndexedBadge } from "./index-state";
-import { PlayIcon, RotateCwIcon, Trash2Icon } from "lucide-react";
+import {
+  AtSignIcon,
+  Link2Icon,
+  PlayIcon,
+  RotateCwIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { formatTimestamp, sourceHost } from "@spark/core";
 import { Checkbox, cn, type MasonrySelection } from "@spark/ui";
 import type { UploadState } from "./image-capture";
+import { titleLines } from "./title-lines";
 import type { WallMemory } from "./use-library";
 
 // Masonry places tiles before they render, so a tile's height is worked out
-// from its text at the column's width: padding, one title line, then
-// whole lines of text up to MAX_LINES. Character widths lean wide (wide
-// scripts count double), so text gets a line too many rather than one cut.
-// Sizes in px at a 16px root; scaled by the root font size, so a larger
-// browser text size keeps whole lines.
-const PADDING = 32;
+// from its text at the column's width: padding, the title's lines (measured,
+// at most two), then whole lines of text up to MAX_LINES. Character widths
+// lean wide (wide scripts count double), so text gets a line too many rather
+// than one cut. Sizes in px at a 16px root; scaled by the root font size, so
+// a larger browser text size keeps whole lines.
 const GAP = 8;
-const TITLE = { lineHeight: 26 };
 const BODY = { charWidth: 7, lineHeight: 20 };
 const MAX_LINES = 12;
+
+/** A tile narrower than this sits in a phone's two lanes: 12px padding, a smaller title. */
+const COMPACT = 200;
+const isCompact = (width: number) => width < COMPACT;
+const padding = (width: number) => (isCompact(width) ? 12 : 16);
+/** The title's size and line height in px: `text-md`, or `text-base` on a phone lane. */
+const titleFont = (width: number) =>
+  isCompact(width)
+    ? { size: 15, lineHeight: 24 }
+    : { size: 17, lineHeight: 26 };
 
 /** A tile's text: runs of blank lines fold into one, so no tile is mostly empty. */
 export const tileText = (body: string | null) =>
@@ -37,24 +52,26 @@ function lineCount(text: string, charsPerLine: number) {
 /** How a text tile lays out at `width`: its title and text lines, and its height. */
 export function tileLayout(memory: WallMemory, width: number) {
   const k = rootFontScale();
-  const inner = Math.max(1, width - PADDING * k);
-  const title = memory.title ? 1 : 0;
+  const pad = padding(width);
+  const inner = Math.max(1, width - 2 * pad * k);
+  const font = titleFont(width);
+  const title = memory.title ? titleLines(memory.title, inner, font.size) : 0;
   const body = Math.min(
     MAX_LINES - title,
     lineCount(tileText(memory.body), Math.floor(inner / (BODY.charWidth * k)))
   );
   const height =
     k *
-    (PADDING +
-      title * TITLE.lineHeight +
-      (title ? GAP : 40) +
+    (2 * pad +
+      title * font.lineHeight +
+      (title ? GAP : 0) +
       body * BODY.lineHeight +
       GAP +
       24);
   return { title, body, height };
 }
 
-const LINK = { maxTextLines: 4, footer: 24 };
+const LINK = { maxTextLines: 4, source: 16, badge: 24 };
 
 /** A link's Source host, as people say it (no `www.`). */
 export const hostOf = (memory: Pick<WallMemory, "sourceUrl">) =>
@@ -62,13 +79,29 @@ export const hostOf = (memory: Pick<WallMemory, "sourceUrl">) =>
 
 /** What a link tile says under its title: the page's description, else the start of its text. */
 const linkText = (memory: WallMemory) =>
-  memory.description || memory.body?.split("\n")[0]?.slice(0, 400) || "";
+  memory.description ||
+  (memory.kind === "social_post"
+    ? (memory.body ?? "").replace(/\s+/g, " ").trim().slice(0, 400)
+    : memory.body?.split("\n")[0]?.slice(0, 400)) ||
+  "";
 
-/** How a link tile lays out at `width`: name, a few lines of text, then the Source line. */
+/** Whether a tile is a link's: a page, a video or a social post, shown by its Source. */
+export const isLinkTile = (memory: Pick<WallMemory, "kind">) =>
+  memory.kind === "link" ||
+  memory.kind === "video" ||
+  memory.kind === "social_post";
+
+/** A link tile's badge line shows only while there is something to say: Reference Only, or an Index state. */
+const linkBadge = (memory: WallMemory) =>
+  isReferenceOnly(memory) || memory.indexState !== "searchable";
+
+/** How a link tile lays out at `width`: name, a few lines of text, the Source line, a badge line while one shows. */
 export function linkLayout(memory: WallMemory, width: number) {
   const k = rootFontScale();
-  const inner = Math.max(1, width - PADDING * k);
-  const title = 1;
+  const pad = padding(width);
+  const inner = Math.max(1, width - 2 * pad * k);
+  const font = titleFont(width);
+  const title = titleLines(memoryName(memory), inner, font.size);
   const text = linkText(memory);
   const body = text
     ? Math.min(
@@ -76,15 +109,16 @@ export function linkLayout(memory: WallMemory, width: number) {
         lineCount(text, Math.floor(inner / (BODY.charWidth * k)))
       )
     : 0;
+  const badge = linkBadge(memory);
   const height =
     k *
-    (PADDING +
-      title * TITLE.lineHeight +
+    (2 * pad +
+      title * font.lineHeight +
       (body ? GAP + body * BODY.lineHeight : 0) +
-      GAP +
-      LINK.footer * 2 +
-      GAP);
-  return { title, body, text, height };
+      12 +
+      LINK.source +
+      (badge ? GAP + LINK.badge : 0));
+  return { title, body, text, badge, height };
 }
 
 /** Very tall or wide images are cropped on the wall, never in the viewer. */
@@ -92,8 +126,7 @@ const ASPECT = { min: 0.4, max: 2.5 };
 
 /** A tile's height at `width`: an image keeps its shape, text fits its lines. */
 export function tileHeight(memory: WallMemory, width: number) {
-  if (memory.kind === "link" || memory.kind === "video")
-    return linkLayout(memory, width).height;
+  if (isLinkTile(memory)) return linkLayout(memory, width).height;
   if (!memory.image) return tileLayout(memory, width).height;
   const { width: w, height: h } = memory.image;
   return width * Math.min(ASPECT.max, Math.max(ASPECT.min, h / w));
@@ -113,7 +146,7 @@ export function memoryName(memory: WallMemory) {
       `${memory.kind === "pdf" ? "PDF" : "Image"}, ${day.format(new Date(memory.capturedAt))}`
     );
   }
-  if (memory.kind === "link" || memory.kind === "video") {
+  if (isLinkTile(memory)) {
     return (
       memory.title || memory.pageTitle || memory.indexTitle || hostOf(memory)
     );
@@ -143,18 +176,23 @@ export function tileLabel(memory: WallMemory) {
   return memory.sample ? `${name}, Sample` : name;
 }
 
-/** One Memory on the wall, landing with DESIGN.md's Capture motion. */
+/**
+ * One Memory on the wall. A new tile's entrance belongs to the wall (Masonry
+ * `data-enter`), not the tile. `footer` is a result's why-chip, inside the
+ * tile's frame so the ring and the outline wrap one shape.
+ */
 export function MemoryTile(props: {
   memory: WallMemory;
   selection?: MasonrySelection;
   query: string;
   width: number;
+  footer?: ReactNode;
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onDelete: (memory: WallMemory) => void;
   onRetryIndexing: (memory: WallMemory) => void;
 }) {
-  const { memory } = props;
+  const { memory, selection, ...rest } = props;
   // Inside the tile's frame, so it moves with the tile on press.
   const badge = memory.sample ? (
     <span className="absolute right-2 bottom-2 rounded-chip bg-surface px-2 py-1 text-xs text-ink-muted">
@@ -175,53 +213,83 @@ export function MemoryTile(props: {
       />
     ))
   );
+  const tile = { ...rest, memory };
   return (
-    <div
-      className={cn(
-        "hover-raise relative h-full w-full rounded-tile",
-        memory.fresh && "spark-capture-in"
+    <div className="hover-raise relative h-full w-full rounded-tile">
+      {selection && (
+        // Over the tile's top-right corner, on a plate that fades in with the
+        // tile's hover; a touch tap on the corner only counts while selecting.
+        <span className="check-plate absolute top-2 right-2 z-10 grid size-7 place-items-center pointer-coarse:pointer-events-none pointer-coarse:[[data-selection-active=true]_&]:pointer-events-auto">
+          <Checkbox
+            aria-label={`Select ${tileLabel(memory)}`}
+            tabIndex={-1}
+            checked={selection.ids.includes(memory.id)}
+            onCheckedChange={() => selection.choose(memory.id, "toggle")}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (event.shiftKey) {
+                event.preventDefault();
+                selection.choose(memory.id, "range");
+              }
+            }}
+          />
+        </span>
       )}
-    >
-      {props.selection && (
-        <Checkbox
-          aria-label={`Select ${tileLabel(memory)}`}
-          tabIndex={-1}
-          checked={props.selection.ids.includes(memory.id)}
-          onCheckedChange={() => props.selection?.choose(memory.id, "toggle")}
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (event.shiftKey) {
-              event.preventDefault();
-              props.selection?.choose(memory.id, "range");
-            }
-          }}
-          className="absolute top-4 right-4 z-10 opacity-0 focus:opacity-100 group-hover/selection:opacity-100 data-[state=checked]:opacity-100 pointer-coarse:opacity-100"
-        />
-      )}
-      {memory.kind === "link" || memory.kind === "video" ? (
-        <LinkTile {...props} />
+      {isLinkTile(memory) ? (
+        <LinkTile {...tile} />
       ) : memory.image ? (
-        <ImageTile {...props} badge={badge} />
+        <ImageTile {...tile} badge={badge} />
       ) : (
-        <TextTile {...props} badge={badge} />
+        <TextTile {...tile} badge={badge} />
       )}
     </div>
   );
 }
 
 const tileFrame =
-  "relative h-full rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]";
+  "relative flex h-full flex-col rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]";
+
+/** A text or link tile: the page's own surface with the faint outline; hover sinks it. */
+const flatSurface =
+  "overflow-hidden bg-canvas hover:bg-sunken dark:bg-surface dark:hover:bg-sunken";
+
+/** The fixed 36px footer of a result tile, holding its why-chip. */
+function Footer({
+  children,
+  strip = false,
+  compact,
+}: {
+  children: ReactNode;
+  /** An image's strip: its own `surface`, the chip 8px in. A text tile's footer is on the tile and on its text edge. */
+  strip?: boolean;
+  compact: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex h-9 shrink-0 items-center",
+        strip ? "bg-surface px-2" : compact ? "px-3" : "px-4"
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 /** An image Memory: its thumbnail over its ThumbHash, and its upload while it lasts. */
 function ImageTile({
   memory,
+  width,
+  footer,
   onRetry,
   onBroken,
   onDelete,
   badge,
 }: {
   memory: WallMemory;
+  width: number;
+  footer?: ReactNode;
   onRetry: (id: string) => void;
   onBroken: (id: string) => void;
   onDelete: (memory: WallMemory) => void;
@@ -233,44 +301,72 @@ function ImageTile({
   const stranded = memory.upload?.step === "stranded";
   // An image that still will not load leaves the placeholder, not a broken glyph.
   const [unreadable, setUnreadable] = useState(false);
+  // It fades in over the ThumbHash as it arrives; one already in the cache
+  // (complete when the tile mounts) is simply there.
+  const [shown, setShown] = useState(false);
+  const [fade, setFade] = useState(true);
+  const arrived = useCallback((img: HTMLImageElement | null) => {
+    if (img?.complete && img.naturalWidth > 0) {
+      setFade(false);
+      setShown(true);
+    }
+  }, []);
   return (
     <figure className="group h-full cursor-pointer">
-      <div
-        className={cn(tileFrame, "bg-sunken bg-cover bg-center")}
-        style={placeholder ? { backgroundImage: `url(${placeholder})` } : {}}
-      >
-        {!stranded && (
-          <img
-            src={image.thumbnailUrl}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            onError={() => {
-              setUnreadable(true);
-              onBroken(memory.id);
-            }}
-            onLoad={() => setUnreadable(false)}
-            className={cn(
-              "h-full w-full rounded-[inherit] object-cover",
-              unreadable && "invisible",
-              // Screenshots read top down: crop the bottom.
-              image.height / image.width > ASPECT.max && "object-top"
-            )}
-          />
+      <div className={tileFrame}>
+        <div
+          className={cn(
+            "relative min-h-0 flex-1 overflow-hidden bg-sunken bg-cover bg-center",
+            footer ? "rounded-t-[inherit]" : "rounded-[inherit]"
+          )}
+          style={placeholder ? { backgroundImage: `url(${placeholder})` } : {}}
+        >
+          {!stranded && (
+            <img
+              ref={arrived}
+              src={image.thumbnailUrl}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              data-pdf={memory.kind === "pdf" || undefined}
+              onError={() => {
+                setUnreadable(true);
+                onBroken(memory.id);
+              }}
+              onLoad={() => {
+                setUnreadable(false);
+                setShown(true);
+              }}
+              className={cn(
+                "h-full w-full object-cover",
+                fade &&
+                  "transition-opacity duration-(--duration-preview) ease-out",
+                !shown && "opacity-0",
+                unreadable && "invisible",
+                // Screenshots read top down: crop the bottom.
+                image.height / image.width > ASPECT.max && "object-top"
+              )}
+            />
+          )}
+          {memory.kind === "pdf" && <KindPlate>PDF</KindPlate>}
+          {memory.upload && (
+            <UploadBadge
+              upload={memory.upload}
+              onRetry={() => onRetry(memory.id)}
+              onDelete={() => onDelete(memory)}
+              // One tab stop per wall: the keyboard retries from the viewer.
+              focusable={false}
+              className="absolute right-2 bottom-2"
+            />
+          )}
+          {badge}
+        </div>
+        {footer && (
+          <Footer strip compact={isCompact(width)}>
+            {footer}
+          </Footer>
         )}
-        {memory.kind === "pdf" && <KindPlate>PDF</KindPlate>}
-        {memory.upload && (
-          <UploadBadge
-            upload={memory.upload}
-            onRetry={() => onRetry(memory.id)}
-            onDelete={() => onDelete(memory)}
-            // One tab stop per wall: the keyboard retries from the viewer.
-            focusable={false}
-            className="absolute right-2 bottom-2"
-          />
-        )}
-        {badge}
       </div>
     </figure>
   );
@@ -391,20 +487,60 @@ export function ReferenceOnlyBadge({ className }: { className?: string }) {
   );
 }
 
+/** The kind mark before a link's Source: a page, a video or a post. */
+const SourceMark = ({ kind }: Pick<WallMemory, "kind">) => {
+  const Icon =
+    kind === "video"
+      ? PlayIcon
+      : kind === "social_post"
+        ? AtSignIcon
+        : Link2Icon;
+  return <Icon className="size-4 shrink-0" aria-hidden />;
+};
+
+/** A title, clamped to the lines it was measured to take. */
+function TileTitle({
+  text,
+  lines,
+  query,
+  width,
+}: {
+  text: string;
+  lines: number;
+  query: string;
+  width: number;
+}) {
+  return (
+    <p
+      className={cn(
+        "shrink-0 overflow-hidden font-display font-medium text-ink text-pretty wrap-anywhere [display:-webkit-box] [-webkit-box-orient:vertical]",
+        isCompact(width) ? "text-base leading-6" : "text-md leading-[1.625rem]"
+      )}
+      style={{ WebkitLineClamp: lines }}
+      title={text}
+      dir="auto"
+    >
+      <Highlighted text={text} query={query} />
+    </p>
+  );
+}
+
 /**
- * A link Memory: its name over its description, and a last line with its
- * Source and, while it lasts, its Index state or Reference Only. The last
- * line is always there, so a badge coming or going never moves the wall.
+ * A link Memory: its name over its description, then its Source with a mark
+ * for the kind and, only while one shows, a line with its Index state or
+ * Reference Only. It is as tall as what it says.
  */
 function LinkTile({
   memory,
   query,
   width,
+  footer,
   onRetryIndexing,
 }: {
   memory: WallMemory;
   query: string;
   width: number;
+  footer?: ReactNode;
   onRetryIndexing: (memory: WallMemory) => void;
 }) {
   const layout = linkLayout(memory, width);
@@ -413,33 +549,30 @@ function LinkTile({
   const duration = memory.kind === "video" && memory.video?.duration;
   return (
     <figure className="group h-full cursor-pointer">
-      <div
-        className={cn(
-          tileFrame,
-          "flex flex-col gap-2 bg-sunken p-4 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
-        )}
-      >
-        <p
-          className="shrink-0 truncate pr-8 font-display text-md leading-[1.625rem] font-medium text-ink"
-          title={name}
-          dir="auto"
+      <div className={cn(tileFrame, flatSurface)}>
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col",
+            isCompact(width) ? "p-3" : "p-4"
+          )}
         >
-          <Highlighted text={name} query={query} />
-        </p>
-        {layout.body > 0 && (
-          <p
-            className="shrink-0 overflow-hidden text-sm break-words text-ink-muted [display:-webkit-box] [-webkit-box-orient:vertical]"
-            style={{ WebkitLineClamp: layout.body }}
-            dir="auto"
-          >
-            <Highlighted text={layout.text} query={query} />
-          </p>
-        )}
-        <div className="mt-auto flex min-h-14 shrink-0 flex-col items-start justify-end gap-2">
-          <span className="flex w-full min-w-0 items-center gap-1 text-xs text-ink-muted">
-            {memory.kind === "video" && (
-              <PlayIcon className="size-4 shrink-0" aria-hidden />
-            )}
+          <TileTitle
+            text={name}
+            lines={layout.title}
+            query={query}
+            width={width}
+          />
+          {layout.body > 0 && (
+            <p
+              className="mt-2 shrink-0 overflow-hidden text-sm break-words text-ink-muted [display:-webkit-box] [-webkit-box-orient:vertical]"
+              style={{ WebkitLineClamp: layout.body }}
+              dir="auto"
+            >
+              <Highlighted text={layout.text} query={query} />
+            </p>
+          )}
+          <span className="mt-3 flex h-4 w-full shrink-0 items-center gap-1 text-xs text-ink-muted">
+            <SourceMark kind={memory.kind} />
             <span className="truncate" dir="ltr" translate="no">
               {host !== name && <Highlighted text={host} query={query} />}
             </span>
@@ -452,18 +585,23 @@ function LinkTile({
               </span>
             ) : null}
           </span>
-          {isReferenceOnly(memory) ? (
-            <ReferenceOnlyBadge />
-          ) : (
-            <IndexBadge
-              memory={memory}
-              onRetry={() => onRetryIndexing(memory)}
-              // One tab stop per wall: the keyboard retries from Memory detail.
-              focusable={false}
-              className="shrink-0"
-            />
+          {layout.badge && (
+            <div className="mt-2 flex h-6 shrink-0 items-center">
+              {isReferenceOnly(memory) ? (
+                <ReferenceOnlyBadge />
+              ) : (
+                <IndexBadge
+                  memory={memory}
+                  onRetry={() => onRetryIndexing(memory)}
+                  // One tab stop per wall: the keyboard retries from Memory detail.
+                  focusable={false}
+                  className="shrink-0"
+                />
+              )}
+            </div>
           )}
         </div>
+        {footer && <Footer compact={isCompact(width)}>{footer}</Footer>}
       </div>
     </figure>
   );
@@ -474,11 +612,13 @@ function TextTile({
   memory,
   query,
   width,
+  footer,
   badge,
 }: {
   memory: WallMemory;
   query: string;
   width: number;
+  footer?: ReactNode;
   badge: ReactNode;
 }) {
   const layout = tileLayout(memory, width);
@@ -487,38 +627,36 @@ function TextTile({
   const bodyLines = layout.body;
   return (
     <figure className="group h-full cursor-pointer">
-      <div
-        className={cn(
-          tileFrame,
-          "flex flex-col gap-2 bg-sunken p-4 hover:bg-[color-mix(in_oklab,var(--sunken),var(--ink)_4%)]"
-        )}
-      >
-        {memory.title && (
+      <div className={cn(tileFrame, flatSurface)}>
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col gap-2",
+            isCompact(width) ? "p-3" : "p-4"
+          )}
+        >
+          {memory.title && (
+            <TileTitle
+              text={memory.title}
+              lines={layout.title}
+              query={query}
+              width={width}
+            />
+          )}
           <p
-            className="shrink-0 truncate pr-8 font-display text-md leading-[1.625rem] font-medium text-ink"
-            title={memory.title}
+            className="shrink-0 overflow-hidden text-sm break-words whitespace-pre-line text-ink [display:-webkit-box] [-webkit-box-orient:vertical]"
+            style={{ WebkitLineClamp: bodyLines }}
             dir="auto"
           >
-            <Highlighted text={memory.title} query={query} />
+            <Highlighted
+              text={tileText(memory.body).slice(0, 800)}
+              query={query}
+            />
           </p>
-        )}
-        {!memory.title && <div aria-hidden className="h-8 shrink-0" />}
-        <p
-          className={cn(
-            "shrink-0 overflow-hidden text-sm break-words whitespace-pre-line [display:-webkit-box] [-webkit-box-orient:vertical]",
-            memory.title ? "text-ink-muted" : "text-ink"
-          )}
-          style={{ WebkitLineClamp: bodyLines }}
-          dir="auto"
-        >
-          <Highlighted
-            text={tileText(memory.body).slice(0, 800)}
-            query={query}
-          />
-        </p>
-        <div className="relative mt-auto h-6 shrink-0 [&>span]:right-0 [&>span]:bottom-0">
-          {badge}
+          <div className="relative mt-auto h-6 shrink-0 [&>span]:right-0 [&>span]:bottom-0">
+            {badge}
+          </div>
         </div>
+        {footer && <Footer compact={isCompact(width)}>{footer}</Footer>}
       </div>
     </figure>
   );

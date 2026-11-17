@@ -85,3 +85,14 @@ export async function signIn(
   ).toBeVisible();
   return email;
 }
+
+/**
+ * A new Library, before anything is Captured: the Get Started band when it is
+ * showing (it is the screen's one action, so there is no "No Memories Yet"
+ * under it), else the empty heading.
+ */
+export const emptyLibrary = (page: Page) =>
+  page
+    .getByRole("region", { name: "Get Started" })
+    .or(page.getByRole("heading", { name: "No Memories Yet" }))
+    .first();

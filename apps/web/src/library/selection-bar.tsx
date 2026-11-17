@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { TagsIcon, Trash2Icon, XIcon } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { DURATION, EASING } from "@spark/ui/tokens";
 import { CATEGORY_NAMES, MAX_CATEGORIES } from "@spark/core";
@@ -100,33 +101,19 @@ export function SelectionBar({
         <span className="px-2 tabular-nums">
           {count.toLocaleString()} Selected
         </span>
-        <Button
-          wrap
-          size="sm"
-          className="min-h-11"
-          variant="outline"
-          onClick={() => finish(onDelete)}
-        >
-          Delete
+        <Button wrap variant="quiet" onClick={() => setOpen(true)}>
+          <TagsIcon aria-hidden /> Categories
         </Button>
-
+        <Button wrap variant="quiet" onClick={() => finish(onDelete)}>
+          <Trash2Icon aria-hidden /> Delete
+        </Button>
         <Button
-          wrap
-          size="sm"
-          className="min-h-11"
           variant="quiet"
+          size="icon"
+          aria-label="Clear"
           onClick={() => finish(onClear)}
         >
-          Clear
-        </Button>
-        <Button
-          wrap
-          size="sm"
-          className="min-h-11"
-          variant="primary"
-          onClick={() => setOpen(true)}
-        >
-          Categories
+          <XIcon aria-hidden />
         </Button>
       </motion.div>
       <Dialog
@@ -150,7 +137,7 @@ export function SelectionBar({
                 <FilterChip
                   key={name}
                   title={name}
-                  className="h-auto min-h-11 max-w-full py-2"
+                  className="h-auto min-h-8 max-w-full py-1.5"
                   aria-pressed={categories.includes(name)}
                   disabled={
                     !categories.includes(name) &&
@@ -175,8 +162,6 @@ export function SelectionBar({
             <Button
               wrap
               variant="primary"
-              size="sm"
-              className="min-h-11 disabled:opacity-50"
               disabled={!categories.length}
               onClick={() => {
                 setOpen(false);

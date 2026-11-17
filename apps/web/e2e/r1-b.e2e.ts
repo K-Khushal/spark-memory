@@ -34,9 +34,23 @@ test("Library geometry survives narrow widths, large text and long titles", asyn
       const title = page.locator('main [role="listitem"] p[title]').first();
       await title.scrollIntoViewIfNeeded();
       await expect(title).toBeVisible();
+      // Titles clamp to two lines (26px at 17px text, 24px on a phone lane).
       expect(await title.evaluate((el) => el.clientHeight)).toBeLessThanOrEqual(
-        26 * scale + 1
+        2 * 26 * scale + 1
       );
+      // Two lanes on a phone (one at 200% text); the desktop's 220px lanes.
+      const lanes = await page
+        .locator('main [role="listitem"]')
+        .evaluateAll(
+          (tiles) =>
+            new Set(
+              tiles.map((tile) =>
+                Math.round(tile.getBoundingClientRect().left + scrollX)
+              )
+            ).size
+        );
+      if (width < 640) expect(lanes).toBe(scale === 2 ? 1 : 2);
+      else if (scale === 1) expect(lanes).toBeGreaterThanOrEqual(2);
       if (evidence)
         await page.screenshot({
           path: `${evidence}/library-${width}-text-${scale}.png`,
@@ -63,12 +77,12 @@ test("Empty search recovery, retry and cached return preserve the Library", asyn
   await page.getByPlaceholder("Search…").fill("nothing-found");
   await page.keyboard.press("Enter");
   await expect(
-    page.getByRole("heading", { name: "No Direct Matches" })
+    page.getByRole("heading", { name: "No Memories Match" })
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Clear Search", exact: true })
-    .last()
-    .click();
+  // Focus lands on the one action, not on a heading.
+  const clear = page.getByRole("button", { name: "Clear Search", exact: true });
+  await expect(clear.last()).toBeFocused();
+  await clear.last().click();
   await expect(page.getByRole("list", { name: "All Memories" })).toBeVisible();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   mock.delay = 3000;
@@ -78,7 +92,7 @@ test("Empty search recovery, retry and cached return preserve the Library", asyn
   });
 });
 
-test("First-use action has no competing empty-state primary", async ({
+test("First-use action has no competing empty state", async ({
   page,
   context,
 }) => {
@@ -94,11 +108,15 @@ test("First-use action has no competing empty-state primary", async ({
   await expect(
     page.getByRole("button", { name: "Continue", exact: true })
   ).toBeVisible();
-  const empty = page.getByRole("heading", { name: "No Memories Yet" });
-  await expect(empty).toBeVisible();
+  // The band is the screen's one action: no heading under it either.
+  await expect(page.getByRole("region", { name: "Get Started" })).toBeVisible();
   await expect(
-    empty.locator("..").getByRole("button", { name: /Capture/ })
+    page.getByRole("heading", { name: "No Memories Yet" })
   ).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: /^Capture/ }).first()
+  ).toBeVisible(); // the sidebar's, not a second one in the wall
+  await expect(page.locator("[data-empty-state] button")).toBeHidden();
 });
 
 for (const width of [320, 390]) {

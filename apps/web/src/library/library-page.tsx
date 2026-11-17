@@ -13,6 +13,7 @@ import {
 import type { SearchChips } from "@spark/core";
 import { isWordless, requestKey } from "./search-session";
 import {
+  FiltersSkeleton,
   KIND_LABELS,
   LibraryFilters,
   useFilterOptions,
@@ -79,8 +80,8 @@ import {
   type Results,
 } from "./use-search";
 import { whyHeight, WhyChip, whyLabel } from "./why";
-
-const WALL_COLUMNS = { minWidth: 220, gap: 12, max: 6 };
+import { useTitleFonts } from "./title-lines";
+import { usePhoneWall, wallColumns } from "./wall-geometry";
 
 /**
  * The Library: sidebar (a top bar on phones) beside the masonry wall of
@@ -105,6 +106,10 @@ function LibraryForSession({
   const bar = useRef<HTMLDivElement>(null);
   useStickyInset(bar);
   const library = useLibrary(session.user.id);
+  // The first load of this page shows its skeleton on the first frame; every
+  // later load keeps the 150ms wait.
+  const [cold, setCold] = useState(true);
+  if (cold && library.state !== "loading") setCold(false);
   const [returnView] = useState(() => readLibraryView(session.user.id));
   const restoringView = useRef(!!returnView);
   const navigationScroll = useRef<number | undefined>(undefined);
@@ -643,7 +648,7 @@ function LibraryForSession({
         }
         onClearSearch={clearSearchClick}
         filters={
-          (library.memories.length > 0 || visual || imageBusy) && (
+          library.memories.length > 0 || visual || imageBusy ? (
             <LibraryFilters
               layout="sidebar"
               leading={
@@ -657,7 +662,9 @@ function LibraryForSession({
               onChange={changeChips}
               manage={manage("sidebar")}
             />
-          )
+          ) : library.state === "loading" ? (
+            <FiltersSkeleton />
+          ) : null
         }
       />
 
@@ -748,7 +755,9 @@ function LibraryForSession({
         <SkeletonGate
           loading={library.state === "loading" && !library.memories.length}
           skeleton={<LibrarySkeleton />}
-          className="peer-has-[section_[aria-busy]]:[&_[data-empty-primary]]:hidden"
+          // The Get Started band is the screen's one action: no second heading under it.
+          immediate={cold}
+          className="peer-has-[section[aria-label='Get_Started']]:[&_[data-empty-state]]:hidden"
         >
           {library.state === "failed" ? (
             <StateBlock
@@ -761,7 +770,7 @@ function LibraryForSession({
               </Button>
             </StateBlock>
           ) : !library.memories.length ? (
-            <div>
+            <div data-empty-state>
               <StateBlock
                 title="No Memories Yet"
                 align="centre"
@@ -788,7 +797,7 @@ function LibraryForSession({
               data-library-wall
               aria-busy={pending || wallSearch.retrying}
               className={cn(
-                "p-4 transition-opacity md:p-6",
+                "p-3 transition-opacity sm:p-4 md:p-6",
                 // A slow answer dims what is shown; a quick one never does.
                 pending
                   ? "opacity-60 delay-300 duration-(--duration-press)"
@@ -951,21 +960,24 @@ function Wall({
   tiles: TileActions;
 }) {
   const open = (i: number) => memories[i] && onOpen(memories[i]);
+  const columns = wallColumns(usePhoneWall());
+  const items = useFontRemeasure(memories);
   return (
     <Masonry
-      minColumnWidth={WALL_COLUMNS.minWidth}
-      maxColumns={WALL_COLUMNS.max}
-      gap={WALL_COLUMNS.gap}
+      minColumnWidth={columns.minWidth}
+      maxColumns={columns.max}
+      gap={columns.gap}
       className="library-wall"
       label={label}
       selection={tiles.selection}
-      items={memories}
+      items={items}
       getKey={(m) => m.id}
       getHeight={tileHeight}
       getLabel={tileLabel}
       onOpen={open}
       onPreview={open}
-      // Only a Memory moved to the top by a repeat Capture glides there.
+      // Only a Memory moved to the top by a repeat Capture glides when it
+      // reorders; a Capture, Delete or Undo always glides (Masonry).
       glideKey={glideKey}
       glide={memories.some((m) => m.resurfaced)}
       renderItem={(m, tile) => (
@@ -984,6 +996,7 @@ function ResultWall({
   label,
   found,
   direct,
+  chips,
   glideKey,
   query,
   onOpen,
@@ -993,6 +1006,8 @@ function ResultWall({
 }: {
   label: string;
   found: Found[];
+  /** The filters in force: a chip that only repeats one is not shown. */
+  chips?: SearchChips;
   /** Focus moves between the Direct and Related walls through these. */
   handle?: Ref<MasonryHandle>;
   onEdge?: (key: "ArrowUp" | "ArrowDown") => string | undefined;
@@ -1005,43 +1020,56 @@ function ResultWall({
   tiles: TileActions;
 }) {
   const open = (i: number) => found[i] && onOpen(found[i]);
+  const columns = wallColumns(usePhoneWall());
+  const items = useFontRemeasure(found);
+  const why = (m: Found) =>
+    direct === undefined ? undefined : whyLabel(m, chips);
   return (
     <Masonry
-      minColumnWidth={WALL_COLUMNS.minWidth}
-      maxColumns={WALL_COLUMNS.max}
-      gap={WALL_COLUMNS.gap}
+      minColumnWidth={columns.minWidth}
+      maxColumns={columns.max}
+      gap={columns.gap}
       className="library-wall"
       label={label}
       selection={tiles.selection}
-      items={found}
+      items={items}
       getKey={(m) => m.id}
       getHeight={tileHeight}
-      getCaption={() => (direct === undefined ? 0 : whyHeight())}
-      getLabel={(m) =>
-        [tileLabel(m), direct !== undefined && whyLabel(m)]
-          .filter(Boolean)
-          .join(", ")
-      }
+      // A tile with something to say gets the fixed footer; one with nothing
+      // (or only a filter's own words) gets none, and no height for it.
+      getCaption={(m) => (why(m) ? whyHeight() : 0)}
+      getLabel={(m) => [tileLabel(m), why(m)].filter(Boolean).join(", ")}
       onOpen={open}
       onPreview={open}
       glideKey={glideKey}
       handle={handle}
       onEdge={onEdge}
       renderItem={(m, tile) => (
-        <div className="flex h-full flex-col items-start">
-          <div className="w-full" style={{ height: tile.height }}>
-            <MemoryTile
-              memory={m}
-              query={query}
-              width={tile.width}
-              {...tiles}
-            />
-          </div>
-          {direct !== undefined && <WhyChip found={m} direct={direct} />}
-        </div>
+        <MemoryTile
+          memory={m}
+          query={query}
+          width={tile.width}
+          footer={
+            why(m) ? (
+              <WhyChip found={m} direct={!!direct} chips={chips} />
+            ) : undefined
+          }
+          {...tiles}
+        />
       )}
     />
   );
+}
+
+/**
+ * The items again once the display font has loaded, so the wall measures
+ * its titles at the real font (a new array, same Memories: nothing moves
+ * but what was mismeasured).
+ */
+function useFontRemeasure<T>(items: readonly T[]): readonly T[] {
+  const loaded = useTitleFonts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => [...items], [items, loaded]);
 }
 
 /** Direct Matches first, Related Matches apart (DESIGN.md → Interaction baseline). */
@@ -1122,16 +1150,13 @@ function SearchResults({
     return (
       <div data-search={results.mode}>
         {!found.length && (
-          <StateBlock title="No Memories Match">
-            <Button wrap variant="outline" onClick={onClearFilters}>
-              Clear Filters
-            </Button>
-          </StateBlock>
+          <NoMemoriesMatch action="Clear Filters" onAction={onClearFilters} />
         )}
         <ResultWall
           label="Filtered Memories"
           found={found}
           direct={false}
+          chips={chips}
           glideKey={results.key}
           query=""
           onOpen={onOpen}
@@ -1143,11 +1168,7 @@ function SearchResults({
   if (!results.direct.length && !results.related.length)
     return (
       <div data-search={results.mode}>
-        <StateBlock title="No Direct Matches">
-          <Button wrap variant="outline" onClick={onClearSearch}>
-            Clear Search
-          </Button>
-        </StateBlock>
+        <NoMemoriesMatch action="Clear Search" onAction={onClearSearch} />
       </div>
     );
   return (
@@ -1165,6 +1186,7 @@ function SearchResults({
             label="Direct Matches"
             found={results.direct}
             direct
+            chips={chips}
             glideKey={results.key}
             query={query}
             onOpen={onOpen}
@@ -1204,6 +1226,7 @@ function SearchResults({
             label="Related Matches"
             found={results.related}
             direct={false}
+            chips={chips}
             glideKey={results.key}
             query={query}
             onOpen={onOpen}
@@ -1218,6 +1241,27 @@ function SearchResults({
         </section>
       )}
     </div>
+  );
+}
+
+/** Nothing on the wall answers: one centred statement and the one action. Focus lands on the action, not on a heading. */
+function NoMemoriesMatch({
+  action,
+  onAction,
+}: {
+  action: string;
+  onAction: () => void;
+}) {
+  return (
+    <StateBlock
+      title="No Memories Match"
+      align="centre"
+      className="min-h-[60dvh] justify-center px-4"
+    >
+      <Button wrap variant="outline" data-wall-action onClick={onAction}>
+        {action}
+      </Button>
+    </StateBlock>
   );
 }
 
@@ -1284,10 +1328,14 @@ function Landing({
   );
 }
 
-/** Static loading geometry follows Masonry's 220px columns and 12px gaps. */
+/** The heights a loading lane cycles through (px): an uneven wall, not a grid. */
+const SKELETON_HEIGHTS = [224, 148, 288, 176, 320, 148];
+
+/** Static loading geometry follows the wall's own lanes and gaps, with uneven tiles. */
 function LibrarySkeleton() {
   const wall = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
+  const phone = usePhoneWall();
   useLayoutEffect(() => {
     const node = wall.current;
     if (!node) return;
@@ -1297,19 +1345,27 @@ function LibrarySkeleton() {
     measure();
     return () => observer.disconnect();
   }, []);
-  const columns = columnCount(width, WALL_COLUMNS);
+  const columns = wallColumns(phone);
+  const lanes = columnCount(width, columns);
   return (
-    <div aria-hidden className="p-4 md:p-6">
-      <div
-        ref={wall}
-        className="grid"
-        style={{
-          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-          gap: WALL_COLUMNS.gap,
-        }}
-      >
-        {Array.from({ length: 12 }, (_, i) => (
-          <Skeleton key={i} className="h-56" />
+    <div aria-hidden className="p-3 sm:p-4 md:p-6">
+      <div ref={wall} className="flex items-start" style={{ gap: columns.gap }}>
+        {Array.from({ length: lanes }, (_, lane) => (
+          <div
+            key={lane}
+            className="flex min-w-0 flex-1 flex-col"
+            style={{ gap: columns.gap }}
+          >
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton
+                key={i}
+                style={{
+                  height:
+                    SKELETON_HEIGHTS[(lane * 2 + i) % SKELETON_HEIGHTS.length],
+                }}
+              />
+            ))}
+          </div>
         ))}
       </div>
     </div>

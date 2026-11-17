@@ -199,10 +199,13 @@ test("a search from the keyboard alone lands on the results, and a search that f
 
   await page.getByRole("button", { name: "Clear Search" }).first().click();
   await search(page, "nothing");
-  const heading = page.getByRole("heading", { name: "No Direct Matches" });
-  await expect(heading).toBeVisible();
-  // Not on Capture: the next key reads what happened.
-  await expect(heading).toBeFocused();
+  await expect(
+    page.getByRole("heading", { name: "No Memories Match" })
+  ).toBeVisible();
+  // Not on Capture, and not on a heading: the one action is next.
+  await expect(
+    page.getByRole("button", { name: "Clear Search", exact: true }).last()
+  ).toBeFocused();
 });
 
 test("⌘K gives Search By Image a place in the field's row, not a row of its own", async ({
@@ -530,7 +533,7 @@ test("screens", async ({ page }) => {
 
     await search(page, "nothing");
     await expect(
-      page.getByRole("heading", { name: "No Direct Matches" })
+      page.getByRole("heading", { name: "No Memories Match" })
     ).toBeVisible();
     await shot(page, "nothing", width, theme);
     await page.getByRole("button", { name: "Clear Search" }).first().click();

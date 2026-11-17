@@ -150,27 +150,10 @@ for (const screen of SCREENS) {
       await seed(page);
       const wall = page.getByRole("list", { name: "All Memories" });
       await wall.getByRole("listitem").first().focus();
-      let at = await spot(page);
+      const at = await spot(page);
       expect(at.label.startsWith(named(COUNT - 1))).toBe(true);
 
-      if (screen.name === "phone") {
-        // One column: the tile below is the next one, the tile above the last.
-        for (let k = 1; k < COUNT; k++) {
-          at = await move(page, "ArrowDown", at);
-          expect(at.index, `ArrowDown ${k}`).toBe(k);
-          expect(at.label.startsWith(named(COUNT - 1 - k))).toBe(true);
-          clear(at, `ArrowDown ${k}`);
-        }
-        for (let k = COUNT - 2; k >= 0; k--) {
-          at = await move(page, "ArrowUp", at);
-          expect(at.index, `ArrowUp to ${k}`).toBe(k);
-          expect(at.label.startsWith(named(COUNT - 1 - k))).toBe(true);
-          clear(at, `ArrowUp to ${k}`);
-        }
-        return;
-      }
-
-      // Several columns: the neighbour is in the lane beside or below, and the
+      // Several columns (a phone has two lanes): the neighbour is in the lane beside or below, and the
       // opposite key comes back to the tile it left.
       const origin = at;
       const right = await move(page, "ArrowRight", origin);

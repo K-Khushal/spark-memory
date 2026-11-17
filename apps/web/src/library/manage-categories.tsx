@@ -44,9 +44,12 @@ export type CategoryActions = {
 export function CategoriseProgress({
   run,
   className,
+  bar = true,
 }: {
   run: CategoryRun;
   className?: string;
+  /** False: the count alone (in the dialog's title row). */
+  bar?: boolean;
 }) {
   const share = run.total ? Math.min(1, run.done / run.total) : 0;
   return (
@@ -59,12 +62,14 @@ export function CategoriseProgress({
       aria-valuetext={`${run.done} of ${run.total}`}
       className={cn("flex flex-col gap-1.5", className)}
     >
-      <span className="h-0.5 overflow-hidden rounded-chip bg-line">
-        <span
-          className="block h-full origin-left bg-ink transition-transform duration-180 ease-out motion-reduce:transition-none"
-          style={{ transform: `scaleX(${share})` }}
-        />
-      </span>
+      {bar && (
+        <span className="h-0.5 overflow-hidden rounded-chip bg-line">
+          <span
+            className="block h-full origin-left bg-ink transition-transform duration-180 ease-out motion-reduce:transition-none"
+            style={{ transform: `scaleX(${share})` }}
+          />
+        </span>
+      )}
       <span className="text-xs text-ink-muted tabular-nums">
         {run.done} of {run.total}
       </span>
@@ -117,8 +122,9 @@ export function ManageCategories({
           aria-describedby={undefined}
           className="flex max-h-[min(36rem,calc(100dvh-2rem))] max-w-md flex-col overflow-hidden"
         >
-          <DialogHeader>
+          <DialogHeader className="flex-row items-baseline justify-between gap-3">
             <DialogTitle className="wrap-anywhere">Categories</DialogTitle>
+            {state?.run && <CategoriseProgress run={state.run} bar={false} />}
           </DialogHeader>
           <DialogBody className="flex flex-col gap-4">
             <CategoriesManager state={state} actions={actions} />
@@ -154,7 +160,6 @@ function CategoriesManager({
         limited={categories.length >= MAX_CUSTOM_CATEGORIES}
         onSubmit={actions.create}
       />
-      {state?.run && <CategoriseProgress run={state.run} />}
       {categories.length > 0 && (
         <ul
           aria-label="Your Categories"
@@ -331,7 +336,7 @@ function CategoryRow({
     );
   }
   return (
-    <li className="flex min-h-10 shrink-0 items-center gap-1 rounded-control py-1 pl-2">
+    <li className="group/row flex min-h-10 shrink-0 items-center gap-1 rounded-control py-1 pl-2">
       <span className="min-w-0 flex-1 wrap-anywhere text-sm" dir="auto">
         {category.name}
       </span>
@@ -339,6 +344,7 @@ function CategoryRow({
         variant="quiet"
         size="icon-sm"
         aria-label={`Rename ${category.name}`}
+        className="text-ink-muted hover:text-ink pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 pointer-fine:group-focus-within/row:opacity-100"
         onClick={() => setEditing(true)}
       >
         <PencilIcon aria-hidden />
@@ -347,6 +353,7 @@ function CategoryRow({
         variant="quiet"
         size="icon-sm"
         aria-label={`Delete ${category.name}`}
+        className="text-ink-muted hover:text-ink pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 pointer-fine:group-focus-within/row:opacity-100"
         onClick={onDelete}
       >
         <Trash2Icon aria-hidden />

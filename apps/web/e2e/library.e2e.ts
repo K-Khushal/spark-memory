@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { signIn } from "./sign-in";
+import { emptyLibrary, signIn } from "./sign-in";
 
 /** ⌘V outside a text field, with `text` on the clipboard. */
 async function paste(page: Page, text: string) {
@@ -132,9 +132,7 @@ test("paste a Memory, find it by a typo, delete it with Undo", async ({
     })
     .toEqual({ memories: [], unfinished: [] });
   await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "No Memories Yet" })
-  ).toBeVisible();
+  await expect(emptyLibrary(page)).toBeVisible();
 });
 
 test("⌘K opens Search, and Settings loads from the Library", async ({
@@ -148,9 +146,7 @@ test("⌘K opens Search, and Settings loads from the Library", async ({
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByText("Loading")).toHaveCount(0);
   await page.getByRole("link", { name: "All Memories" }).click();
-  await expect(
-    page.getByRole("heading", { name: "No Memories Yet" })
-  ).toBeVisible();
+  await expect(emptyLibrary(page)).toBeVisible();
   await page.keyboard.press("ControlOrMeta+k");
   await expect(page.getByPlaceholder("Search…")).toBeVisible();
 });
@@ -165,9 +161,7 @@ test("a rejected overlays chunk leaves the Library up, and ⌘V still captures",
 }) => {
   await page.route(overlaysChunk, (route) => route.abort());
   await signIn(page);
-  await expect(
-    page.getByRole("heading", { name: "No Memories Yet" })
-  ).toBeVisible();
+  await expect(emptyLibrary(page)).toBeVisible();
   await paste(page, "Lemon tart without overlays");
   await expect(page.getByText("Captured", { exact: true })).toBeVisible();
   await expect(
@@ -249,7 +243,7 @@ test("change a Memory's Categories, then filter the Library by them", async ({
     page.getByRole("listbox").getByRole("option", { name: /Sourdough/ })
   ).toBeVisible();
   await page.keyboard.press("Enter");
-  await expect(page.getByText("No Direct Matches")).toBeVisible();
+  await expect(page.getByText("No Memories Match")).toBeVisible();
   await page.getByRole("button", { name: "All Memories" }).click();
   await expect(
     page.getByRole("link", { name: "All Memories" })

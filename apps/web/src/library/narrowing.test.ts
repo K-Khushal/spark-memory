@@ -41,4 +41,14 @@ describe("narrowing", () => {
       })
     ).toEqual({ kinds: ["note"], categories: [] });
   });
+
+  it("drops a Category that a kind chip already says, singular or plural", () => {
+    const video = (...categories: string[]) =>
+      ({ kind: "video", categories }) as Parameters<
+        typeof narrowing
+      >[0][number];
+    expect(
+      narrowing([video("Video"), note("Idea", "Video"), note("Idea")], {})
+    ).toEqual({ kinds: ["video", "note"], categories: ["Idea"] });
+  });
 });

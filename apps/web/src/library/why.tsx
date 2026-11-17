@@ -1,5 +1,5 @@
 import { rootFontScale } from "./root-font-scale";
-import { formatTimestamp, sourceOf } from "@spark/core";
+import { formatTimestamp, sourceOf, type SearchChips } from "@spark/core";
 import { SparklesIcon } from "lucide-react";
 import { Button, Chip } from "@spark/ui";
 import { FILTER_COLOURS } from "@spark/ui/tokens";
@@ -86,17 +86,31 @@ function filterWhy({
   }
 }
 
+/** The sidebar choice a filter part is the answer to. */
+const CHOSEN_BY: Record<
+  Extract<NonNullable<Found["part"]>, { kind: "filter" }>["field"],
+  keyof SearchChips
+> = {
+  colour: "colour",
+  source: "source",
+  date: "when",
+  category: "category",
+  kind: "kind",
+};
+
 /**
  * What matched, in a few words (DESIGN.md → why-chips): the field a word
  * was found in, the words of the passage that matched, or the image.
- * Undefined when nothing can be said.
+ * Undefined when nothing can be said, or when the only reason is a filter
+ * chosen in the sidebar (`chips`): that would say the same on every tile.
  */
-export function whyLabel({
-  part,
-  body,
-  kind,
-}: Pick<Found, "part" | "body" | "kind">) {
+export function whyLabel(
+  { part, body, kind }: Pick<Found, "part" | "body" | "kind">,
+  chips?: SearchChips
+) {
   if (!part) return undefined;
+  if (part.kind === "filter" && chips?.[CHOSEN_BY[part.field]] !== undefined)
+    return undefined;
   // A scanned PDF's text is read from its pages, not an image.
   const ocr = kind === "pdf" ? FIELD.text : FIELD.ocr;
   switch (part.kind) {
@@ -118,21 +132,29 @@ export function whyLabel({
   }
 }
 
-/** Height a why-chip takes under a result tile (h-6 plus its margin). */
-export const WHY_HEIGHT = 28;
+/** Height of the footer a why-chip sits in, inside its result tile (the h-6 chip centred). */
+export const WHY_HEIGHT = 36;
 
 /** Caption height follows the same root text scaling as the chip. */
 export const whyHeight = () => WHY_HEIGHT * rootFontScale();
 
-/** What matched most strongly in a result, under its tile: the highlighter for a Direct Match. */
-export function WhyChip({ found, direct }: { found: Found; direct: boolean }) {
-  const label = whyLabel(found);
+/** What matched most strongly in a result, in its tile's footer: the highlighter for a Direct Match. */
+export function WhyChip({
+  found,
+  direct,
+  chips,
+}: {
+  found: Found;
+  direct: boolean;
+  chips?: SearchChips;
+}) {
+  const label = whyLabel(found, chips);
   if (!label) return null;
   const { part } = found;
   return (
     <Chip
       tone={direct ? "spark" : "why"}
-      className="mt-1 max-w-full"
+      className="max-w-full"
       dir="auto"
       title={label}
     >

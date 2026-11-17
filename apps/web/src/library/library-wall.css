@@ -1,5 +1,5 @@
 /* Masonry keeps its fallback control for other consumers. Library tiles use
-   the shared Checkbox, inside the tile's reserved title/selection row. */
+   the shared Checkbox, on a check plate over the tile's top-right corner. */
 .library-wall > [data-selectable] > button {
   display: none;
 }
@@ -29,4 +29,10 @@ html[data-input="keyboard"] .library-wall > [data-selectable]::before {
   .library-wall > [data-selectable]::before {
     transition: none;
   }
+}
+
+/* A PDF's first page is a white sheet: in the dark theme it sits a little
+   down, so it does not glare beside the tiles. The viewer stays full white. */
+[data-theme="dark"] .library-wall img[data-pdf] {
+  filter: brightness(0.88);
 }

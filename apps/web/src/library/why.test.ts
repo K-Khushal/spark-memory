@@ -108,3 +108,52 @@ describe("why-chips for text without spaces", () => {
     expect(clip("abc", 3)).toBe("abc");
   });
 });
+
+describe("why-chips and the filters in force", () => {
+  const byFilter = (
+    field: "colour" | "source" | "kind" | "date" | "category",
+    value: string
+  ) => ({
+    kind: "image" as const,
+    body: null,
+    part: { kind: "filter" as const, field, value },
+  });
+
+  it("says nothing that only repeats a filter chosen in the sidebar", () => {
+    expect(
+      whyLabel(byFilter("kind", "image"), { kind: "image" })
+    ).toBeUndefined();
+    expect(
+      whyLabel(byFilter("category", "Recipe"), { category: "Recipe" })
+    ).toBeUndefined();
+    expect(
+      whyLabel(byFilter("colour", "#e8821f"), { colour: "orange" })
+    ).toBeUndefined();
+    expect(
+      whyLabel(byFilter("source", "www.instagram.com"), {
+        source: "instagram.com",
+      })
+    ).toBeUndefined();
+    expect(
+      whyLabel(byFilter("date", "2026-10-14T09:30:00.000Z"), {
+        when: "this month",
+      })
+    ).toBeUndefined();
+  });
+
+  it("still says what a filter found when it is not the one chosen", () => {
+    expect(whyLabel(byFilter("kind", "image"), { category: "Recipe" })).toBe(
+      "Image"
+    );
+    expect(whyLabel(byFilter("kind", "image"))).toBe("Image");
+  });
+
+  it("still names the field or passage a word matched, filters or not", () => {
+    expect(
+      whyLabel(
+        { kind: "text", body: null, part: { kind: "field", field: "title" } },
+        { kind: "image" }
+      )
+    ).toBe("Title");
+  });
+});

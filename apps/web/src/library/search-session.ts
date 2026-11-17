@@ -41,8 +41,12 @@ export type Hit = {
 /** One page of a search's answer, and where the next begins (the server's `next`). */
 export type Page = { hits: Hit[]; next?: string };
 
+/**
+ * `settled` marks an instant answer that is the last one coming: the full
+ * search failed, so there is nothing more to wait for.
+ */
 export type Answer =
-  | ({ key: string; mode: Mode } & Page)
+  | ({ key: string; mode: Mode; settled?: true } & Page)
   | { key: string; mode: Mode; failed: true };
 
 /** Chips key as `f:` so only an identical search, never a prefix, answers for them. */
@@ -171,18 +175,29 @@ export function searchSession({
       instant: "query" in request && !request.visual ? "waiting" : "none",
       full: wordless ? "none" : "waiting",
     };
+    let instantPage: Page | undefined;
     const done = (mode: Mode, page?: Page, final = true) => {
       if (controller.signal.aborted) return;
       step[mode] = page ? "ok" : "failed";
       const other = step[mode === "full" ? "instant" : "full"];
+      if (page && mode === "instant") instantPage = page;
       if (page && (mode === "full" || other !== "ok")) {
-        onAnswer({ key, mode, ...page });
+        // An instant answer that lands after the full search failed is the last.
+        onAnswer({
+          key,
+          mode,
+          ...(mode === "instant" && other === "failed" && { settled: true }),
+          ...page,
+        } as Answer);
         if ((mode === "full" || wordless) && final && epoch === cacheEpoch) {
           cache.set(cacheKey, page);
           if (cache.size > CACHE_SIZE) cache.delete(cache.keys().next().value!);
         }
       } else if (!page && (other === "failed" || other === "none")) {
         onAnswer({ key, mode, failed: true });
+      } else if (!page && mode === "full" && instantPage) {
+        // The instant answer stands, and now it is final.
+        onAnswer({ key, mode: "instant", settled: true, ...instantPage });
       }
     };
     const run = (mode: Mode) =>

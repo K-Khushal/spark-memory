@@ -121,6 +121,27 @@ describe("searchSession", () => {
     expect(s.ids()).toEqual(["instant", ["a"]]);
   });
 
+  it("marks the instant answer settled once the full search has failed, however they land", async () => {
+    const after = setup(0);
+    after.session.set({ query: "purple" }, "0");
+    await settle();
+    after.find("instant", "purple").answer(["a"]);
+    await settle();
+    expect(after.last()).not.toHaveProperty("settled");
+    after.find("full", "purple").fail();
+    await settle();
+    expect(after.last()).toMatchObject({ mode: "instant", settled: true });
+
+    const before = setup(0);
+    before.session.set({ query: "purple" }, "0");
+    await settle();
+    before.find("full", "purple").fail();
+    await settle();
+    before.find("instant", "purple").answer(["a"]);
+    await settle();
+    expect(before.last()).toMatchObject({ mode: "instant", settled: true });
+  });
+
   it("says it failed only when nothing answered", async () => {
     const s = setup(0);
     s.session.set({ query: "purple" }, "0");

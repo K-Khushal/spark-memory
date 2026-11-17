@@ -200,7 +200,7 @@ for (const theme of THEMES) {
       await page.getByRole("combobox").fill("zzzz nothing like this");
       await page.keyboard.press("Enter");
       await expect(
-        page.getByRole("heading", { name: /No Direct Matches/ })
+        page.getByRole("heading", { name: /No Memories Match/ })
       ).toBeVisible({ timeout: 15_000 });
       await scanned("Search with no Direct Matches");
       await page
@@ -684,7 +684,7 @@ test("Skip To Content is the first Tab stop and lands on the content", async ({
   }
 });
 
-// The ⌘K note ("No Direct Matches", "Search Is Unreachable") is not a child of
+// The ⌘K note ("No Memories Match", "Search Is Unreachable") is not a child of
 // the listbox, and a live region outside it reads the same words once.
 test("⌘K notes are read from a live region outside the listbox", async ({
   page,
@@ -693,7 +693,7 @@ test("⌘K notes are read from a live region outside the listbox", async ({
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox").fill("zzzz nothing like this");
   const menu = page.getByRole("dialog");
-  await expect(menu.getByRole("status")).toHaveText("No Direct Matches", {
+  await expect(menu.getByRole("status")).toHaveText("No Memories Match", {
     timeout: 15_000,
   });
   await expect(menu.getByRole("listbox").getByRole("status")).toHaveCount(0);
