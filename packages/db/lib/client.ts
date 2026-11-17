@@ -14,5 +14,10 @@ export function openDatabase(connectionString: string): {
   close: () => Promise<void>;
 } {
   const pool = new Pool({ connectionString, max: 5 });
+  // An idle client the server drops (restart, failover) must not crash the
+  // Worker; the next query reconnects.
+  pool.on("error", (error: Error & { code?: string }) =>
+    console.error("db: idle client error", error.code ?? error.message)
+  );
   return { db: drizzle({ client: pool, schema }), close: () => pool.end() };
 }

@@ -81,6 +81,7 @@ describe.skipIf(!databaseUrl)("existing video Sources migration", () => {
   };
   const apply = async () => {
     const client = new Client({ connectionString: testUrl });
+    client.on("error", () => {});
     const notices: string[] = [];
     client.on("notice", (notice) => notices.push(notice.message ?? ""));
     await client.connect();
