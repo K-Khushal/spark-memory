@@ -156,7 +156,13 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
       return {
         background: s.backgroundColor,
         border: s.borderTopWidth,
-        outline: s.outlineStyle === "none" ? "0px" : s.outlineWidth,
+        // Focus is the text field's 2px ink edge (an inset shadow), not an outline.
+        outline:
+          s.outlineStyle !== "none"
+            ? s.outlineWidth
+            : s.boxShadow.includes("inset")
+              ? "2px"
+              : "0px",
       };
     });
   // At rest: nothing drawn, and as tall as its one line (24px + 12px inset twice).
@@ -224,7 +230,7 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
     });
 });
 
-test("a toast never covers Done on a phone sheet: it stacks above the footer and both stay clickable", async ({
+test("a toast never covers Done on a phone sheet: it moves to the top, clear of the footer, and both stay clickable", async ({
   page,
 }) => {
   await signIn(page);
@@ -241,7 +247,8 @@ test("a toast never covers Done on a phone sheet: it stacks above the footer and
     });
     await expect(tile).toBeVisible();
     // The "Captured" toast with Undo is up while the detail opens.
-    const toast = page.locator("[data-sonner-toast]").last();
+    // One toast shows at a time on a phone: the front one is the newest.
+    const toast = page.locator("[data-sonner-toast][data-front=true]");
     await expect(toast.getByRole("button", { name: "Undo" })).toBeVisible();
     await tile.click();
     const dialog = page.getByRole("dialog");
@@ -249,7 +256,7 @@ test("a toast never covers Done on a phone sheet: it stacks above the footer and
     await expect(done).toBeVisible();
     await settle(page);
     await expect(toast).toBeVisible();
-    // The toast stands above the footer, never over it.
+    // The toast stands at the top while a sheet is open, never over the footer.
     const footer = await boxOf(dialog.locator("[data-slot=dialog-footer]"));
     const stood = await boxOf(toast);
     expect(stood.y + stood.height).toBeLessThanOrEqual(footer.y + 0.5);
@@ -270,7 +277,6 @@ test("a toast never covers Done on a phone sheet: it stacks above the footer and
     await shot(page, `detail-toast-${width}${large ? "-200" : ""}`);
     await done.click();
     await expect(dialog).toBeHidden();
-    // Closed, the toaster drops back to the bottom edge.
     if (large)
       await page.evaluate(() => (document.documentElement.style.fontSize = ""));
   }

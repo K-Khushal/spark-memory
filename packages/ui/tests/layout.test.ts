@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { columnCount, neighbour, tabStop, type LaneItem } from "../layout";
+import {
+  columnCount,
+  neighbour,
+  tabStop,
+  wallChange,
+  type LaneItem,
+} from "../layout";
 
 describe("columnCount", () => {
   it("fits as many columns of at least the minimum width as it can", () => {
@@ -67,5 +73,31 @@ describe("tabStop", () => {
 
   it("has no tab stop when nothing is rendered", () => {
     expect(tabStop(0, [])).toBeUndefined();
+  });
+});
+
+describe("wallChange", () => {
+  it("is none for the same keys in the same order", () => {
+    expect(wallChange(["a", "b"], ["a", "b"]).kind).toBe("none");
+  });
+
+  it("is a reorder for the same keys in a new order", () => {
+    expect(wallChange(["a", "b"], ["b", "a"]).kind).toBe("reorder");
+  });
+
+  it("is an edit, naming what is new, when a key is inserted or removed", () => {
+    const insert = wallChange(["a", "b"], ["n", "a", "b"]);
+    expect(insert.kind).toBe("edit");
+    expect([...insert.added]).toEqual(["n"]);
+    const remove = wallChange(["a", "b", "c"], ["b", "c"]);
+    expect(remove.kind).toBe("edit");
+    expect(remove.added.size).toBe(0);
+  });
+
+  it("calls the first fill of an empty wall nothing", () => {
+    expect(wallChange([], ["a", "b"])).toEqual({
+      kind: "none",
+      added: new Set(),
+    });
   });
 });

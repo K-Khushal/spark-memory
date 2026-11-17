@@ -1,28 +1,32 @@
 /** A Better Auth client error, or one of ours (status 0). */
 type SignInError = { status?: number; code?: string };
 
-/** What to tell the person, in Spark's voice. Never echoes server text. */
+/**
+ * What to tell the person, in Spark's voice: one Title Case phrase, never a
+ * sentence and never server text. The step's resend and retry controls sit
+ * right beside it.
+ */
 export function errorMessage(error: unknown): string {
   const { status, code } = (error ?? {}) as SignInError;
-  if (status === 429) return "Too many tries. Wait a minute, then try again.";
+  if (status === 429) return "Too Many Tries";
   switch (code) {
     case "INVALID_OTP":
-      return "That code is wrong. Check it and try again.";
+      return "Wrong Code";
     case "OTP_EXPIRED":
-      return "That code has expired. Send a new one.";
+      return "Code Expired";
     case "TOO_MANY_ATTEMPTS":
-      return "Too many wrong tries. Send a new code.";
+      return "Too Many Wrong Tries";
     case "INVALID_EMAIL":
       return "Invalid Email Address";
     case "TURNSTILE":
     case "VERIFICATION_FAILED":
     case "MISSING_RESPONSE":
-      return "Spark could not check this browser. Reload and try again.";
+      return "Browser Check Failed";
     case "ACCOUNT_DELETING":
-      return "This account is being deleted.";
+      return "Account Being Deleted";
     case "SOCIAL":
-      return "That sign-in did not finish. Try again.";
+      return "Sign In Did Not Finish";
   }
-  if (!status) return "Spark is unreachable. Check your connection.";
-  return "Something went wrong. Try again.";
+  if (!status) return "Spark Is Unreachable";
+  return "Something Went Wrong";
 }

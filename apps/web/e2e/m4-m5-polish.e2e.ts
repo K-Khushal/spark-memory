@@ -214,11 +214,13 @@ test("Settings and Categories at 320px with 200% text and RTL", async ({
         return { valid: true };
       const rect = el.getBoundingClientRect();
       const style = getComputedStyle(el);
+      // A text field shows focus as a 2px ink edge, not an outline.
+      const field = el.matches("input, textarea");
       return {
         valid:
           rect.left >= 0 &&
           rect.right <= innerWidth &&
-          style.outlineStyle !== "none",
+          (field ? style.boxShadow !== "none" : style.outlineStyle !== "none"),
         name: el.getAttribute("aria-label") ?? el.textContent,
         left: rect.left,
         right: rect.right,

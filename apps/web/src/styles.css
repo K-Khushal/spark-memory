@@ -19,6 +19,12 @@
   animation: spark-capture-in var(--duration-panel) var(--ease-out) both;
 }
 
+/* The wall now enters a new tile itself (Masonry `data-enter`, the same
+   fade and scale). One entrance, not two. */
+[data-enter="true"] .spark-capture-in {
+  animation: none;
+}
+
 /* The page runs edge to edge (viewport-fit=cover): keep content out of a
    notch. Installed, a pull down must not reload the app. */
 body {

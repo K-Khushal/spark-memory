@@ -61,3 +61,23 @@ export function tabStop(
 ): number | undefined {
   return rendered.includes(active) ? active : rendered[0];
 }
+
+/**
+ * How one wall's items changed between two renders of the same search or
+ * list: `none` (same keys, same order), `reorder` (same keys, new order) or
+ * `edit` (keys inserted or removed, `added` holding the new ones). A wall
+ * that was empty is a first load, not an edit.
+ */
+export function wallChange(
+  before: readonly string[],
+  after: readonly string[]
+): { kind: "none" | "reorder" | "edit"; added: Set<string> } {
+  const known = new Set(before);
+  const added = new Set(after.filter((key) => !known.has(key)));
+  if (before.length === 0 && after.length > 0)
+    return { kind: "none", added: new Set() };
+  if (added.size > 0 || before.length !== after.length)
+    return { kind: "edit", added };
+  const moved = after.some((key, i) => key !== before[i]);
+  return { kind: moved ? "reorder" : "none", added };
+}

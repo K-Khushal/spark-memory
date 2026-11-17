@@ -3,6 +3,7 @@ import {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -11,7 +12,7 @@ import {
   type Ref,
 } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
-import { columnCount, neighbour, tabStop } from "./layout";
+import { columnCount, neighbour, tabStop, wallChange } from "./layout";
 import { cn } from "./cn";
 import { DURATION, EASING } from "./tokens";
 
@@ -39,6 +40,20 @@ const travel: {
 } = { at: new Map() };
 
 const TRANSLATE = /translate\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px\)/;
+const MATRIX = /^matrix\(([^)]+)\)$/;
+
+/**
+ * Where a tile is drawn right now, as the `translate(x, y)` the wall writes:
+ * read from the computed style, so a glide still running counts at the
+ * offset it has reached. Undefined when the style says nothing usable.
+ */
+function drawnAt(tile: HTMLElement): string | undefined {
+  const transform = getComputedStyle(tile).transform;
+  const matrix = MATRIX.exec(transform)?.[1]?.split(",").map(Number);
+  if (matrix?.length === 6 && matrix.every(Number.isFinite))
+    return `translate(${matrix[4]}px, ${matrix[5]}px)`;
+  return TRANSLATE.test(transform) ? transform : undefined;
+}
 
 /**
  * Asks whichever wall holds the item `key` to scroll to it and focus it, once
@@ -79,9 +94,13 @@ type MasonryProps<T> = {
    * reordering the instant one for one search), items that change place
    * glide there (DURATION.small, ease-out), so a reordered result reads as
    * a move, not a swap. A resize, a new key or reduced motion never glides.
+   * A Capture, Delete or Undo inside one `glideKey` does the same: the tiles
+   * that change place glide and a tile new to the wall fades and grows from
+   * 0.96 (DURATION.panel). So the key must change with a filter or a query
+   * (a different list is not an edit of this one).
    */
   glideKey?: string;
-  /** False holds the glide for now (the wall glides only when a Memory is moved on purpose). */
+  /** False holds the reorder glide for now (the wall reorders only when a Memory is moved on purpose). Insert and remove always glide. */
   glide?: boolean;
   onOpen?: (index: number) => void;
   onPreview?: (index: number) => void;
@@ -137,6 +156,9 @@ export function Masonry<T>({
   useEffect(() => () => clearTimeout(gesture.current?.timer), []);
   const [box, setBox] = useState({ width: 0, top: 0, inset: 0 });
   const [active, setActive] = useState(0);
+  // Constant-time lookups: Select All on 10k Memories must not scan the ids
+  // once per tile. The ordered array stays for ranges.
+  const selected = useMemo(() => new Set(selection?.ids), [selection?.ids]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -260,11 +282,17 @@ export function Masonry<T>({
   // Positions can settle a render after `items` change (measuring), so a
   // change keeps the glide open briefly.
   const wall = useRef({});
+  // The glide each tile is running, so an update that lands mid-glide
+  // starts from where the tile is drawn, not from its old destination.
+  const running = useRef(new Map<string, Animation>());
   const placed = useRef({
     items,
+    keys: undefined as readonly string[] | undefined,
     glideKey,
     openUntil: 0,
     at: new Map<string, string>(),
+    entering: new Set<string>(),
+    edited: false,
   });
   useLayoutEffect(() => {
     const el = ref.current;
@@ -272,13 +300,20 @@ export function Masonry<T>({
     const before = placed.current;
     const now = performance.now();
     const same = glideKey !== undefined && before.glideKey === glideKey;
-    const openUntil =
-      same && before.items !== items ? now + 100 : before.openUntil;
+    const changed = before.items !== items;
+    const openUntil = same && changed ? now + 100 : before.openUntil;
+    const calm = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const keys = changed || !before.keys ? items.map(getKey) : before.keys;
+    // Same keys reordered glide only when `glide` allows; keys inserted or
+    // removed (Capture, Delete, Undo) always do.
+    const change =
+      same && changed ? wallChange(before.keys ?? [], keys) : undefined;
+    const edited = change?.kind === "edit";
     const glide =
-      gliding &&
-      same &&
-      now < openUntil &&
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      same && calm && now < openUntil && (gliding || edited || before.edited);
+    const entering = new Set(before.entering);
+    if (change?.kind === "edit" && calm)
+      for (const key of change.added) entering.add(key);
     const at = new Map<string, string>();
     const timing = {
       duration: DURATION.small,
@@ -288,6 +323,8 @@ export function Masonry<T>({
       travel.glideKey = glideKey;
       travel.at.clear();
     }
+    const near = (top: number) =>
+      top > -window.innerHeight && top < 2 * window.innerHeight;
     const origin = el.getBoundingClientRect();
     const [pageX, pageY] = [
       origin.left + window.scrollX,
@@ -301,7 +338,35 @@ export function Masonry<T>({
       at.set(key, to);
       const from = before.at.get(key);
       if (glide && from && from !== to) {
-        tile.animate([{ transform: from }, { transform: to }], timing);
+        const gliding = running.current.get(key);
+        // Retarget a superseded glide from the offset it has reached.
+        const start = (gliding && drawnAt(tile)) || from;
+        gliding?.cancel();
+        const animation = tile.animate(
+          [{ transform: start }, { transform: to }],
+          timing
+        );
+        running.current.set(key, animation);
+        const forget = () => {
+          if (running.current.get(key) === animation)
+            running.current.delete(key);
+        };
+        animation.addEventListener("finish", forget);
+        animation.addEventListener("cancel", forget);
+      }
+      // A tile new to this wall fades and grows once, where it stands.
+      if (entering.has(key)) {
+        entering.delete(key);
+        if (now < openUntil && near(tile.getBoundingClientRect().top)) {
+          tile.dataset.enter = "true";
+          // animationend bubbles: only the tile's own entrance ends it.
+          const done = (event: AnimationEvent) => {
+            if (event.target !== tile) return;
+            tile.removeEventListener("animationend", done);
+            delete tile.dataset.enter;
+          };
+          tile.addEventListener("animationend", done);
+        }
       }
       const offset = TRANSLATE.exec(to);
       if (glideKey === undefined || !offset) continue;
@@ -330,7 +395,17 @@ export function Masonry<T>({
       }
       travel.at.set(key, here);
     }
-    placed.current = { items, glideKey, openUntil: same ? openUntil : 0, at };
+    placed.current = {
+      items,
+      keys,
+      glideKey,
+      openUntil: same ? openUntil : 0,
+      at,
+      // Keys that never rendered (scrolled out of the virtual window) can
+      // wait for the glide window to close; then they are plain tiles.
+      entering: now < openUntil ? entering : new Set(),
+      edited: edited || (same && now < openUntil && before.edited),
+    };
   });
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -482,6 +557,7 @@ export function Masonry<T>({
       onContextMenu={(e) => {
         if (suppressClick.current) e.preventDefault();
       }}
+      data-selection-active={selected.size > 0 ? "true" : undefined}
       className={cn("relative w-full", className)}
       style={{ height: virtualizer.getTotalSize() }}
     >
@@ -500,8 +576,8 @@ export function Masonry<T>({
             role="listitem"
             data-index={v.index}
             tabIndex={v.index === current ? 0 : -1}
-            aria-label={`${getLabel(item)}${selection?.ids.includes(getKey(item)) ? ", Selected" : ""}`}
-            data-selected={selection?.ids.includes(getKey(item)) || undefined}
+            aria-label={`${getLabel(item)}${selected.has(getKey(item)) ? ", Selected" : ""}`}
+            data-selected={selected.has(getKey(item)) || undefined}
             data-selectable={selection ? "true" : undefined}
             onFocus={() => setActive(v.index)}
             onClick={(e) => {
@@ -529,8 +605,8 @@ export function Masonry<T>({
                 type="button"
                 tabIndex={-1}
                 aria-label={`Select ${getLabel(item)}`}
-                aria-pressed={selection.ids.includes(getKey(item))}
-                className="absolute top-1 right-1 z-10 grid size-11 place-items-center rounded-control opacity-0 focus:opacity-100 group-hover/selection:opacity-100 aria-pressed:opacity-100 [@media(pointer:coarse)]:opacity-100"
+                aria-pressed={selected.has(getKey(item))}
+                className="absolute top-0.5 right-0.5 z-10 grid size-8 place-items-center rounded-control pointer-coarse:-top-1 pointer-coarse:-right-1 pointer-coarse:size-(--size-touch)"
                 onClick={(e) => {
                   e.stopPropagation();
                   selection.choose(
@@ -541,9 +617,9 @@ export function Masonry<T>({
               >
                 <span
                   aria-hidden
-                  className="grid size-5 place-items-center rounded-chip border border-ring bg-surface text-ink"
+                  className="check-plate grid size-5 place-items-center text-ink"
                 >
-                  {selection.ids.includes(getKey(item)) && (
+                  {selected.has(getKey(item)) && (
                     <CheckIcon aria-hidden className="size-4" />
                   )}
                 </span>

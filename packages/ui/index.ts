@@ -18,7 +18,12 @@ export { Checkbox } from "./lib/checkbox";
 export { CrossfadeIcon } from "./lib/crossfade-icon";
 export { Skeleton, SkeletonGate } from "./lib/skeleton";
 export { StateBlock } from "./lib/state-block";
-export { toastOffset, useBottomObstruction } from "./lib/obstruction";
+export {
+  toastOffset,
+  useBottomObstruction,
+  useOpenLayer,
+  useOpenLayerCount,
+} from "./lib/obstruction";
 export {
   CommandDialog,
   CommandEmpty,
@@ -34,8 +39,16 @@ export {
   type MasonrySelection,
   type MasonryHandle,
 } from "./lib/masonry";
+export { useScrollFade } from "./lib/scroll-fade";
 export { Input } from "./lib/input";
 export { Textarea } from "./lib/textarea";
 export { Switch } from "./lib/switch";
 export { InputOTP, InputOTPGroup, InputOTPSlot } from "./lib/input-otp";
-export { Menu, MenuContent, MenuItem, MenuTrigger } from "./lib/menu";
+export {
+  Menu,
+  MenuCheckboxItem,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "./lib/menu";

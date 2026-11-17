@@ -196,9 +196,9 @@ export function ConnectedAssistants() {
               </Button>
               <Button
                 wrap
-                variant="quiet"
+                variant="danger"
                 size="sm"
-                className="text-danger md:-mr-3"
+                className="md:-mr-3"
                 disabled={pending}
                 aria-label={`Revoke ${a.name}`}
                 onClick={(event) => {

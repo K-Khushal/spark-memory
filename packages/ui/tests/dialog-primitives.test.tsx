@@ -14,6 +14,7 @@ import {
   DialogTrigger,
   inputModality,
   trackInputModality,
+  useOpenLayerCount,
 } from "../index";
 
 let host: HTMLElement;
@@ -142,4 +143,76 @@ it("tracks how the last input arrived", () => {
   document.dispatchEvent(new Event("pointerdown"));
   expect(inputModality()).toBe("pointer");
   stop();
+});
+
+it("the header reserves the Close column from 640px up as on a phone, so a long title wraps clear of it", async () => {
+  await open("sheet");
+  const header = content().querySelector("[data-slot=dialog-header]")!;
+  for (const cls of ["pr-14", "sm:pr-14", "pointer-coarse:pr-16"])
+    expect(header.className.split(" ")).toContain(cls);
+});
+
+it("the body fades its last 24px only while there is more to read", async () => {
+  await open("sheet");
+  const body = content().querySelector<HTMLElement>("[data-slot=dialog-body]")!;
+  const scroll = (height: number, top: number, client: number) => {
+    Object.defineProperty(body, "scrollHeight", {
+      configurable: true,
+      value: height,
+    });
+    Object.defineProperty(body, "clientHeight", {
+      configurable: true,
+      value: client,
+    });
+    body.scrollTop = top;
+    body.dispatchEvent(new Event("scroll"));
+  };
+  scroll(300, 0, 300);
+  expect(body.dataset.fade).toBe("false");
+  scroll(600, 0, 300);
+  expect(body.dataset.fade).toBe("true");
+  scroll(600, 300, 300);
+  expect(body.dataset.fade).toBe("false");
+});
+
+it("remembers how it was opened, so a later click does not change its entrance", async () => {
+  document.documentElement.dataset.input = "keyboard";
+  await open("sheet");
+  expect(content().dataset.openedBy).toBe("keyboard");
+  document.documentElement.dataset.input = "pointer";
+  await act(async () => {});
+  expect(content().dataset.openedBy).toBe("keyboard");
+  delete document.documentElement.dataset.input;
+});
+
+it("counts as an open layer only while its content is open", async () => {
+  const Count = () => h("output", null, String(useOpenLayerCount()));
+  const count = () => document.querySelector("output")!.textContent;
+  await act(async () =>
+    root.render(
+      h(
+        Dialog,
+        null,
+        h(Count),
+        h(DialogTrigger, { id: "open", type: "button" }, "Open"),
+        h(
+          DialogContent,
+          { "aria-describedby": undefined },
+          h(DialogTitle, null, "T")
+        )
+      )
+    )
+  );
+  expect(count()).toBe("0");
+  await act(async () =>
+    host.querySelector<HTMLButtonElement>("#open")!.click()
+  );
+  expect(count()).toBe("1");
+  await act(async () => {
+    content().dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+    );
+  });
+  await act(async () => vi.runOnlyPendingTimersAsync());
+  expect(count()).toBe("0");
 });

@@ -144,12 +144,12 @@ export function SignInPage({
   };
 
   return (
-    <main className="grid min-h-dvh grid-cols-[minmax(0,1fr)] place-items-center bg-canvas px-4 py-12">
+    <main className="grid min-h-dvh grid-cols-[minmax(0,1fr)] place-items-center bg-canvas px-4 py-12 max-sm:place-items-start max-sm:justify-items-center max-sm:pt-[20dvh]">
       <div className="flex w-full max-w-[22rem] flex-col gap-6">
         <Wordmark />
         {step === "email" ? (
           <>
-            <Title>Sign In to Spark</Title>
+            <Title>Sign In</Title>
             {options.socialProviders.length > 0 && (
               <div className="flex flex-col gap-2">
                 {options.socialProviders.map((p) => {
@@ -290,9 +290,9 @@ export function SignInPage({
   );
 }
 
-/** The brand, in display type, above the step's heading. Not a heading. */
+/** The brand, in display type, above the step's heading. Not a heading. It says the name once: the heading does not repeat it. */
 function Wordmark() {
-  return <p className="font-display text-xl font-semibold">Spark</p>;
+  return <p className="font-display text-md font-semibold">Spark</p>;
 }
 
 function Title({ children }: { children: ReactNode }) {

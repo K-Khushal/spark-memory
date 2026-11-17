@@ -32,13 +32,13 @@ for (const theme of THEMES) {
       await fromOwnAddress(page);
       await page.goto("/sign-in");
       await expect(
-        page.getByRole("heading", { name: "Sign In to Spark", level: 1 })
+        page.getByRole("heading", { name: "Sign In", level: 1 })
       ).toBeVisible();
-      // The wordmark is display xl, 24px above the heading.
+      // The wordmark is display md and says the name once, 24px above the heading.
       const wordmark = page.getByText("Spark", { exact: true }).first();
       expect(
         await wordmark.evaluate((el) => getComputedStyle(el).fontSize)
-      ).toBe("28px");
+      ).toBe("17px");
       const gap = await page.evaluate(() => {
         const mark = [...document.querySelectorAll("p")].find(
           (p) => p.textContent === "Spark"

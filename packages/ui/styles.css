@@ -20,7 +20,7 @@
   --indexing: #8f5b00;
   --searchable: #24774a;
   --shadow-rgb: 17 18 20;
-  --scrim: rgb(17 18 20 / 0.32);
+  --scrim: rgb(17 18 20 / 0.24);
   --edge: rgb(0 0 0 / 0.1);
   color-scheme: light;
 }
@@ -247,8 +247,9 @@
   [data-slot="dialog-content"][data-presentation][data-state="closed"] {
     animation: spark-fade-out var(--duration-press) var(--ease-out) both;
   }
-  html[data-input="keyboard"]
-    [data-slot="dialog-content"][data-presentation="dialog"][data-state="open"] {
+  /* Keyed to how the dialog was opened (data-opened-by, fixed at mount), not
+     the live <html data-input>: a click inside it must not replay it. */
+  [data-slot="dialog-content"][data-presentation="dialog"][data-opened-by="keyboard"][data-state="open"] {
     animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
   }
   @media (max-width: 639.98px) {
@@ -257,6 +258,10 @@
     }
     [data-slot="dialog-content"][data-presentation="sheet"][data-state="closed"] {
       animation: spark-sheet-out var(--duration-small) var(--ease-drawer) both;
+    }
+    /* Opened from a keyboard: opacity only, no rise. */
+    [data-slot="dialog-content"][data-presentation="sheet"][data-opened-by="keyboard"][data-state="open"] {
+      animation: spark-fade-in var(--duration-preview) var(--ease-out) both;
     }
   }
   /* Reduced motion: every overlay is opacity only, 150ms at most. */
@@ -399,4 +404,53 @@ html[data-input="keyboard"] [data-slot="checkbox-mark"] {
       opacity: 1;
     }
   }
+}
+
+/*
+ * A region that scrolls fades into its edge only while there is more to read
+ * (`data-fade`, set from the scroll position by `useScrollFade`): the sidebar's
+ * list and a dialog's body. No mask when everything fits or at the end.
+ */
+[data-fade="true"] {
+  mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+}
+
+/*
+ * The tile's check control: its `surface` plate fades in on hover or focus
+ * within a tile (120ms), shows at once on a coarse pointer while selection is
+ * active, and is always there once the tile is selected. Put it on the plate
+ * inside the check button; the tile carries `group/selection`.
+ */
+@utility check-plate {
+  border-radius: var(--radius-chip);
+  background-color: var(--surface);
+  box-shadow: var(--shadow-raised);
+  opacity: 0;
+  transition: opacity var(--duration-press) var(--ease-out);
+  @media (hover: hover) {
+    :where(.group\/selection:hover) & {
+      opacity: 1;
+    }
+  }
+  :where(.group\/selection:focus-within) &,
+  :where([data-selected]) & {
+    opacity: 1;
+  }
+  @media (pointer: coarse) {
+    :where([data-selection-active="true"]) & {
+      opacity: 1;
+    }
+  }
+}
+
+/* A tile new to a wall fades and grows from 0.96 in 260ms (DESIGN.md →
+   Motion). Reduced motion: the global rule above removes the scale. */
+@keyframes spark-tile-in {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+}
+[data-enter="true"] {
+  animation: spark-tile-in var(--duration-panel) var(--ease-out) both;
 }

@@ -225,6 +225,18 @@ describe.each(Object.keys(THEMES) as ThemeName[])("%s theme", (name) => {
     expect(contrastRatio(t[fg], t[bg])).toBeGreaterThanOrEqual(4.5);
   });
 
+  // Text fields: a focused edge is `ink` where it was `line-strong`, so the
+  // change itself is visible (at least 4.5:1) and the edge reads on the field.
+  it("a focused text field's ink edge stands out from its resting edge and the field", () => {
+    expect(contrastRatio(t.ink, t["line-strong"])).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(t.ink, t.surface)).toBeGreaterThanOrEqual(14);
+  });
+
+  // A disabled primary button is `sunken` with `ink-muted` text.
+  it("a disabled primary button's label reads on its sunken fill", () => {
+    expect(contrastRatio(t["ink-muted"], t.sunken)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it.each([
     ["ring", "canvas"],
     ["ring", "surface"],
