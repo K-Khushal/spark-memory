@@ -107,7 +107,7 @@ export function ConnectionGuide({
                 <Button
                   variant="outline"
                   aria-label={`Assistant: ${client}`}
-                  className="min-h-11 w-full justify-between focus-visible:ring-offset-0"
+                  className="min-h-11 w-full justify-between focus-visible:outline-offset-0"
                 >
                   {client}
                   <ChevronDownIcon aria-hidden className="size-4" />
