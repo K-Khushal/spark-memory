@@ -250,32 +250,39 @@ export function ConnectedAssistants() {
             <DialogTitle>Connect Assistant</DialogTitle>
           </DialogHeader>
           <DialogBody>
-            <form
-              onSubmit={(e) => void create(e)}
-              className="flex flex-col gap-2"
-            >
-              <label
-                htmlFor="assistant-name"
-                className="text-sm text-ink-muted"
+            {state.phase !== "issued" && (
+              <form
+                onSubmit={(e) => void create(e)}
+                className="flex flex-col gap-2"
               >
-                Assistant Name
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <Input
-                  className="flex-1 basis-40"
-                  id="assistant-name"
-                  name="assistant-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  maxLength={80}
-                  required
-                  autoComplete="off"
-                />
-                <Button wrap type="submit" variant="outline" disabled={pending}>
-                  Create Token
-                </Button>
-              </div>
-            </form>
+                <label
+                  htmlFor="assistant-name"
+                  className="text-sm text-ink-muted"
+                >
+                  Assistant Name
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <Input
+                    className="flex-1 basis-40"
+                    id="assistant-name"
+                    name="assistant-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={80}
+                    required
+                    autoComplete="off"
+                  />
+                  <Button
+                    wrap
+                    type="submit"
+                    variant="outline"
+                    disabled={pending}
+                  >
+                    Create Token
+                  </Button>
+                </div>
+              </form>
+            )}
             {state.phase === "issued" && (
               <div className="flex flex-col gap-2">
                 <label
@@ -284,51 +291,58 @@ export function ConnectedAssistants() {
                 >
                   Copy Token Now
                 </label>
-                <Input
-                  id="assistant-token"
-                  name="assistant-token"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={state.token}
-                  readOnly
-                  onFocus={(e) => e.currentTarget.select()}
-                />
-                <Button
-                  wrap
-                  variant="outline"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(state.token);
-                      setCopied(true);
-                    } catch {
-                      document.getElementById("assistant-token")?.focus();
-                    }
-                  }}
-                >
-                  <CrossfadeIcon
-                    on={copied}
-                    from={<CopyIcon />}
-                    to={<CheckIcon />}
+                <div className="flex items-center gap-2">
+                  <Input
+                    className="min-w-0 flex-1"
+                    id="assistant-token"
+                    name="assistant-token"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={state.token}
+                    readOnly
+                    onFocus={(e) => e.currentTarget.select()}
                   />
-                  {copied ? "Copied" : "Copy Token"}
-                </Button>
+                  <Button
+                    wrap
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(state.token);
+                        setCopied(true);
+                      } catch {
+                        document.getElementById("assistant-token")?.focus();
+                      }
+                    }}
+                  >
+                    <CrossfadeIcon
+                      on={copied}
+                      from={<CopyIcon />}
+                      to={<CheckIcon />}
+                    />
+                    {copied ? "Copied" : "Copy Token"}
+                  </Button>
+                </div>
                 <span role="status" className="sr-only">
                   {copied ? "Copied" : ""}
                 </span>
-                <Button
-                  wrap
-                  variant="outline"
-                  onClick={() => {
-                    setState({ phase: "idle" });
-                    setConnecting(false);
-                  }}
-                >
-                  Done
-                </Button>
               </div>
             )}
             {feedback}
           </DialogBody>
+          {state.phase === "issued" && (
+            <DialogFooter>
+              <Button
+                wrap
+                variant="outline"
+                onClick={() => {
+                  setState({ phase: "idle" });
+                  setConnecting(false);
+                }}
+              >
+                Done
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
       {!connecting && feedback}

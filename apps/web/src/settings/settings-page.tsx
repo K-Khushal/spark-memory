@@ -104,14 +104,14 @@ export function SettingsPage({
             </Button>
           </StateBlock>
         ) : (
-          <div className="mx-auto flex max-w-xl flex-col gap-10 px-4 py-6 md:px-6 md:py-12">
+          <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12">
             <h1 className="sr-only font-display text-xl font-semibold md:not-sr-only">
               Settings
             </h1>
             <SkeletonGate
               loading={loading}
               label="Loading Settings"
-              className="flex flex-col gap-10"
+              className="flex flex-col gap-6"
               skeleton={<SettingsSkeleton />}
             >
               {usage && (
@@ -345,7 +345,7 @@ function Export({ account }: { account: Account }) {
         }
       }}
     >
-      <span>Export Library</span>
+      <span>Library Export</span>
       {ready && state === "ready" && canExportAgain ? (
         <Menu>
           <MenuTrigger asChild>
@@ -397,7 +397,7 @@ function Export({ account }: { account: Account }) {
           ) : state === "failed" ? (
             "Try Export Again"
           ) : (
-            "Export Library"
+            "Export"
           )}
         </Button>
       )}
@@ -530,7 +530,7 @@ function DeleteAccount({
 /** Delay the static placeholder so cached responses never flash it. */
 function SettingsSkeleton() {
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-6">
       {[0, 1, 2].map((key) => (
         <div key={key} className="flex flex-col gap-3">
           <Skeleton className="h-6 w-28" />

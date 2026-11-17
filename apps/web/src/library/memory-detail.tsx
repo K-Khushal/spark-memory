@@ -158,8 +158,6 @@ function Fields({
   const [fields, setFields] = useState<Draft>(
     () => edit?.fields ?? textOf(memory)
   );
-  // The body field opens to its writing height at first focus and stays.
-  const [writing, setWriting] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   const footer = useRef<HTMLDivElement | null>(null);
   // The sheet mounts in a portal after this renders: wait for the footer.
@@ -271,12 +269,16 @@ function Fields({
           </div>
           <div className="pr-20 text-xs wrap-anywhere text-ink-muted pointer-coarse:pr-24">
             {[
-              memory.kind === "text"
-                ? "Text"
-                : memory.kind === "pdf"
-                  ? "PDF"
-                  : memory.kind[0]!.toUpperCase() + memory.kind.slice(1),
-              ...(["link", "video", "social"].includes(memory.kind) &&
+              {
+                text: "Note",
+                file: "File",
+                pdf: "PDF",
+                image: "Image",
+                video: "Video",
+                link: "Link",
+                social_post: "Post",
+              }[memory.kind],
+              ...(["link", "video", "social_post"].includes(memory.kind) &&
               memory.sourceUrl
                 ? [hostOf(memory)]
                 : []),
@@ -300,24 +302,29 @@ function Fields({
           ) : memory.kind === "link" ? (
             <Reader memory={memory} />
           ) : (
-            <Textarea
-              ref={bodyField}
-              value={shown.body}
-              onChange={(e) => change({ ...shown, body: e.target.value })}
-              aria-label="Text"
-              dir="auto"
-              // Reads as text (base/24) with no chrome at rest, sized to what it
-              // holds: a one-line note is one line. The surface appears on hover
-              // (colour, 120ms) and the ring on focus. Once you start writing,
-              // or when it is empty, it keeps a 96px well to write in: it never
-              // shrinks again on blur, because that would move Done out from
-              // under a press. Its edge aligns with the property controls.
-              onFocus={() => setWriting(true)}
-              className={cn(
-                "min-h-0 w-full rounded-control border-transparent bg-transparent p-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
-                (writing || !shown.body) && "min-h-24"
-              )}
-            />
+            <>
+              <Button
+                variant="quiet"
+                size="sm"
+                className="self-start"
+                onClick={() => bodyField.current?.focus()}
+              >
+                Edit
+              </Button>
+              <Textarea
+                ref={bodyField}
+                value={shown.body}
+                onChange={(e) => change({ ...shown, body: e.target.value })}
+                aria-label="Text"
+                dir="auto"
+                // Focus preserves the reading geometry. Only content changes
+                // resize the field, so entering Edit never moves its glyphs.
+                className={cn(
+                  "min-h-0 w-full rounded-control border-transparent bg-transparent px-0 py-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
+                  !shown.body && "min-h-24"
+                )}
+              />
+            </>
           )}
         </div>
         <div className="divide-y divide-line border-t border-line pt-4">
