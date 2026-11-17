@@ -55,7 +55,8 @@ export function captureClient(origin: string, request: typeof fetch = fetch) {
         return {
           ...result,
           title:
-            result.title ?? ("pageTitle" in capture ? capture.pageTitle : null),
+            result.title ??
+            ("page" in capture ? (capture.page?.title ?? null) : null),
         };
       for (const upload of result.uploads as {
         role: "original" | "thumbnail";

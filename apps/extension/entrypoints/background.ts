@@ -527,7 +527,10 @@ export default defineBackground(() => {
     return sent
       ? {
           state: sent.id === id ? "saved" : "duplicate",
-          memory: sent,
+          memory: {
+            ...sent,
+            title: sent.title ?? page?.title ?? tab.title ?? null,
+          },
           owner,
         }
       : { state: "queued" };
