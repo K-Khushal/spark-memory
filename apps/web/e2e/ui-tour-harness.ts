@@ -171,7 +171,9 @@ export async function step(
             ).toBeVisible();
             if (slug.endsWith("partly-indexed"))
               await expect(
-                reader.getByText("Partly Indexed", { exact: true })
+                reader
+                  .getByText("Partly Indexed", { exact: true })
+                  .filter({ visible: true })
               ).toBeVisible();
           }
         }

@@ -444,13 +444,19 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
         dialog.getByRole("img", { name: "Page 1", exact: true })
       ).toBeVisible();
     } else {
-      await expect(
-        dialog.getByText(title, { exact: true }).first()
-      ).toBeVisible();
+      const editor = dialog.getByRole("textbox", {
+        name: "Title",
+        exact: true,
+      });
+      if (await editor.count())
+        await expect(editor).toHaveValue(new RegExp("^" + title));
+      else await expect(dialog).toHaveAccessibleName(title);
     }
     if (title === "Complete Field Guide")
       await expect(
-        dialog.getByText("Partly Indexed", { exact: true })
+        dialog
+          .getByText("Partly Indexed", { exact: true })
+          .filter({ visible: true })
       ).toBeVisible();
     await settle(page);
   };
@@ -1600,6 +1606,42 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
       await video?.saveAs(resolve(VIDEOS, name));
       recordVideo(name, line);
     }
+  }
+  const coldContext = await browser.newContext({
+    storageState: state,
+    viewport: { width: 1440, height: 900 },
+    recordVideo: {
+      dir: resolve(VIDEOS, ".raw"),
+      size: { width: 1440, height: 900 },
+    },
+  });
+  const coldMock: Mock = { ...mock, delay: 800, listFails: true };
+  await installLibrary(coldContext, coldMock);
+  const cold = await coldContext.newPage();
+  try {
+    await cold.goto("/");
+    await expect(
+      cold.locator('main [data-slot="skeleton"]').first()
+    ).toBeVisible();
+    await expect(
+      cold.getByRole("heading", { name: "Library Is Unreachable" })
+    ).toBeVisible();
+    coldMock.listFails = false;
+    await cold.getByRole("button", { name: "Try Again", exact: true }).click();
+    await expect(
+      cold.locator('main [data-slot="skeleton"]').first()
+    ).toBeVisible();
+    await expect(
+      cold.getByRole("list", { name: "All Memories" })
+    ).toBeVisible();
+  } finally {
+    const video = cold.video();
+    await coldContext.close();
+    await video?.saveAs(resolve(VIDEOS, "cold-load-and-retry.webm"));
+    recordVideo(
+      "cold-load-and-retry.webm",
+      "Cold first-frame skeleton, Library recovery and subsequent delayed skeleton gate"
+    );
   }
   const desktop = { width: 1440, height: 900 };
   const phone = { width: 390, height: 844 };
