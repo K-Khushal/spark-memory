@@ -12,6 +12,9 @@ import {
   rmSync,
 } from "node:fs";
 import { resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import type { Memory } from "../src/library/use-library";
 import { signIn } from "./sign-in";
 import { pageSvg, SHAPES, sceneSvg } from "./ui-tour-fixtures";
@@ -44,6 +47,7 @@ const entries: Entry[] = [];
 const videoEntries: { name: string; line: string }[] = [];
 let counter = 0;
 let section = "";
+let browserVersion = "not recorded";
 
 /** Clears what an earlier tour left (only its own files), so the folder is this run's alone. */
 export function prepareOut() {
@@ -82,7 +86,6 @@ export async function settle(page: Page) {
       new Promise((done) => setTimeout(done, 600)),
     ]);
   });
-  await page.waitForTimeout(120);
 }
 
 const touchSessions = new WeakMap<Page, CDPSession>();
@@ -139,6 +142,7 @@ export async function step(
   entries.push(entry);
   mkdirSync(OUT, { recursive: true });
   try {
+    browserVersion = page.context().browser()?.version() ?? "unknown";
     await resetView(page);
     await run();
     for (const size of options.sizes ?? SIZES) {
@@ -153,6 +157,24 @@ export async function step(
         await page.emulateMedia({ colorScheme: theme });
         await options.beforeShot?.(size.width, theme);
         await settle(page);
+        if (slug.startsWith("detail-")) {
+          await expect(page.getByRole("dialog")).toBeVisible();
+          if (slug.startsWith("detail-pdf")) {
+            const name =
+              slug === "detail-pdf"
+                ? "Garden Report 2026"
+                : "Complete Field Guide";
+            const reader = page.getByRole("dialog", { name, exact: true });
+            await expect(reader).toBeVisible();
+            await expect(
+              reader.getByRole("img", { name: "Page 1", exact: true }).first()
+            ).toBeVisible();
+            if (slug.endsWith("partly-indexed"))
+              await expect(
+                reader.getByText("Partly Indexed", { exact: true })
+              ).toBeVisible();
+          }
+        }
         const shoot = async (label: string) => {
           const name = `${pad(entry.n)}-${slug}${label}-${theme}-${size.width}.png`;
           const clip = options.fitContent
@@ -204,6 +226,13 @@ export function writeIndex() {
   const lines = [
     "# Spark UI tour",
     "",
+    `Commit: ${execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()}`,
+    `Fixture SHA256: ${createHash("sha256")
+      .update(readFileSync(resolve("e2e/ui-tour-fixtures.ts")))
+      .digest("hex")}`,
+    `Bundle: ${process.env.UI_TOUR_BUNDLE ?? "Vite development modules at the commit above (working tree changes included)"}`,
+    `Browser: Chromium ${browserVersion} (Playwright); reduced motion: no-preference except explicitly named reduced-motion recordings. Viewports: 1440×900 desktop/no touch, 390×844 phone/touch, 320px extension/no touch.`,
+    "",
     "Every screen and state in light and dark at 1440x900 and 390x844 (a touch device, so `pointer: coarse` rules apply). Files are `NN-screen-state-theme-width.png`; the same NN is the same screen and state in all four. Settings and Admin are shot at the viewport and again scrolled to the bottom (`-scrolled`); an extension popup is shot at 320px wide, as tall as its content.",
     "",
   ];
@@ -250,6 +279,7 @@ export type Mock = {
   /** The Library, or search, is unreachable. */
   listFails: boolean;
   searchFails: boolean;
+  searchDelay?: number;
   /** Direct and related ids for a query (lower case), set by the tour. */
   answers: Record<string, { direct: string[]; related?: string[] }>;
   /** What Get Started reports; unset leaves it to the real server. */
@@ -270,6 +300,12 @@ const KIND_OF: Record<string, string[]> = {
  * deletes succeed and change nothing, so a step never needs the real API.
  */
 export async function installLibrary(context: BrowserContext, mock: Mock) {
+  await context.route("**/tour/video-poster.svg", (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: sceneSvg(0, 1600, 900),
+    })
+  );
   await context.route(/\/tour\/image-(\d+)\.svg$/, (route) => {
     const index = Number(/image-(\d+)/.exec(route.request().url())![1]);
     const shape = SHAPES[index % SHAPES.length]!;
@@ -317,6 +353,8 @@ export async function installLibrary(context: BrowserContext, mock: Mock) {
         });
       }
       if (path === "/api/search" && method === "POST") {
+        if (mock.searchDelay)
+          await new Promise((r) => setTimeout(r, mock.searchDelay));
         if (mock.searchFails) return route.fulfill({ status: 503, json: {} });
         const body = request.postDataJSON() as {
           q: string;

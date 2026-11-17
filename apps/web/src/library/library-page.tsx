@@ -1,3 +1,4 @@
+import { rootFontScale } from "./root-font-scale";
 import { readLibraryView, rememberLibraryView } from "./library-view";
 import "./library-wall.css";
 import { emptySelection, select } from "./selection";
@@ -67,7 +68,7 @@ import { useStickyInset } from "../sticky-inset";
 import { productMetrics } from "./product-metrics";
 import { createActivation } from "./activation";
 import { Onboarding, recordActivation } from "./onboarding";
-import { MemoryTile, tileHeight, tileLabel } from "./memory-tile";
+import { MemoryTile, tileHeight, tileLayout, tileLabel } from "./memory-tile";
 import { LibraryOverlaysHost } from "./overlays-host";
 import { pdfMatch, type PdfMatch } from "./pdf-match";
 import { focusWall } from "./focus";
@@ -80,7 +81,7 @@ import {
   type Results,
 } from "./use-search";
 import { whyHeight, WhyChip, whyLabel } from "./why";
-import { useTitleFonts } from "./title-lines";
+import { bodyLines, useTitleFonts } from "./title-lines";
 import { usePhoneWall, wallColumns } from "./wall-geometry";
 
 /** Set once the Library has shown on this page load: a later visit keeps the 150ms wait. */
@@ -1057,7 +1058,27 @@ function ResultWall({
           width={tile.width}
           footer={
             why(m) ? (
-              <WhyChip found={m} direct={!!direct} chips={chips} />
+              <WhyChip
+                found={m}
+                direct={!!direct}
+                chips={chips}
+                visiblePassage={
+                  m.kind === "text" &&
+                  m.part?.kind === "passage" &&
+                  m.part.field === "body" &&
+                  m.part.end <= 800 &&
+                  !!query.trim() &&
+                  bodyLines(
+                    (m.body ?? "").slice(0, m.part.end),
+                    tile.width - (tile.width < 200 ? 24 : 32) * rootFontScale(),
+                    100
+                  ) <= tileLayout(m, tile.width).body &&
+                  (m.body ?? "")
+                    .slice(m.part.start, m.part.end)
+                    .toLowerCase()
+                    .includes(query.toLowerCase())
+                }
+              />
             ) : undefined
           }
           {...tiles}
@@ -1109,10 +1130,18 @@ function SearchResults({
   if (results === "failed") {
     return (
       <div data-search="failed">
-        <StateBlock title="Search Is Unreachable">
+        <StateBlock
+          title="Search Is Unreachable"
+          align="centre"
+          className="min-h-[60dvh] justify-center px-4"
+        >
+          <span className="sr-only" role="status">
+            {retrying ? "Searching Again" : "Search Is Unreachable"}
+          </span>
           <Button
             wrap
             variant="outline"
+            data-wall-action
             aria-disabled={retrying}
             className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
             onClick={() => !retrying && onRetry()}
@@ -1185,7 +1214,11 @@ function SearchResults({
           tabIndex={-1}
           className="mb-3 text-sm font-medium text-ink outline-none"
         >
-          {results.direct.length ? "Direct Matches" : "No Direct Matches"}
+          {results.direct.length
+            ? "Direct Matches"
+            : results.settled
+              ? "No Direct Matches"
+              : "Direct Matches"}
         </h2>
         {results.direct.length > 0 ? (
           <ResultWall

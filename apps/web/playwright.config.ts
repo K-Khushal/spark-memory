@@ -47,7 +47,10 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: "pnpm --filter @spark/web dev",
+      command:
+        process.env.UI_TOUR_PINNED === "1"
+          ? `pnpm --filter @spark/web exec vite preview --port ${process.env.SPARK_WEB_PORT ?? 5173}`
+          : "pnpm --filter @spark/web dev",
       url: web,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,

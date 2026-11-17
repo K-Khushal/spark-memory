@@ -32,3 +32,11 @@ SPARK_WEB_PORT=5188 SPARK_API_PORT=8798 \
 Run the tour after `pnpm check` finishes, and reserve its port pair for the full
 run. Do not reuse another checkout's dev servers or database. The OTP step
 asserts that sending the code succeeded before checking its entry screen.
+
+For round-3 acceptance, build once with `pnpm --filter @spark/web build`, then
+set `UI_TOUR_PINNED=1` to run against that production bundle. Set
+`UI_TOUR_BUNDLE` to its asset hash. The index records the commit, fixture hash,
+bundle identity, Chromium version, viewport/touch and reduced-motion settings.
+Reader steps assert the named dialog, Memory title and loaded first page before
+capture; the long PDF also asserts Partly Indexed. A wrong reader state fails
+the tour rather than producing a wall screenshot under a reader filename.

@@ -401,3 +401,60 @@ test("a pointer-selected Checkbox leaves Escape and Search shortcuts available",
     page.getByRole("dialog", { name: "Search", exact: true })
   ).toBeVisible();
 });
+
+test("text tiles fit font-shaped paragraphs without an empty badge row", async ({
+  page,
+  context,
+}) => {
+  const notes = tourMemories()
+    .filter((m) => m.kind === "text")
+    .slice(0, 5)
+    .map((m, i) => ({
+      ...m,
+      title: null,
+      sample: false,
+      indexState: "searchable" as const,
+      body: [
+        "Call the plumber before Friday.",
+        "Wide words WWWWWW and narrow iiiiii wrap differently.\n\nKeep the paragraph gap.",
+        "日本語の資料とデザインを保存します。長い文章も読みやすく。",
+        "नमस्ते दुनिया यह मेरी छोटी सी याद है",
+        "مرحبا بالعالم هذه ملاحظة قصيرة للحفظ",
+      ][i]!,
+    }));
+  await installLibrary(context, {
+    memories: notes,
+    delay: 0,
+    listFails: false,
+    searchFails: false,
+    onboarding: FINISHED,
+    answers: {},
+  });
+  await signIn(page);
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => document.fonts.ready);
+    const tiles = page
+      .getByRole("list", { name: "All Memories" })
+      .getByRole("listitem");
+    await expect(tiles).toHaveCount(notes.length);
+    await expect
+      .poll(() =>
+        tiles.evaluateAll((items) =>
+          items
+            .map((item) => {
+              const body = item.querySelector("p")!;
+              const content = body.parentElement!;
+              const style = getComputedStyle(content);
+              const expected =
+                body.getBoundingClientRect().height +
+                parseFloat(style.paddingTop) +
+                parseFloat(style.paddingBottom);
+              return Math.abs(item.getBoundingClientRect().height - expected);
+            })
+            .every((gap) => gap <= 1)
+        )
+      )
+      .toBe(true);
+  }
+});

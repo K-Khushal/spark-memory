@@ -143,12 +143,14 @@ export function WhyChip({
   found,
   direct,
   chips,
+  visiblePassage = false,
 }: {
   found: Found;
   direct: boolean;
   chips?: SearchChips;
+  visiblePassage?: boolean;
 }) {
-  const label = whyLabel(found, chips);
+  const label = visiblePassage ? "Text" : whyLabel(found, chips);
   if (!label) return null;
   const { part } = found;
   return (
