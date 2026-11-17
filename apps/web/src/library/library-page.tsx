@@ -83,6 +83,9 @@ import { whyHeight, WhyChip, whyLabel } from "./why";
 import { useTitleFonts } from "./title-lines";
 import { usePhoneWall, wallColumns } from "./wall-geometry";
 
+/** Set once the Library has shown on this page load: a later visit keeps the 150ms wait. */
+let libraryShown = false;
+
 /**
  * The Library: sidebar (a top bar on phones) beside the masonry wall of
  * Memories (DESIGN.md → Pick). ⌘V Captures, ⌘K searches, a tile opens its
@@ -108,8 +111,11 @@ function LibraryForSession({
   const library = useLibrary(session.user.id);
   // The first load of this page shows its skeleton on the first frame; every
   // later load keeps the 150ms wait.
-  const [cold, setCold] = useState(true);
+  const [cold, setCold] = useState(!libraryShown);
   if (cold && library.state !== "loading") setCold(false);
+  useEffect(() => {
+    if (library.state !== "loading") libraryShown = true;
+  }, [library.state]);
   const [returnView] = useState(() => readLibraryView(session.user.id));
   const restoringView = useRef(!!returnView);
   const navigationScroll = useRef<number | undefined>(undefined);

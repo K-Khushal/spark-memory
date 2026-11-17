@@ -65,7 +65,7 @@ export function CategoriseProgress({
       {bar && (
         <span className="h-0.5 overflow-hidden rounded-chip bg-line">
           <span
-            className="block h-full origin-left bg-ink transition-transform duration-180 ease-out motion-reduce:transition-none"
+            className="block h-full origin-left bg-ink transition-transform duration-(--duration-small) ease-out motion-reduce:transition-none"
             style={{ transform: `scaleX(${share})` }}
           />
         </span>

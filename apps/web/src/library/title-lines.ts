@@ -111,13 +111,22 @@ const spec = () => {
   return fontStack;
 };
 
+/** Whether the display font itself is ready: "loaded" alone can be true before it was ever asked for. */
+const displayFontReady = () =>
+  typeof document !== "undefined" &&
+  !!document.fonts &&
+  document.fonts.status === "loaded" &&
+  document.fonts.check(`500 16px ${spec()}`);
+
 if (typeof document !== "undefined" && document.fonts) {
   const update = () => {
+    if (fontsLoaded || !displayFontReady()) return;
     fontsLoaded = true;
     for (const notify of listeners) notify();
   };
-  fontsLoaded = document.fonts.status === "loaded";
+  fontsLoaded = displayFontReady();
   void document.fonts.ready.then(update, () => {});
+  document.fonts.addEventListener?.("loadingdone", update);
 }
 
 /**

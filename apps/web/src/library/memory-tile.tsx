@@ -3,10 +3,14 @@ import { Fragment, useCallback, useState, type ReactNode } from "react";
 import { IndexBadge, isPartly, PartlyIndexedBadge } from "./index-state";
 import {
   AtSignIcon,
+  FileTextIcon,
+  ImageIcon,
   Link2Icon,
   PlayIcon,
   RotateCwIcon,
+  StickyNoteIcon,
   Trash2Icon,
+  type LucideIcon,
 } from "lucide-react";
 import { placeholderUrl } from "@spark/capture";
 import { formatTimestamp, sourceHost } from "@spark/core";
@@ -487,14 +491,19 @@ export function ReferenceOnlyBadge({ className }: { className?: string }) {
   );
 }
 
+/** One mark per kind: before a link's Source, and at the start of a ⌘K row. */
+export const KIND_ICONS: Record<string, LucideIcon> = {
+  image: ImageIcon,
+  pdf: FileTextIcon,
+  video: PlayIcon,
+  link: Link2Icon,
+  social_post: AtSignIcon,
+  text: StickyNoteIcon,
+};
+
 /** The kind mark before a link's Source: a page, a video or a post. */
 const SourceMark = ({ kind }: Pick<WallMemory, "kind">) => {
-  const Icon =
-    kind === "video"
-      ? PlayIcon
-      : kind === "social_post"
-        ? AtSignIcon
-        : Link2Icon;
+  const Icon = KIND_ICONS[kind] ?? Link2Icon;
   return <Icon className="size-4 shrink-0" aria-hidden />;
 };
 

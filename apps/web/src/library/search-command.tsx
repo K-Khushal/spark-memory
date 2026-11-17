@@ -3,21 +3,14 @@ import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useRecentSearches } from "./search-history";
 import { restoreLibraryFocus } from "./focus";
 import {
-  AtSignIcon,
   ClockIcon,
-  FileTextIcon,
-  ImageIcon,
-  Link2Icon,
   LogOutIcon,
-  PlayIcon,
   PlusIcon,
   RotateCwIcon,
   SearchIcon,
   SettingsIcon,
-  StickyNoteIcon,
   Trash2Icon,
   XIcon,
-  type LucideIcon,
 } from "lucide-react";
 import {
   CommandDialog,
@@ -29,7 +22,7 @@ import {
 } from "@spark/ui";
 import { useFlip } from "./flip";
 import { MOD } from "./shortcuts";
-import { memoryName } from "./memory-tile";
+import { KIND_ICONS, memoryName } from "./memory-tile";
 import type { Memory } from "./use-library";
 import type { Found, Results } from "./use-search";
 import { searchList } from "./search-list";
@@ -293,18 +286,9 @@ function ListNote({ children }: { children: string }) {
   );
 }
 
-const KIND_ICONS: Record<string, LucideIcon> = {
-  image: ImageIcon,
-  pdf: FileTextIcon,
-  video: PlayIcon,
-  link: Link2Icon,
-  social_post: AtSignIcon,
-  text: StickyNoteIcon,
-};
-
 /** The kind of a result, as a 16px mark at the start of its row. */
 function KindIcon({ kind }: { kind: string }) {
-  const Icon = KIND_ICONS[kind] ?? StickyNoteIcon;
+  const Icon = KIND_ICONS[kind] ?? KIND_ICONS.text!;
   return <Icon className="size-4 shrink-0 text-ink-muted" aria-hidden />;
 }
 

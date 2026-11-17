@@ -1452,7 +1452,7 @@ test("extension popup, Grant Access and region overlay", async () => {
           permission.getByRole("button", { name: "Grant Access" })
         ).toBeEnabled();
       },
-      { recover: async () => {} }
+      { recover: async () => {}, sizes: [SIZES[0]] }
     );
     await permission.close();
     await fixture.bringToFront();
