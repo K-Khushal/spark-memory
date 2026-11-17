@@ -40,8 +40,12 @@ async function fetchUsage(): Promise<Usage | "failed"> {
   return res?.ok ? ((await res.json()) as Usage) : "failed";
 }
 
-async function fetchExport(): Promise<LibraryExport | "failed"> {
-  const res = await account.export.$get().catch(() => undefined);
+async function fetchExport(
+  signal?: AbortSignal
+): Promise<LibraryExport | "failed"> {
+  const res = await account.export
+    .$get({}, { init: { signal } })
+    .catch(() => undefined);
   return res?.ok ? ((await res.json()).export as LibraryExport) : "failed";
 }
 
@@ -87,17 +91,25 @@ export function useAccount() {
   const building = current !== "failed" && current?.state === "building";
   useEffect(() => {
     if (!building) return;
+    let stopped = false;
+    const controller = new AbortController();
     let delay = POLL.first;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
       // A failed poll is not a failed export: ask again later.
-      const next = await fetchExport();
+      const next = await fetchExport(controller.signal);
+      if (stopped) return;
       if (next !== "failed") setCurrent(next);
+      if (next !== "failed" && next?.state !== "building") return;
       delay = Math.min(delay * 1.5, POLL.max);
       timer = setTimeout(() => void tick(), delay);
     };
     timer = setTimeout(() => void tick(), delay);
-    return () => clearTimeout(timer);
+    return () => {
+      stopped = true;
+      controller.abort();
+      clearTimeout(timer);
+    };
   }, [building]);
 
   /** Deletes a Memory for good, from the list of what takes the most storage; true once it is gone. */
@@ -169,7 +181,6 @@ export function useAccount() {
       .$delete({ json: { email } })
       .catch(() => undefined);
     if (!res?.ok) {
-      toast("Delete Did Not Finish");
       return false;
     }
     endSession();

@@ -14,6 +14,7 @@ export type SavedMemory = {
   id: string;
   revision: number;
   captureNote: string | null;
+  title: string | null;
 };
 /** Cookies stay in Chrome's jar; no token ever enters extension storage. */
 export function captureClient(origin: string, request: typeof fetch = fetch) {
@@ -50,7 +51,13 @@ export function captureClient(origin: string, request: typeof fetch = fetch) {
           }
         )
       ).json();
-      if (!image) return result;
+      if (!image)
+        return {
+          ...result,
+          title:
+            result.title ??
+            ("page" in capture ? (capture.page?.title ?? null) : null),
+        };
       for (const upload of result.uploads as {
         role: "original" | "thumbnail";
         url: string;

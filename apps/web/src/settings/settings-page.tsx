@@ -1,3 +1,5 @@
+import { SettingsRow } from "./row";
+import { Segmented } from "./segmented";
 import { ConnectedAssistants } from "./connected-assistants";
 import { ImportSection } from "./import-section";
 import {
@@ -12,6 +14,10 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon, DownloadIcon, LoaderIcon } from "lucide-react";
 import {
   Button,
+  Menu,
+  MenuTrigger,
+  MenuContent,
+  MenuItem,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -91,21 +97,21 @@ export function SettingsPage({
             level={1}
             align="centre"
             title="Settings Are Unreachable"
-            className="px-4 py-12"
+            className="flex min-h-[60dvh] flex-col justify-center px-4"
           >
             <Button wrap variant="outline" onClick={account.reload}>
               Try Again
             </Button>
           </StateBlock>
         ) : (
-          <div className="mx-auto flex max-w-xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12">
+          <div className="mx-auto flex max-w-xl flex-col gap-10 px-4 py-6 md:px-6 md:py-12">
             <h1 className="sr-only font-display text-xl font-semibold md:not-sr-only">
               Settings
             </h1>
             <SkeletonGate
               loading={loading}
               label="Loading Settings"
-              className="flex flex-col gap-6"
+              className="flex flex-col gap-10"
               skeleton={<SettingsSkeleton />}
             >
               {usage && (
@@ -125,13 +131,12 @@ export function SettingsPage({
                   <Section title="Connected Assistants">
                     <ConnectedAssistants />
                   </Section>
-                  <Section title="Import">
+                  <Section title="Library">
                     <ImportSection userId={session.user.id} />
-                  </Section>
-                  <Section title="Export" live>
+
                     <Export account={account} />
                   </Section>
-                  <Section title="Delete Account">
+                  <Section title="Account">
                     <DeleteAccount email={email} account={account} />
                   </Section>
                 </>
@@ -157,14 +162,11 @@ function Section({
 }) {
   const id = useId();
   return (
-    <section aria-labelledby={id} className="flex flex-col gap-3">
-      <h2 id={id} className="font-display text-md font-medium text-ink">
+    <section aria-labelledby={id} className="flex flex-col gap-2">
+      <h2 id={id} className="text-sm font-medium text-ink-muted">
         {title}
       </h2>
-      <div
-        aria-live={live ? "polite" : undefined}
-        className="flex flex-col gap-3"
-      >
+      <div aria-live={live ? "polite" : undefined} className="flex flex-col">
         {children}
       </div>
     </section>
@@ -330,12 +332,12 @@ function Export({ account }: { account: Account }) {
   useEffect(() => {
     if (hadFocus.current)
       box.current?.querySelector<HTMLElement>("a, button")?.focus();
-  }, [state]);
+  }, [state, canExportAgain]);
 
   return (
     <div
       ref={box}
-      className="flex flex-wrap items-center gap-3"
+      className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-line text-sm last:border-b-0"
       onFocus={() => (hadFocus.current = true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
@@ -343,27 +345,54 @@ function Export({ account }: { account: Account }) {
         }
       }}
     >
-      {ready && state === "ready" && (
-        <Button wrap variant="primary" asChild>
-          {/* When it expires is in its accessible name, not a caption. */}
-          <a
-            href={EXPORT_DOWNLOAD_URL}
-            aria-label={`Download, Until ${until(ready.expiresAt)}`}
-          >
-            <DownloadIcon aria-hidden /> Download
-          </a>
-        </Button>
+      <span>Export Library</span>
+      {ready && state === "ready" && canExportAgain ? (
+        <Menu>
+          <MenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-w-36"
+              aria-label={`Download Options, Until ${until(ready.expiresAt)}`}
+            >
+              <DownloadIcon aria-hidden /> Download
+            </Button>
+          </MenuTrigger>
+          <MenuContent align="end">
+            <MenuItem asChild>
+              <a href={EXPORT_DOWNLOAD_URL}>Download</a>
+            </MenuItem>
+            <MenuItem onSelect={() => void account.startExport()}>
+              Export Library
+            </MenuItem>
+          </MenuContent>
+        </Menu>
+      ) : (
+        ready &&
+        state === "ready" && (
+          <Button wrap variant="outline" size="sm" className="min-w-36" asChild>
+            {/* When it expires is in its accessible name, not a caption. */}
+            <a
+              href={EXPORT_DOWNLOAD_URL}
+              aria-label={`Download, Until ${until(ready.expiresAt)}`}
+            >
+              <DownloadIcon aria-hidden /> Download
+            </a>
+          </Button>
+        )
       )}
-      {(state !== "ready" || canExportAgain) && (
+      {(!ready || state !== "ready") && (
         <Button
           wrap
           variant="outline"
+          size="sm"
+          className="min-w-36"
           aria-disabled={state === "building"}
           onClick={() => state === "building" || void account.startExport()}
         >
           {state === "building" ? (
             <>
-              <Spinner /> Exporting
+              <Spinner /> Preparing
             </>
           ) : state === "failed" ? (
             "Try Export Again"
@@ -385,6 +414,7 @@ function DeleteAccount({
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [deleteFailed, setDeleteFailed] = useState(false);
   const [typed, setTyped] = useState("");
   const [pending, setPending] = useState(false);
   const field = useId();
@@ -400,6 +430,7 @@ function DeleteAccount({
       return;
     }
     setPending(false);
+    setDeleteFailed(true);
   };
 
   return (
@@ -410,16 +441,17 @@ function DeleteAccount({
           // Once confirmed, it finishes: no closing halfway.
           if (pending) return;
           setOpen(next);
+          setDeleteFailed(false);
           if (!next) setTyped("");
         }}
       >
-        <div>
+        <SettingsRow label="Delete Account">
           <DialogTrigger asChild>
-            <Button wrap variant="outline">
+            <Button wrap variant="quiet" className="text-danger" size="sm">
               Delete Account
             </Button>
           </DialogTrigger>
-        </div>
+        </SettingsRow>
         <DialogContent
           presentation="sheet"
           className="flex max-h-[calc(100dvh-2rem)] max-w-md flex-col overflow-hidden"
@@ -431,15 +463,18 @@ function DeleteAccount({
           >
             <DialogHeader>
               <DialogTitle className="wrap-anywhere">
-                Delete Your Account and Every Memory
+                Delete Account
               </DialogTitle>
             </DialogHeader>
             <DialogBody>
               <div className="flex flex-col gap-2">
                 <label htmlFor={field} className="text-sm text-ink-muted">
-                  Type <span className="wrap-anywhere text-ink">{email}</span>
+                  Delete Every Memory. Type{" "}
+                  <span className="wrap-anywhere text-ink">{email}</span>
                 </label>
                 <Input
+                  aria-invalid={deleteFailed || undefined}
+                  aria-describedby={deleteFailed ? `${field}-error` : undefined}
                   id={field}
                   name="email"
                   type="text"
@@ -451,6 +486,15 @@ function DeleteAccount({
                   autoCorrect="off"
                   spellCheck={false}
                 />
+                {deleteFailed && (
+                  <p
+                    id={`${field}-error`}
+                    role="alert"
+                    className="text-sm text-danger"
+                  >
+                    Delete Did Not Finish
+                  </p>
+                )}
               </div>
             </DialogBody>
             <DialogFooter>
@@ -486,7 +530,7 @@ function DeleteAccount({
 /** Delay the static placeholder so cached responses never flash it. */
 function SettingsSkeleton() {
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-10">
       {[0, 1, 2].map((key) => (
         <div key={key} className="flex flex-col gap-3">
           <Skeleton className="h-6 w-28" />
@@ -506,33 +550,26 @@ function Appearance() {
     }
   });
   return (
-    <div role="group" aria-label="Appearance" className="flex flex-wrap gap-2">
-      {(["system", "light", "dark"] as const).map((value) => (
-        <Button
-          wrap
-          key={value}
-          variant={choice === value ? "primary" : "outline"}
-          aria-pressed={choice === value}
-          onClick={() => {
-            try {
-              if (value === "system") localStorage.removeItem("spark-theme");
-              else localStorage.setItem("spark-theme", value);
-            } catch {
-              /* Apply for this session even without storage. */
-            }
-            document.documentElement.dataset.theme =
-              value === "system"
-                ? (window.matchMedia?.("(prefers-color-scheme: dark)")
-                    .matches ?? false)
-                  ? "dark"
-                  : "light"
-                : value;
-            setChoice(value);
-          }}
-        >
-          {value === "system" ? "System" : value === "light" ? "Light" : "Dark"}
-        </Button>
-      ))}
-    </div>
+    <SettingsRow label="Theme">
+      <Segmented
+        value={choice}
+        onChange={(value) => {
+          try {
+            if (value === "system") localStorage.removeItem("spark-theme");
+            else localStorage.setItem("spark-theme", value);
+          } catch {
+            /* Apply for this session even without storage. */
+          }
+          document.documentElement.dataset.theme =
+            value === "system"
+              ? (window.matchMedia?.("(prefers-color-scheme: dark)").matches ??
+                false)
+                ? "dark"
+                : "light"
+              : value;
+          setChoice(value);
+        }}
+      />
+    </SettingsRow>
   );
 }

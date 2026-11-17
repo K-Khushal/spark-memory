@@ -62,6 +62,19 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     await expect(popup.getByRole("status")).toHaveText(
       /Captured|Already in Your Library/
     );
+    await expect(
+      popup.getByRole("link", { name: "Growing Basil", exact: true })
+    ).toBeVisible();
+    expect(
+      await popup
+        .getByRole("status")
+        .evaluate((node) => getComputedStyle(node).fontFamily)
+    ).toMatch(/^"?Instrument Sans Variable/);
+    expect(
+      await popup
+        .getByRole("status")
+        .evaluate((node) => getComputedStyle(node).fontSize)
+    ).toBe("13px");
     await popup
       .getByLabel("Capture Note", { exact: true })
       .fill("For the windowsill");
@@ -85,7 +98,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     );
     expect(screenshot.ok()).toBe(true);
     await expect(
-      popup.getByRole("button", { name: "Discard Outbox" })
+      popup.getByRole("button", { name: "Discard Captures" })
     ).toHaveCount(0);
     const fonts = await popup.evaluate(async () =>
       Promise.all([
@@ -105,7 +118,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     await fixture.bringToFront();
     await expect(popup.getByRole("status")).toHaveText("Waiting to Send");
     await expect(
-      popup.getByRole("button", { name: "Discard Outbox" })
+      popup.getByRole("button", { name: "Discard Captures" })
     ).toBeVisible();
     await popup.getByRole("button", { name: "Try Again" }).click();
     await expect(popup.getByRole("status")).toHaveText("Waiting to Send");
@@ -113,7 +126,7 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
     await popup.getByRole("button", { name: "Try Again" }).click();
     await expect(popup.getByRole("status")).toHaveText("Captured");
     await expect(
-      popup.getByRole("button", { name: "Discard Outbox" })
+      popup.getByRole("button", { name: "Discard Captures" })
     ).toHaveCount(0);
     await fixture.evaluate(() => {
       const range = document.createRange();
@@ -329,6 +342,19 @@ test("unpacked extension shares sign-in and captures a fixture page", async () =
         expect(await overlay).toMatchObject({ label: "Cancelled" });
       }
     await popup.setViewportSize({ width: 320, height: 900 });
+    await expect(
+      popup.getByRole("link", { name: "Growing Basil", exact: true })
+    ).toBeVisible();
+    expect(
+      await popup
+        .getByRole("status")
+        .evaluate((node) => getComputedStyle(node).fontFamily)
+    ).toMatch(/^"?Instrument Sans Variable/);
+    expect(
+      await popup
+        .getByRole("status")
+        .evaluate((node) => getComputedStyle(node).fontSize)
+    ).toBe("13px");
     await popup
       .getByLabel("Capture Note", { exact: true })
       .fill("نور الهدى 王秀英 🦊 ".repeat(50).slice(0, 500));

@@ -200,3 +200,29 @@ it("asks whether Spark would use a reel's copy before anything is downloaded", a
   );
   expect(request.mock.calls[0]![1].credentials).toBe("include");
 });
+
+it("keeps the captured title for the popup", async () => {
+  const request = vi
+    .fn()
+    .mockResolvedValue(Response.json({ id: "memory", title: "Growing Basil" }));
+  const memory = await captureClient("https://spark.test", request).save(
+    "ana",
+    { id: crypto.randomUUID(), url: "https://garden.test" }
+  );
+  expect(memory.title).toBe("Growing Basil");
+});
+
+it("uses the extracted page title when the response has no title", async () => {
+  const request = vi
+    .fn()
+    .mockResolvedValue(Response.json({ id: "memory", title: null }));
+  const memory = await captureClient("https://spark.test", request).save(
+    "ana",
+    {
+      id: crypto.randomUUID(),
+      url: "https://garden.test",
+      page: { title: "Growing Basil", imageUrl: undefined },
+    }
+  );
+  expect(memory.title).toBe("Growing Basil");
+});

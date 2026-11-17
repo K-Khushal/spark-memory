@@ -49,23 +49,40 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("service worker", () => {
-  it("precaches only the offline page", async () => {
+  it("precaches the offline page and its two fonts", async () => {
     const wait = vi.fn();
     listeners.get("install")!({ waitUntil: wait });
     await wait.mock.calls[0]![0];
-    expect([...cached.get("spark-shell-v2")!.keys()]).toEqual([
+    expect([...cached.get("spark-shell-v2-fonts")!.keys()]).toEqual([
       "/offline.html",
+      "/fonts/assistant-instrument-sans.woff2",
+      "/fonts/assistant-bricolage.woff2",
     ]);
+  });
+
+  it("answers font requests from the offline cache", async () => {
+    const wait = vi.fn();
+    listeners.get("install")!({ waitUntil: wait });
+    await wait.mock.calls[0]![0];
+    const request = fetchEvent(
+      new Request(`${origin}/fonts/assistant-instrument-sans.woff2`)
+    );
+    expect(await (await request.respondWith.mock.calls[0]![0]).text()).toBe(
+      "offline"
+    );
   });
 
   it("drops older shell caches on activate and nothing else", async () => {
     cached.set("spark-shell-v1", new Map());
-    cached.set("spark-shell-v2", new Map());
+    cached.set("spark-shell-v2-fonts", new Map());
     cached.set("other", new Map());
     const wait = vi.fn();
     listeners.get("activate")!({ waitUntil: wait });
     await wait.mock.calls[0]![0];
-    expect([...cached.keys()].sort()).toEqual(["other", "spark-shell-v2"]);
+    expect([...cached.keys()].sort()).toEqual([
+      "other",
+      "spark-shell-v2-fonts",
+    ]);
   });
 
   it("does not answer API calls or asset requests", () => {

@@ -1,3 +1,4 @@
+import { formatDay } from "./format";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { InferResponseType } from "@spark/api-client";
@@ -131,7 +132,7 @@ export function AdminPage({ session }: { session: AppSession }) {
           ref={bar}
           className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-line bg-canvas px-4 py-2 md:hidden"
         >
-          <span className="font-display text-md font-medium">Spark</span>
+          <span className="text-sm font-medium text-ink-muted">Spark</span>
           <Link to="/" className="text-sm text-ink-muted">
             All Memories
           </Link>
@@ -158,7 +159,7 @@ export function AdminPage({ session }: { session: AppSession }) {
             loading={!summary || !usage}
             label="Loading Admin"
             skeleton={
-              <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6">
+              <div className="mx-auto flex max-w-4xl flex-col gap-10 px-4 py-6">
                 <Skeleton className="h-6 w-28" />
                 <Skeleton className="h-32" />
                 <Skeleton className="h-32" />
@@ -170,7 +171,7 @@ export function AdminPage({ session }: { session: AppSession }) {
                 <h1 className="font-display text-lg font-semibold">Admin</h1>
                 <section className="mt-6 flex flex-wrap items-end justify-between gap-4">
                   <div>
-                    <h2 className="font-display text-md font-medium">
+                    <h2 className="text-sm font-medium text-ink-muted">
                       Daily Budget
                     </h2>
                     <p className="mt-2 text-sm tabular-nums">
@@ -221,7 +222,7 @@ export function AdminPage({ session }: { session: AppSession }) {
                 <section className="mt-6">
                   <h2
                     id="daily-spend"
-                    className="font-display text-md font-medium"
+                    className="text-sm font-medium text-ink-muted"
                   >
                     Daily Spend
                   </h2>
@@ -243,7 +244,7 @@ export function AdminPage({ session }: { session: AppSession }) {
                           <Column>Model</Column>
                           <Column align="right">Calls</Column>
                           <Column align="right">Cost</Column>
-                          <Column>Estimated</Column>
+                          <Column align="right">Estimated</Column>
                         </tr>
                       </thead>
                       <tbody>
@@ -252,7 +253,9 @@ export function AdminPage({ session }: { session: AppSession }) {
                             key={`${row.day}-${row.provider}-${row.model}-${row.estimated}`}
                             className="border-b border-line"
                           >
-                            <Cell className="tabular-nums">{row.day}</Cell>
+                            <Cell className="tabular-nums">
+                              {formatDay(row.day)}
+                            </Cell>
                             <Cell>{row.provider}</Cell>
                             <Cell className="select-text">{row.model}</Cell>
                             <Cell align="right" className="tabular-nums">
@@ -261,7 +264,9 @@ export function AdminPage({ session }: { session: AppSession }) {
                             <Cell align="right" className="tabular-nums">
                               {formatCost(row.costMicros)}
                             </Cell>
-                            <Cell>{row.estimated ? "Yes" : "No"}</Cell>
+                            <Cell align="right" className="tabular">
+                              {row.estimated ? "Yes" : "No"}
+                            </Cell>
                           </tr>
                         ))}
                       </tbody>
@@ -270,7 +275,7 @@ export function AdminPage({ session }: { session: AppSession }) {
                 </section>
 
                 <section className="mt-6">
-                  <h2 id="usage" className="font-display text-md font-medium">
+                  <h2 id="usage" className="text-sm font-medium text-ink-muted">
                     Usage
                   </h2>
                   <div
@@ -354,7 +359,7 @@ function Column({
       scope="col"
       className={cn(
         "py-2 pr-4 font-medium whitespace-nowrap",
-        align === "right" && "text-right"
+        align === "right" && "text-right tabular"
       )}
     >
       {children}
@@ -378,7 +383,7 @@ function Cell({
       title={title}
       className={cn(
         "py-2 pr-4 whitespace-nowrap",
-        align === "right" && "text-right",
+        align === "right" && "text-right tabular",
         className
       )}
     >

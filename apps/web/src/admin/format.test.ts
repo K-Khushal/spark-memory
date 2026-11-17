@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToMicros, formatCost, microsToDollars } from "./format";
+import {
+  dollarsToMicros,
+  formatCost,
+  microsToDollars,
+  formatDay,
+} from "./format";
 
 describe("admin amounts", () => {
   it("turns the daily budget between dollars and micro-dollars", () => {
@@ -22,4 +27,8 @@ describe("admin amounts", () => {
     expect(formatCost(1_500_000)).toBe("$1.50");
     expect(formatCost(1_234)).toBe("$0.0012");
   });
+});
+
+it("formats admin dates as day and month", () => {
+  expect(formatDay("2026-11-17")).toBe("17 Nov");
 });

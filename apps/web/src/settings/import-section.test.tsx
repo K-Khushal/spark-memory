@@ -40,7 +40,7 @@ it("announces state changes without announcing the progress counter", async () =
       (span) => span.textContent === "Paused"
     )!;
     const counter = [...host.querySelectorAll("span")].find((span) =>
-      span.textContent?.includes("Done /")
+      span.textContent?.includes("Imported,")
     )!;
     expect(state.closest('[aria-live="polite"]')).not.toBeNull();
     expect(counter.closest("[aria-live]")).toBeNull();

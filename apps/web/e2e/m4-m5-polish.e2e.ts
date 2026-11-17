@@ -121,7 +121,7 @@ for (const width of [1440, 390]) {
       await page.goto("/settings");
       await expect(page.getByRole("meter", { name: "Storage" })).toBeVisible();
       await expect(
-        page.getByText("10,000 Total", { exact: false })
+        page.getByText("1,284 of 10,000 Imported, 1 Skipped", { exact: true })
       ).toBeVisible();
       await shot(page, `settings-${width}-${theme}`);
       await fits(page);
