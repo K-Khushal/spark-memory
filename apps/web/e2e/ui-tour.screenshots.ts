@@ -1614,9 +1614,14 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
       const video = filmed.video();
       await context.close();
       const rawPath = resolve(VIDEOS, `.raw-${name}`);
-      await video?.saveAs(rawPath);
-      trimVideoToFirstPaint(rawPath, resolve(VIDEOS, name), size.width);
-      if (existsSync(rawPath)) rmSync(rawPath, { force: true });
+      try {
+        await video?.saveAs(rawPath);
+        trimVideoToFirstPaint(rawPath, resolve(VIDEOS, name), size.width);
+      } finally {
+        rmSync(rawPath, { force: true });
+        // Playwright's own originals; nothing else lives there.
+        rmSync(resolve(VIDEOS, ".raw"), { recursive: true, force: true });
+      }
       recordVideo(name, line);
     }
   }

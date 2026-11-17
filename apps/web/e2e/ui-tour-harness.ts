@@ -62,7 +62,7 @@ export function prepareOut() {
       rmSync(resolve(OUT, file));
   for (const file of readdirSync(VIDEOS))
     if (file.endsWith(".webm") || file.startsWith(".raw"))
-      rmSync(resolve(VIDEOS, file));
+      rmSync(resolve(VIDEOS, file), { recursive: true, force: true });
 }
 
 export const setSection = (name: string) => {
