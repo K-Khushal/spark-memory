@@ -147,6 +147,7 @@ it("shows Spark's preserved poster behind Play when there is one, and never a th
     await act(async () =>
       root.render(<VideoReader memory={withPoster({ thumbnailUrl: POSTER })} />)
     );
+    expect(host.querySelector("button")?.className).toContain("aspect-video");
     const poster = host.querySelector("button img");
     expect(poster?.getAttribute("src")).toBe(POSTER);
     expect(poster?.getAttribute("alt")).toBe("");

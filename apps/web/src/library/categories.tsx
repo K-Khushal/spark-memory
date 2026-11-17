@@ -47,7 +47,7 @@ export function CategoryEditor({
         "group relative shrink-0 rounded-control text-sm text-ink",
         // A viewer toolbar's control is an icon button: same box as its neighbours.
         compact
-          ? "min-h-9 pointer-coarse:min-h-(--size-touch)"
+          ? "min-h-9 max-sm:w-9 pointer-coarse:min-h-(--size-touch) pointer-coarse:max-sm:w-(--size-touch)"
           : "min-w-0 border border-line-strong bg-surface px-3"
       )}
       onToggle={(e) => {

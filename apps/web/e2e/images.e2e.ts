@@ -206,9 +206,9 @@ test("the viewer keeps focus at the last image, so the arrow keys still work", a
   await expect(previous).toBeHidden();
   await next.focus();
   await page.keyboard.press("Enter");
-  // The last image: Next is unavailable but keeps focus.
+  // The last image hides Next and keeps keyboard focus on the viewer.
   await expect(next).toBeHidden();
-  await expect(next).toBeFocused();
+  await expect(viewer).toBeFocused();
   await page.keyboard.press("Enter"); // nothing further
   await page.keyboard.press("ArrowLeft");
   await expect(next).toBeVisible();
