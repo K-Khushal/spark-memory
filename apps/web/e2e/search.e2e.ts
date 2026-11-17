@@ -135,7 +135,7 @@ test("a search run again after leaving the Library sees what was Indexed meanwhi
   // Searched once in an empty Library: the answer is kept for this visit.
   await page.keyboard.press("ControlOrMeta+k");
   await page.getByPlaceholder("Search…").fill("twilight harbor");
-  await expect(page.getByText("No Direct Matches").first()).toBeVisible();
+  await expect(page.getByText("No Memories Match").first()).toBeVisible();
   await page.waitForTimeout(1000); // the full answer lands after a pause
   await page.keyboard.press("Escape");
 

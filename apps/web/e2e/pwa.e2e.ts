@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { signIn } from "./sign-in";
+import { emptyLibrary, signIn } from "./sign-in";
 
 async function swReady(page: Page) {
   await expect
@@ -231,9 +231,7 @@ test("a form that names its own site is refused and holds nothing", async ({
   ).toBeVisible();
   expect(await heldCount(attacker)).toBe(0);
   await page.reload();
-  await expect(
-    page.getByRole("heading", { name: "No Memories Yet" })
-  ).toBeVisible();
+  await expect(emptyLibrary(page)).toBeVisible();
   expect(await memories(page)).toEqual([]);
 });
 
@@ -257,9 +255,7 @@ test("a form that hides its site waits for the person, and Discard drops it", as
     .click();
   await expect.poll(() => heldCount(attacker)).toBe(0);
   await attacker.reload();
-  await expect(
-    attacker.getByRole("heading", { name: "No Memories Yet" })
-  ).toBeVisible();
+  await expect(emptyLibrary(attacker)).toBeVisible();
   expect(await memories(page)).toEqual([]);
 });
 
@@ -290,9 +286,7 @@ test("a share past the allowance is refused with a page, not delivered", async (
     page.getByRole("heading", { name: "Too Long to Capture" })
   ).toBeVisible();
   await page.getByRole("link", { name: "Open Library" }).click();
-  await expect(
-    page.getByRole("heading", { name: "No Memories Yet" })
-  ).toBeVisible();
+  await expect(emptyLibrary(page)).toBeVisible();
   expect(await memories(page)).toEqual([]);
 });
 
@@ -301,9 +295,7 @@ test("two tabs opening at once Capture a held share once", async ({ page }) => {
   await swReady(page);
   const other = await page.context().newPage();
   await other.goto("/");
-  await expect(
-    other.getByRole("heading", { name: "No Memories Yet" })
-  ).toBeVisible();
+  await expect(emptyLibrary(other)).toBeVisible();
   await holdText(page, "Only once");
   await Promise.all([page.reload(), other.reload()]);
   await expect(page.getByRole("listitem", { name: "Only once" })).toBeVisible();

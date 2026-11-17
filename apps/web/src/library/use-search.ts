@@ -29,6 +29,8 @@ export type Results = {
   direct: Found[];
   related: Found[];
   mode: Mode;
+  /** No later answer is coming: the full one is here, or it failed. */
+  settled: boolean;
   key: string;
   next?: string;
 };
@@ -165,6 +167,7 @@ export function useSearch(
       direct: [],
       related: [],
       mode: shown.mode,
+      settled: shown.mode === "full" || !!shown.settled,
       key: shown.key,
       ...(shown.next && { next: shown.next }),
     };

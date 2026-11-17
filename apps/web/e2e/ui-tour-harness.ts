@@ -1,4 +1,9 @@
-import { expect, type BrowserContext, type Page } from "@playwright/test";
+import {
+  expect,
+  type BrowserContext,
+  type CDPSession,
+  type Page,
+} from "@playwright/test";
 import {
   mkdirSync,
   writeFileSync,
@@ -22,6 +27,8 @@ export const SIZES = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ] as const;
+/** An extension popup: 320px wide, shot only as tall as its content. */
+export const POPUP = [{ width: 320, height: 600 }] as const;
 export const THEMES = ["light", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
 
@@ -78,7 +85,26 @@ export async function settle(page: Page) {
   await page.waitForTimeout(120);
 }
 
+const touchSessions = new WeakMap<Page, CDPSession>();
+
+/**
+ * A phone shot is taken as a touch device: `pointer: coarse` rules apply (44px
+ * targets, no keyboard hints), as on the phone. Desktop shots turn it off.
+ */
+export async function setTouch(page: Page, on: boolean) {
+  let session = touchSessions.get(page);
+  if (!session) {
+    session = await page.context().newCDPSession(page);
+    touchSessions.set(page, session);
+  }
+  await session.send("Emulation.setTouchEmulationEnabled", {
+    enabled: on,
+    maxTouchPoints: 1,
+  });
+}
+
 export async function resetView(page: Page) {
+  await setTouch(page, false);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.emulateMedia({
     colorScheme: "light",
@@ -99,6 +125,12 @@ export async function step(
   run: () => Promise<void>,
   options: {
     fullPage?: boolean;
+    /** Also a second shot at the bottom of the page (Settings, Admin), named `NN-slug-scrolled-…`. */
+    scrolled?: boolean;
+    /** The sizes to shoot; both widths unless it says otherwise. */
+    sizes?: readonly { width: number; height: number }[];
+    /** Shoot only as tall as the page's content (an extension popup is as tall as it is). */
+    fitContent?: boolean;
     recover?: () => Promise<void>;
     beforeShot?: (width: number, theme: Theme) => Promise<void>;
   } = {}
@@ -109,19 +141,48 @@ export async function step(
   try {
     await resetView(page);
     await run();
-    for (const size of SIZES) {
+    for (const size of options.sizes ?? SIZES) {
       await page.setViewportSize(size);
+      // The phone is a touch device; the checks below name what that changes.
+      await setTouch(page, size.width < 640 && !options.fitContent);
+      if (size.width < 640 && !options.fitContent)
+        expect(
+          await page.evaluate(() => matchMedia("(pointer: coarse)").matches)
+        ).toBe(true);
       for (const theme of THEMES) {
         await page.emulateMedia({ colorScheme: theme });
         await options.beforeShot?.(size.width, theme);
         await settle(page);
-        const name = `${pad(entry.n)}-${slug}-${theme}-${size.width}.png`;
-        await page.screenshot({
-          path: resolve(OUT, name),
-          animations: "disabled",
-          fullPage: options.fullPage ?? false,
-        });
-        entry.files.push({ name, theme, width: size.width });
+        const shoot = async (label: string) => {
+          const name = `${pad(entry.n)}-${slug}${label}-${theme}-${size.width}.png`;
+          const clip = options.fitContent
+            ? {
+                x: 0,
+                y: 0,
+                width: size.width,
+                height: Math.min(
+                  size.height,
+                  await page.evaluate(() => document.body.scrollHeight)
+                ),
+              }
+            : undefined;
+          await page.screenshot({
+            path: resolve(OUT, name),
+            animations: "disabled",
+            fullPage: options.fullPage ?? false,
+            ...(clip && { clip }),
+          });
+          entry.files.push({ name, theme, width: size.width });
+        };
+        await shoot("");
+        if (options.scrolled) {
+          await page.evaluate(() =>
+            scrollTo(0, document.documentElement.scrollHeight)
+          );
+          await settle(page);
+          await shoot("-scrolled");
+          await page.evaluate(() => scrollTo(0, 0));
+        }
       }
     }
   } catch (error) {
@@ -143,7 +204,7 @@ export function writeIndex() {
   const lines = [
     "# Spark UI tour",
     "",
-    "Every screen and state in light and dark at 1440x900 and 390x844. Files are `NN-screen-state-theme-width.png`; the same NN is the same screen and state in all four.",
+    "Every screen and state in light and dark at 1440x900 and 390x844 (a touch device, so `pointer: coarse` rules apply). Files are `NN-screen-state-theme-width.png`; the same NN is the same screen and state in all four. Settings and Admin are shot at the viewport and again scrolled to the bottom (`-scrolled`); an extension popup is shot at 320px wide, as tall as its content.",
     "",
   ];
   for (const name of sections) {
@@ -155,7 +216,7 @@ export function writeIndex() {
       }
       for (const f of e.files)
         lines.push(
-          `- \`${f.name}\`: ${e.line} (${f.theme}, ${f.width === 1440 ? "desktop 1440x900" : "phone 390x844"})`
+          `- \`${f.name}\`: ${e.line} (${f.theme}, ${f.width === 1440 ? "desktop 1440x900" : f.width === 320 ? "popup 320px" : "phone 390x844"})`
         );
     }
     lines.push("");

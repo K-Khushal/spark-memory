@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { TagsIcon, Trash2Icon, XIcon } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { DURATION, EASING } from "@spark/ui/tokens";
 import { CATEGORY_NAMES, MAX_CATEGORIES } from "@spark/core";
@@ -97,36 +98,37 @@ export function SelectionBar({
         aria-label="Selection"
         className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-30 mx-auto flex w-fit max-w-[calc(100%-2rem)] flex-wrap items-center justify-center gap-2 rounded-panel bg-surface p-2 text-sm text-ink shadow-overlay md:left-60"
       >
-        <span className="px-2 tabular-nums">
+        <span className="px-2 whitespace-nowrap tabular-nums">
           {count.toLocaleString()} Selected
         </span>
+        {/* On a phone the two actions are icons (their words stay as the
+            names), so the count and all three controls fit one row at 320px. */}
         <Button
           wrap
-          size="sm"
-          className="min-h-11"
-          variant="outline"
-          onClick={() => finish(onDelete)}
-        >
-          Delete
-        </Button>
-
-        <Button
-          wrap
-          size="sm"
-          className="min-h-11"
           variant="quiet"
-          onClick={() => finish(onClear)}
-        >
-          Clear
-        </Button>
-        <Button
-          wrap
-          size="sm"
-          className="min-h-11"
-          variant="primary"
+          className="max-sm:size-11 max-sm:min-h-11 max-sm:p-0"
           onClick={() => setOpen(true)}
         >
-          Categories
+          <TagsIcon aria-hidden />{" "}
+          <span className="max-sm:sr-only">Categories</span>
+        </Button>
+        <Button
+          wrap
+          variant="quiet"
+          className="max-sm:size-11 max-sm:min-h-11 max-sm:p-0"
+          onClick={() => finish(onDelete)}
+        >
+          <Trash2Icon aria-hidden />{" "}
+          <span className="max-sm:sr-only">Delete</span>
+        </Button>
+        <Button
+          variant="quiet"
+          size="icon"
+          className="max-sm:size-11"
+          aria-label="Clear"
+          onClick={() => finish(onClear)}
+        >
+          <XIcon aria-hidden />
         </Button>
       </motion.div>
       <Dialog
@@ -150,7 +152,7 @@ export function SelectionBar({
                 <FilterChip
                   key={name}
                   title={name}
-                  className="h-auto min-h-11 max-w-full py-2"
+                  className="h-auto min-h-8 max-w-full py-1.5"
                   aria-pressed={categories.includes(name)}
                   disabled={
                     !categories.includes(name) &&
@@ -175,8 +177,6 @@ export function SelectionBar({
             <Button
               wrap
               variant="primary"
-              size="sm"
-              className="min-h-11 disabled:opacity-50"
               disabled={!categories.length}
               onClick={() => {
                 setOpen(false);

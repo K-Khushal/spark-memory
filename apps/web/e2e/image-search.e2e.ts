@@ -278,7 +278,7 @@ test("an image viewer reuses its Memory vectors and identifies the query chip", 
   expect((await completed.json()).results).toEqual([]);
   await expect(page.locator('[data-search="full"]')).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "No Direct Matches", exact: true })
+    page.getByRole("heading", { name: "No Memories Match", exact: true })
   ).toBeVisible();
   await expect(page.locator('[data-desk="search"]:visible')).toHaveText(
     "Image"

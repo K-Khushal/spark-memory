@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./sign-in";
+import { emptyLibrary, signIn } from "./sign-in";
 
 const ADMIN = "admin@example.test";
 
@@ -10,9 +10,7 @@ test("a person who is not an admin never sees the admin page", async ({
   await expect(page.getByRole("link", { name: "Admin" })).toHaveCount(0);
   await page.goto("/admin");
   await expect(page).toHaveURL(/\/$/);
-  await expect(
-    page.getByRole("heading", { name: "No Memories Yet" })
-  ).toBeVisible();
+  await expect(emptyLibrary(page)).toBeVisible();
 });
 
 test("an admin sees spend and usage, and can change the daily budget", async ({

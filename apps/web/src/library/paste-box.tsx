@@ -10,6 +10,7 @@ import {
   DialogBody,
   DialogFooter,
   DialogTitle,
+  Input,
   Kbd,
   Textarea,
 } from "@spark/ui";
@@ -62,7 +63,7 @@ export function PasteBox({
           <DialogHeader>
             <DialogTitle>Capture</DialogTitle>
           </DialogHeader>
-          <DialogBody className="flex flex-col gap-3">
+          <DialogBody className="flex flex-col gap-2">
             <Textarea
               autoFocus
               value={text}
@@ -86,14 +87,15 @@ export function PasteBox({
               dir="auto"
               className="max-h-[50dvh] min-h-32"
             />
-            <input
+            <Input
+              size="sm"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               maxLength={FREE_ALLOWANCE.captureNoteMaxChars}
               placeholder="Capture Note"
               aria-label="Capture Note"
               dir="auto"
-              className="h-11 min-w-0 shrink-0 rounded-control bg-sunken px-3 text-[1rem] text-ink placeholder:text-ink-muted focus-visible:outline-2 focus-visible:outline-ring"
+              className="shrink-0"
             />
           </DialogBody>
           <DialogFooter className="justify-between">

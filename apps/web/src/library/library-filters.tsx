@@ -9,7 +9,7 @@ import {
   type SearchKind,
   type SearchWhen,
 } from "@spark/core";
-import { FilterChip, Swatch, cn } from "@spark/ui";
+import { FilterChip, Skeleton, Swatch, cn } from "@spark/ui";
 import { FILTER_COLOURS } from "@spark/ui/tokens";
 import type { Memory } from "./use-library";
 
@@ -224,6 +224,17 @@ export function LibraryFilters({
       <Group label="Source" items={sources} />
       <Group label="Date" items={whens} />
       <Group label="Category" items={categories} footer={manage} />
+    </div>
+  );
+}
+
+/** The sidebar's rows until the filters arrive, so they do not pop in. */
+export function FiltersSkeleton() {
+  return (
+    <div aria-hidden className="flex flex-col gap-4 px-2 py-2">
+      {Array.from({ length: 5 }, (_, i) => (
+        <Skeleton key={i} className="h-3 w-24 rounded-chip bg-line" />
+      ))}
     </div>
   );
 }

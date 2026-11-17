@@ -50,7 +50,8 @@ test("browses by filter chips with no words, says why, and understands typed fil
   await sidebar.getByRole("button", { name: "Blue", exact: true }).click();
   const found = page.getByRole("list", { name: "Filtered Memories" });
   await expect(found.getByRole("listitem")).toHaveCount(1);
-  await expect(found.getByText("Blue", { exact: true })).toBeVisible();
+  // The chip that is on already says it: no tile repeats it.
+  await expect(found.getByText("Blue", { exact: true })).toHaveCount(0);
   await shot(page, "colour-1440", testInfo);
   await sidebar.getByRole("button", { name: "Red", exact: true }).click();
   await expect(page.getByText("No Memories Match")).toBeVisible();
@@ -58,7 +59,7 @@ test("browses by filter chips with no words, says why, and understands typed fil
   await sidebar.getByRole("button", { name: "Red", exact: true }).click();
   await sidebar.getByRole("button", { name: "Notes", exact: true }).click();
   await expect(found.getByRole("listitem")).toHaveCount(1);
-  await expect(found.getByText("Note", { exact: true })).toBeVisible();
+  await expect(found.getByText("Note", { exact: true })).toHaveCount(0);
   await page
     .getByRole("button", { name: "Clear Search", exact: true })
     .first()

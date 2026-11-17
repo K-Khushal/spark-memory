@@ -62,7 +62,7 @@ test("a Capture goes Indexing, then Searchable, and is found by what Indexing wr
   await page.waitForTimeout(3000);
   await expect(optedOut).toBeVisible();
   const again = await search(page, FAKE_WORD);
-  await expect(again.getByText("No Direct Matches")).toBeVisible();
+  await expect(again.getByText("No Memories Match")).toBeVisible();
   await expect(again.getByRole("option", { name: /Bergamot/ })).toHaveCount(0);
   await page.keyboard.press("Escape");
   const own = await search(page, "bergamot");

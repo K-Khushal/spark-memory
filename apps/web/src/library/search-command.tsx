@@ -22,9 +22,10 @@ import {
 } from "@spark/ui";
 import { useFlip } from "./flip";
 import { MOD } from "./shortcuts";
-import { memoryName } from "./memory-tile";
+import { KIND_ICONS, memoryName } from "./memory-tile";
 import type { Memory } from "./use-library";
 import type { Found, Results } from "./use-search";
+import { searchList } from "./search-list";
 import { whyLabel } from "./why";
 
 /** The ⌘K palette: instant results, or Capture / Settings / Sign Out. */
@@ -93,14 +94,29 @@ export function SearchCommand({
   );
 
   const failure = retrying ? "Searching Again" : "Search Is Unreachable";
+  // The last answer that had rows, kept while an empty instant answer waits
+  // for the full one (searchList). Adjusted while rendering, as above.
+  const [kept, setKept] = useState<Results>();
+  const typed = !!(draft.trim() || visual);
+  if (!open || !typed) {
+    if (kept) setKept(undefined);
+  } else if (
+    instant &&
+    instant !== "failed" &&
+    instant.direct.length + instant.related.length > 0 &&
+    kept !== instant
+  )
+    setKept(instant);
+  const list =
+    typed && instant && instant !== "failed"
+      ? searchList(instant, kept)
+      : undefined;
   /** What the list says in place of results; the screen reader hears it from outside the listbox. */
   const note =
-    (draft.trim() || visual) && instant
+    typed && instant
       ? instant === "failed"
         ? failure
-        : instant.direct.length === 0
-          ? "No Direct Matches"
-          : undefined
+        : list?.note
       : undefined;
 
   return (
@@ -127,7 +143,7 @@ export function SearchCommand({
       </ImageQueryControls>
       <CommandList
         ref={listRef}
-        aria-busy={retrying && instant === "failed"}
+        aria-busy={(retrying && instant === "failed") || !!list?.busy}
         data-search-mode={
           instant && instant !== "failed" ? instant.mode : undefined
         }
@@ -159,26 +175,31 @@ export function SearchCommand({
                 </CommandItem>
               </CommandGroup>
             </>
-          ) : instant &&
-            instant.direct.length + instant.related.length === 0 ? (
-            <ListNote>No Direct Matches</ListNote>
           ) : (
-            instant && (
+            list && (
               <>
-                {instant.direct.length ? (
+                {list.note === "No Memories Match" && (
+                  <ListNote>{list.note}</ListNote>
+                )}
+                {list.rows &&
+                  (list.rows.direct.length ? (
+                    <ResultGroup
+                      heading="Direct Matches"
+                      memories={list.rows.direct.slice(0, 6)}
+                      onOpen={onOpen}
+                    />
+                  ) : (
+                    list.note === "No Direct Matches" && (
+                      <ListNote>{list.note}</ListNote>
+                    )
+                  ))}
+                {list.rows && (
                   <ResultGroup
-                    heading="Direct Matches"
-                    memories={instant.direct.slice(0, 6)}
+                    heading="Related Matches"
+                    memories={list.rows.related.slice(0, 4)}
                     onOpen={onOpen}
                   />
-                ) : (
-                  <ListNote>No Direct Matches</ListNote>
                 )}
-                <ResultGroup
-                  heading="Related Matches"
-                  memories={instant.related.slice(0, 4)}
-                  onOpen={onOpen}
-                />
               </>
             )
           )
@@ -265,6 +286,12 @@ function ListNote({ children }: { children: string }) {
   );
 }
 
+/** The kind of a result, as a 16px mark at the start of its row. */
+function KindIcon({ kind }: { kind: string }) {
+  const Icon = KIND_ICONS[kind] ?? KIND_ICONS.text!;
+  return <Icon className="size-4 shrink-0 text-ink-muted" aria-hidden />;
+}
+
 function ResultGroup({
   memories,
   heading,
@@ -284,6 +311,7 @@ function ResultGroup({
           data-flip={memory.id}
           onSelect={() => onOpen(memory)}
         >
+          <KindIcon kind={memory.kind} />
           <span className="min-w-0 flex-1 truncate" dir="auto">
             {memoryName(memory)}
           </span>

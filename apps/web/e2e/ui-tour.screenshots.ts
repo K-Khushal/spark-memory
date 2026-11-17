@@ -1,4 +1,4 @@
-import { expect, chromium, test, type Page } from "@playwright/test";
+import { expect, chromium, devices, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,6 +19,8 @@ import {
   FINISHED,
   prepareOut,
   failures,
+  POPUP,
+  SIZES,
 } from "./ui-tour-harness";
 import { pick, tourMemories } from "./ui-tour-fixtures";
 
@@ -225,13 +227,13 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
       });
       await page.goto("/");
       await expect(
-        page.locator('[data-slot="skeleton"]').first()
+        page.locator('main [data-slot="skeleton"]').first()
       ).toBeVisible();
     },
     {
       beforeShot: async () => {
         await expect(
-          page.locator('[data-slot="skeleton"]').first()
+          page.locator('main [data-slot="skeleton"]').first()
         ).toBeVisible();
       },
       recover: async () => {
@@ -401,7 +403,7 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
       await page.getByPlaceholder("Search…").fill("zzzz nothing here");
       await page.waitForTimeout(900);
       await page.keyboard.press("Enter");
-      await expect(page.getByText("No Direct Matches").first()).toBeVisible();
+      await expect(page.getByText("No Memories Match").first()).toBeVisible();
     },
     opts
   );
@@ -797,6 +799,7 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
 });
 
 test("new account: Get Started, samples and the empty Library", async ({
+  browser,
   page,
   context,
 }) => {
@@ -813,7 +816,7 @@ test("new account: Get Started, samples and the empty Library", async ({
     async () => {
       await page.goto("/");
       await expect(
-        flow.getByText(/AI reads your Memories to Index them/)
+        flow.getByText(/AI reads your Memories to make them Searchable/)
       ).toBeVisible();
     },
     chain
@@ -964,12 +967,13 @@ test("new account: Get Started, samples and the empty Library", async ({
   await step(
     page,
     "library-empty-get-started",
-    "An empty Library on its first visit: No Memories Yet under Get Started",
+    "An empty Library on its first visit: Get Started alone, with no heading under it",
     async () => {
       await page.goto("/");
+      await expect(flow).toBeVisible();
       await expect(
         page.getByRole("heading", { name: "No Memories Yet" })
-      ).toBeVisible();
+      ).toBeHidden();
     }
   );
   await step(
@@ -995,6 +999,36 @@ test("new account: Get Started, samples and the empty Library", async ({
     },
     { recover: () => page.keyboard.press("Escape") }
   );
+  // A phone has no extension to install: Continue goes straight to Capture.
+  const phone = await browser.newContext({
+    ...devices["Pixel 7"],
+    deviceScaleFactor: 1,
+  });
+  try {
+    const phonePage = await phone.newPage();
+    await signInFresh(phonePage, "phone");
+    const phoneFlow = phonePage.getByRole("region", { name: "Get Started" });
+    await step(
+      phonePage,
+      "onboarding-phone",
+      "Get Started on a phone: Continue goes straight to Capture, with no Install Extension step",
+      async () => {
+        await phonePage.goto("/");
+        await phoneFlow
+          .getByRole("button", { name: "Continue", exact: true })
+          .click();
+        await expect(
+          phoneFlow.getByRole("heading", { name: "Capture a Memory" })
+        ).toBeVisible();
+        await expect(
+          phoneFlow.getByRole("link", { name: "Install Extension" })
+        ).toHaveCount(0);
+      },
+      { ...chain, sizes: [SIZES[1]] }
+    );
+  } finally {
+    await phone.close();
+  }
 });
 
 test("settings and admin", async ({ page, context }) => {
@@ -1012,7 +1046,7 @@ test("settings and admin", async ({ page, context }) => {
       data: { id: crypto.randomUUID(), body, captureNote: null },
     });
   const chain = { recover: async () => {} };
-  const full = { fullPage: true, recover: async () => {} };
+  const full = { scrolled: true, recover: async () => {} };
 
   await step(
     page,
@@ -1033,10 +1067,10 @@ test("settings and admin", async ({ page, context }) => {
     "Appearance setting with System, Light and Dark choices",
     async () => {
       await page
-        .getByRole("group", { name: "Appearance" })
+        .getByRole("radiogroup", { name: "Appearance" })
         .scrollIntoViewIfNeeded();
       await expect(
-        page.getByRole("group", { name: "Appearance" })
+        page.getByRole("radiogroup", { name: "Appearance" })
       ).toBeVisible();
     },
     full
@@ -1046,6 +1080,7 @@ test("settings and admin", async ({ page, context }) => {
     "settings-assistants-token",
     "Connected Assistants: a new token shown once, to copy",
     async () => {
+      await page.getByRole("button", { name: "Connect Assistant" }).click();
       await page.getByLabel("Assistant Name").fill("Claude Code");
       await page.getByRole("button", { name: "Create Token" }).click();
       await expect(page.getByLabel("Copy Token Now")).toBeVisible();
@@ -1155,9 +1190,7 @@ test("settings and admin", async ({ page, context }) => {
     async () => {
       await page.getByRole("button", { name: "Delete Account" }).click();
       await expect(
-        page.getByRole("dialog", {
-          name: "Delete Your Account and Every Memory",
-        })
+        page.getByRole("dialog", { name: "Delete Account" })
       ).toBeVisible();
     },
     { recover: () => page.keyboard.press("Escape") }
@@ -1165,21 +1198,19 @@ test("settings and admin", async ({ page, context }) => {
   await step(
     page,
     "settings-delete-failed-toast",
-    "Delete Did Not Finish toast after the server refused the deletion",
+    "Delete Did Not Finish, said beside the confirmation field after the server refused the deletion",
     async () => {
       await context.route("**/api/account", (route) =>
         route.request().method() === "DELETE"
           ? route.fulfill({ status: 500, json: {} })
           : route.fallback()
       );
-      const dialog = page.getByRole("dialog", {
-        name: "Delete Your Account and Every Memory",
-      });
+      const dialog = page.getByRole("dialog", { name: "Delete Account" });
       await page.getByRole("button", { name: "Delete Account" }).click();
       const email = (await dialog.locator("label span").innerText()).trim();
       await dialog.getByRole("textbox").fill(email);
       await dialog.getByRole("button", { name: "Delete Account" }).click();
-      await expect(page.getByText("Delete Did Not Finish")).toBeVisible();
+      await expect(dialog.getByText("Delete Did Not Finish")).toBeVisible();
     },
     { recover: () => page.keyboard.press("Escape") }
   );
@@ -1274,6 +1305,19 @@ test("share target and offline page", async ({ page }) => {
   );
 });
 
+/**
+ * The popup's own font, not the browser's for extension pages: Chrome sets
+ * `body { font-family: system }` there, and the popup's stylesheet must win.
+ */
+async function expectPopupFont(popup: Page) {
+  await popup.evaluate(() => document.fonts.ready);
+  await expect
+    .poll(() =>
+      popup.evaluate(() => getComputedStyle(document.body).fontFamily)
+    )
+    .toMatch(/^"?Instrument Sans/);
+}
+
 test("extension popup, Grant Access and region overlay", async () => {
   test.setTimeout(420_000);
   setSection("Browser Extension");
@@ -1320,9 +1364,10 @@ test("extension popup, Grant Access and region overlay", async () => {
       "Extension popup before sign-in: Sign In and Try Again",
       async () => {
         await open();
+        await expectPopupFont(popup);
         await expect(popup.getByRole("status")).toHaveText("Sign In");
       },
-      { recover: async () => {} }
+      { recover: async () => {}, sizes: POPUP, fitContent: true }
     );
     const dashboard = await context.newPage();
     await signInFresh(dashboard, "extension");
@@ -1332,11 +1377,14 @@ test("extension popup, Grant Access and region overlay", async () => {
       "Extension popup after saving the page, with the Capture Note field",
       async () => {
         await open();
+        await expectPopupFont(popup);
         await expect(popup.getByRole("status")).toHaveText(
           /Captured|Already in Your Library/
         );
+        // The captured title shows under the status.
+        await expect(popup.locator(".memory-title")).toBeVisible();
       },
-      { recover: async () => {} }
+      { recover: async () => {}, sizes: POPUP, fitContent: true }
     );
     await step(
       popup,
@@ -1347,7 +1395,7 @@ test("extension popup, Grant Access and region overlay", async () => {
           .getByRole("textbox", { name: "Capture Note" })
           .fill("For the balcony box");
       },
-      { recover: async () => {} }
+      { recover: async () => {}, sizes: POPUP, fitContent: true }
     );
     await step(
       popup,
@@ -1360,7 +1408,11 @@ test("extension popup, Grant Access and region overlay", async () => {
         await fixture.bringToFront();
         await expect(popup.getByRole("status")).toHaveText("Waiting to Send");
       },
-      { recover: () => context.setOffline(false) }
+      {
+        recover: () => context.setOffline(false),
+        sizes: POPUP,
+        fitContent: true,
+      }
     );
     const grantId = "permission-tour";
     await worker.evaluate(async (grantId) => {
@@ -1400,7 +1452,7 @@ test("extension popup, Grant Access and region overlay", async () => {
           permission.getByRole("button", { name: "Grant Access" })
         ).toBeEnabled();
       },
-      { recover: async () => {} }
+      { recover: async () => {}, sizes: [SIZES[0]] }
     );
     await permission.close();
     await fixture.bringToFront();
@@ -1434,7 +1486,8 @@ test("extension popup, Grant Access and region overlay", async () => {
         await fixture.mouse.down();
         await fixture.mouse.move(560, 400, { steps: 4 });
       },
-      { recover: () => fixture.keyboard.press("Escape") }
+      // The overlay is a desktop page's: no phone variant.
+      { recover: () => fixture.keyboard.press("Escape"), sizes: [SIZES[0]] }
     );
   } finally {
     await context.close();
