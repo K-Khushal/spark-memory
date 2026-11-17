@@ -163,7 +163,7 @@ export async function step(
             const name =
               slug === "detail-pdf"
                 ? "Garden Report 2026"
-                : "Complete Field Guide";
+                : "Complete Field Guide to Kitchen Gardens, Second Edition";
             const reader = page.getByRole("dialog", { name, exact: true });
             await expect(reader).toBeVisible();
             await expect(

@@ -432,9 +432,11 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     const t = tile(page, title);
     await t.scrollIntoViewIfNeeded();
     await t.click();
+    const expectedTitle =
+      mock.memories.find((m) => m.title?.startsWith(title))?.title ?? title;
     const dialog = page.getByRole("dialog", {
       name: /Garden Report|Complete Field Guide|Harbour at Dusk/.test(title)
-        ? title
+        ? expectedTitle
         : "Memory",
       exact: true,
     });
@@ -450,7 +452,7 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
       });
       if (await editor.count())
         await expect(editor).toHaveValue(new RegExp("^" + title));
-      else await expect(dialog).toHaveAccessibleName(title);
+      else await expect(dialog).toHaveAccessibleName(expectedTitle);
     }
     if (title === "Complete Field Guide")
       await expect(
