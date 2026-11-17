@@ -227,13 +227,13 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
       });
       await page.goto("/");
       await expect(
-        page.locator('[data-slot="skeleton"]').first()
+        page.locator('main [data-slot="skeleton"]').first()
       ).toBeVisible();
     },
     {
       beforeShot: async () => {
         await expect(
-          page.locator('[data-slot="skeleton"]').first()
+          page.locator('main [data-slot="skeleton"]').first()
         ).toBeVisible();
       },
       recover: async () => {
@@ -816,7 +816,7 @@ test("new account: Get Started, samples and the empty Library", async ({
     async () => {
       await page.goto("/");
       await expect(
-        flow.getByText(/AI reads your Memories to Index them/)
+        flow.getByText(/AI reads your Memories to make them Searchable/)
       ).toBeVisible();
     },
     chain
@@ -1067,10 +1067,10 @@ test("settings and admin", async ({ page, context }) => {
     "Appearance setting with System, Light and Dark choices",
     async () => {
       await page
-        .getByRole("group", { name: "Appearance" })
+        .getByRole("radiogroup", { name: "Appearance" })
         .scrollIntoViewIfNeeded();
       await expect(
-        page.getByRole("group", { name: "Appearance" })
+        page.getByRole("radiogroup", { name: "Appearance" })
       ).toBeVisible();
     },
     full
@@ -1080,6 +1080,7 @@ test("settings and admin", async ({ page, context }) => {
     "settings-assistants-token",
     "Connected Assistants: a new token shown once, to copy",
     async () => {
+      await page.getByRole("button", { name: "Connect Assistant" }).click();
       await page.getByLabel("Assistant Name").fill("Claude Code");
       await page.getByRole("button", { name: "Create Token" }).click();
       await expect(page.getByLabel("Copy Token Now")).toBeVisible();
@@ -1189,9 +1190,7 @@ test("settings and admin", async ({ page, context }) => {
     async () => {
       await page.getByRole("button", { name: "Delete Account" }).click();
       await expect(
-        page.getByRole("dialog", {
-          name: "Delete Your Account and Every Memory",
-        })
+        page.getByRole("dialog", { name: "Delete Account" })
       ).toBeVisible();
     },
     { recover: () => page.keyboard.press("Escape") }
@@ -1199,21 +1198,19 @@ test("settings and admin", async ({ page, context }) => {
   await step(
     page,
     "settings-delete-failed-toast",
-    "Delete Did Not Finish toast after the server refused the deletion",
+    "Delete Did Not Finish, said beside the confirmation field after the server refused the deletion",
     async () => {
       await context.route("**/api/account", (route) =>
         route.request().method() === "DELETE"
           ? route.fulfill({ status: 500, json: {} })
           : route.fallback()
       );
-      const dialog = page.getByRole("dialog", {
-        name: "Delete Your Account and Every Memory",
-      });
+      const dialog = page.getByRole("dialog", { name: "Delete Account" });
       await page.getByRole("button", { name: "Delete Account" }).click();
       const email = (await dialog.locator("label span").innerText()).trim();
       await dialog.getByRole("textbox").fill(email);
       await dialog.getByRole("button", { name: "Delete Account" }).click();
-      await expect(page.getByText("Delete Did Not Finish")).toBeVisible();
+      await expect(dialog.getByText("Delete Did Not Finish")).toBeVisible();
     },
     { recover: () => page.keyboard.press("Escape") }
   );

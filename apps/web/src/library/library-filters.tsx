@@ -233,7 +233,7 @@ export function FiltersSkeleton() {
   return (
     <div aria-hidden className="flex flex-col gap-4 px-2 py-2">
       {Array.from({ length: 5 }, (_, i) => (
-        <Skeleton key={i} className="h-3 w-24 rounded-chip" />
+        <Skeleton key={i} className="h-3 w-24 rounded-chip bg-line" />
       ))}
     </div>
   );

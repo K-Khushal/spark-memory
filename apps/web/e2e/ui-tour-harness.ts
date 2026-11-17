@@ -99,7 +99,7 @@ export async function setTouch(page: Page, on: boolean) {
   }
   await session.send("Emulation.setTouchEmulationEnabled", {
     enabled: on,
-    maxTouchPoints: on ? 1 : 0,
+    maxTouchPoints: 1,
   });
 }
 
