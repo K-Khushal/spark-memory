@@ -70,6 +70,7 @@ import { createActivation } from "./activation";
 import { Onboarding, recordActivation } from "./onboarding";
 import {
   MemoryTile,
+  estimateTileHeight,
   passageIsHighlighted,
   tileHeight,
   tileLayout,
@@ -988,7 +989,7 @@ function Wall({
 }) {
   const open = (i: number) => memories[i] && onOpen(memories[i]);
   const columns = wallColumns(usePhoneWall());
-  const items = useFontRemeasure(memories);
+  const { items, heightVersion } = useFontRemeasure(memories);
   return (
     <Masonry
       minColumnWidth={columns.minWidth}
@@ -1000,6 +1001,8 @@ function Wall({
       items={items}
       getKey={(m) => m.id}
       getHeight={tileHeight}
+      estimateHeight={estimateTileHeight}
+      heightVersion={heightVersion}
       getLabel={tileLabel}
       onOpen={open}
       onPreview={open}
@@ -1048,7 +1051,7 @@ function ResultWall({
 }) {
   const open = (i: number) => found[i] && onOpen(found[i]);
   const columns = wallColumns(usePhoneWall());
-  const items = useFontRemeasure(found);
+  const { items, heightVersion } = useFontRemeasure(found);
   const why = (m: Found) =>
     direct === undefined ? undefined : whyLabel(m, chips);
   return (
@@ -1062,6 +1065,8 @@ function ResultWall({
       items={items}
       getKey={(m) => m.id}
       getHeight={tileHeight}
+      estimateHeight={estimateTileHeight}
+      heightVersion={heightVersion}
       // A tile with something to say gets the fixed footer; one with nothing
       // (or only a filter's own words) gets none, and no height for it.
       getCaption={(m) => (why(m) ? whyHeight() : 0)}
@@ -1113,10 +1118,11 @@ function ResultWall({
  * its titles at the real font (a new array, same Memories: nothing moves
  * but what was mismeasured).
  */
-function useFontRemeasure<T>(items: readonly T[]): readonly T[] {
-  const loaded = useTitleFonts();
+function useFontRemeasure<T>(items: readonly T[]) {
+  const heightVersion = useTitleFonts();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => [...items], [items, loaded]);
+  const measuredItems = useMemo(() => [...items], [items, heightVersion]);
+  return { items: measuredItems, heightVersion };
 }
 
 /** Direct Matches first, Related Matches apart (DESIGN.md → Interaction baseline). */

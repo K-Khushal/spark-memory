@@ -1,5 +1,6 @@
 import { CheckIcon } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -13,8 +14,13 @@ import {
 } from "react";
 import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { columnCount, neighbour, tabStop, wallChange } from "./layout";
+import { HeightCache } from "./height-cache";
+import { refineInIdle } from "./refine-in-idle";
 import { cn } from "./cn";
 import { DURATION, EASING } from "./tokens";
+
+const noCaption = () => 0;
+const square = () => 1;
 
 type MasonryTile = {
   index: number;
@@ -84,6 +90,10 @@ type MasonryProps<T> = {
   getCaption?: (item: T) => number;
   /** The visual's height at a column width, for items without a fixed aspect (text). Overrides getAspect. */
   getHeight?: (item: T, width: number) => number;
+  /** Cheap first-layout height. Precise getHeight runs only near the viewport, then in idle chunks. */
+  estimateHeight?: (item: T, width: number) => number;
+  /** Invalidate shaped heights after fonts change. Width and root text size are tracked here. */
+  heightVersion?: number;
   minColumnWidth?: number;
   maxColumns?: number;
   gap?: number;
@@ -115,18 +125,20 @@ type MasonryProps<T> = {
 };
 
 /**
- * A window-scrolled, virtualised masonry of Memories. Heights come from the
- * known aspect ratio (no measuring, so no reflow jumps). Keyboard: arrows move
+ * A window-scrolled, virtualised masonry of Memories. Heights use known aspect
+ * ratios or progressively refined estimates, preserving the reading anchor. Keyboard: arrows move
  * spatially, Enter opens; Space toggles when selection is enabled, otherwise previews.
  */
 export function Masonry<T>({
   items,
   selection,
   getKey,
-  getAspect = () => 1,
+  getAspect = square,
   getLabel,
-  getCaption = () => 0,
+  getCaption = noCaption,
   getHeight,
+  estimateHeight,
+  heightVersion = 0,
   minColumnWidth = 220,
   maxColumns = 6,
   gap = 12,
@@ -154,7 +166,7 @@ export function Masonry<T>({
   }>(undefined);
   const suppressClick = useRef(false);
   useEffect(() => () => clearTimeout(gesture.current?.timer), []);
-  const [box, setBox] = useState({ width: 0, top: 0, inset: 0 });
+  const [box, setBox] = useState({ width: 0, top: 0, inset: 0, font: "" });
   const [active, setActive] = useState(0);
   // Constant-time lookups: Select All on 10k Memories must not scan the ids
   // once per tile. The ordered array stays for ranges.
@@ -167,6 +179,7 @@ export function Masonry<T>({
     const update = () => {
       const next = {
         width: el.clientWidth,
+        font: getComputedStyle(root).fontSize,
         top: el.getBoundingClientRect().top + window.scrollY,
         // What a sticky bar covers: the page's own scroll-padding-top, so
         // focus moved by arrow keys clears it as Tab does (WCAG 2.4.11).
@@ -176,6 +189,7 @@ export function Masonry<T>({
       setBox((box) =>
         box.width === next.width &&
         box.top === next.top &&
+        box.font === next.font &&
         box.inset === next.inset
           ? box
           : next
@@ -201,12 +215,34 @@ export function Masonry<T>({
     max: maxColumns,
   });
   const colWidth = Math.max(0, (box.width - gap * (lanes - 1)) / lanes);
+  const heights = useMemo(
+    () => new HeightCache<T>(),
+    // Root text and loaded-font changes invalidate precision, including at the same width.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [colWidth, box.font, heightVersion]
+  );
+  const keyAt = useCallback(
+    (i: number) => (items[i] ? getKey(items[i]) : i),
+    [items, getKey]
+  );
+  const resolveHeight = (i: number) => {
+    const item = items[i];
+    if (!item || !getHeight) return false;
+    const key = getKey(item);
+    return heights.resolve(key, item, () => getHeight(item, colWidth));
+  };
   const sizeOf = (i: number) => {
     const item = items[i];
     if (!item) return 0;
-    const visual = getHeight
-      ? getHeight(item, colWidth)
-      : colWidth / getAspect(item);
+    const cached = heights.peek(getKey(item));
+    const visual =
+      estimateHeight && getHeight
+        ? cached?.item === item && cached.applied
+          ? cached.height
+          : estimateHeight(item, colWidth)
+        : getHeight
+          ? getHeight(item, colWidth)
+          : colWidth / getAspect(item);
     return Math.round(visual) + getCaption(item);
   };
 
@@ -219,10 +255,21 @@ export function Masonry<T>({
     scrollMargin: box.top,
     scrollPaddingStart: box.inset,
     scrollPaddingEnd: selection?.ids.length ? 128 : 0,
-    getItemKey: (i) => (items[i] ? getKey(items[i]) : i),
+    getItemKey: keyAt,
+    laneAssignmentMode: "estimate",
   });
 
-  useEffect(() => virtualizer.measure(), [virtualizer, colWidth, lanes, items]);
+  useLayoutEffect(() => {
+    // TanStack exposes this public predicate on the instance, not in hook options.
+    // eslint-disable-next-line react-hooks/immutability
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = estimateHeight
+      ? () => false
+      : undefined;
+  }, [estimateHeight, virtualizer]);
+  useLayoutEffect(
+    () => virtualizer.measure(),
+    [virtualizer, colWidth, lanes, items, heightVersion, box.font]
+  );
 
   const focusIndex = (index: number, patient = false) => {
     const focusedAtRequest = document.activeElement;
@@ -273,6 +320,122 @@ export function Masonry<T>({
   }));
 
   const rendered = colWidth > 0 ? virtualizer.getVirtualItems() : [];
+  const painted = useRef(false);
+  useLayoutEffect(() => {
+    painted.current = false;
+    const frame = requestAnimationFrame(() => {
+      painted.current = true;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [heights]);
+  const refiningFrom = useRef<typeof rendered | undefined>(undefined);
+  const anchor = useRef<
+    { key: string; top: number; layout: typeof rendered } | undefined
+  >(undefined);
+  const scrollCorrection = useRef(0);
+  const applyHeight = (index: number) => {
+    const item = items[index];
+    if (!item) return;
+    const entry = heights.peek(getKey(item));
+    if (!entry || entry.item !== item || entry.applied) return;
+    heights.commit(getKey(item));
+    virtualizer.resizeItem(index, entry.height + getCaption(item));
+  };
+  useLayoutEffect(() => {
+    if (!estimateHeight || !getHeight || colWidth <= 0) return;
+    // The wall estimates every item cheaply. Resolve only a bounded window,
+    // prioritising the viewport, before it can paint (roughly two screens either side).
+    const top = window.scrollY + box.inset;
+    const bottom = window.scrollY + window.innerHeight;
+    const distance = (start: number, end: number) =>
+      end < top ? top - end : start > bottom ? start - bottom : 0;
+    const near = virtualizer.getVirtualItems().length
+      ? virtualizer.measurementsCache
+          .filter(
+            (v) =>
+              v.end >= top - 2 * window.innerHeight &&
+              v.start <= bottom + 2 * window.innerHeight
+          )
+          .sort((a, b) => distance(a.start, a.end) - distance(b.start, b.end))
+          .slice(0, 200)
+      : [];
+    const changed = near.filter((v) => {
+      resolveHeight(v.index);
+      const entry = heights.peek(String(v.key));
+      if (!entry || entry.applied) return false;
+      if (entry.height + getCaption(items[v.index]!) === v.size) {
+        heights.commit(String(v.key));
+        return false;
+      }
+      return true;
+    });
+    if (!changed.length) return;
+    if (!anchor.current) {
+      const tile = [
+        ...(ref.current?.querySelectorAll<HTMLElement>(":scope > [data-key]") ??
+          []),
+      ].find((node) => {
+        const r = node.getBoundingClientRect();
+        return r.bottom > box.inset && r.top < window.innerHeight;
+      });
+      if (tile)
+        anchor.current = {
+          key: tile.dataset.key!,
+          top: tile.getBoundingClientRect().top,
+          layout: rendered,
+        };
+    }
+    refiningFrom.current ??= rendered;
+    for (const v of changed) applyHeight(v.index);
+    // resolve/apply close over this commit's items and height cache. Virtualizer notifications
+    // commit the new positions before paint; the next effect preserves the reading anchor.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    items,
+    colWidth,
+    heights,
+    rendered,
+    box.inset,
+    virtualizer,
+    estimateHeight,
+    getHeight,
+  ]);
+  useLayoutEffect(() => {
+    const saved = anchor.current;
+    if (!saved || saved.layout === rendered) return;
+    const node = [
+      ...(ref.current?.querySelectorAll<HTMLElement>(":scope > [data-key]") ??
+        []),
+    ].find((tile) => tile.dataset.key === saved.key);
+    const delta = node ? node.getBoundingClientRect().top - saved.top : 0;
+    anchor.current = undefined;
+    scrollCorrection.current = delta;
+    if (delta) window.scrollBy(0, delta);
+  });
+  useEffect(() => {
+    if (!estimateHeight || !getHeight || colWidth <= 0) return;
+    return refineInIdle(items.length, resolveHeight, (indices) => {
+      const bottom = window.scrollY + window.innerHeight;
+      // Idle precision is cached everywhere, but only committed below the viewport.
+      // Skipped/above-view estimates retain their slots until they approach again,
+      // so background work cannot drag visible cards up or down after a fast scroll.
+      for (const index of indices) {
+        const placed = virtualizer.measurementsCache[index];
+        if (placed && placed.start >= bottom) applyHeight(index);
+      }
+    });
+    // Callbacks use this effect's item snapshot; a new list/width/font cancels it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    items,
+    colWidth,
+    heights,
+    estimateHeight,
+    getHeight,
+    getKey,
+    getCaption,
+    virtualizer,
+  ]);
   const current = tabStop(
     active,
     rendered.map((v) => v.index)
@@ -309,8 +472,15 @@ export function Masonry<T>({
     const change =
       same && changed ? wallChange(before.keys ?? [], keys) : undefined;
     const edited = change?.kind === "edit";
+    const refined =
+      refiningFrom.current !== undefined && refiningFrom.current !== rendered;
+    if (refined) refiningFrom.current = undefined;
     const glide =
-      same && calm && now < openUntil && (gliding || edited || before.edited);
+      calm &&
+      ((same && now < openUntil && (gliding || edited || before.edited)) ||
+        (refined && painted.current && before.items === items));
+    const correction = scrollCorrection.current;
+    scrollCorrection.current = 0;
     const entering = new Set(before.entering);
     if (change?.kind === "edit" && calm)
       for (const key of change.added) entering.add(key);
@@ -340,7 +510,10 @@ export function Masonry<T>({
       if (glide && from && from !== to) {
         const gliding = running.current.get(key);
         // Retarget a superseded glide from the offset it has reached.
-        const start = (gliding && drawnAt(tile)) || from;
+        let start = (gliding && drawnAt(tile)) || from;
+        const offset = TRANSLATE.exec(start);
+        if (correction && offset)
+          start = `translate(${offset[1]}px, ${Number(offset[2]) + correction}px)`;
         gliding?.cancel();
         const animation = tile.animate(
           [{ transform: start }, { transform: to }],

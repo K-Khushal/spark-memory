@@ -45,17 +45,20 @@ const textBadge = (memory: WallMemory) =>
   (!memory.upload && (isPartly(memory) || memory.indexState !== "searchable"));
 
 /** How a text tile lays out at `width`: its title and text lines, and its height. */
-export function tileLayout(memory: WallMemory, width: number) {
+export function tileLayout(memory: WallMemory, width: number, precise = true) {
   const k = rootFontScale();
   const pad = padding(width);
   const inner = Math.max(1, width - 2 * pad * k);
   const font = titleFont(width);
-  const title = memory.title ? titleLines(memory.title, inner, font.size) : 0;
-  const body = bodyLines(
-    tileText(memory.body).slice(0, 800),
-    inner,
-    MAX_LINES - title
-  );
+  const title = memory.title
+    ? precise
+      ? titleLines(memory.title, inner, font.size)
+      : estimatedLines(memory.title, inner / k, font.size, 2)
+    : 0;
+  const text = tileText(memory.body).slice(0, 800);
+  const body = precise
+    ? bodyLines(text, inner, MAX_LINES - title)
+    : estimatedLines(text, inner / k, 13, MAX_LINES - title);
   const height =
     k *
     (2 * pad +
@@ -91,17 +94,26 @@ const linkBadge = (memory: WallMemory) =>
   isReferenceOnly(memory) || memory.indexState !== "searchable";
 
 /** How a link tile lays out at `width`: name, a few lines of text, the Source line, a badge line while one shows. */
-export function linkLayout(memory: WallMemory, width: number) {
+export function linkLayout(memory: WallMemory, width: number, precise = true) {
   const k = rootFontScale();
   const pad = padding(width);
   const inner = Math.max(1, width - 2 * pad * k);
   const font = titleFont(width);
-  const title = titleLines(memoryName(memory), inner, font.size);
+  const title = precise
+    ? titleLines(memoryName(memory), inner, font.size)
+    : estimatedLines(memoryName(memory), inner / k, font.size, 2);
   const text = linkText(memory);
   const body = text
     ? Math.min(
         LINK.maxTextLines,
-        bodyLines(text, inner, LINK.maxTextLines, false)
+        precise
+          ? bodyLines(text, inner, LINK.maxTextLines, false)
+          : estimatedLines(
+              text.replace(/\s+/g, " "),
+              inner / k,
+              13,
+              LINK.maxTextLines
+            )
       )
     : 0;
   const badge = linkBadge(memory);
@@ -118,6 +130,34 @@ export function linkLayout(memory: WallMemory, width: number) {
 
 /** Very tall or wide images are cropped on the wall, never in the viewer. */
 const ASPECT = { min: 0.4, max: 2.5 };
+
+/** No canvas, font lookup or word segmentation on the full-wall layout path. */
+const estimatedLines = (
+  text: string,
+  width: number,
+  size: number,
+  max: number
+) =>
+  Math.min(
+    max,
+    text
+      .split("\n")
+      .reduce(
+        (lines, paragraph) =>
+          lines +
+          Math.max(
+            1,
+            Math.ceil((paragraph.length * size * 0.55) / Math.max(1, width))
+          ),
+        0
+      )
+  );
+
+export function estimateTileHeight(memory: WallMemory, width: number) {
+  if (isLinkTile(memory)) return linkLayout(memory, width, false).height;
+  if (memory.image) return tileHeight(memory, width);
+  return tileLayout(memory, width, false).height;
+}
 
 /** A tile's height at `width`: an image keeps its shape, text fits its lines. */
 export function tileHeight(memory: WallMemory, width: number) {

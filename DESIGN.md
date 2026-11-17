@@ -125,6 +125,8 @@ Flat groups of rows, no cards: each group has one quiet label (`text-sm`, `ink-m
 
 ## Interaction baseline
 
+- **Large walls** estimate every tile cheaply first. Font-aware precision runs for the viewport and two screens either side (at most 200 tiles synchronously), then in yielding idle chunks with a 6ms shaping budget and at most 32 items. Lane assignments stay stable; background refinement applies below the viewport, while near-view refinement preserves the reading anchor and uses the existing transform-only relocation. Width, root text size and font readiness invalidate precision.
+
 - **⌘K / Ctrl K** (or `/`) opens Search. Off the Library (Settings, Admin), ⌘K is ignored in text fields and dialogs. Typing shows instant results (keywords); a pause in typing brings the full results (meaning too), which reorder what is there instead of replacing it, and nothing ever empties while a search runs. Enter puts the full results on the wall and focus on its first tile (on the heading when nothing was found). Search By Image is a button inside the field's row, with the query image's chip below it only once there is one; picking an image returns focus to the field, where Enter searches by it. A search that fails says "Search Is Unreachable" with **Try Again**, as a row in ⌘K and a button on the wall. Pressing it says "Searching Again" and marks the list busy until the answer lands; the menu and the wall share one request. A search that is slow dims the results on show after 300ms, so a quick one never flickers.
 - **More Like This** is in Memory detail and the image viewer, for a Memory that has vectors (not with AI opt-out, before its first embedding, or without the paid tier). It puts the Memories nearest in meaning and look on the wall, with "More Like This" in the search field, the source Memory as a chip beside the filters (thumbnail and name, as a picked image has) and Clear Search to leave.
 - **⌘V / Ctrl V** Captures the clipboard on the Library, outside text fields and dialogs. Off the Library (Settings, Admin), paste is left alone. The Capture button does the same for pointer and touch.
@@ -149,15 +151,15 @@ Flat groups of rows, no cards: each group has one quiet label (`text-sm`, `ink-m
 
 Chosen by hand against `pick-ui-library`'s criteria (that skill is user-invoked; run `/pick-ui-library` to re-check). Everything except Motion lives in `@spark/ui`.
 
-| Need                | Choice                                                        | Why                                                                     |
-| ------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Base components     | shadcn/ui source (new-york-v4 on Radix), restyled             | We own the source; Radix handles focus traps and Escape                 |
-| Command menu        | cmdk via shadcn `Command`                                     | The standard for ⌘K; `shouldFilter={false}` lets search own ranking     |
-| Toasts              | Sonner via shadcn `Toaster`                                   | Undo action, swipe, pauses when the tab is hidden                       |
-| Motion              | Motion (`motion/react`) in `apps/web`                         | Springs and reduced-motion support                                      |
-| Virtualised masonry | `Masonry` on TanStack Virtual (`useWindowVirtualizer`, lanes) | Window scroll, 10k Memories, heights known up front, spatial arrow keys |
-| Lightbox            | `ImageViewer` on shadcn `Dialog`, dark in both themes         | ← → and swipe between images; folds into Quick preview when it lands    |
-| Icons               | lucide-react                                                  | One stroke, tree-shaken                                                 |
+| Need                | Choice                                                        | Why                                                                           |
+| ------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Base components     | shadcn/ui source (new-york-v4 on Radix), restyled             | We own the source; Radix handles focus traps and Escape                       |
+| Command menu        | cmdk via shadcn `Command`                                     | The standard for ⌘K; `shouldFilter={false}` lets search own ranking           |
+| Toasts              | Sonner via shadcn `Toaster`                                   | Undo action, swipe, pauses when the tab is hidden                             |
+| Motion              | Motion (`motion/react`) in `apps/web`                         | Springs and reduced-motion support                                            |
+| Virtualised masonry | `Masonry` on TanStack Virtual (`useWindowVirtualizer`, lanes) | Window scroll, 10k Memories, progressive height precision, spatial arrow keys |
+| Lightbox            | `ImageViewer` on shadcn `Dialog`, dark in both themes         | ← → and swipe between images; folds into Quick preview when it lands          |
+| Icons               | lucide-react                                                  | One stroke, tree-shaken                                                       |
 
 ## Copy
 

@@ -553,8 +553,11 @@ test("library: the wall, search, Memory detail, selection and Capture", async ({
     "Memory detail while the text is being edited",
     async () => {
       await open("Cardamom Buns");
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Edit", exact: true })
+        .click();
       const text = page.getByRole("textbox", { name: "Text" });
-      await text.click();
       await text.press("End");
       await text.pressSequentially(" Bake at 200 degrees for 18 minutes.");
     },
@@ -1142,7 +1145,10 @@ test("settings and admin", async ({ page, context }) => {
     "settings-assistants-connected",
     "Connected Assistants: one assistant listed with Activity and Revoke",
     async () => {
-      await page.getByRole("button", { name: "Close", exact: true }).click();
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Done", exact: true })
+        .click();
       await expect(
         page.getByRole("list", { name: "Connected Assistants" })
       ).toBeVisible();

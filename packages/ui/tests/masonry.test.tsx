@@ -32,6 +32,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   Reflect.deleteProperty(HTMLElement.prototype, "clientWidth");
   Reflect.deleteProperty(HTMLElement.prototype, "animate");
 });
@@ -184,4 +186,76 @@ it("Select All on 10,000 Memories looks each tile up in constant time", async ()
   const selected = host.querySelectorAll("[data-selected]");
   expect(selected.length).toBeGreaterThan(0);
   expect(host.querySelector("[data-selection-active=true]")).not.toBeNull();
+});
+
+it("lays out 10k items with estimates and bounds synchronous precise heights to the viewport window", async () => {
+  const callbacks: IdleRequestCallback[] = [];
+  vi.stubGlobal("requestIdleCallback", (callback: IdleRequestCallback) => {
+    callbacks.push(callback);
+    return callbacks.length;
+  });
+  vi.stubGlobal("cancelIdleCallback", vi.fn());
+  const precise = vi.fn(() => 120);
+  const list = items(
+    Array.from({ length: 10_000 }, (_, i) => `progressive-${i}`)
+  );
+  await render(
+    <Masonry
+      items={list}
+      getKey={(item) => item.id}
+      getLabel={(item) => item.id}
+      estimateHeight={() => 140}
+      getHeight={precise}
+      label="Progressive"
+      renderItem={(item) => <span>{item.id}</span>}
+    />
+  );
+  expect(precise.mock.calls.length).toBeGreaterThan(0);
+  expect(precise.mock.calls.length).toBeLessThanOrEqual(200);
+  expect(callbacks.length).toBeGreaterThan(0);
+});
+
+it("precise heights yield in idle chunks and obsolete wall work is cancelled", async () => {
+  const callbacks: IdleRequestCallback[] = [];
+  const cancel = vi.fn();
+  vi.stubGlobal("requestIdleCallback", (callback: IdleRequestCallback) => {
+    callbacks.push(callback);
+    return callbacks.length;
+  });
+  vi.stubGlobal("cancelIdleCallback", cancel);
+  let time = 0;
+  vi.spyOn(performance, "now").mockImplementation(() => time);
+  const precise = vi.fn(() => {
+    time += 2;
+    return 120;
+  });
+  const list = items(Array.from({ length: 10_000 }, (_, i) => `idle-${i}`));
+  await render(
+    <Masonry
+      items={list}
+      getKey={(item) => item.id}
+      getLabel={(item) => item.id}
+      estimateHeight={() => 140}
+      getHeight={precise}
+      label="Idle"
+      renderItem={(item) => <span>{item.id}</span>}
+    />
+  );
+  const initial = precise.mock.calls.length;
+  // Cached viewport items may consume the first callbacks without shaping.
+  for (let chunk = 0; chunk < 10; chunk++) {
+    const started = time;
+    const calls = precise.mock.calls.length;
+    await act(async () => {
+      callbacks.shift()!({ didTimeout: false, timeRemaining: () => 50 });
+    });
+    expect(time - started).toBeLessThanOrEqual(8);
+    expect(precise.mock.calls.length - calls).toBeLessThanOrEqual(3);
+  }
+  expect(precise.mock.calls.length).toBeGreaterThan(initial);
+  await render(null);
+  expect(cancel).toHaveBeenCalled();
+  const stopped = precise.mock.calls.length;
+  callbacks.shift()!({ didTimeout: true, timeRemaining: () => 50 });
+  expect(precise).toHaveBeenCalledTimes(stopped);
 });
