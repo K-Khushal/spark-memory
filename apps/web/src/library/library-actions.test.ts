@@ -464,3 +464,107 @@ it("keeps the Library readable when the durable outbox is unavailable", async ()
   expect(wall()).toEqual([row]);
   expect(notify).toHaveBeenCalledWith("Bulk Updates Unavailable");
 });
+
+describe("a URL refresh", () => {
+  const picture = (over: Partial<Memory> = {}) =>
+    memory({
+      kind: "image",
+      image: {
+        url: "https://files.test/old.jpg",
+        thumbnailUrl: "https://files.test/old-thumb.jpg",
+        mime: "image/jpeg",
+        bytes: 10,
+        width: 100,
+        height: 50,
+        thumbhash: "abc",
+      },
+      ...over,
+    });
+  const fresher = (m: Memory): Memory["image"] => ({
+    ...m.image!,
+    url: "https://files.test/new.jpg",
+    thumbnailUrl: "https://files.test/new-thumb.jpg",
+  });
+
+  it("brings fresh URLs without overwriting an edit saved while the GET was out", async () => {
+    const m = picture();
+    let answer!: (memory: Memory) => void;
+    const saved = { ...m, title: "Edited", revision: 2 };
+    const { actions, wall } = setup(
+      {
+        get: vi.fn().mockReturnValue(new Promise((r) => (answer = r))),
+        patch: vi.fn().mockResolvedValue(saved),
+      },
+      [m]
+    );
+    actions.refresh(m.id);
+    actions.editText(m, { title: "Edited", body: "", captureNote: "" });
+    actions.saveEdit(m.id);
+    await settle();
+    expect(wall()[0]).toMatchObject({ title: "Edited", revision: 2 });
+    // The GET read revision 1, before the edit landed.
+    answer({ ...m, image: fresher(m) });
+    await settle();
+    expect(wall()[0]).toMatchObject({ title: "Edited", revision: 2 });
+    expect(wall()[0]!.image).toMatchObject({
+      url: "https://files.test/new.jpg",
+      thumbnailUrl: "https://files.test/new-thumb.jpg",
+    });
+  });
+
+  it("keeps text still being typed, with the fresh URLs", async () => {
+    const m = picture();
+    let answer!: (memory: Memory) => void;
+    const { actions, wall } = setup(
+      { get: vi.fn().mockReturnValue(new Promise((r) => (answer = r))) },
+      [m]
+    );
+    actions.refresh(m.id);
+    actions.editText(m, { title: "Typing", body: "", captureNote: "" });
+    answer({ ...m, image: fresher(m) });
+    await settle();
+    expect(wall()[0]).toMatchObject({ title: "Typing", revision: 1 });
+    expect(wall()[0]!.image!.url).toBe("https://files.test/new.jpg");
+  });
+
+  it("keeps Categories in their Undo window", async () => {
+    const m = picture();
+    let answer!: (memory: Memory) => void;
+    const { actions, wall } = setup(
+      {
+        get: vi.fn().mockReturnValue(new Promise((r) => (answer = r))),
+        bulk: vi.fn().mockResolvedValue({ ids: [m.id] }),
+      },
+      [m]
+    );
+    actions.bulk([m], { operation: "categories", categories: ["Recipe"] });
+    actions.refresh(m.id);
+    expect(wall()[0]!.categories).toEqual(["Recipe"]);
+    answer({ ...m, image: fresher(m) });
+    await settle();
+    expect(wall()[0]!.categories).toEqual(["Recipe"]);
+    expect(wall()[0]!.image!.url).toBe("https://files.test/new.jpg");
+  });
+
+  it("takes newer content from the server along with the URLs", async () => {
+    const m = picture();
+    const { actions, wall } = setup(
+      {
+        get: vi.fn().mockResolvedValue({
+          ...m,
+          title: "Edited elsewhere",
+          revision: 2,
+          image: fresher(m),
+        }),
+      },
+      [m]
+    );
+    actions.refresh(m.id);
+    await settle();
+    expect(wall()[0]).toMatchObject({
+      title: "Edited elsewhere",
+      revision: 2,
+    });
+    expect(wall()[0]!.image!.url).toBe("https://files.test/new.jpg");
+  });
+});

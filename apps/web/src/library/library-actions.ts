@@ -1085,14 +1085,38 @@ export function libraryActions({
     const last = refreshed.get(id) ?? 0;
     if (images.isUploading(id) || Date.now() - last < 60_000) return;
     refreshed.set(id, Date.now());
+    const gen = generation.get(id) ?? 0;
     void transport.get(id).then(
       (fresh) => {
         if (!fresh) return;
-        // Fresh URLs only: whatever the wall knows of its upload stays.
         setMemories((all) =>
-          all.map((m) => (m.id === id ? { ...fresh, upload: m.upload } : m))
+          all.map((m) => {
+            if (m.id !== id) return m;
+            // Whatever the wall knows of its upload stays.
+            const next = { ...fresh, upload: m.upload };
+            // Content only when the answer is not older than the row, and
+            // nothing of the person's is waiting on it (an edit, a bulk
+            // Category change in its Undo window); otherwise just the URLs.
+            const current =
+              fresh.revision >= m.revision &&
+              (generation.get(id) ?? 0) === gen &&
+              !pending.has(id) &&
+              !bulkIds.has(id);
+            if (current) return next;
+            return m.image && fresh.image
+              ? {
+                  ...m,
+                  image: {
+                    ...m.image,
+                    url: fresh.image.url,
+                    thumbnailUrl: fresh.image.thumbnailUrl,
+                  },
+                }
+              : m;
+          })
         );
-        dropRefusedOnServer(id, fresh);
+        if (fresh.revision >= (serverCopy.get(id)?.revision ?? 0))
+          dropRefusedOnServer(id, fresh);
       },
       () => {}
     );
