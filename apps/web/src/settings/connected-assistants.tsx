@@ -216,7 +216,7 @@ export function ConnectedAssistants() {
           <p className="text-sm text-ink-muted">No Connected Assistants</p>
         )
       )}
-      <div className="flex min-h-12 items-center gap-3">
+      <div className="flex min-h-12 flex-wrap items-center gap-3">
         <Button size="sm" variant="primary" onClick={() => setConnecting(true)}>
           Connect Assistant
         </Button>

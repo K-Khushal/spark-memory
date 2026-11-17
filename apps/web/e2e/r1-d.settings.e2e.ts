@@ -139,3 +139,34 @@ test("Admin tables and Settings remain reachable at 200% text", async ({
     });
   }
 });
+
+test("account deletion failure stays beside the confirmation field", async ({
+  page,
+}) => {
+  const email = await signIn(page);
+  await page.goto("/settings");
+  await page.route("**/api/account", (route) =>
+    route.request().method() === "DELETE"
+      ? route.fulfill({ status: 500, json: { error: "unavailable" } })
+      : route.fallback()
+  );
+  await page
+    .getByRole("button", { name: "Delete Account", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Delete Account",
+    exact: true,
+  });
+  await dialog.getByRole("textbox").fill(email);
+  await dialog
+    .getByRole("button", { name: "Delete Account", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toHaveText("Delete Did Not Finish");
+  await expect(dialog.getByRole("textbox")).toHaveAttribute(
+    "aria-invalid",
+    "true"
+  );
+  await expect(
+    dialog.getByRole("button", { name: "Cancel", exact: true })
+  ).toBeVisible();
+});

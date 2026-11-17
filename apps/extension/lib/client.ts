@@ -14,7 +14,7 @@ export type SavedMemory = {
   id: string;
   revision: number;
   captureNote: string | null;
-  title?: string | null;
+  title: string | null;
 };
 /** Cookies stay in Chrome's jar; no token ever enters extension storage. */
 export function captureClient(origin: string, request: typeof fetch = fetch) {
