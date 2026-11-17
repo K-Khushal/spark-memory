@@ -8,7 +8,7 @@ export function SettingsRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-h-12 items-center justify-between gap-3 border-b border-line text-sm last:border-b-0">
+    <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-line text-sm last:border-b-0">
       <span>{label}</span>
       {children}
     </div>

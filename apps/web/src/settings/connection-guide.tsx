@@ -104,7 +104,7 @@ export function ConnectionGuide({
             <select
               id={clientId}
               name="assistant-client"
-              className="min-h-11 rounded-control border border-line-strong bg-canvas px-3 text-ink"
+              className="min-h-11 w-full min-w-0 rounded-control border border-line-strong bg-canvas px-3 text-ink"
               value={client}
               onChange={(event) => setClient(event.target.value)}
             >

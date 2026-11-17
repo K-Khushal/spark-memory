@@ -15,9 +15,9 @@ export function Segmented({
     <div
       role="radiogroup"
       aria-label="Appearance"
-      className="inline-flex rounded-control bg-sunken p-0.5"
+      className="inline-flex max-w-full rounded-control bg-sunken p-0.5"
     >
-      <div className="relative flex">
+      <div className="relative flex w-full">
         <span
           aria-hidden
           className="pointer-events-none absolute inset-y-0 left-0 w-1/3 rounded-control bg-surface shadow-raised motion-reduce:transition-none"
@@ -36,7 +36,7 @@ export function Segmented({
             role="radio"
             aria-checked={value === choice}
             tabIndex={value === choice ? 0 : -1}
-            className={`relative h-7 w-16 rounded-control text-sm capitalize ${value === choice ? "text-ink" : "text-ink-muted"}`}
+            className={`relative h-7 w-16 min-w-0 flex-1 rounded-control text-sm capitalize ${value === choice ? "text-ink" : "text-ink-muted"}`}
             onPointerDown={() => setPointer(true)}
             onClick={() => onChange(choice)}
             onKeyDown={(event) => {
