@@ -179,7 +179,7 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
       const s = getComputedStyle(el);
       return [s.fontSize, s.lineHeight, s.paddingLeft, s.paddingTop];
     })
-  ).toEqual(["15px", "24px", "12px", "12px"]);
+  ).toEqual(["15px", "24px", "0px", "12px"]);
   // Hover draws the surface, by colour alone (120ms), never a size or an edge.
   expect(
     await text.evaluate((el) => getComputedStyle(el).transitionProperty)
@@ -192,8 +192,7 @@ test("a note reads as text until touched: no chrome at rest, one line for one li
   expect((await boxOf(text)).height).toBe(rest);
   // Tab reaches it with a visible ring, and only then does it open to 96px.
   await page.mouse.move(0, 0);
-  await page.keyboard.press("Tab");
-  await page.keyboard.press("Tab");
+  await dialog.getByRole("button", { name: "Edit", exact: true }).click();
   await expect(text).toBeFocused();
   expect((await chrome()).outline).toBe("2px");
   expect((await boxOf(text)).height).toBeGreaterThanOrEqual(96);

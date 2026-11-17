@@ -271,11 +271,15 @@ function Fields({
           </div>
           <div className="pr-20 text-xs wrap-anywhere text-ink-muted pointer-coarse:pr-24">
             {[
-              memory.kind === "text"
-                ? "Text"
-                : memory.kind === "pdf"
-                  ? "PDF"
-                  : memory.kind[0]!.toUpperCase() + memory.kind.slice(1),
+              {
+                text: "Note",
+                file: "File",
+                pdf: "PDF",
+                image: "Image",
+                video: "Video",
+                link: "Link",
+                social_post: "Post",
+              }[memory.kind],
               ...(["link", "video", "social"].includes(memory.kind) &&
               memory.sourceUrl
                 ? [hostOf(memory)]
@@ -300,24 +304,40 @@ function Fields({
           ) : memory.kind === "link" ? (
             <Reader memory={memory} />
           ) : (
-            <Textarea
-              ref={bodyField}
-              value={shown.body}
-              onChange={(e) => change({ ...shown, body: e.target.value })}
-              aria-label="Text"
-              dir="auto"
-              // Reads as text (base/24) with no chrome at rest, sized to what it
-              // holds: a one-line note is one line. The surface appears on hover
-              // (colour, 120ms) and the ring on focus. Once you start writing,
-              // or when it is empty, it keeps a 96px well to write in: it never
-              // shrinks again on blur, because that would move Done out from
-              // under a press. Its edge aligns with the property controls.
-              onFocus={() => setWriting(true)}
-              className={cn(
-                "min-h-0 w-full rounded-control border-transparent bg-transparent p-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
-                (writing || !shown.body) && "min-h-24"
+            <>
+              {!writing && (
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  className="self-start"
+                  onClick={() => {
+                    setWriting(true);
+                    requestAnimationFrame(() => bodyField.current?.focus());
+                  }}
+                >
+                  Edit
+                </Button>
               )}
-            />
+              <Textarea
+                ref={bodyField}
+                value={shown.body}
+                onChange={(e) => change({ ...shown, body: e.target.value })}
+                aria-label="Text"
+                onFocus={() => setWriting(true)}
+                dir="auto"
+                // Reads as text (base/24) with no chrome at rest, sized to what it
+                // holds: a one-line note is one line. The surface appears on hover
+                // (colour, 120ms) and the ring on focus. Once you start writing,
+                // or when it is empty, it keeps a 96px well to write in: it never
+                // shrinks again on blur, because that would move Done out from
+                // under a press. Reading and editing share the content glyph origin.
+
+                className={cn(
+                  "min-h-0 w-full rounded-control border-transparent bg-transparent px-0 py-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
+                  (writing || !shown.body) && "min-h-24"
+                )}
+              />
+            </>
           )}
         </div>
         <div className="divide-y divide-line border-t border-line pt-4">

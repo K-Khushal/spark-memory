@@ -4,7 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { checkImage } from "@spark/capture";
 import { parseImport } from "@spark/capture/import";
 import { FREE_ALLOWANCE, IMPORT_LIMITS, type ImportEntry } from "@spark/core";
-import { Button, Switch, toast } from "@spark/ui";
+import {
+  Button,
+  Menu,
+  MenuTrigger,
+  MenuContent,
+  MenuItem,
+  MenuCheckboxItem,
+  toast,
+} from "@spark/ui";
 import { createApiClient } from "@spark/api-client";
 import { imageCapture } from "../library/image-capture";
 import { importImageTransport } from "../library/use-library";
@@ -314,41 +322,45 @@ export function ImportSection({ userId }: { userId: string }) {
   const active = job && !["done", "cancelled"].includes(job.state);
   return (
     <div className="flex min-w-0 flex-col">
-      <div className="flex flex-col">
-        <SettingsRow label="Import URLs">
-          <Button
-            wrap
-            variant="outline"
-            size="sm"
-            disabled={busy || (!!active && job.state !== "loading")}
-            onClick={() => exportInput.current?.click()}
-          >
-            Import URLs
-          </Button>
-        </SettingsRow>
-        <SettingsRow label="Import Images">
-          <Button
-            wrap
-            variant="outline"
-            size="sm"
-            disabled={busy || !!active}
-            onClick={() => filesInput.current?.click()}
-          >
-            Import Images
-          </Button>
-        </SettingsRow>
-        <SettingsRow label="Import Folder">
-          <Button
-            wrap
-            variant="outline"
-            size="sm"
-            disabled={busy || !!active}
-            onClick={() => folderInput.current?.click()}
-          >
-            Import Folder
-          </Button>
-        </SettingsRow>
-      </div>
+      <SettingsRow label="Import">
+        <Menu>
+          <MenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Import Into Library"
+              disabled={busy}
+            >
+              Import
+            </Button>
+          </MenuTrigger>
+          <MenuContent align="end">
+            <MenuItem
+              disabled={!!active && job.state !== "loading"}
+              onSelect={() => exportInput.current?.click()}
+            >
+              URLs
+            </MenuItem>
+            <MenuItem
+              disabled={!!active}
+              onSelect={() => filesInput.current?.click()}
+            >
+              Images
+            </MenuItem>
+            <MenuItem
+              disabled={!!active}
+              onSelect={() => folderInput.current?.click()}
+            >
+              Folder
+            </MenuItem>
+            {!active && (
+              <MenuCheckboxItem checked={spread} onCheckedChange={setSpread}>
+                Spread Over Days
+              </MenuCheckboxItem>
+            )}
+          </MenuContent>
+        </Menu>
+      </SettingsRow>
       <input
         ref={exportInput}
         hidden
@@ -386,15 +398,6 @@ export function ImportSection({ userId }: { userId: string }) {
           e.target.value = "";
         }}
       />
-      {!active && (
-        <label className="flex min-h-12 items-center justify-between gap-3 border-b border-line text-sm">
-          Spread Over Days
-          <Switch
-            checked={spread}
-            onCheckedChange={(checked) => setSpread(checked)}
-          />
-        </label>
-      )}
       <div className="flex flex-col gap-2 text-sm tabular-nums">
         {job && (
           <>
