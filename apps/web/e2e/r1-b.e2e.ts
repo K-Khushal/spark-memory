@@ -329,8 +329,11 @@ test("Library-owned phone sheets keep their footer above a scrolling body", asyn
     expect(
       await heading.evaluate((el) => el.scrollWidth - el.clientWidth)
     ).toBeLessThanOrEqual(1);
-    const body = dialog.locator('[data-slot="dialog-body"]');
-    await body.evaluate((el) => {
+    // The body scrolls; a cramped sheet (large text) scrolls as one page.
+    // Either way the footer must be reachable at the end.
+    await dialog.evaluate((el) => {
+      const body = el.querySelector<HTMLElement>('[data-slot="dialog-body"]')!;
+      body.scrollTop = body.scrollHeight;
       el.scrollTop = el.scrollHeight;
     });
     const footer = await dialog
