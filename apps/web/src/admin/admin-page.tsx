@@ -204,7 +204,7 @@ export function AdminPage({ session }: { session: AppSession }) {
                         aria-label="Daily Budget"
                         inputMode="decimal"
                         autoComplete="off"
-                        className="h-8 pl-6"
+                        className="h-8 pl-6 tabular-nums"
                         value={draft}
                         aria-invalid={invalid || undefined}
                         onChange={(event) => {
@@ -264,7 +264,7 @@ export function AdminPage({ session }: { session: AppSession }) {
                             <Cell align="right" className="tabular-nums">
                               {formatCost(row.costMicros)}
                             </Cell>
-                            <Cell align="right" className="tabular">
+                            <Cell align="right" className="tabular-nums">
                               {row.estimated ? "Yes" : "No"}
                             </Cell>
                           </tr>
@@ -359,7 +359,7 @@ function Column({
       scope="col"
       className={cn(
         "py-2 pr-4 font-medium whitespace-nowrap",
-        align === "right" && "text-right tabular"
+        align === "right" && "text-right tabular-nums"
       )}
     >
       {children}
@@ -383,7 +383,7 @@ function Cell({
       title={title}
       className={cn(
         "py-2 pr-4 whitespace-nowrap",
-        align === "right" && "text-right tabular",
+        align === "right" && "text-right tabular-nums",
         className
       )}
     >

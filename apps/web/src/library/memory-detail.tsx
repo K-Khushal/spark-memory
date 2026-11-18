@@ -267,7 +267,7 @@ function Fields({
               }
             />
           </div>
-          <div className="flex min-h-8 items-center justify-between gap-2 pr-20 text-xs wrap-anywhere text-ink-muted pointer-coarse:pr-24">
+          <div className="flex min-h-8 items-center justify-between gap-2 text-xs wrap-anywhere text-ink-muted">
             <span>
               {[
                 {

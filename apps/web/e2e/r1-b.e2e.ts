@@ -459,6 +459,47 @@ test("text tiles fit font-shaped paragraphs without an empty badge row", async (
   }
 });
 
+test("Sample text tiles end 12px below the badge on phone lanes", async ({
+  page,
+  context,
+}) => {
+  const memory = {
+    ...tourMemories().find((m) => m.kind === "text")!,
+    sample: true,
+    title: "A Quiet Place to Read",
+    body: "A small bookshop tucked behind the station. Blue shelves, a window seat, coffee and a sleepy cat. A peaceful stop for the next trip, away from busy streets.",
+    indexState: "searchable" as const,
+  };
+  await installLibrary(context, {
+    memories: [memory],
+    delay: 0,
+    listFails: false,
+    searchFails: false,
+    onboarding: FINISHED,
+    answers: {},
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+  await page.evaluate(() => document.fonts.ready);
+  const tile = page
+    .getByRole("list", { name: "All Memories" })
+    .getByRole("listitem");
+  await expect(tile).toHaveCount(1);
+  await expect
+    .poll(() =>
+      tile.evaluate((item) => {
+        const badge = [...item.querySelectorAll("span")].find(
+          (el) => el.textContent === "Sample"
+        )!;
+        return Math.round(
+          item.getBoundingClientRect().bottom -
+            badge.getBoundingClientRect().bottom
+        );
+      })
+    )
+    .toBe(12);
+});
+
 test("font-aware measurement of a 10k wall stays within the cold and cached budgets", async ({
   page,
 }) => {

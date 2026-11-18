@@ -220,7 +220,7 @@ export function Onboarding({
                     duration: DURATION.preview / 1000,
                     ease: EASING.out,
                   }}
-                  className={`flex min-w-0 items-center ${state.step === "disclosure" ? "flex-wrap gap-3" : "flex-nowrap gap-2"}`}
+                  className={`flex min-w-0 ${state.step === "disclosure" ? "flex-col items-start gap-3" : "items-center flex-nowrap gap-2"}`}
                   aria-busy={busy}
                 >
                   {state.step === "disclosure" && (

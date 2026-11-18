@@ -445,7 +445,7 @@ function DeleteAccount({
           if (!next) setTyped("");
         }}
       >
-        <SettingsRow label="Delete Account">
+        <SettingsRow label="Account Data">
           <DialogTrigger asChild>
             <Button wrap variant="outline" size="sm" className="text-danger">
               Delete Account

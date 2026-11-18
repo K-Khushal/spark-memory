@@ -87,7 +87,6 @@ export function wrapLines(
 }
 
 let context: CanvasRenderingContext2D | null | undefined;
-let fontStack: string | undefined;
 let fontsLoaded = false;
 let fontRevision = 0;
 const listeners = new Set<() => void>();
@@ -104,20 +103,18 @@ function canvas() {
   return context;
 }
 
-const spec = () => {
-  fontStack ??=
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--font-display")
-      .trim() || "sans-serif";
-  return fontStack;
-};
+// Vite can evaluate this module before app CSS is applied. Read the stack
+// again after fonts load rather than retaining that initial sans-serif fallback.
+const spec = () =>
+  getComputedStyle(document.documentElement)
+    .getPropertyValue("--font-display")
+    .trim() || "sans-serif";
 
 /** Whether the display font itself is ready: "loaded" alone can be true before it was ever asked for. */
 const displayFontReady = () =>
   typeof document !== "undefined" &&
   !!document.fonts &&
-  document.fonts.status === "loaded" &&
-  document.fonts.check(`500 16px ${spec()}`);
+  document.fonts.check(`500 16px ${spec().split(",")[0]}`);
 
 if (typeof document !== "undefined" && document.fonts) {
   const update = () => {
