@@ -697,7 +697,7 @@ function LibraryForSession({
       >
         <div
           ref={bar}
-          className="sticky top-0 z-20 border-b border-line bg-canvas md:hidden"
+          className="sticky top-0 z-20 flex flex-col gap-2 border-b border-line bg-canvas md:hidden"
         >
           <div className="flex flex-wrap items-center gap-2 px-4 py-2">
             <PhoneNavigation

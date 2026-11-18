@@ -373,6 +373,22 @@ export async function step(
                 )
               ).toBe(true);
               const dialog = page.getByRole("dialog");
+              // Zero overflow cannot see pathological wrapping: the title
+              // must keep a readable measure (at least ~6 characters a line).
+              if (slug === "detail-note" || slug === "detail-editing")
+                expect(
+                  await dialog
+                    .getByRole("textbox", { name: "Title", exact: true })
+                    .evaluate((el) => {
+                      const style = getComputedStyle(el);
+                      const inner =
+                        el.clientWidth -
+                        parseFloat(style.paddingLeft) -
+                        parseFloat(style.paddingRight);
+                      return inner / parseFloat(style.fontSize);
+                    }),
+                  `title measure at ${width}px / ${zoom}%`
+                ).toBeGreaterThanOrEqual(6 * 0.55);
               const actions =
                 slug === "library-wall"
                   ? [
@@ -415,15 +431,87 @@ export async function step(
                   await control.evaluate((el) => {
                     const r = el.getBoundingClientRect(),
                       v = window.visualViewport!;
-                    return (
-                      r.left >= v.offsetLeft &&
-                      r.right <= v.offsetLeft + v.width + 1 &&
-                      r.top >= v.offsetTop &&
-                      r.bottom <= v.offsetTop + v.height + 1
+                    let left = Math.max(r.left, v.offsetLeft),
+                      right = Math.min(r.right, v.offsetLeft + v.width);
+                    let top = Math.max(r.top, v.offsetTop),
+                      bottom = Math.min(r.bottom, v.offsetTop + v.height);
+                    for (
+                      let parent = el.parentElement;
+                      parent;
+                      parent = parent.parentElement
+                    ) {
+                      const style = getComputedStyle(parent);
+                      if (
+                        /(auto|scroll|hidden|clip)/.test(
+                          style.overflow + style.overflowY + style.overflowX
+                        )
+                      ) {
+                        const box = parent.getBoundingClientRect();
+                        left = Math.max(left, box.left + parent.clientLeft);
+                        right = Math.min(
+                          right,
+                          box.left + parent.clientLeft + parent.clientWidth
+                        );
+                        top = Math.max(top, box.top + parent.clientTop);
+                        bottom = Math.min(
+                          bottom,
+                          box.top + parent.clientTop + parent.clientHeight
+                        );
+                      }
+                    }
+                    // A disabled button has pointer-events: none, so a hit
+                    // test would see through it; probe it as if enabled.
+                    const hit = (x: number, y: number) => {
+                      const was = el.style.pointerEvents;
+                      el.style.pointerEvents = "auto";
+                      const target = document.elementFromPoint(x, y);
+                      el.style.pointerEvents = was;
+                      return (
+                        target === el ||
+                        (target !== null && el.contains(target))
+                      );
+                    };
+                    const centre = hit(
+                      (r.left + r.right) / 2,
+                      (r.top + r.bottom) / 2
                     );
-                  })
+                    const field =
+                      el instanceof HTMLTextAreaElement ||
+                      el instanceof HTMLInputElement;
+                    const style = getComputedStyle(el);
+                    const firstX = r.left + parseFloat(style.paddingLeft) + 2;
+                    const firstY =
+                      r.top +
+                      parseFloat(style.paddingTop) +
+                      parseFloat(style.fontSize) / 2;
+                    const ok =
+                      right > left &&
+                      bottom > top &&
+                      centre &&
+                      (!field ||
+                        (firstX >= left &&
+                          firstX < right &&
+                          firstY >= top &&
+                          firstY < bottom &&
+                          hit(firstX, firstY) &&
+                          el.scrollTop === 0 &&
+                          el.scrollLeft === 0));
+                    return ok;
+                  }),
+                  `${slug} ${width}px ${zoom}%: ${(await control.getAttribute("aria-label")) ?? (await control.textContent())} must clear scrolling clips and overlays`
                 ).toBe(true);
               };
+              if (["detail-note", "detail-editing"].includes(slug)) {
+                expect(
+                  await dialog
+                    .getByRole("textbox", { name: "Title", exact: true })
+                    .evaluate(
+                      (el) =>
+                        el.clientWidth /
+                        parseFloat(getComputedStyle(el).fontSize)
+                    )
+                ).toBeGreaterThanOrEqual(6);
+              }
               for (const action of actions) await inVisualViewport(action);
               const name = `${pad(entry.n)}-${slug}-text-${zoom}-${theme}-${width}.png`;
               await page.screenshot({
@@ -439,6 +527,15 @@ export async function step(
                   : slug === "search-empty-menu"
                     ? page.getByPlaceholder("Search…")
                     : undefined;
+                const original = field ? await field.inputValue() : undefined;
+                if (
+                  field &&
+                  ["detail-editing", "capture-dialog"].includes(slug)
+                ) {
+                  await field.fill("Tour caret fixture");
+                  await field.press("Home");
+                  await inVisualViewport(field);
+                }
                 await (field ?? actions[0]!).focus();
                 await page.setViewportSize({ width, height: 500 });
                 expect(
@@ -450,24 +547,54 @@ export async function step(
                 for (const action of actions) await inVisualViewport(action);
                 if (field) await inVisualViewport(field);
                 for (const action of actions) await inVisualViewport(action);
-                if (field)
-                  expect(
-                    await field.evaluate((el) => {
-                      const r = el.getBoundingClientRect(),
-                        v = visualViewport!;
-                      return (
-                        r.top >= v.offsetTop &&
-                        r.bottom <= v.offsetTop + v.height + 1
-                      );
-                    })
-                  ).toBe(true);
-                const keyboardName = `${pad(entry.n)}-${slug}-keyboard-text-${zoom}-${theme}-${width}.png`;
+                const keyboardName = `${pad(entry.n)}-${slug}-short-viewport-text-${zoom}-${theme}-${width}.png`;
                 await page.screenshot({
                   path: resolve(OUT, keyboardName),
                   animations: "disabled",
                 });
                 entry.files.push({ name: keyboardName, theme, width });
                 await page.setViewportSize({ width, height: 844 });
+                if (
+                  field &&
+                  ["detail-editing", "capture-dialog"].includes(slug)
+                ) {
+                  await page.evaluate(() => {
+                    Object.defineProperty(visualViewport!, "height", {
+                      configurable: true,
+                      value: 500,
+                    });
+                    visualViewport!.dispatchEvent(new Event("resize"));
+                  });
+                  await settle(page);
+                  expect(await page.evaluate(() => innerHeight)).toBe(844);
+                  expect(
+                    await dialog.evaluate((el) =>
+                      parseFloat(
+                        (el as HTMLElement).style.getPropertyValue(
+                          "--keyboard-inset"
+                        )
+                      )
+                    )
+                  ).toBeGreaterThan(0);
+                  await inVisualViewport(field);
+                  for (const action of actions) await inVisualViewport(action);
+                  await inVisualViewport(field);
+                  const visualName = `${pad(entry.n)}-${slug}-visual-keyboard-text-${zoom}-${theme}-${width}.png`;
+                  await page.screenshot({
+                    path: resolve(OUT, visualName),
+                    animations: "disabled",
+                  });
+                  entry.files.push({ name: visualName, theme, width });
+                  await page.evaluate(() => {
+                    Reflect.deleteProperty(visualViewport!, "height");
+                    visualViewport!.dispatchEvent(new Event("resize"));
+                  });
+                }
+                if (
+                  field &&
+                  ["detail-editing", "capture-dialog"].includes(slug)
+                )
+                  await field.fill(original!);
               }
             }
           }
@@ -477,6 +604,13 @@ export async function step(
           await safeArea.send("Emulation.setSafeAreaInsetsOverride", {
             insets: { top: 0, left: 0, right: 0, bottom: 0 },
           });
+          if (slug === "detail-editing" && theme === "dark") {
+            await page
+              .getByRole("dialog")
+              .getByRole("button", { name: "Done", exact: true })
+              .click();
+            await run();
+          }
           await safeArea.detach();
           await page.setViewportSize(size);
         }
@@ -494,12 +628,16 @@ export async function step(
     entry.error = String(error instanceof Error ? error.message : error).split(
       "\n"
     )[0];
-    console.log(`ui-tour: ${pad(entry.n)} ${slug} failed: ${String(error)}`);
+    console.log(
+      `ui-tour: ${pad(entry.n)} ${slug} failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`
+    );
   } finally {
     await page
-      .evaluate(() =>
-        document.documentElement.style.removeProperty("font-size")
-      )
+      .evaluate(() => {
+        document.documentElement.style.removeProperty("font-size");
+        Reflect.deleteProperty(visualViewport!, "height");
+        visualViewport!.dispatchEvent(new Event("resize"));
+      })
       .catch(() => {});
     await resetView(page).catch(() => {});
     await (options.recover ?? (() => page.keyboard.press("Escape")))().catch(
@@ -522,7 +660,7 @@ export function writeIndex() {
     `Bundle: ${process.env.UI_TOUR_BUNDLE ?? "Vite development modules at the commit above (working tree changes included)"}`,
     `Browser: Chromium ${browserVersion} (Playwright); reduced motion: no-preference except explicitly named reduced-motion recordings. Viewports: 1440×900 desktop/no touch, 390×844 phone/touch, 320px extension/no touch.`,
     "",
-    "Every screen and state in light and dark at 1440x900 and 390x844 (a touch device, so `pointer: coarse` rules apply). Files are `NN-screen-state-theme-width.png`; the same NN is the same screen and state in all four. Settings and Admin are shot at the viewport and again scrolled to the bottom (`-scrolled`); an extension popup is shot at 320px wide, as tall as its content.",
+    "Short-viewport captures resize layout and visual height to 500px. Visual-keyboard captures keep layout height at 844px and override visualViewport.height to 500px, asserting a non-zero keyboard inset. This is simulated coverage, not physical-device acceptance. Every screen and state in light and dark at 1440x900 and 390x844 (a touch device, so `pointer: coarse` rules apply). Files are `NN-screen-state-theme-width.png`; the same NN is the same screen and state in all four. Settings and Admin are shot at the viewport and again scrolled to the bottom (`-scrolled`); an extension popup is shot at 320px wide, as tall as its content.",
     "",
   ];
   for (const name of sections) {

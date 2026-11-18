@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type ReactNode,
 } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { XIcon } from "lucide-react";
@@ -34,7 +35,8 @@ export function DialogTitle({
 
 /**
  * The top of a dialog that reads in one scrolling body: it stays put while
- * the body scrolls. Leaves room for the Close button. 16px on a phone, 24px
+ * the body scrolls. Leaves room for a floating Close; under an in-flow
+ * toolbar (sheet and dialog presentations) it needs none. 16px on a phone, 24px
  * from `sm`.
  */
 export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
@@ -42,7 +44,7 @@ export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       className={cn(
-        "flex shrink-0 flex-col gap-1 px-4 pt-4 pr-14 pb-2 sm:px-6 sm:pt-6 sm:pr-14 sm:pb-3 pointer-coarse:pr-16",
+        "flex shrink-0 flex-col gap-1 px-4 pt-4 pr-14 pb-2 sm:px-6 sm:pt-6 sm:pr-14 sm:pb-3 pointer-coarse:pr-16 [[data-toolbar=flow]_&]:pt-0 [[data-toolbar=flow]_&]:pr-4 sm:[[data-toolbar=flow]_&]:pr-6",
         className
       )}
       {...props}
@@ -67,7 +69,7 @@ export function DialogBody({
       ref={body}
       data-slot="dialog-body"
       className={cn(
-        "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-2 sm:px-6",
+        "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-2 sm:px-6 max-sm:in-data-cramped:flex-none max-sm:in-data-cramped:overflow-visible",
         className
       )}
       {...props}
@@ -137,6 +139,47 @@ function useKeyboardInset(element: HTMLElement | null, enabled: boolean) {
   }, [element, enabled]);
 }
 
+/**
+ * A phone sheet whose pinned parts (toolbar, header, footer) would leave its
+ * scrolling body too short to read or type in (large text with the keyboard
+ * up) scrolls as one page instead: `data-cramped` unpins them. The pinned
+ * parts' heights do not depend on it, so the decision cannot oscillate.
+ */
+function useCrampedSheet(element: HTMLElement | null, enabled: boolean) {
+  useEffect(() => {
+    if (!element || !enabled) return;
+    const fit = () => {
+      const body = element.querySelector<HTMLElement>(
+        "[data-slot=dialog-body]"
+      );
+      if (!body) return element.removeAttribute("data-cramped");
+      // Everything beside the body, at each level up to the sheet (a form
+      // may wrap the body and its footer).
+      let pinned = 0;
+      for (let node = body; node !== element; node = node.parentElement!)
+        for (const sibling of node.parentElement!.children)
+          if (sibling !== node && sibling instanceof HTMLElement)
+            pinned += sibling.offsetHeight;
+      const room = element.clientHeight - pinned;
+      element.toggleAttribute(
+        "data-cramped",
+        room < Math.max(160, element.clientHeight * 0.3)
+      );
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+    for (const pinned of element.querySelectorAll(
+      "[data-slot=dialog-header], [data-slot=dialog-footer], [data-slot=dialog-toolbar]"
+    ))
+      observer.observe(pinned);
+    return () => {
+      observer.disconnect();
+      element.removeAttribute("data-cramped");
+    };
+  }, [element, enabled]);
+}
+
 /** Counts the dialog as an open layer while its content is mounted. */
 function OpenLayer() {
   useOpenLayer();
@@ -150,13 +193,16 @@ export type DialogPresentation = "dialog" | "sheet" | "fullscreen";
 export function DialogContent({
   className,
   children,
+  toolbar,
   closeLabel = "Close",
   closeClassName,
   onInteractOutside,
+  onOpenAutoFocus,
   presentation,
   ref,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Content> & {
+  toolbar?: ReactNode;
   closeLabel?: string;
   /** For a dialog on a dark surface in both themes (the image viewer). */
   closeClassName?: string;
@@ -174,6 +220,7 @@ export function DialogContent({
   const [node, setNode] = useState<HTMLDivElement | null>(null);
   const sheet = presentation === "sheet";
   useKeyboardInset(node, sheet);
+  useCrampedSheet(node, sheet);
   const setRef = useCallback(
     (element: HTMLDivElement | null) => {
       setNode(element);
@@ -187,6 +234,22 @@ export function DialogContent({
     },
     [ref]
   );
+  // Sheet and dialog presentations give Close (and any toolbar) its own row,
+  // so scrolled content never runs beneath it; the plain fade and fullscreen
+  // viewers keep it floating.
+  const flow = !!presentation && presentation !== "fullscreen";
+  const close = (
+    <DialogPrimitive.Close
+      className={cn(
+        "grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97] pointer-coarse:size-(--size-touch)",
+        !flow && "absolute top-3 right-3 z-10",
+        closeClassName
+      )}
+      aria-label={closeLabel}
+    >
+      <XIcon className="size-4" aria-hidden />
+    </DialogPrimitive.Close>
+  );
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay
@@ -196,30 +259,46 @@ export function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         data-presentation={presentation}
+        data-toolbar={flow ? "flow" : undefined}
         ref={setRef}
         className={cn(
           "fixed inset-0 z-50 m-auto h-fit w-[calc(100%-2rem)] max-w-lg overscroll-contain rounded-panel bg-surface text-ink shadow-overlay outline-none",
           sheet &&
-            "max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-(--keyboard-inset,0px) max-sm:m-0 max-sm:flex max-sm:max-h-[min(var(--size-sheet),var(--visual-height,100dvh))] max-sm:w-full max-sm:max-w-none max-sm:flex-col max-sm:rounded-b-none",
+            "max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-(--keyboard-inset,0px) max-sm:m-0 max-sm:flex max-sm:max-h-[min(var(--size-sheet),var(--visual-height,100dvh))] max-sm:w-full max-sm:max-w-none max-sm:flex-col max-sm:rounded-b-none max-sm:data-cramped:overflow-y-auto max-sm:data-cramped:*:flex-none",
           className
         )}
         onInteractOutside={(event) => {
           onToast(event);
           onInteractOutside?.(event);
         }}
+        onOpenAutoFocus={(event) => {
+          onOpenAutoFocus?.(event);
+          if (event.defaultPrevented || !flow) return;
+          // The toolbar comes first in the DOM; first focus still goes to the
+          // content, as it did when Close came last.
+          const first = [
+            ...(node?.querySelectorAll<HTMLElement>(
+              'a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'
+            ) ?? []),
+          ].find((el) => !el.closest("[data-slot=dialog-toolbar]"));
+          if (!first) return;
+          event.preventDefault();
+          first.focus();
+        }}
         {...props}
       >
         <OpenLayer />
+        {flow && (
+          <div
+            data-slot="dialog-toolbar"
+            className="flex shrink-0 items-center justify-end gap-2 px-3 pt-3"
+          >
+            {toolbar}
+            {close}
+          </div>
+        )}
         {children}
-        <DialogPrimitive.Close
-          className={cn(
-            "absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97] pointer-coarse:size-(--size-touch)",
-            closeClassName
-          )}
-          aria-label={closeLabel}
-        >
-          <XIcon className="size-4" aria-hidden />
-        </DialogPrimitive.Close>
+        {!flow && close}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );
