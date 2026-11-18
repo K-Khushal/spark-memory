@@ -108,12 +108,19 @@ export function MemoryDetail({
   onMoreLikeThis: (memory: Memory) => void;
   onSearchByImage?: (memory: Memory) => void;
 } & IndexingProps & { onCategories?: CategoryEdit }) {
+  // Keep the content available while Radix retains the closing sheet for its exit.
+  const [retained, setRetained] = useState(memory);
+  if (memory && memory !== retained) setRetained(memory);
+  const shown = memory ?? retained;
   return (
     <Dialog open={!!memory} onOpenChange={(open) => !open && onClose()}>
-      {memory && (
+      {shown && (
         <Fields
-          key={memory.id}
-          memory={memory}
+          key={shown.id}
+          memory={shown}
+          onExited={() => {
+            if (!memory) setRetained(undefined);
+          }}
           seconds={seconds}
           edits={edits}
           onClose={onClose}
@@ -132,6 +139,7 @@ export function MemoryDetail({
 
 function Fields({
   memory,
+  onExited,
   seconds,
   edits,
   onClose,
@@ -145,6 +153,7 @@ function Fields({
 }: {
   seconds?: number;
   memory: Memory;
+  onExited: () => void;
   edits: Edits;
   onClose: () => void;
   onDelete: (memory: Memory) => void;
@@ -213,7 +222,10 @@ function Fields({
   return (
     <DialogContent
       presentation="sheet"
-      onCloseAutoFocus={(event) => restoreLibraryFocus(event, id)}
+      onCloseAutoFocus={(event) => {
+        restoreLibraryFocus(event, id);
+        onExited();
+      }}
       aria-describedby={undefined}
       // Focus the scrolling body, not the title (focusing the title would
       // select it): ↑ ↓ and Space scroll the reading at once.
@@ -325,7 +337,7 @@ function Fields({
               // Focus preserves the reading geometry. Only content changes
               // resize the field, so entering Edit never moves its glyphs.
               className={cn(
-                "min-h-0 w-full rounded-control border-transparent bg-transparent px-0 py-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
+                "min-h-0 max-sm:max-h-[min(50dvh,calc(var(--visual-height,100dvh)*0.5))] w-full rounded-control border-transparent bg-transparent px-0 py-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
                 !shown.body && "min-h-24"
               )}
             />

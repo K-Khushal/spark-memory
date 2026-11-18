@@ -29,7 +29,10 @@ export function CommandDialog({
   return (
     <DialogPrimitive.Root {...props}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim" />
+        <DialogPrimitive.Overlay
+          data-slot="command-overlay"
+          className="fixed inset-0 z-50 bg-scrim"
+        />
         <DialogPrimitive.Content
           onCloseAutoFocus={onCloseAutoFocus}
           aria-describedby={undefined}

@@ -168,7 +168,7 @@ export function Onboarding({
               className={`flex w-full flex-col justify-center gap-3 ${state.step === "disclosure" ? "max-w-xl py-6" : `max-w-3xl sm:flex-row sm:items-center ${finished ? "min-h-12" : "min-h-26 py-3 sm:min-h-16"}`}`}
             >
               <div
-                className={`flex min-w-0 flex-wrap items-center ${state.step === "disclosure" ? "gap-3" : "gap-2"}`}
+                className={`flex min-w-0 ${state.step === "disclosure" ? "flex-col items-start gap-3" : "flex-wrap items-center gap-2"}`}
               >
                 {!finished && (
                   <div
