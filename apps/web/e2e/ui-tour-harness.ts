@@ -46,7 +46,8 @@ type Entry = {
 };
 const entries: Entry[] = [];
 const motionEntries: string[] = [];
-export const recordMotion = (rows: string[]) => motionEntries.push(...rows);
+export const recordMotion = (rows: string[]) =>
+  motionEntries.push(...rows.map((row) => row.replace(/\s*\n\s*/g, " ")));
 const videoEntries: { name: string; line: string }[] = [];
 let counter = 0;
 let section = "";
