@@ -1,6 +1,6 @@
 import { expect, chromium, devices, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -879,7 +879,7 @@ test("new account: Get Started, samples and the empty Library", async ({
   await step(
     page,
     "onboarding-extension",
-    "Get Started, Install Extension",
+    "Get Started, Install Extension (desktop step forced at narrow width — not phone flow; excluded from phone acceptance)",
     async () => {
       await flow.getByRole("button", { name: "Continue", exact: true }).click();
       await expect(
@@ -1138,7 +1138,9 @@ test("settings and admin", async ({ page, context }) => {
       await page.getByRole("button", { name: "Connect Assistant" }).click();
       await page.getByLabel("Assistant Name").fill("Claude Code");
       await page.getByRole("button", { name: "Create Token" }).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
       await expect(page.getByLabel("Copy Token Now")).toBeVisible();
+      await settle(page);
     },
     full
   );
@@ -1636,6 +1638,23 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
   const coldMock: Mock = { ...mock, delay: 800, listFails: true };
   await installLibrary(coldContext, coldMock);
   const cold = await coldContext.newPage();
+  // Anchor the browser performance timeline to the beginning of this recording.
+  const recordingStart = await cold.evaluate(() => performance.timeOrigin);
+  await coldContext.addInitScript(() => {
+    performance.mark("tour-navigation-start", { startTime: 0 });
+    new PerformanceObserver((list, observer) => {
+      if (!document.querySelector("#root")?.firstElementChild) return;
+      const paint = list
+        .getEntries()
+        .find((entry) => entry.name === "first-contentful-paint");
+      if (paint) {
+        performance.mark("tour-first-app-paint", {
+          startTime: paint.startTime,
+        });
+        observer.disconnect();
+      }
+    }).observe({ type: "paint", buffered: true });
+  });
   try {
     await cold.goto("/");
     await expect(
@@ -1653,16 +1672,28 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
       cold.getByRole("list", { name: "All Memories" })
     ).toBeVisible();
   } finally {
+    const coldTiming = await cold.evaluate((start) => {
+      const relative = (name: string) =>
+        Math.round(
+          performance.timeOrigin +
+            performance.getEntriesByName(name, "mark")[0]!.startTime -
+            start
+        );
+      return `Navigation start: ${relative("tour-navigation-start")} ms; first app paint: ${relative("tour-first-app-paint")} ms from recording start (performance marks).`;
+    }, recordingStart);
     const video = cold.video();
     await coldContext.close();
-    const rawPath = resolve(VIDEOS, ".raw-cold-load-and-retry.webm");
+    const rawPath = resolve(VIDEOS, "cold-load-and-retry-raw.webm");
     await video?.saveAs(rawPath);
     trimVideoToFirstPaint(
       rawPath,
       resolve(VIDEOS, "cold-load-and-retry.webm"),
       1440
     );
-    if (existsSync(rawPath)) rmSync(rawPath, { force: true });
+    recordVideo(
+      "cold-load-and-retry-raw.webm",
+      `Untrimmed cold-load recording. ${coldTiming}`
+    );
     recordVideo(
       "cold-load-and-retry.webm",
       "Cold first-frame skeleton, Library recovery and subsequent delayed skeleton gate"
