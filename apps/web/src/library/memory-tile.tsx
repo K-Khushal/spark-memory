@@ -282,7 +282,7 @@ export function MemoryTile(props: {
 }
 
 const tileFrame =
-  "relative flex h-full flex-col rounded-tile transition-[transform,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]";
+  "relative flex h-full flex-col rounded-tile transition-[scale,background-color] duration-(--duration-press) ease-out group-active:scale-[0.98] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--edge)]";
 
 /** A text or link tile: the page's own surface with the faint outline; hover sinks it. */
 const flatSurface =

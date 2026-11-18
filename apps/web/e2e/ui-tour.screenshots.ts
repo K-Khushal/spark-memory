@@ -1,4 +1,9 @@
-import { observeMotion, readMotion } from "./ui-tour-motion";
+import {
+  assertInteraction,
+  OUT_EASE,
+  DRAWER_EASE,
+  motionVerdicts,
+} from "./ui-tour-motion";
 import { expect, chromium, devices, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
@@ -17,6 +22,7 @@ import {
   VIDEOS,
   recordVideo,
   recordMotion,
+  recordMotionSummary,
   trimVideoToFirstPaint,
   withCursor,
   signInFresh,
@@ -1562,6 +1568,229 @@ test("extension popup, Grant Access and region overlay", async () => {
  * on the fixed Library. A small ring follows the pointer, since a headless
  * browser draws none.
  */
+
+test("motion contracts", async ({ page, context }) => {
+  test.setTimeout(120_000);
+  await signInFresh(page, "motion-contracts");
+  const memories = tourMemories();
+  await installLibrary(context, {
+    memories,
+    delay: 0,
+    listFails: false,
+    searchFails: false,
+    onboarding: FINISHED,
+    answers: {},
+  });
+  const content = '[data-slot="dialog-content"]';
+  const c = (duration: number, easing: string, properties: string[]) => ({
+    duration,
+    easing,
+    properties,
+  });
+  const check = async (
+    name: string,
+    selector: string,
+    action: () => Promise<unknown>,
+    contract: Parameters<typeof assertInteraction>[4]
+  ) => {
+    await assertInteraction(page, name, selector, action, contract, (rows) => {
+      recordMotion(
+        rows.map(
+          (r) =>
+            `| ${r.interaction} | ${r.element.replaceAll("|", "/")} | ${r.property} | ${r.duration} | ${r.easing} | ${r.delay} | ${r.cssDuration ?? "—"} | ${r.cssEasing ?? "—"} |`
+        )
+      );
+    });
+  };
+  for (const reduced of [false, true]) {
+    await page.emulateMedia({
+      reducedMotion: reduced ? "reduce" : "no-preference",
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await expect(tile(page, "Cardamom Buns")).toBeVisible();
+    for (const close of ["pointer", "Escape"]) {
+      await check(
+        `sheet enter / ${close} / reduce=${reduced}`,
+        content,
+        () => tile(page, "Cardamom Buns").click(),
+        c(
+          reduced ? 150 : 260,
+          reduced ? OUT_EASE : DRAWER_EASE,
+          reduced ? ["opacity"] : ["opacity", "translate"]
+        )
+      );
+      await check(
+        `sheet exit / ${close} / reduce=${reduced}`,
+        content,
+        () =>
+          close === "Escape"
+            ? page.keyboard.press("Escape")
+            : page.getByRole("button", { name: "Close", exact: true }).click(),
+        c(
+          reduced ? 120 : 180,
+          reduced ? OUT_EASE : DRAWER_EASE,
+          reduced ? ["opacity"] : ["opacity", "translate"]
+        )
+      );
+      await expect(page.locator(content)).toHaveCount(0);
+      await expect(tile(page, "Cardamom Buns")).toBeFocused();
+    }
+    for (const close of ["Escape"]) {
+      await check(
+        `command open / reduce=${reduced}`,
+        '[data-slot="command-overlay"], [role="dialog"], [role="dialog"] *',
+        () => page.keyboard.press("ControlOrMeta+k"),
+        "none"
+      );
+      await expect(page.getByPlaceholder("Search…")).toBeFocused();
+      await check(
+        `command close / ${close} / reduce=${reduced}`,
+        '[data-slot="command-overlay"], [role="dialog"], [role="dialog"] *',
+        () => page.keyboard.press("Escape"),
+        "none"
+      );
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+    }
+  }
+  // Dispatch the reopen through the actual Memory tile while the modal exit
+  // still blocks hit testing; this exercises the controlled Library state too.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  const sheet = tile(page, "Cardamom Buns");
+  await sheet.click();
+  await page.waitForTimeout(300);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(content)).toHaveAttribute("data-state", "closed");
+  expect(
+    await page
+      .locator(content)
+      .evaluate((el) =>
+        el.getAnimations().some((a) => a.playState === "running")
+      )
+  ).toBe(true);
+  await sheet.evaluate((el) => (el as HTMLElement).click());
+  await expect(page.locator(content)).toHaveAttribute("data-state", "open");
+  await page.waitForTimeout(350);
+  await expect(page.locator(content)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(content)).toHaveCount(0);
+  await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
+  await expect(sheet).toBeFocused();
+  await sheet.click();
+  await expect(page.locator(content)).toHaveAttribute("data-state", "open");
+  expect(
+    await page
+      .locator(content)
+      .evaluate((el) =>
+        el.getAnimations().some((a) => a.playState === "running")
+      )
+  ).toBe(true);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(350);
+  await expect(page.locator(content)).toHaveCount(0);
+  await expect(page.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
+  await expect(sheet).toBeFocused();
+  motionVerdicts.push(
+    "PASS: sheet mid-exit reopen and mid-enter Escape, overlay cleanup and returned focus"
+  );
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/r1-a-fixtures.html");
+  await check(
+    "pointer dialog enter",
+    content,
+    () =>
+      page.getByRole("button", { name: "Pointer Dialog", exact: true }).click(),
+    c(180, OUT_EASE, ["opacity", "scale"])
+  );
+  await check(
+    "pointer dialog exit",
+    content,
+    () => page.keyboard.press("Escape"),
+    c(120, OUT_EASE, ["opacity"])
+  );
+  await page.goto("/");
+  const note = tile(page, "Cardamom Buns");
+  await expect(note).toBeVisible();
+  await page
+    .getByRole("button", { name: "Capture", exact: true })
+    .filter({ visible: true })
+    .focus();
+  await page.mouse.move(1400, 800);
+  await page.waitForTimeout(300);
+  const noteKey = await note.evaluate((el) =>
+    el.closest("[data-key]")!.getAttribute("data-key")
+  );
+  await check(
+    "bulk check plate hover",
+    `[data-key="${noteKey}"] .check-plate`,
+    () => note.hover(),
+    c(120, OUT_EASE, ["opacity"])
+  );
+  await check(
+    "bulk check plate leave",
+    `[data-key="${noteKey}"] .check-plate`,
+    () => page.mouse.move(1400, 800),
+    c(120, OUT_EASE, ["opacity"])
+  );
+  await note.hover();
+  await page.waitForTimeout(200);
+  await check(
+    "tile press",
+    '[data-key] [class*="group-active:scale"]',
+    () => page.mouse.down(),
+    c(120, OUT_EASE, ["scale"])
+  );
+  await page.mouse.move(1400, 800);
+  await page.mouse.up();
+  await page.keyboard.press("Escape");
+  const kind = (name: string) =>
+    page
+      .getByRole("list", { name: "Kind" })
+      .getByRole("button", { name, exact: true });
+  await check(
+    "first pointer filter relocation",
+    `[data-key="${pick(memories).longNote.id}"]`,
+    async () => {
+      await kind("Notes").click();
+      await page.waitForTimeout(500);
+    },
+    c(180, OUT_EASE, ["transform"])
+  );
+  const categories = page.getByRole("list", { name: "Category", exact: true });
+  const idea = categories.getByRole("button", { name: "Idea", exact: true });
+  if (!(await idea.isVisible()))
+    await categories.getByRole("button", { name: "More", exact: true }).click();
+  await check(
+    "wall relocation after pointer filter",
+    `[data-key="${pick(memories).longNote.id}"]`,
+    async () => {
+      await idea.click();
+      await page.waitForTimeout(500);
+    },
+    c(180, OUT_EASE, ["transform"])
+  );
+  await check(
+    "toast enter",
+    "[data-sonner-toast]",
+    async () => {
+      await paste(page, "Motion assertion Capture");
+      await expect(page.locator("[data-sonner-toast]")).toBeVisible();
+    },
+    c(400, "ease", ["opacity", "transform"])
+  );
+  await check(
+    "toast exit",
+    "[data-sonner-toast]",
+    () =>
+      page
+        .locator("[data-sonner-toast]")
+        .getByRole("button", { name: "Undo", exact: true })
+        .click(),
+    c(400, "ease", ["opacity", "transform"])
+  );
+});
+
 test("videos of the micro-interactions", async ({ browser, page }) => {
   test.setTimeout(600_000);
   setSection("Videos");
@@ -1612,14 +1841,7 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
       });
       await filmed.mouse.move(size.width / 2, size.height / 2);
       await wait(700);
-      await observeMotion(filmed);
       await script(filmed);
-      recordMotion(
-        (await readMotion(filmed, reducedMotion === "reduce")).map(
-          (row) =>
-            `| ${name}: ${row.interaction.replaceAll("|", "/")} | ${row.element} | ${row.property} | ${row.duration} | ${row.easing} | ${row.delay} |`
-        )
-      );
       await wait(700);
     } finally {
       const video = filmed.video();
@@ -1930,6 +2152,7 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
 });
 
 test.afterAll(() => {
+  recordMotionSummary(motionVerdicts);
   const { missing } = writeIndex();
   expect(missing).toEqual([]);
   expect(failures().map((f) => f.slug)).toEqual([]);

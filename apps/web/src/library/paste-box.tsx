@@ -85,7 +85,7 @@ export function PasteBox({
               placeholder="Paste or Type"
               aria-label="Text"
               dir="auto"
-              className="max-h-[50dvh] min-h-32"
+              className="max-h-[50dvh] min-h-[min(calc(var(--spacing)*32),25dvh)]"
             />
             <Input
               size="sm"

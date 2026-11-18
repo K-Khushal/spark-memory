@@ -551,7 +551,8 @@ export function Masonry<T>({
       const left = travel.at.get(key);
       // New in this wall, and last drawn by another one close to the screen.
       if (
-        glide &&
+        calm &&
+        gliding &&
         !from &&
         left &&
         left.wall !== wall.current &&
@@ -560,8 +561,10 @@ export function Masonry<T>({
       ) {
         tile.animate(
           [
-            { translate: `${left.x - here.x}px ${left.y - here.y}px` },
-            { translate: "0px 0px" },
+            {
+              transform: `translate(${left.x - pageX}px, ${left.y - pageY}px)`,
+            },
+            { transform: to },
           ],
           timing
         );

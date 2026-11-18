@@ -849,9 +849,7 @@ function LibraryForSession({
                 <Wall
                   label="All Memories"
                   memories={library.memories}
-                  // A different filter, query or search mode is a different
-                  // list, not an edit of this one: it never glides.
-                  glideKey={`library:${requestKey(request)}`}
+                  glideKey="filtered:pointer"
                   query=""
                   onOpen={openMemory}
                   tiles={tiles}
@@ -981,7 +979,7 @@ function Wall({
 }: {
   label: string;
   memories: WallMemory[];
-  /** Names the list shown: it changes with the filters, query and mode. */
+  /** Shares positions with pointer-filter results; keyboard filters use their request key. */
   glideKey: string;
   query: string;
   onOpen: (memory: Memory) => void;
@@ -1215,7 +1213,11 @@ function SearchResults({
           found={found}
           direct={false}
           chips={chips}
-          glideKey={results.key}
+          glideKey={
+            document.documentElement.dataset.input === "keyboard"
+              ? results.key
+              : "filtered:pointer"
+          }
           query=""
           onOpen={onOpen}
           tiles={tiles}

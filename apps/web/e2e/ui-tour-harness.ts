@@ -3,6 +3,7 @@ import {
   type BrowserContext,
   type CDPSession,
   type Page,
+  type Locator,
 } from "@playwright/test";
 import {
   mkdirSync,
@@ -46,6 +47,10 @@ type Entry = {
 };
 const entries: Entry[] = [];
 const motionEntries: string[] = [];
+let motionSummary: string[] = [];
+export const recordMotionSummary = (rows: string[]) => {
+  motionSummary = rows;
+};
 export const recordMotion = (rows: string[]) =>
   motionEntries.push(...rows.map((row) => row.replace(/\s*\n\s*/g, " ")));
 const videoEntries: { name: string; line: string }[] = [];
@@ -367,36 +372,95 @@ export async function step(
                   () => document.documentElement.scrollWidth <= innerWidth
                 )
               ).toBe(true);
-              const scope = (await page.getByRole("dialog").count())
-                ? page.getByRole("dialog")
-                : page.locator("main");
-              const action = scope
-                .getByRole("button")
-                .filter({ visible: true })
-                .last();
-              if (await action.count()) {
-                await action.scrollIntoViewIfNeeded();
-                await expect(action).toBeInViewport();
-              }
+              const dialog = page.getByRole("dialog");
+              const actions =
+                slug === "library-wall"
+                  ? [
+                      page
+                        .getByRole("button", { name: "Capture", exact: true })
+                        .filter({ visible: true }),
+                    ]
+                  : slug === "search-empty-menu"
+                    ? [page.getByPlaceholder("Search…")]
+                    : slug === "settings"
+                      ? [
+                          page.getByRole("button", {
+                            name: "Export",
+                            exact: true,
+                          }),
+                          page.getByRole("button", {
+                            name: "Delete Account",
+                            exact: true,
+                          }),
+                        ]
+                      : [
+                          dialog.getByRole("button", {
+                            name:
+                              slug === "capture-dialog"
+                                ? /^Capture/
+                                : slug === "detail-editing"
+                                  ? "Done"
+                                  : "Edit",
+                            exact: slug !== "capture-dialog",
+                          }),
+                        ];
+              if (slug === "detail-note")
+                actions.push(
+                  dialog.getByRole("button", { name: "Close", exact: true })
+                );
+              const inVisualViewport = async (control: Locator) => {
+                await control.scrollIntoViewIfNeeded();
+                await expect(control).toBeVisible();
+                expect(
+                  await control.evaluate((el) => {
+                    const r = el.getBoundingClientRect(),
+                      v = window.visualViewport!;
+                    return (
+                      r.left >= v.offsetLeft &&
+                      r.right <= v.offsetLeft + v.width + 1 &&
+                      r.top >= v.offsetTop &&
+                      r.bottom <= v.offsetTop + v.height + 1
+                    );
+                  })
+                ).toBe(true);
+              };
+              for (const action of actions) await inVisualViewport(action);
               const name = `${pad(entry.n)}-${slug}-text-${zoom}-${theme}-${width}.png`;
               await page.screenshot({
                 path: resolve(OUT, name),
                 animations: "disabled",
               });
               entry.files.push({ name, theme, width });
-              if (["detail-editing", "capture-dialog"].includes(slug)) {
-                const field = scope
-                  .getByRole("textbox")
-                  .filter({ visible: true })
-                  .last();
-                await field.focus();
+              {
+                const field = ["detail-editing", "capture-dialog"].includes(
+                  slug
+                )
+                  ? dialog.getByRole("textbox", { name: "Text", exact: true })
+                  : slug === "search-empty-menu"
+                    ? page.getByPlaceholder("Search…")
+                    : undefined;
+                await (field ?? actions[0]!).focus();
                 await page.setViewportSize({ width, height: 500 });
-                await field.scrollIntoViewIfNeeded();
-                await expect(field).toBeInViewport();
-                if (await action.count()) {
-                  await action.scrollIntoViewIfNeeded();
-                  await expect(action).toBeInViewport();
-                }
+                expect(
+                  await page.evaluate(
+                    () => document.documentElement.scrollWidth <= innerWidth
+                  )
+                ).toBe(true);
+                await field?.scrollIntoViewIfNeeded();
+                for (const action of actions) await inVisualViewport(action);
+                if (field) await inVisualViewport(field);
+                for (const action of actions) await inVisualViewport(action);
+                if (field)
+                  expect(
+                    await field.evaluate((el) => {
+                      const r = el.getBoundingClientRect(),
+                        v = visualViewport!;
+                      return (
+                        r.top >= v.offsetTop &&
+                        r.bottom <= v.offsetTop + v.height + 1
+                      );
+                    })
+                  ).toBe(true);
                 const keyboardName = `${pad(entry.n)}-${slug}-keyboard-text-${zoom}-${theme}-${width}.png`;
                 await page.screenshot({
                   path: resolve(OUT, keyboardName),
@@ -430,7 +494,7 @@ export async function step(
     entry.error = String(error instanceof Error ? error.message : error).split(
       "\n"
     )[0];
-    console.log(`ui-tour: ${pad(entry.n)} ${slug} failed: ${entry.error}`);
+    console.log(`ui-tour: ${pad(entry.n)} ${slug} failed: ${String(error)}`);
   } finally {
     await page
       .evaluate(() =>
@@ -479,8 +543,11 @@ export function writeIndex() {
     lines.push(
       "## Motion Ledger",
       "",
-      "| Interaction | Element | Property | Duration (ms) | Easing | Delay (ms) |",
-      "| --- | --- | --- | --- | --- | --- |",
+      `Assertions: ${motionSummary.filter((s) => s.startsWith("PASS")).length} passed; ${motionSummary.filter((s) => s.startsWith("FAIL")).length} failed.`,
+      ...motionSummary.map((s) => "- " + s),
+      "",
+      "| Interaction | Element | Property | Duration (ms) | Easing | Delay (ms) | CSS Duration | CSS Easing |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- |",
       ...motionEntries,
       ""
     );
