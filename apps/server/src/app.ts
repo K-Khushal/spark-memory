@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { captureException } from "@sentry/cloudflare";
 import { redact } from "@spark/auth";
 import type { AppEnv } from "./env";
@@ -21,6 +22,10 @@ export const app = new Hono<AppEnv>()
   .route("/", discovery)
   .route("/", api)
   .onError((error, c) => {
+    // A body the validator cannot parse (malformed JSON, invalid UTF-8) is
+    // the client's mistake, answered like any other invalid request.
+    if (error instanceof HTTPException && error.status < 500)
+      return c.json({ ok: false, error: "invalid" } as const, error.status);
     // Hono turns thrown errors into responses, so report them here.
     // A no-op when Sentry is off.
     // Sentry scrubs through @spark/core; the log line is redacted, because a

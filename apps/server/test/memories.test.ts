@@ -103,6 +103,18 @@ describe.skipIf(!databaseUrl)("the Memory API", () => {
     expect(res.status).toBe(413);
   });
 
+  it("answers 400, not 500, for a body that is not JSON", async () => {
+    const { call } = await signedIn();
+    for (const raw of [
+      new Uint8Array([0xff, 0xfe]),
+      new TextEncoder().encode('{"body":'),
+    ]) {
+      const res = await call("/api/memories", { method: "POST", raw });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ ok: false, error: "invalid" });
+    }
+  });
+
   it("answers 400 for a page cursor it did not make", async () => {
     const { call } = await signedIn();
     for (const cursor of [

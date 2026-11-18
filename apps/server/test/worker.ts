@@ -241,6 +241,8 @@ export function newClient(origin = ORIGIN) {
       headers?: HeadersInit;
       json?: unknown;
       form?: Record<string, string>;
+      /** Sent as-is with a JSON content type, for malformed bodies. */
+      raw?: Uint8Array;
     } = {},
     bindings = env()
   ) {
@@ -248,7 +250,7 @@ export function newClient(origin = ORIGIN) {
     headers.set("cf-connecting-ip", address);
     headers.set("origin", origin);
     if (cookie) headers.set("cookie", cookie);
-    if (init.json !== undefined)
+    if (init.json !== undefined || init.raw)
       headers.set("content-type", "application/json");
     if (init.form)
       headers.set("content-type", "application/x-www-form-urlencoded");
@@ -256,11 +258,13 @@ export function newClient(origin = ORIGIN) {
       new Request<unknown, IncomingRequestCfProperties>(`${origin}${path}`, {
         method: init.method,
         headers,
-        body: init.form
-          ? new URLSearchParams(init.form).toString()
-          : init.json === undefined
-            ? undefined
-            : JSON.stringify(init.json),
+        body: init.raw
+          ? init.raw
+          : init.form
+            ? new URLSearchParams(init.form).toString()
+            : init.json === undefined
+              ? undefined
+              : JSON.stringify(init.json),
       }),
       bindings,
       ctx
