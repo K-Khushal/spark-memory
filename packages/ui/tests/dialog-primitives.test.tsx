@@ -151,9 +151,23 @@ it("keeps Close in a separate toolbar outside the scrolling body", async () => {
   const body = content().querySelector("[data-slot=dialog-body]")!;
   expect(toolbar.querySelector("[aria-label=Close]")).not.toBeNull();
   expect(body.contains(toolbar)).toBe(false);
+  // Under an in-flow toolbar the header drops the floating Close's clearance.
+  expect(content().dataset.toolbar).toBe("flow");
+  const header = content().querySelector("[data-slot=dialog-header]")!;
+  expect(header.className).toContain("[[data-toolbar=flow]_&]:pr-4");
+  // First focus still goes to the content, not to Close.
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("First");
+});
+
+it("keeps a floating Close, and the header's clearance for it, without a presentation", async () => {
+  await open();
+  expect(content().dataset.toolbar).toBeUndefined();
+  expect(content().querySelector("[data-slot=dialog-toolbar]")).toBeNull();
+  const close = content().querySelector("[aria-label=Close]")!;
+  expect(close.className.split(" ")).toContain("absolute");
   const header = content().querySelector("[data-slot=dialog-header]")!;
   for (const cls of ["pr-14", "sm:pr-14", "pointer-coarse:pr-16"])
-    expect(header.className.split(" ")).not.toContain(cls);
+    expect(header.className.split(" ")).toContain(cls);
 });
 
 it("the body fades its last 24px only while there is more to read", async () => {

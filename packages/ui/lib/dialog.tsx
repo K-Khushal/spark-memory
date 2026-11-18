@@ -35,7 +35,8 @@ export function DialogTitle({
 
 /**
  * The top of a dialog that reads in one scrolling body: it stays put while
- * the body scrolls. Controls occupy their own toolbar. 16px on a phone, 24px
+ * the body scrolls. Leaves room for a floating Close; under an in-flow
+ * toolbar (sheet and dialog presentations) it needs none. 16px on a phone, 24px
  * from `sm`.
  */
 export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
@@ -43,7 +44,7 @@ export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       className={cn(
-        "flex shrink-0 flex-col gap-1 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 sm:pb-3 [[data-slot=dialog-toolbar]+&]:pt-0 sm:[[data-slot=dialog-toolbar]+&]:pt-0",
+        "flex shrink-0 flex-col gap-1 px-4 pt-4 pr-14 pb-2 sm:px-6 sm:pt-6 sm:pr-14 sm:pb-3 pointer-coarse:pr-16 [[data-toolbar=flow]_&]:pt-0 [[data-toolbar=flow]_&]:pr-4 sm:[[data-toolbar=flow]_&]:pr-6",
         className
       )}
       {...props}
@@ -196,6 +197,7 @@ export function DialogContent({
   closeLabel = "Close",
   closeClassName,
   onInteractOutside,
+  onOpenAutoFocus,
   presentation,
   ref,
   ...props
@@ -232,6 +234,22 @@ export function DialogContent({
     },
     [ref]
   );
+  // Sheet and dialog presentations give Close (and any toolbar) its own row,
+  // so scrolled content never runs beneath it; the plain fade and fullscreen
+  // viewers keep it floating.
+  const flow = !!presentation && presentation !== "fullscreen";
+  const close = (
+    <DialogPrimitive.Close
+      className={cn(
+        "grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97] pointer-coarse:size-(--size-touch)",
+        !flow && "absolute top-3 right-3 z-10",
+        closeClassName
+      )}
+      aria-label={closeLabel}
+    >
+      <XIcon className="size-4" aria-hidden />
+    </DialogPrimitive.Close>
+  );
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay
@@ -241,6 +259,7 @@ export function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         data-presentation={presentation}
+        data-toolbar={flow ? "flow" : undefined}
         ref={setRef}
         className={cn(
           "fixed inset-0 z-50 m-auto h-fit w-[calc(100%-2rem)] max-w-lg overscroll-contain rounded-panel bg-surface text-ink shadow-overlay outline-none",
@@ -252,29 +271,34 @@ export function DialogContent({
           onToast(event);
           onInteractOutside?.(event);
         }}
+        onOpenAutoFocus={(event) => {
+          onOpenAutoFocus?.(event);
+          if (event.defaultPrevented || !flow) return;
+          // The toolbar comes first in the DOM; first focus still goes to the
+          // content, as it did when Close came last.
+          const first = [
+            ...(node?.querySelectorAll<HTMLElement>(
+              'a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'
+            ) ?? []),
+          ].find((el) => !el.closest("[data-slot=dialog-toolbar]"));
+          if (!first) return;
+          event.preventDefault();
+          first.focus();
+        }}
         {...props}
       >
         <OpenLayer />
-        <div
-          data-slot="dialog-toolbar"
-          className={
-            presentation && presentation !== "fullscreen"
-              ? "flex shrink-0 items-center justify-end gap-2 px-3 pt-3"
-              : "absolute top-3 right-3 z-10 flex items-center gap-2"
-          }
-        >
-          {toolbar}
-          <DialogPrimitive.Close
-            className={cn(
-              "grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97] pointer-coarse:size-(--size-touch)",
-              closeClassName
-            )}
-            aria-label={closeLabel}
+        {flow && (
+          <div
+            data-slot="dialog-toolbar"
+            className="flex shrink-0 items-center justify-end gap-2 px-3 pt-3"
           >
-            <XIcon className="size-4" aria-hidden />
-          </DialogPrimitive.Close>
-        </div>
+            {toolbar}
+            {close}
+          </div>
+        )}
         {children}
+        {!flow && close}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );
