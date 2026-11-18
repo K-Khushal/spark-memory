@@ -222,21 +222,7 @@ function Fields({
   return (
     <DialogContent
       presentation="sheet"
-      onCloseAutoFocus={(event) => {
-        restoreLibraryFocus(event, id);
-        onExited();
-      }}
-      aria-describedby={undefined}
-      // Focus the scrolling body, not the title (focusing the title would
-      // select it): ↑ ↓ and Space scroll the reading at once.
-      onOpenAutoFocus={(e) => {
-        e.preventDefault();
-        body.current?.focus({ preventScroll: true });
-      }}
-      onKeyDown={onKeyDown}
-      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col"
-    >
-      <div className="absolute top-3 right-12 z-10 pointer-coarse:right-16">
+      toolbar={
         <Menu>
           <MenuTrigger asChild>
             <Button variant="quiet" size="icon" aria-label="More">
@@ -255,7 +241,21 @@ function Fields({
             </MenuItem>
           </MenuContent>
         </Menu>
-      </div>
+      }
+      onCloseAutoFocus={(event) => {
+        restoreLibraryFocus(event, id);
+        onExited();
+      }}
+      aria-describedby={undefined}
+      // Focus the scrolling body, not the title (focusing the title would
+      // select it): ↑ ↓ and Space scroll the reading at once.
+      onOpenAutoFocus={(e) => {
+        e.preventDefault();
+        body.current?.focus({ preventScroll: true });
+      }}
+      onKeyDown={onKeyDown}
+      className="flex max-h-[min(90dvh,48rem)] max-w-2xl flex-col"
+    >
       <DialogBody
         ref={body}
         tabIndex={-1}
@@ -265,7 +265,7 @@ function Fields({
         {/* In the body, not above it: a title at 200% text can be taller than
             the screen, and the one scroll region must still reach Done. */}
         <div className="flex flex-col gap-1">
-          <div className="pr-20 pointer-coarse:pr-24">
+          <div className="min-w-0">
             <TitleField
               ref={titleField}
               value={shown.title}

@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type ReactNode,
 } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { XIcon } from "lucide-react";
@@ -34,7 +35,7 @@ export function DialogTitle({
 
 /**
  * The top of a dialog that reads in one scrolling body: it stays put while
- * the body scrolls. Leaves room for the Close button. 16px on a phone, 24px
+ * the body scrolls. Controls occupy their own toolbar. 16px on a phone, 24px
  * from `sm`.
  */
 export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
@@ -42,7 +43,7 @@ export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       className={cn(
-        "flex shrink-0 flex-col gap-1 px-4 pt-4 pr-14 pb-2 sm:px-6 sm:pt-6 sm:pr-14 sm:pb-3 pointer-coarse:pr-16",
+        "flex shrink-0 flex-col gap-1 px-4 pt-4 pb-2 sm:px-6 sm:pt-6 sm:pb-3",
         className
       )}
       {...props}
@@ -150,6 +151,7 @@ export type DialogPresentation = "dialog" | "sheet" | "fullscreen";
 export function DialogContent({
   className,
   children,
+  toolbar,
   closeLabel = "Close",
   closeClassName,
   onInteractOutside,
@@ -157,6 +159,7 @@ export function DialogContent({
   ref,
   ...props
 }: ComponentProps<typeof DialogPrimitive.Content> & {
+  toolbar?: ReactNode;
   closeLabel?: string;
   /** For a dialog on a dark surface in both themes (the image viewer). */
   closeClassName?: string;
@@ -210,16 +213,26 @@ export function DialogContent({
         {...props}
       >
         <OpenLayer />
-        {children}
-        <DialogPrimitive.Close
-          className={cn(
-            "absolute top-3 right-3 grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97] pointer-coarse:size-(--size-touch)",
-            closeClassName
-          )}
-          aria-label={closeLabel}
+        <div
+          data-slot="dialog-toolbar"
+          className={
+            presentation && presentation !== "fullscreen"
+              ? "flex shrink-0 items-center justify-end gap-2 px-3 pt-3"
+              : "absolute top-3 right-3 z-10 flex items-center gap-2"
+          }
         >
-          <XIcon className="size-4" aria-hidden />
-        </DialogPrimitive.Close>
+          {toolbar}
+          <DialogPrimitive.Close
+            className={cn(
+              "grid size-8 place-items-center rounded-control bg-surface/80 text-ink-muted transition-[background-color,color,transform] duration-(--duration-press) ease-out hover:bg-sunken hover:text-ink active:scale-[0.97] pointer-coarse:size-(--size-touch)",
+              closeClassName
+            )}
+            aria-label={closeLabel}
+          >
+            <XIcon className="size-4" aria-hidden />
+          </DialogPrimitive.Close>
+        </div>
+        {children}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );

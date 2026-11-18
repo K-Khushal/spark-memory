@@ -145,11 +145,15 @@ it("tracks how the last input arrived", () => {
   stop();
 });
 
-it("the header reserves the Close column from 640px up as on a phone, so a long title wraps clear of it", async () => {
+it("keeps Close in a separate toolbar outside the scrolling body", async () => {
   await open("sheet");
+  const toolbar = content().querySelector("[data-slot=dialog-toolbar]")!;
+  const body = content().querySelector("[data-slot=dialog-body]")!;
+  expect(toolbar.querySelector("[aria-label=Close]")).not.toBeNull();
+  expect(body.contains(toolbar)).toBe(false);
   const header = content().querySelector("[data-slot=dialog-header]")!;
   for (const cls of ["pr-14", "sm:pr-14", "pointer-coarse:pr-16"])
-    expect(header.className.split(" ")).toContain(cls);
+    expect(header.className.split(" ")).not.toContain(cls);
 });
 
 it("the body fades its last 24px only while there is more to read", async () => {
