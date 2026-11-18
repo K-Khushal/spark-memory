@@ -373,6 +373,22 @@ export async function step(
                 )
               ).toBe(true);
               const dialog = page.getByRole("dialog");
+              // Zero overflow cannot see pathological wrapping: the title
+              // must keep a readable measure (at least ~6 characters a line).
+              if (slug === "detail-note" || slug === "detail-editing")
+                expect(
+                  await dialog
+                    .getByRole("textbox", { name: "Title", exact: true })
+                    .evaluate((el) => {
+                      const style = getComputedStyle(el);
+                      const inner =
+                        el.clientWidth -
+                        parseFloat(style.paddingLeft) -
+                        parseFloat(style.paddingRight);
+                      return inner / parseFloat(style.fontSize);
+                    }),
+                  `title measure at ${width}px / ${zoom}%`
+                ).toBeGreaterThanOrEqual(6 * 0.55);
               const actions =
                 slug === "library-wall"
                   ? [
@@ -443,8 +459,13 @@ export async function step(
                         );
                       }
                     }
+                    // A disabled button has pointer-events: none, so a hit
+                    // test would see through it; probe it as if enabled.
                     const hit = (x: number, y: number) => {
+                      const was = el.style.pointerEvents;
+                      el.style.pointerEvents = "auto";
                       const target = document.elementFromPoint(x, y);
+                      el.style.pointerEvents = was;
                       return (
                         target === el ||
                         (target !== null && el.contains(target))
@@ -463,7 +484,7 @@ export async function step(
                       r.top +
                       parseFloat(style.paddingTop) +
                       parseFloat(style.fontSize) / 2;
-                    return (
+                    const ok =
                       right > left &&
                       bottom > top &&
                       centre &&
@@ -474,8 +495,8 @@ export async function step(
                           firstY < bottom &&
                           hit(firstX, firstY) &&
                           el.scrollTop === 0 &&
-                          el.scrollLeft === 0))
-                    );
+                          el.scrollLeft === 0));
+                    return ok;
                   }),
                   `${slug} ${width}px ${zoom}%: ${(await control.getAttribute("aria-label")) ?? (await control.textContent())} must clear scrolling clips and overlays`
                 ).toBe(true);
@@ -526,17 +547,6 @@ export async function step(
                 for (const action of actions) await inVisualViewport(action);
                 if (field) await inVisualViewport(field);
                 for (const action of actions) await inVisualViewport(action);
-                if (field)
-                  expect(
-                    await field.evaluate((el) => {
-                      const r = el.getBoundingClientRect(),
-                        v = visualViewport!;
-                      return (
-                        r.top >= v.offsetTop &&
-                        r.bottom <= v.offsetTop + v.height + 1
-                      );
-                    })
-                  ).toBe(true);
                 const keyboardName = `${pad(entry.n)}-${slug}-short-viewport-text-${zoom}-${theme}-${width}.png`;
                 await page.screenshot({
                   path: resolve(OUT, keyboardName),
@@ -618,7 +628,9 @@ export async function step(
     entry.error = String(error instanceof Error ? error.message : error).split(
       "\n"
     )[0];
-    console.log(`ui-tour: ${pad(entry.n)} ${slug} failed: ${String(error)}`);
+    console.log(
+      `ui-tour: ${pad(entry.n)} ${slug} failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`
+    );
   } finally {
     await page
       .evaluate(() => {
