@@ -188,7 +188,11 @@ export function LibraryFilters({
   if (layout === "row") {
     return (
       <div className="relative">
-        <div ref={row} className="overflow-x-auto [scrollbar-width:none]">
+        <div
+          ref={row}
+          data-more-right={moreToRight}
+          className="overflow-x-auto [scrollbar-width:none] data-[more-right=true]:[mask-image:linear-gradient(to_right,black_calc(100%_-_var(--spacing)*6),transparent)]"
+        >
           <div className="flex w-max min-w-full items-center gap-1.5 px-4 pb-2">
             {leading}
             {kinds.map((item) => (
@@ -207,12 +211,6 @@ export function LibraryFilters({
             {manage}
           </div>
         </div>
-        {moreToRight && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 right-0 w-4 bg-linear-to-r from-transparent to-canvas"
-          />
-        )}
       </div>
     );
   }

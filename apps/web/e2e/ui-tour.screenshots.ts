@@ -1,3 +1,4 @@
+import { observeMotion, readMotion } from "./ui-tour-motion";
 import { expect, chromium, devices, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
@@ -15,6 +16,7 @@ import {
   writeIndex,
   VIDEOS,
   recordVideo,
+  recordMotion,
   trimVideoToFirstPaint,
   withCursor,
   signInFresh,
@@ -1610,7 +1612,14 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
       });
       await filmed.mouse.move(size.width / 2, size.height / 2);
       await wait(700);
+      await observeMotion(filmed);
       await script(filmed);
+      recordMotion(
+        (await readMotion(filmed, reducedMotion === "reduce")).map(
+          (row) =>
+            `| ${name}: ${row.interaction.replaceAll("|", "/")} | ${row.element} | ${row.property} | ${row.duration} | ${row.easing} | ${row.delay} |`
+        )
+      );
       await wait(700);
     } finally {
       const video = filmed.video();
@@ -1638,7 +1647,7 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
   const coldMock: Mock = { ...mock, delay: 800, listFails: true };
   await installLibrary(coldContext, coldMock);
   const cold = await coldContext.newPage();
-  // Anchor the browser performance timeline to the beginning of this recording.
+  // Other marks share the initial document time origin; this is not video time.
   const recordingStart = await cold.evaluate(() => performance.timeOrigin);
   await coldContext.addInitScript(() => {
     performance.mark("tour-navigation-start", { startTime: 0 });
@@ -1648,6 +1657,11 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
         .getEntries()
         .find((entry) => entry.name === "first-contentful-paint");
       if (paint) {
+        performance.mark(
+          document.querySelector('main [data-slot="skeleton"]')
+            ? "tour-first-state-skeleton"
+            : "tour-first-state-other"
+        );
         performance.mark("tour-first-app-paint", {
           startTime: paint.startTime,
         });
@@ -1679,8 +1693,17 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
             performance.getEntriesByName(name, "mark")[0]!.startTime -
             start
         );
-      return `Navigation start: ${relative("tour-navigation-start")} ms; first app paint: ${relative("tour-first-app-paint")} ms from recording start (performance marks).`;
+      const fcp = performance.getEntriesByName("first-contentful-paint")[0]!
+        .startTime;
+      const skeleton = !!performance.getEntriesByName(
+        "tour-first-state-skeleton"
+      ).length;
+      return {
+        skeleton,
+        label: `Navigation → first-contentful-paint: ${Math.round(fcp)} ms. Navigation start: ${relative("tour-navigation-start")} ms; first app paint: ${relative("tour-first-app-paint")} ms relative to the initial document time origin. First painted app state: ${skeleton ? "skeleton" : "other"}.`,
+      };
     }, recordingStart);
+    expect(coldTiming.skeleton).toBe(true);
     const video = cold.video();
     await coldContext.close();
     const rawPath = resolve(VIDEOS, "cold-load-and-retry-raw.webm");
@@ -1692,7 +1715,7 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
     );
     recordVideo(
       "cold-load-and-retry-raw.webm",
-      `Untrimmed cold-load recording. ${coldTiming}`
+      `Untrimmed cold-load recording. ${coldTiming.label}`
     );
     recordVideo(
       "cold-load-and-retry.webm",
@@ -1889,7 +1912,11 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
         await tile(p, "Cardamom Buns").click();
         await settle(p);
         await p.getByRole("button", { name: "Close", exact: true }).click();
-        await settle(p);
+        await tile(p, "Cardamom Buns").click({ force: true });
+        await expect(p.getByRole("dialog")).toBeVisible();
+        await p.keyboard.press("Escape");
+        await expect(p.getByRole("dialog")).toHaveCount(0);
+        await expect(p.locator('[data-slot="dialog-overlay"]')).toHaveCount(0);
         await tile(p, "Cardamom Buns").focus();
         await p.keyboard.press("Enter");
         await settle(p);

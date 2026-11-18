@@ -45,6 +45,8 @@ type Entry = {
   error?: string;
 };
 const entries: Entry[] = [];
+const motionEntries: string[] = [];
+export const recordMotion = (rows: string[]) => motionEntries.push(...rows);
 const videoEntries: { name: string; line: string }[] = [];
 let counter = 0;
 let section = "";
@@ -315,6 +317,104 @@ export async function step(
           entry.files.push({ name, theme, width: size.width });
         };
         await shoot("");
+        if (size.width === 390 && slug === "library-wall") {
+          const rail = page.locator("[data-more-right]");
+          await rail.evaluate((el) => {
+            el.scrollLeft = 0;
+            el.dispatchEvent(new Event("scroll"));
+          });
+          await expect(rail).toHaveAttribute("data-more-right", "true");
+          expect(
+            await rail.evaluate((el) => getComputedStyle(el).maskImage)
+          ).toContain("linear-gradient");
+          await rail.evaluate((el) => {
+            el.scrollLeft = el.scrollWidth;
+            el.dispatchEvent(new Event("scroll"));
+          });
+          await expect(rail).toHaveAttribute("data-more-right", "false");
+          expect(
+            await rail.evaluate((el) => getComputedStyle(el).maskImage)
+          ).toBe("none");
+          await rail.evaluate((el) => {
+            el.scrollLeft = 0;
+          });
+        }
+        if (
+          size.width === 390 &&
+          [
+            "library-wall",
+            "search-empty-menu",
+            "detail-note",
+            "detail-editing",
+            "capture-dialog",
+            "settings",
+          ].includes(slug)
+        ) {
+          const safeArea = await page.context().newCDPSession(page);
+          await safeArea.send("Emulation.setSafeAreaInsetsOverride", {
+            insets: { top: 0, left: 0, right: 0, bottom: 34 },
+          });
+          for (const width of [390, 320]) {
+            for (const zoom of [100, 200]) {
+              await page.setViewportSize({ width, height: 844 });
+              await page.evaluate((zoom) => {
+                document.documentElement.style.fontSize = `${zoom}%`;
+              }, zoom);
+              await settle(page);
+              expect(
+                await page.evaluate(
+                  () => document.documentElement.scrollWidth <= innerWidth
+                )
+              ).toBe(true);
+              const scope = (await page.getByRole("dialog").count())
+                ? page.getByRole("dialog")
+                : page.locator("main");
+              const action = scope
+                .getByRole("button")
+                .filter({ visible: true })
+                .last();
+              if (await action.count()) {
+                await action.scrollIntoViewIfNeeded();
+                await expect(action).toBeInViewport();
+              }
+              const name = `${pad(entry.n)}-${slug}-text-${zoom}-${theme}-${width}.png`;
+              await page.screenshot({
+                path: resolve(OUT, name),
+                animations: "disabled",
+              });
+              entry.files.push({ name, theme, width });
+              if (["detail-editing", "capture-dialog"].includes(slug)) {
+                const field = scope
+                  .getByRole("textbox")
+                  .filter({ visible: true })
+                  .last();
+                await field.focus();
+                await page.setViewportSize({ width, height: 500 });
+                await field.scrollIntoViewIfNeeded();
+                await expect(field).toBeInViewport();
+                if (await action.count()) {
+                  await action.scrollIntoViewIfNeeded();
+                  await expect(action).toBeInViewport();
+                }
+                const keyboardName = `${pad(entry.n)}-${slug}-keyboard-text-${zoom}-${theme}-${width}.png`;
+                await page.screenshot({
+                  path: resolve(OUT, keyboardName),
+                  animations: "disabled",
+                });
+                entry.files.push({ name: keyboardName, theme, width });
+                await page.setViewportSize({ width, height: 844 });
+              }
+            }
+          }
+          await page.evaluate(() =>
+            document.documentElement.style.removeProperty("font-size")
+          );
+          await safeArea.send("Emulation.setSafeAreaInsetsOverride", {
+            insets: { top: 0, left: 0, right: 0, bottom: 0 },
+          });
+          await safeArea.detach();
+          await page.setViewportSize(size);
+        }
         if (options.scrolled) {
           await page.evaluate(() =>
             scrollTo(0, document.documentElement.scrollHeight)
@@ -331,6 +431,11 @@ export async function step(
     )[0];
     console.log(`ui-tour: ${pad(entry.n)} ${slug} failed: ${entry.error}`);
   } finally {
+    await page
+      .evaluate(() =>
+        document.documentElement.style.removeProperty("font-size")
+      )
+      .catch(() => {});
     await resetView(page).catch(() => {});
     await (options.recover ?? (() => page.keyboard.press("Escape")))().catch(
       () => {}
@@ -368,6 +473,16 @@ export function writeIndex() {
         );
     }
     lines.push("");
+  }
+  if (motionEntries.length) {
+    lines.push(
+      "## Motion Ledger",
+      "",
+      "| Interaction | Element | Property | Duration (ms) | Easing | Delay (ms) |",
+      "| --- | --- | --- | --- | --- | --- |",
+      ...motionEntries,
+      ""
+    );
   }
   if (videoEntries.length) {
     lines.push("## Videos", "");
