@@ -1770,6 +1770,17 @@ test("motion contracts", async ({ page, context }) => {
     },
     c(180, OUT_EASE, ["transform"])
   );
+  await idea.click();
+  await page.waitForTimeout(400);
+  await check(
+    "clear pointer filter relocation",
+    `[data-key="${pick(memories).longNote.id}"]`,
+    async () => {
+      await kind("Notes").click();
+      await page.waitForTimeout(500);
+    },
+    c(180, OUT_EASE, ["transform"])
+  );
   await check(
     "toast enter",
     "[data-sonner-toast]",

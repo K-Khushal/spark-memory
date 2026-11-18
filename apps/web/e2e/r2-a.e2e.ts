@@ -2,8 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { dropImage, paste, settle } from "./a11y-support";
 import { signIn } from "./sign-in";
 
-// Round 2, stream A: the wall glides when a Memory is Captured, and never when
-// the list changes because a filter or query did.
+// Capture and pointer filters preserve spatial continuity. Keyboard filters swap immediately.
 
 /** Counts the glides (a `transform` animation) any tile has started. */
 async function countGlides(page: Page) {
@@ -24,7 +23,7 @@ async function countGlides(page: Page) {
 const glides = (page: Page) =>
   page.evaluate(() => (window as unknown as { __glides: number }).__glides);
 
-test("narrowing and clearing a filter never glides the wall; a Capture does", async ({
+test("keyboard filters are immediate; pointer filters and Capture relocate the wall", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -45,14 +44,26 @@ test("narrowing and clearing a filter never glides the wall; a Capture does", as
   await expect.poll(() => glides(page)).toBeGreaterThan(before);
   await settle(page);
 
-  // Narrowing to Images, then clearing the filter: other lists, no glide.
+  // Keyboard narrowing and clearing remain immediate.
   const settled = await glides(page);
   const images = page.getByRole("button", { name: "Images", exact: true });
-  await images.click();
+  await images.focus();
+  await images.press("Enter");
   await expect(wall).not.toHaveCount(samples + 3);
   await settle(page);
-  await images.click();
+  await images.press("Enter");
   await expect(wall).toHaveCount(samples + 3);
   await settle(page);
   expect(await glides(page)).toBe(settled);
+
+  // The pointer exception introduced in round 6 must actually relocate tiles.
+  await images.click();
+  await expect(wall).not.toHaveCount(samples + 3);
+  await settle(page);
+  expect(await glides(page)).toBeGreaterThan(settled);
+  const narrowed = await glides(page);
+  await images.click();
+  await expect(wall).toHaveCount(samples + 3);
+  await settle(page);
+  expect(await glides(page)).toBeGreaterThan(narrowed);
 });

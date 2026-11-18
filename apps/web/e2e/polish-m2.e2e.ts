@@ -443,7 +443,7 @@ test("a tile that moves from Direct to Related glides there instead of appearing
     const animate = Element.prototype.animate;
     Element.prototype.animate = function (keyframes, options) {
       const first = (keyframes as Keyframe[])[0];
-      if (first && "translate" in first && this.getAttribute("aria-label"))
+      if (first && "transform" in first && this.getAttribute("aria-label"))
         glides.push(this.getAttribute("aria-label")!);
       return animate.call(this, keyframes, options);
     };
@@ -469,7 +469,7 @@ test("a tile that moves from Direct to Related glides there instead of appearing
     .poll(() =>
       page.evaluate(() => (window as unknown as { glides: string[] }).glides)
     )
-    .toEqual([expect.stringContaining(moved)]);
+    .toContainEqual(expect.stringContaining(moved));
 });
 
 test("a PDF past the Free allowance says Partly Indexed on its tile, and no other tile does", async ({

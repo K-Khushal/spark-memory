@@ -1004,10 +1004,13 @@ function Wall({
       getLabel={tileLabel}
       onOpen={open}
       onPreview={open}
-      // Only a Memory moved to the top by a repeat Capture glides when it
-      // reorders; a Capture, Delete or Undo always glides (Masonry).
+      // A pointer filter clearing back to this wall shares its positions;
+      // keyboard filters remain immediate through their different key.
       glideKey={glideKey}
-      glide={memories.some((m) => m.resurfaced)}
+      glide={
+        document.documentElement.dataset.input === "pointer" ||
+        memories.some((m) => m.resurfaced)
+      }
       renderItem={(m, tile) => (
         <MemoryTile memory={m} query={query} width={tile.width} {...tiles} />
       )}
