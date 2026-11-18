@@ -447,7 +447,7 @@ function DeleteAccount({
       >
         <SettingsRow label="Delete Account">
           <DialogTrigger asChild>
-            <Button wrap variant="danger" size="sm">
+            <Button wrap variant="outline" size="sm" className="text-danger">
               Delete Account
             </Button>
           </DialogTrigger>

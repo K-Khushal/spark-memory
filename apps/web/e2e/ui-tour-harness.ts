@@ -10,6 +10,7 @@ import {
   existsSync,
   readdirSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -53,10 +54,15 @@ let browserVersion = "not recorded";
 export function prepareOut() {
   mkdirSync(VIDEOS, { recursive: true });
   for (const file of readdirSync(OUT))
-    if (/^\d\d-.*\.png$/.test(file) || file === "index.md")
+    if (
+      /^\d\d-.*\.png$/.test(file) ||
+      file === "index.md" ||
+      file.startsWith(".probe-")
+    )
       rmSync(resolve(OUT, file));
   for (const file of readdirSync(VIDEOS))
-    if (file.endsWith(".webm")) rmSync(resolve(VIDEOS, file));
+    if (file.endsWith(".webm") || file.startsWith(".raw"))
+      rmSync(resolve(VIDEOS, file), { recursive: true, force: true });
 }
 
 export const setSection = (name: string) => {
@@ -65,6 +71,116 @@ export const setSection = (name: string) => {
 export const failures = () => entries.filter((e) => e.error);
 export const recordVideo = (name: string, line: string) =>
   videoEntries.push({ name, line });
+
+function findFfmpeg(): string | undefined {
+  try {
+    return execFileSync("which", ["ffmpeg"], { encoding: "utf8" }).trim();
+  } catch {
+    const playwrightCache = resolve(
+      process.env.HOME ?? "/data/home",
+      ".cache/ms-playwright"
+    );
+    if (existsSync(playwrightCache)) {
+      for (const dir of readdirSync(playwrightCache)) {
+        if (dir.startsWith("ffmpeg")) {
+          const bin = resolve(playwrightCache, dir, "ffmpeg-linux");
+          if (existsSync(bin)) return bin;
+        }
+      }
+    }
+    return undefined;
+  }
+}
+
+/**
+ * Trims initial white Playwright launch frames from a recording so it begins
+ * at the first paint of the app (skeleton or content).
+ */
+export function trimVideoToFirstPaint(
+  rawPath: string,
+  outputPath: string,
+  width: number
+) {
+  const ffmpeg = findFfmpeg();
+  if (!ffmpeg) {
+    writeFileSync(outputPath, readFileSync(rawPath));
+    return;
+  }
+
+  // A 1440x900 pure white PNG compresses to ~6KB; 390x844 compresses to ~2.8KB.
+  // First paint (skeleton or content) produces >10KB.
+  const threshold = width > 1000 ? 7000 : 3500;
+  const tmpFrame = resolve(
+    OUT,
+    `.probe-${Date.now()}-${Math.random().toString(36).slice(2)}.png`
+  );
+
+  function isBlank(t: number): boolean {
+    try {
+      execFileSync(
+        ffmpeg!,
+        ["-ss", t.toFixed(2), "-i", rawPath, "-vframes", "1", tmpFrame, "-y"],
+        { stdio: "ignore" }
+      );
+      const size = existsSync(tmpFrame) ? statSync(tmpFrame).size : 0;
+      return size <= threshold;
+    } catch {
+      return false;
+    } finally {
+      if (existsSync(tmpFrame)) rmSync(tmpFrame, { force: true });
+    }
+  }
+
+  // Binary search for the transition from launch white to app first paint
+  let low = 0.0;
+  let high = 3.0;
+
+  if (isBlank(high)) {
+    writeFileSync(outputPath, readFileSync(rawPath));
+    return;
+  }
+
+  for (let i = 0; i < 7; i++) {
+    const mid = (low + high) / 2;
+    if (isBlank(mid)) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
+
+  const firstPaintTime = Number(high.toFixed(2));
+  if (firstPaintTime <= 0.05) {
+    writeFileSync(outputPath, readFileSync(rawPath));
+    return;
+  }
+
+  try {
+    execFileSync(
+      ffmpeg,
+      [
+        "-ss",
+        String(firstPaintTime),
+        "-i",
+        rawPath,
+        "-c:v",
+        "libvpx-vp9",
+        "-b:v",
+        "1M",
+        "-crf",
+        "30",
+        outputPath,
+        "-y",
+      ],
+      { stdio: "ignore" }
+    );
+    if (!existsSync(outputPath) || statSync(outputPath).size === 0) {
+      writeFileSync(outputPath, readFileSync(rawPath));
+    }
+  } catch {
+    writeFileSync(outputPath, readFileSync(rawPath));
+  }
+}
 
 const pad = (n: number) => String(n).padStart(2, "0");
 

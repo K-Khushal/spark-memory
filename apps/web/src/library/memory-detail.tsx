@@ -267,64 +267,68 @@ function Fields({
               }
             />
           </div>
-          <div className="pr-20 text-xs wrap-anywhere text-ink-muted pointer-coarse:pr-24">
-            {[
-              {
-                text: "Note",
-                file: "File",
-                pdf: "PDF",
-                image: "Image",
-                video: "Video",
-                link: "Link",
-                social_post: "Post",
-              }[memory.kind],
-              ...(["link", "video", "social_post"].includes(memory.kind) &&
-              memory.sourceUrl
-                ? [hostOf(memory)]
-                : []),
-              captureDay.format(new Date(memory.capturedAt)),
-            ].join(" · ")}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <IndexStatus memory={memory} />
-            {memory.indexState === "failed" && (
+          <div className="flex min-h-8 items-center justify-between gap-2 pr-20 text-xs wrap-anywhere text-ink-muted pointer-coarse:pr-24">
+            <span>
+              {[
+                {
+                  text: "Note",
+                  file: "File",
+                  pdf: "PDF",
+                  image: "Image",
+                  video: "Video",
+                  link: "Link",
+                  social_post: "Post",
+                }[memory.kind],
+                ...(["link", "video", "social_post"].includes(memory.kind) &&
+                memory.sourceUrl
+                  ? [hostOf(memory)]
+                  : []),
+                captureDay.format(new Date(memory.capturedAt)),
+              ].join(" · ")}
+            </span>
+            {memory.kind !== "video" && memory.kind !== "link" && (
               <Button
                 variant="quiet"
                 size="sm"
-                onClick={() => onRetryIndexing(memory)}
+                onClick={() => bodyField.current?.focus()}
               >
-                <RotateCwIcon aria-hidden /> Retry
+                Edit
               </Button>
             )}
           </div>
+          {(memory.indexState === "indexing" ||
+            memory.indexState === "failed") && (
+            <div className="flex flex-wrap items-center gap-2">
+              <IndexStatus memory={memory} />
+              {memory.indexState === "failed" && (
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  onClick={() => onRetryIndexing(memory)}
+                >
+                  <RotateCwIcon aria-hidden /> Retry
+                </Button>
+              )}
+            </div>
+          )}
           {memory.kind === "video" ? (
             <VideoReader memory={memory} seconds={seconds} />
           ) : memory.kind === "link" ? (
             <Reader memory={memory} />
           ) : (
-            <>
-              <Button
-                variant="quiet"
-                size="sm"
-                className="self-start"
-                onClick={() => bodyField.current?.focus()}
-              >
-                Edit
-              </Button>
-              <Textarea
-                ref={bodyField}
-                value={shown.body}
-                onChange={(e) => change({ ...shown, body: e.target.value })}
-                aria-label="Text"
-                dir="auto"
-                // Focus preserves the reading geometry. Only content changes
-                // resize the field, so entering Edit never moves its glyphs.
-                className={cn(
-                  "min-h-0 w-full rounded-control border-transparent bg-transparent px-0 py-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
-                  !shown.body && "min-h-24"
-                )}
-              />
-            </>
+            <Textarea
+              ref={bodyField}
+              value={shown.body}
+              onChange={(e) => change({ ...shown, body: e.target.value })}
+              aria-label="Text"
+              dir="auto"
+              // Focus preserves the reading geometry. Only content changes
+              // resize the field, so entering Edit never moves its glyphs.
+              className={cn(
+                "min-h-0 w-full rounded-control border-transparent bg-transparent px-0 py-3 text-base transition-[background-color] duration-(--duration-press) ease-out hover:bg-sunken pointer-coarse:text-[1rem]",
+                !shown.body && "min-h-24"
+              )}
+            />
           )}
         </div>
         <div className="divide-y divide-line border-t border-line pt-4">

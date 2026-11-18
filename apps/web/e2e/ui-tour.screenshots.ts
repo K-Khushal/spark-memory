@@ -1,5 +1,6 @@
 import { expect, chromium, devices, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -14,6 +15,7 @@ import {
   writeIndex,
   VIDEOS,
   recordVideo,
+  trimVideoToFirstPaint,
   withCursor,
   signInFresh,
   FINISHED,
@@ -1611,7 +1613,15 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
     } finally {
       const video = filmed.video();
       await context.close();
-      await video?.saveAs(resolve(VIDEOS, name));
+      const rawPath = resolve(VIDEOS, `.raw-${name}`);
+      try {
+        await video?.saveAs(rawPath);
+        trimVideoToFirstPaint(rawPath, resolve(VIDEOS, name), size.width);
+      } finally {
+        rmSync(rawPath, { force: true });
+        // Playwright's own originals; nothing else lives there.
+        rmSync(resolve(VIDEOS, ".raw"), { recursive: true, force: true });
+      }
       recordVideo(name, line);
     }
   }
@@ -1645,7 +1655,14 @@ test("videos of the micro-interactions", async ({ browser, page }) => {
   } finally {
     const video = cold.video();
     await coldContext.close();
-    await video?.saveAs(resolve(VIDEOS, "cold-load-and-retry.webm"));
+    const rawPath = resolve(VIDEOS, ".raw-cold-load-and-retry.webm");
+    await video?.saveAs(rawPath);
+    trimVideoToFirstPaint(
+      rawPath,
+      resolve(VIDEOS, "cold-load-and-retry.webm"),
+      1440
+    );
+    if (existsSync(rawPath)) rmSync(rawPath, { force: true });
     recordVideo(
       "cold-load-and-retry.webm",
       "Cold first-frame skeleton, Library recovery and subsequent delayed skeleton gate"

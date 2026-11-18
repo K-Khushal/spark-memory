@@ -230,13 +230,13 @@ export function MemoryTile(props: {
   const { memory, selection, ...rest } = props;
   // Inside the tile's frame, so it moves with the tile on press.
   const badge = memory.sample ? (
-    <span className="absolute right-2 bottom-2 rounded-chip bg-surface px-2 py-1 text-xs text-ink-muted">
+    <span className="rounded-chip bg-surface px-2 py-1 text-xs text-ink-muted">
       Sample
     </span>
   ) : (
     !memory.upload &&
     (isPartly(memory) ? (
-      <PartlyIndexedBadge className="absolute right-2 bottom-2" />
+      <PartlyIndexedBadge />
     ) : (
       <IndexBadge
         memory={memory}
@@ -244,7 +244,6 @@ export function MemoryTile(props: {
         // One tab stop per wall: the keyboard retries from Memory detail.
         focusable={false}
         plate={!!memory.image}
-        className="absolute right-2 bottom-2"
       />
     ))
   );
@@ -382,7 +381,7 @@ function ImageTile({
               className="absolute right-2 bottom-2"
             />
           )}
-          {badge}
+          {badge && <div className="absolute right-2 bottom-2">{badge}</div>}
         </div>
         {footer && <Footer>{footer}</Footer>}
       </div>
@@ -676,9 +675,7 @@ function TextTile({
             />
           </p>
           {textBadge(memory) && (
-            <div className="relative mt-auto h-6 shrink-0 [&>span]:right-0 [&>span]:bottom-0">
-              {badge}
-            </div>
+            <div className="flex shrink-0 justify-end">{badge}</div>
           )}
         </div>
         {footer && <Footer>{footer}</Footer>}

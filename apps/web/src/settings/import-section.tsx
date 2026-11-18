@@ -1,6 +1,7 @@
 import { SettingsRow } from "./row";
 import { clearImportFiles, importFile } from "./import-files";
 import { useEffect, useRef, useState } from "react";
+import { ChevronDownIcon } from "lucide-react";
 import { checkImage } from "@spark/capture";
 import { parseImport } from "@spark/capture/import";
 import { FREE_ALLOWANCE, IMPORT_LIMITS, type ImportEntry } from "@spark/core";
@@ -323,16 +324,17 @@ export function ImportSection({ userId }: { userId: string }) {
   const active = job && !["done", "cancelled"].includes(job.state);
   return (
     <div className="flex min-w-0 flex-col">
-      <SettingsRow label="Import">
+      <SettingsRow label="Library Import">
         <Menu>
           <MenuTrigger asChild>
             <Button
               variant="outline"
               size="sm"
+              className="min-w-36"
               aria-label="Import Into Library"
               disabled={busy}
             >
-              Import
+              Import <ChevronDownIcon aria-hidden className="size-4" />
             </Button>
           </MenuTrigger>
           <MenuContent align="end">
